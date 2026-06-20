@@ -61,19 +61,4 @@ pnpm exec drizzle-kit generate ...$name ...$custom
 
 [tasks.dev]
 description = "Run the development server"
-run = """
-#!/usr/bin/env nu
-rm -rf packages/*/dist/
-job spawn { pnpm --parallel --recursive exec tsdown --watch --no-clean }
-loop {
-  let $allGenerated = ls packages
-    | each { |entry|
-        not ($entry.name | path join dist | path exists) or (
-          ls ($entry.name | path join dist) | is-empty)
-      }
-    | all { |empty| not $empty }
-  if $allGenerated { break }
-}
-cd packages/drfed/
-node --watch bin/drfed-server.mjs --pglite-data-path ../../.pgdata
-"""
+run = "node scripts/dev.mts"

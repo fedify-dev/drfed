@@ -44,8 +44,10 @@ export async function main() {
     manual: true,
     fetch: yogaServer.fetch.bind(yogaServer),
   });
-  process.on("SIGTERM", () => {
+  const shutdown = () => {
     server.close().then(() => process.exit(0));
-  });
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
   await server.serve();
 }
