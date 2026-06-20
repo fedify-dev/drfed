@@ -13,10 +13,12 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-import { type Database, relations } from "@drfed/models";
+import { type Database, normalizeEmail, relations } from "@drfed/models";
 import SchemaBuilder from "@pothos/core";
 import DrizzlePlugin from "@pothos/plugin-drizzle";
+import RelayPlugin from "@pothos/plugin-relay";
 import { getTableConfig } from "drizzle-orm/pg-core";
+import { DateTimeResolver, UUIDResolver } from "graphql-scalars";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -41,16 +43,31 @@ export interface ServerContext {
  */
 export interface UserContext extends ServerContext {}
 
-export interface PothosTypes {
-  DefaultFieldNullability: false;
+export interface SchemaTypes {
   Context: UserContext;
+  Scalars: {
+    DateTime: {
+      Input: Date;
+      Output: Date;
+    };
+    Email: {
+      Input: string;
+      Output: string;
+    };
+    UUID: {
+      Input: string;
+      Output: string;
+    };
+  };
+  DefaultFieldNullability: false;
+  DrizzleRelations: typeof relations;
 }
 
 /**
  * The GraphQL schema builder.
  */
-export const builder = new SchemaBuilder<PothosTypes>({
-  plugins: [DrizzlePlugin],
+export const builder = new SchemaBuilder<SchemaTypes>({
+  plugins: [DrizzlePlugin, RelayPlugin],
   defaultFieldNullability: false,
   drizzle: {
     client(ctx) {
@@ -60,5 +77,16 @@ export const builder = new SchemaBuilder<PothosTypes>({
     relations,
   },
 });
+
+builder.addScalarType("DateTime", DateTimeResolver);
+
+builder.scalarType("Email", {
+  serialize: (v) => normalizeEmail(v),
+  parseValue: (v) => normalizeEmail(String(v)),
+});
+
+builder.addScalarType("UUID", UUIDResolver);
+
+export const Node = builder.nodeInterfaceRef();
 
 export default builder;

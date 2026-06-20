@@ -13,18 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import "./account.ts";
+import "./instance.ts";
 import builder from "./builder.ts";
-import { InstanceRef } from "./instance.ts";
 
-builder.queryType({
-  fields: (t) => ({
-    instances: t.field({
-      type: [InstanceRef],
-      resolve() {
-        return [{ slug: "foo" }, { slug: "bar" }];
-      },
-    }),
-  }),
-});
+builder.queryType({});
+// builder.mutationType({});
 
 export const schema = builder.toSchema();

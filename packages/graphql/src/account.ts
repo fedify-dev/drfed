@@ -15,23 +15,44 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import builder from "./builder.ts";
 
-export const Instance = builder.drizzleNode("instances", {
-  name: "Instance",
+export const Account = builder.drizzleNode("accounts", {
+  name: "Account",
   id: {
-    column(instance) {
-      return instance.id;
+    column(account) {
+      return account.id;
     },
-    description: "The unique identifier of the `Instance`.",
+    description: "The unique identifier of the `Account`.",
   },
   fields: (t) => ({
-    slug: t.exposeString("slug"),
-    expires: t.expose("expires", {
-      type: "DateTime",
-      description: "The expiration date/time of the `Instance`.",
+    uuid: t.expose("id", {
+      type: "UUID",
+      description: "The UUID of the `Account`.",
+    }),
+    email: t.expose("email", {
+      type: "Email",
+      description: "The email address of the `Account`.",
     }),
     created: t.expose("created", {
       type: "DateTime",
-      description: "The creation date/time of the `Instance`.",
+      description: "The date/time when the `Account` was created.",
     }),
   }),
 });
+
+builder.queryFields((t) => ({
+  accountByUuid: t.drizzleField({
+    type: Account,
+    description: "Get an `Account` by its UUID.",
+    args: {
+      uuid: t.arg({
+        type: "UUID",
+        required: true,
+        description: "The UUID of the `Account` to retrieve.",
+      }),
+    },
+    nullable: true,
+    resolve(query, _, { uuid }, ctx) {
+      return ctx.db.query.accounts.findFirst(query({ where: { id: uuid } }));
+    },
+  }),
+}));

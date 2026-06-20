@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+export * from "./email.ts";
 export * from "./db.ts";
 export * from "./migrate.ts";
 export { relations } from "./relations.ts";

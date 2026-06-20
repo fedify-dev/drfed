@@ -66,12 +66,18 @@ importers:
       '@pothos/plugin-drizzle':
         specifier: ^0.17.4
         version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0))(graphql@16.14.2)
+      '@pothos/plugin-relay':
+        specifier: ^4.7.0
+        version: 4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
       graphql:
         specifier: ^16.14.2
         version: 16.14.2
+      graphql-scalars:
+        specifier: ^1.25.0
+        version: 1.25.0(graphql@16.14.2)
       graphql-yoga:
         specifier: ^5.21.2
         version: 5.21.2(graphql@16.14.2)
@@ -410,6 +416,12 @@ packages:
       drizzle-orm: '>=1.0.0-beta.2'
       graphql: ^16.10.0
 
+  '@pothos/plugin-relay@4.7.0':
+    resolution: {integrity: sha512-IQ7f7WLu7uXxiZBcJgUTdspjIVzX3bgvd8XjnzxGJUbn/uE5HlVyCFmvhJffHIIS2OKSHhOOJRMwIwVwauwnSg==}
+    peerDependencies:
+      '@pothos/core': '*'
+      graphql: ^16.10.0
+
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
 
@@ -734,6 +746,12 @@ packages:
   get-tsconfig@5.0.0-beta.5:
     resolution: {integrity: sha512-/6gFNr0N04nob252sTQxyFLi3eKFRqIg1I87YcqAMT1i6SQrSF6KujUEQrtrjMV0H/eejTCltLdDSTEMzHbnsQ==}
     engines: {node: '>=20.20.0'}
+
+  graphql-scalars@1.25.0:
+    resolution: {integrity: sha512-b0xyXZeRFkne4Eq7NAnL400gStGqG/Sx9VqX0A05nHyEbv57UJnWKsjNnrpVqv5e/8N1MUxkt0wwcRXbiyKcFg==}
+    engines: {node: '>=10'}
+    peerDependencies:
+      graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0
 
   graphql-yoga@5.21.2:
     resolution: {integrity: sha512-IIRF/3xtjj2D6caAWL9177hQ8tV3mWB3hve1GRnz7njPhQ3iY1jFtSp98fNGv0yV9kaPh9kKQ8JWdJZnedVmDw==}
@@ -1182,6 +1200,11 @@ snapshots:
       drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
       graphql: 16.14.2
 
+  '@pothos/plugin-relay@4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
+    dependencies:
+      '@pothos/core': 4.13.0(graphql@16.14.2)
+      graphql: 16.14.2
+
   '@quansync/fs@1.0.0':
     dependencies:
       quansync: 1.0.0
@@ -1371,6 +1394,11 @@ snapshots:
   get-tsconfig@5.0.0-beta.5:
     dependencies:
       resolve-pkg-maps: 1.0.0
+
+  graphql-scalars@1.25.0(graphql@16.14.2):
+    dependencies:
+      graphql: 16.14.2
+      tslib: 2.8.1
 
   graphql-yoga@5.21.2(graphql@16.14.2):
     dependencies:
