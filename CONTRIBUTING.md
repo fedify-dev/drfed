@@ -74,6 +74,18 @@ Keep package boundaries clear.  Database schema changes belong in
 parsing and server startup belong in `@drfed/drfed`.
 
 
+Packages
+--------
+
+| Package            | npm name         | Description                                     |
+| ------------------ | ---------------- | ----------------------------------------------- |
+| *packages/drfed*   | `@drfed/drfed`   | CLI binary, server startup, and HTTP serving    |
+| *packages/graphql* | `@drfed/graphql` | GraphQL schema and Yoga server (Pothos + Relay) |
+| *packages/models*  | `@drfed/models`  | Drizzle schema, relations, and migration runner |
+
+Each package has its own *README.md* with a more detailed breakdown.
+
+
 Common commands
 ---------------
 

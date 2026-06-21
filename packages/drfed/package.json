@@ -41,6 +41,11 @@
   "type": "module",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md"
+  ],
   "bin": {
     "drfed-server": "bin/drfed-server.mjs"
   },
