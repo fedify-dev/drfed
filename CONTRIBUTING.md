@@ -104,6 +104,7 @@ mise run dev
  -  TypeScript/JavaScript formatting with `oxfmt --check`.
  -  Markdown formatting with `hongdown --check`.
  -  *mise.toml* formatting with `mise fmt --check`.
+ -  Package version sync with `node scripts/check-versions.mts`.
 
 `mise run fmt` formats TypeScript/JavaScript, Markdown, and *mise.toml*.
 
@@ -143,6 +144,35 @@ Use workspace dependencies for internal packages:
 Do not introduce runtime assumptions that only work from the repository root.
 Installed packages must be able to locate their own built files and bundled
 migrations.
+
+
+Version management
+------------------
+
+All packages in the monorepo share a single `version` field and are released
+together.  The `version` field in every _packages/\*/package.json_ must stay
+in sync; do not bump one package independently of the others.
+
+To verify that all package versions match:
+
+~~~~ sh
+mise run check:versions
+~~~~
+
+This task is part of `mise run check` and fails when any package version
+differs from the rest, reporting which packages are at which versions.
+
+To bump every package to a new version at once:
+
+~~~~ sh
+mise run bump 1.2.0
+~~~~
+
+Pass a valid semver string as the only argument.  The task updates every
+_packages/\*/package.json_ and prints a summary of the old and new versions.
+
+Commit a version bump together with any other changes that accompany the
+release, such as lockfile updates or changelog edits.
 
 
 Source license headers

@@ -35,6 +35,10 @@ run = "hongdown --check"
 description = "Check mise.toml formatting"
 run = "mise fmt --check"
 
+[tasks."check:versions"]
+description = "Check that all package versions are in sync"
+run = "node scripts/check-versions.mts"
+
 [tasks.fmt]
 description = "Format files"
 depends = ["fmt:*"]
@@ -51,6 +55,16 @@ run = "mise fmt"
 [tasks.build]
 description = "Build the project"
 run = "pnpm run --recursive build"
+
+[tasks.bump]
+description = "Bump all package versions"
+usage = """
+arg "<version>" help="New version number"
+"""
+run = """
+#!/usr/bin/env nu
+node scripts/bump-versions.mts $env.usage_version
+"""
 
 [tasks."generate:migrate"]
 description = "Generate database migration files"
