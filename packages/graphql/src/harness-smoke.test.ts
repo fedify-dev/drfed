@@ -18,13 +18,25 @@ import { describe, it } from "node:test";
 
 import { schema } from "@drfed/models";
 
-import { withTemporaryDatabase } from "./harness.test.ts";
+import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 
 describe("withTemporaryDatabase()", () => {
   it("provides a migrated temporary database", async () => {
     await withTemporaryDatabase(async (db) => {
       const accounts = await db.select().from(schema.accounts);
       assert.deepEqual(accounts, []);
+    });
+  });
+});
+
+describe("withTestHarness()", () => {
+  it("posts requests to a Yoga server", async () => {
+    await withTestHarness(async ({ post }) => {
+      const response = await post({ query: "{ __typename }" });
+      assert.ok(response.ok);
+      assert.deepEqual(await response.json(), {
+        data: { __typename: "Query" },
+      });
     });
   });
 });
