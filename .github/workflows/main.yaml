@@ -15,8 +15,10 @@ jobs:
         with:
           cache: true
           experimental: true
-          log_level: ${{ runner.debug == '1' && 'debug' || 'info' }}
+          log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
       - run: mise build && mise check
+        env:
+          MISE_LOG_LEVEL: ${{ runner.debug == '1' && 'trace' || 'info' }}
 
   test:
     strategy:
@@ -30,5 +32,7 @@ jobs:
         with:
           cache: true
           experimental: true
-          log_level: ${{ runner.debug == '1' && 'debug' || 'info' }}
+          log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
       - run: mise test
+        env:
+          MISE_LOG_LEVEL: ${{ runner.debug == '1' && 'trace' || 'info' }}
