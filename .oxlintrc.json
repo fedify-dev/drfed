@@ -42,6 +42,12 @@
     "import/max-dependencies": ["warn", { "max": 20 }],
     "import/no-default-export": "off",
     "import/no-named-export": "off",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css", "**/*.scss", "**/*.sass"]
+      }
+    ],
     "import/no-namespace": "off",
     "import/no-nodejs-modules": "off",
     "import/prefer-default-export": "off",
@@ -49,6 +55,14 @@
     "jsdoc/require-returns-type": "off",
     "promise/avoid-new": "warn"
   },
+  "overrides": [
+    {
+      "files": ["**/*.d.ts"],
+      "rules": {
+        "import/unambiguous": "off"
+      }
+    }
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
