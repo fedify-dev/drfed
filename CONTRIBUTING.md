@@ -82,6 +82,7 @@ Packages
 | *packages/drfed*   | `@drfed/drfed`   | CLI binary, server startup, and HTTP serving    |
 | *packages/graphql* | `@drfed/graphql` | GraphQL schema and Yoga server (Pothos + Relay) |
 | *packages/models*  | `@drfed/models`  | Drizzle schema, relations, and migration runner |
+| *packages/web*     | `@drfed/web`     | SolidStart frontend web app.                    |
 
 Each package has its own *README.md* with a more detailed breakdown.
 
