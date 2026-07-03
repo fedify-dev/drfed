@@ -115,3 +115,8 @@ flag "-L --log-level <level>" {
 flag "--log-output <path>" help="Write logs to a file"
 '''
 run = "node scripts/dev.mts"
+
+[tasks."dev:web"]
+description = "Run SolidStart frontend server"
+dir = "./packages/web"
+run = "pnpm run dev"
