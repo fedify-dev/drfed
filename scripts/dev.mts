@@ -249,7 +249,13 @@ try {
 
   serverProcess = spawnManaged(
     process.execPath,
-    ["--watch", "bin/drfed-server.mjs", "--pglite-data-path", "../../.pgdata"],
+    [
+      "--watch",
+      "bin/drfed-server.mjs",
+      "--pglite-data-path",
+      "../../.pgdata",
+      "--listen=0.0.0.0:8888",
+    ],
     join(root, "packages", "drfed"),
   );
   const serverExit = await waitForExit(serverProcess);
