@@ -6,4 +6,5 @@ exclude = [
   "AGENTS.md",
   "CLAUDE.md",
   "node_modules/",
+  "plans/",
 ]

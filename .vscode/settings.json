@@ -9,6 +9,7 @@
   "files.trimFinalNewlines": true,
   "oxc.enable.oxfmt": true,
   "prettier.enable": false,
+  "oxc.enable": true,
   "[css]": {
     "editor.defaultFormatter": "oxc.oxc-vscode",
     "editor.formatOnSave": true

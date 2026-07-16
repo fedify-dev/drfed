@@ -17,7 +17,7 @@
       { "ignoreConsecutiveComments": true }
     ],
     "eslint/eqeqeq": ["off", "smart"],
-    "eslint/func-style": ["warn", "declaration"],
+    "eslint/func-style": ["off"],
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],
     "eslint/init-declarations": "off",
     "eslint/max-params": ["warn", { "max": 4 }],
@@ -50,6 +50,7 @@
     ],
     "import/no-namespace": "off",
     "import/no-nodejs-modules": "off",
+    "import/no-relative-parent-imports": "off",
     "import/prefer-default-export": "off",
     "jsdoc/require-param-type": "off",
     "jsdoc/require-returns-type": "off",
