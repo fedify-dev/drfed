@@ -17,6 +17,7 @@ import { createYogaServer } from "@drfed/graphql";
 import type { ServerContext, UserContext } from "@drfed/graphql/builder";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PGlite } from "@electric-sql/pglite";
+import { MockTransport } from "@upyo/mock";
 import { drizzle } from "drizzle-orm/pglite";
 import type { YogaServerInstance } from "graphql-yoga";
 
@@ -55,6 +56,11 @@ export interface TestHarness {
    * The migrated temporary database.
    */
   readonly db: Database;
+
+  /**
+   * The temporary mailer.
+   */
+  readonly mailer: MockTransport;
 
   /**
    * The test server's `fetch()` function, bound to the Yoga server instance.
@@ -152,11 +158,13 @@ export async function withTestHarness<T>(
   callback: (harness: TestHarness) => Promise<T> | T,
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
-    const yoga = createYogaServer(db);
+    const mailer = new MockTransport();
+    const yoga = createYogaServer(db, { mailer });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
 
     const harness: TestHarness = {
       db,
+      mailer,
       fetch,
       yoga,
       post(body, init) {

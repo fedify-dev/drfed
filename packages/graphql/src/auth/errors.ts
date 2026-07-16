@@ -13,13 +13,31 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-// oxlint-disable import/no-unassigned-import
-import "./account.ts";
-import "./instance.ts";
-import "./auth/entry.ts";
-import builder from "./builder.ts";
+// oxlint-disable func-names func-style id-length
 
-builder.queryType({});
-builder.mutationType({});
+// oxlint-disable max-classes-per-file no-throw-literal
+export class Throwable extends Error {
+  throw(): never {
+    throw this;
+  }
+}
 
-export const schema = builder.toSchema();
+export class LoginChallengeError extends Throwable {
+  constructor(message: string) {
+    super("Error while login challenge.");
+    this.name = "LoginChallengeError";
+    this.message = message;
+  }
+}
+
+export class VerifyUrlExpandingError extends Throwable {
+  constructor(message: string) {
+    super("Error while expand verify URL.");
+    this.name = "VerifyUrlExpandingError";
+    this.message = message;
+  }
+}
+
+export function throwError(error: Error): never {
+  throw error;
+}
