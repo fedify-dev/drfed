@@ -27,6 +27,7 @@ import { serve } from "srvx";
 import metadata from "../package.json" with { type: "json" };
 import type { Options } from "./parser.ts";
 import program from "./program.ts";
+import seedData from "./seed.ts";
 
 // oxlint-disable-next-line max-lines-per-function
 export async function main(): Promise<void> {
@@ -69,7 +70,12 @@ export async function main(): Promise<void> {
   if (options.drizzle.migrate) {
     await migrate({ credentials: options.drizzle.credentials });
   }
-  const yogaServer = createYogaServer(options.drizzle.db);
+  if (options.seed) {
+    await seedData(options.drizzle.db);
+  }
+  const yogaServer = createYogaServer(options.drizzle.db, {
+    mailer: options.mailer,
+  });
   const server = serve({
     fetch: yogaServer.fetch.bind(yogaServer),
     hostname: options.address.host,
@@ -77,6 +83,7 @@ export async function main(): Promise<void> {
     port: options.address.port,
   });
   function shutdown() {
+    options.mailer?.closeAllConnections();
     // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then no-magic-numbers
     server.close().then(() => process.exit(0));
   }

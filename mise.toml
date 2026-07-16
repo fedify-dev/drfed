@@ -1,6 +1,7 @@
 min_version = "2026.6.10"
 
 [tools]
+"aqua:axllent/mailpit" = "latest"
 "aqua:dahlia/hongdown" = "0.4.3"
 "github:nushell/nushell" = "latest"
 node = "26"
@@ -108,6 +109,7 @@ let name = (if "usage_name" in $env { ["--name" $env.usage_name] } else { [] })
 let custom = (if "usage_custom" in $env { ["--custom"] } else { [] })
 pnpm exec drizzle-kit generate ...$name ...$custom
 """
+depends_post = ["fmt"]
 
 [tasks.dev]
 description = "Run the development server"

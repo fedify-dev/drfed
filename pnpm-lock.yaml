@@ -71,6 +71,9 @@ importers:
       '@optique/run':
         specifier: ^1.1.0
         version: 1.1.0
+      '@upyo/smtp':
+        specifier: ^0.5.0
+        version: 0.5.0(@upyo/core@0.5.0)
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
@@ -102,6 +105,9 @@ importers:
       '@drfed/models':
         specifier: workspace:*
         version: link:../models
+      '@fedify/uri-template':
+        specifier: ^2.3.1
+        version: 2.3.1
       '@logtape/graphql-yoga':
         specifier: 'catalog:'
         version: 2.3.0-dev.840(@logtape/logtape@2.3.0-dev.840)(graphql-yoga@5.21.2(graphql@16.14.2))(graphql@16.14.2)
@@ -114,9 +120,15 @@ importers:
       '@pothos/plugin-drizzle':
         specifier: ^0.17.4
         version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0))(graphql@16.14.2)
+      '@pothos/plugin-errors':
+        specifier: ^4.9.1
+        version: 4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
       '@pothos/plugin-relay':
         specifier: ^4.7.0
         version: 4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
+      '@upyo/core':
+        specifier: ^0.5.0
+        version: 0.5.0
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
@@ -139,6 +151,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.0.0
+      '@upyo/mock':
+        specifier: ^0.5.0
+        version: 0.5.0(@upyo/core@0.5.0)
       tsdown:
         specifier: 'catalog:'
         version: 0.22.3(typescript@6.0.3)
@@ -749,6 +764,10 @@ packages:
   '@fastify/busboy@3.2.0':
     resolution: {integrity: sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA==}
 
+  '@fedify/uri-template@2.3.1':
+    resolution: {integrity: sha512-322xch1WhasP/vjH4yDPA1RnYwI6tlG72aH7fCpdFge8IC845urKEMET9LzJ2G5HfeCKAXPAcaZZEx9FXnTNrg==}
+    engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
+
   '@graphql-tools/executor@1.5.3':
     resolution: {integrity: sha512-mgBFC0bsrZPZLu9EnydpMnAuQ8Iiq0CEbUcsmvXsm2/iYektGHDN/+bmb7hicA6dWZtdPfklYJmr21WD0GnOfA==}
     engines: {node: '>=16.0.0'}
@@ -1041,6 +1060,12 @@ packages:
       '@pothos/core': '*'
       drizzle-orm: '>=1.0.0-beta.2'
       graphql: ^16.10.0
+
+  '@pothos/plugin-errors@4.9.1':
+    resolution: {integrity: sha512-nD8ZUKWlu2yzma28zQIrcs0ihfPmx/unXwmAKt+irWWzl6+/s2tkD+qO6wn4aH8swcxKIDibNa3HSTecCguWHw==}
+    peerDependencies:
+      '@pothos/core': '*'
+      graphql: ^16.10.0 || ^17.0.0
 
   '@pothos/plugin-relay@4.7.0':
     resolution: {integrity: sha512-IQ7f7WLu7uXxiZBcJgUTdspjIVzX3bgvd8XjnzxGJUbn/uE5HlVyCFmvhJffHIIS2OKSHhOOJRMwIwVwauwnSg==}
@@ -1516,6 +1541,22 @@ packages:
 
   '@ungap/structured-clone@1.3.2':
     resolution: {integrity: sha512-5jsZFwgR5rTdKwidH9Qmat75RKwqfpKlWWB1frDkljN127mwqBu8K0PYo7/hFpF03IEJpfVPpCQDY/eDx3iHvA==}
+
+  '@upyo/core@0.5.0':
+    resolution: {integrity: sha512-i7uwJtiQiUQ4cYx2BGy4hA3iM9Fh7XHEb6s2BxBDbNj8LAkcQYWF2o1rca/mIZP/rgbeGhCVNPY9tKYEBNUV+g==}
+    engines: {bun: '>=1.2.0', deno: '>=2.3.0', node: '>=20.0.0'}
+
+  '@upyo/mock@0.5.0':
+    resolution: {integrity: sha512-qkNzIvnbxrtoKLLtD1eV7vfUpznppXX1l6wlBkW5W9F1pHTTnM8GjFbyCAG/vrXX1bOavAz3YJGyt7ZnqiGf1w==}
+    engines: {bun: '>=1.2.0', deno: '>=2.3.0', node: '>=20.0.0'}
+    peerDependencies:
+      '@upyo/core': 0.5.0
+
+  '@upyo/smtp@0.5.0':
+    resolution: {integrity: sha512-NjRHQN8n9AnyKYLQFOTe/c1ODd58Vv++423RAWnj6GbhGweqM1RatxvwJF4GZCwSM/Z/L0Ef7bmmLFb+gqjjZQ==}
+    engines: {bun: '>=1.2.0', deno: '>=2.3.0', node: '>=20.0.0'}
+    peerDependencies:
+      '@upyo/core': 0.5.0
 
   '@vercel/nft@1.10.2':
     resolution: {integrity: sha512-w+WyX5Ulmj4dtTZrxaulqrjaLZHSbnPzx75SJsTNYmotKsqn1JlLnDJa+lz5hn90HJofhl/2MAtw0mCrgM3qYw==}
@@ -4157,6 +4198,8 @@ snapshots:
 
   '@fastify/busboy@3.2.0': {}
 
+  '@fedify/uri-template@2.3.1': {}
+
   '@graphql-tools/executor@1.5.3(graphql@16.14.2)':
     dependencies:
       '@graphql-tools/utils': 11.1.0(graphql@16.14.2)
@@ -4431,6 +4474,11 @@ snapshots:
     dependencies:
       '@pothos/core': 4.13.0(graphql@16.14.2)
       drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
+      graphql: 16.14.2
+
+  '@pothos/plugin-errors@4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
+    dependencies:
+      '@pothos/core': 4.13.0(graphql@16.14.2)
       graphql: 16.14.2
 
   '@pothos/plugin-relay@4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
@@ -4914,6 +4962,16 @@ snapshots:
       eslint-visitor-keys: 5.0.1
 
   '@ungap/structured-clone@1.3.2': {}
+
+  '@upyo/core@0.5.0': {}
+
+  '@upyo/mock@0.5.0(@upyo/core@0.5.0)':
+    dependencies:
+      '@upyo/core': 0.5.0
+
+  '@upyo/smtp@0.5.0(@upyo/core@0.5.0)':
+    dependencies:
+      '@upyo/core': 0.5.0
 
   '@vercel/nft@1.10.2(rollup@4.62.2)':
     dependencies:

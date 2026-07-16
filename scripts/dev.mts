@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 // oxlint-disable no-console no-magic-numbers eslin/max-lines
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -154,6 +155,7 @@ async function shutdown(
     forceKill(serverProcess);
     forceKill(webProcess);
     forceKill(buildProcess);
+    forceKill(mailpitProcess);
     process.exit(exitCode);
   }
   shuttingDown = true;
@@ -164,6 +166,7 @@ async function shutdown(
       : terminate(serverProcess, signal === "SIGINT" ? "SIGINT" : "SIGTERM"),
     terminate(webProcess, "SIGTERM"),
     terminate(buildProcess, "SIGTERM"),
+    terminate(mailpitProcess, "SIGTERM"),
   ]);
   process.exit(exitCode);
 }
@@ -266,6 +269,7 @@ function sleep(ms: number): Promise<void> {
 let buildProcess: ChildProcess | undefined;
 let serverProcess: ChildProcess | undefined;
 let webProcess: ChildProcess | undefined;
+let mailpitProcess: ChildProcess | undefined;
 let shuttingDown = false;
 
 process.on("SIGINT", () => {
@@ -299,12 +303,20 @@ try {
 
   await waitForBuilds(buildExit);
 
+  mailpitProcess = spawnManaged(
+    "mailpit",
+    ["--smtp", "localhost:1025", "--listen", "localhost:8025"],
+    root,
+  );
+
   const serverArgs: string[] = [
     "--watch",
     "bin/drfed-server.mjs",
     "--pglite-data-path",
     "../../.pgdata",
     "--listen=0.0.0.0:8888",
+    "--smtp-url=smtp://localhost:1025",
+    "--seed",
   ];
 
   const logLevel = process.env.usage_log_level;
@@ -340,7 +352,12 @@ try {
     result: await waitForExit(webProcess),
   }))();
 
-  const firstExit = await Promise.race([serverExit, webExit]);
+  const mailpitExit = (async () => ({
+    name: "mailpit" as const,
+    result: await waitForExit(mailpitProcess),
+  }))();
+
+  const firstExit = await Promise.race([serverExit, webExit, mailpitExit]);
 
   if (firstExit.result.error != null) {
     throw firstExit.result.error;
