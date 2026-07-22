@@ -66,6 +66,7 @@ run = "mise fmt"
 [tasks.build]
 description = "Build the project"
 run = "pnpm run --parallel --recursive build"
+silent = "stdout"
 
 [tasks.test]
 description = "Run tests"
@@ -110,6 +111,18 @@ pnpm exec drizzle-kit generate ...$name ...$custom
 """
 depends_post = ["fmt"]
 
+[tasks."generate:graphql-schema"]
+description = "Generate GraphQL schema"
+usage = """
+flag "-o --output-file <file>" help="The output file for the generated GraphQL schema.  - for stdout.  Defaults to -"
+"""
+depends = ["build"]
+run = """
+#!/usr/bin/env nu
+let output_file = (if "usage_output_file" in $env { $env.usage_output_file } else { "-" })
+node packages/drfed/bin/drfed-server.mjs --generate-graphql-schema --output-file $output_file
+"""
+
 [tasks.dev]
 description = "Run the development server"
 usage = '''
@@ -128,3 +141,9 @@ raw_args = true
 description = "Run SolidStart frontend server"
 dir = "./packages/web"
 run = "pnpm run dev"
+
+[tasks."drfed-server"]
+description = "Invoke drfed-server command"
+depends = ["build"]
+raw_args = true
+run = "node packages/drfed/bin/drfed-server.mjs"

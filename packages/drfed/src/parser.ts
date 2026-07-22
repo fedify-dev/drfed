@@ -21,7 +21,7 @@ import { merge, object, or } from "@optique/core/constructs";
 import { message, optionNames } from "@optique/core/message";
 import { map, optional, withDefault } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
-import { option } from "@optique/core/primitives";
+import { flag, option } from "@optique/core/primitives";
 import { socketAddress, url } from "@optique/core/valueparser";
 import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
@@ -105,12 +105,7 @@ const seedParser = option("--dev-seed", {
   hidden: true,
 });
 
-export const parser = object({
-  logging: loggingOptions({
-    level: "option",
-    short: "-L",
-    formatter: "--log-format",
-  }),
+const serverParser = object("DrFed server", {
   address: withDefault(
     option("--listen", "-l", socketAddress({ requirePort: true }), {
       description: message`The address to listen on.`,
@@ -134,6 +129,33 @@ export const parser = object({
   mailer: smtpParser,
   seed: seedParser,
 });
+
+export type ServerOptions = InferValue<typeof serverParser>;
+
+const schemaGeneratorParser = object("GraphQL schema generation", {
+  generateGraphqlSchema: flag("--generate-graphql-schema", {
+    description: message`Generate GraphQL schema and exit.`,
+  }),
+  outputFile: withDefault(
+    option("--output-file", "-o", path({ type: "file", allowCreate: true }), {
+      description: message`The output file for the generated GraphQL schema.  ${"-"} for stdout.`,
+    }),
+    "-",
+  ),
+});
+
+export type SchemaGeneratorOptions = InferValue<typeof schemaGeneratorParser>;
+
+export const parser = merge(
+  object({
+    logging: loggingOptions({
+      level: "option",
+      short: "-L",
+      formatter: "--log-format",
+    }),
+  }),
+  or(serverParser, schemaGeneratorParser),
+);
 
 export type Options = InferValue<typeof parser>;
 

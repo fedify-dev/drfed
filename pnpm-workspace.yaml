@@ -21,6 +21,7 @@ catalog:
   "@upyo/mock": 0.6.0-dev.263+e633e1e6
   "@upyo/smtp": 0.6.0-dev.263+e633e1e6
   drizzle-orm: 1.0.0-beta.22
+  graphql: ^16.14.2
   pg: ^8.21.0
   tsdown: ^0.22.3
   typescript: ^6.0.3

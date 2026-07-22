@@ -51,6 +51,9 @@ catalogs:
     drizzle-orm:
       specifier: 1.0.0-beta.22
       version: 1.0.0-beta.22
+    graphql:
+      specifier: ^16.14.2
+      version: 16.14.2
     pg:
       specifier: ^8.21.0
       version: 8.21.0
@@ -98,6 +101,9 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
+      graphql:
+        specifier: 'catalog:'
+        version: 16.14.2
       pg:
         specifier: 'catalog:'
         version: 8.21.0
@@ -157,7 +163,7 @@ importers:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)
       graphql:
-        specifier: ^16.14.2
+        specifier: 'catalog:'
         version: 16.14.2
       graphql-scalars:
         specifier: ^1.25.0
