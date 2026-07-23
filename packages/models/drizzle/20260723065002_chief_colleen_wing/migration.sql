@@ -1,0 +1,2 @@
+ALTER TABLE "accounts" ADD COLUMN "max_instances" integer DEFAULT 10 NOT NULL;--> statement-breakpoint
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_max_instances_check" CHECK ("max_instances" >= 0);

@@ -18,6 +18,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgTable,
   primaryKey,
   timestamp,
@@ -34,6 +35,7 @@ export const accounts = pgTable(
     id: uuid().primaryKey(),
     email: varchar({ length: 255 }).notNull().unique(),
     name: varchar({ length: 100 }).notNull(),
+    maxInstances: integer("max_instances").notNull().default(10),
     admin: boolean().notNull().default(false),
     created: timestamp({ withTimezone: true })
       .notNull()
@@ -44,6 +46,7 @@ export const accounts = pgTable(
       "accounts_email_check",
       sql`${table.email} ~ '^[^@]+@[^@]+\\.[^@]+$'`,
     ),
+    check("accounts_max_instances_check", sql`${table.maxInstances} >= 0`),
     check("accounts_name_check", sql`trim(both from ${table.name}) <> ''`),
   ],
 );

@@ -22,10 +22,12 @@ export default async function seedData(db: Database): Promise<void> {
   });
 }
 
+const sessionId = "00000000-0000-4000-8000-000000000000";
 const accountId = "00000000-0000-4000-8000-000000000001";
 const memberId = "00000000-0000-4000-8000-000000000002";
 const pendingMemberId = "00000000-0000-4000-8000-000000000003";
 const created = new Date("2026-06-24T00:00:00.000Z");
+const tokenHash = "dev-token-hash";
 
 async function seedAccounts(db: Database): Promise<void> {
   await db
@@ -51,4 +53,17 @@ async function seedAccounts(db: Database): Promise<void> {
       },
     ])
     .onConflictDoNothing();
+  await db
+    .insert(schema.sessions)
+    .values([
+      {
+        id: sessionId,
+        accountId,
+        tokenHash,
+      },
+    ])
+    .onConflictDoUpdate({
+      target: schema.sessions.id,
+      set: { tokenHash },
+    });
 }

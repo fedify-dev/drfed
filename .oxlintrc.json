@@ -23,6 +23,7 @@
       "always",
       { "ignoreConsecutiveComments": true }
     ],
+    "eslint/curly": ["error", "multi-line"],
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],
@@ -34,7 +35,7 @@
     "eslint/prefer-destructuring": ["warn", { "object": true, "array": false }],
     "eslint/no-continue": "off",
     "eslint/no-eq-null": "off",
-    "eslint/no-magic-numbers": "warn",
+    "eslint/no-magic-numbers": "off",
     "eslint/no-ternary": "off",
     "eslint/no-nested-ternary": "off",
     "eslint/no-undefined": "off",
