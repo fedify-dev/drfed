@@ -20,11 +20,11 @@ import { defineConfig } from "vite";
 import { cjsInterop } from "vite-plugin-cjs-interop";
 import relay from "vite-plugin-relay-lite";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     solidStart(),
     nitro(),
-    relay(),
+    relay({ codegen: command !== "build" }),
     cjsInterop({ dependencies: ["relay-runtime"] }),
   ],
-});
+}));
