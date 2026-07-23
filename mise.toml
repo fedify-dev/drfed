@@ -3,7 +3,6 @@ min_version = "2026.6.10"
 [tools]
 "aqua:dahlia/hongdown" = "0.4.3"
 "github:nushell/nushell" = "latest"
-"github:radiosilence/watchwoman" = "latest"
 node = "26"
 "npm:@typescript/native-preview" = "7.0.0-dev.20260620.1"
 "npm:oxlint" = "latest"
@@ -155,7 +154,11 @@ run = "node scripts/dev.mts"
 raw_args = true
 description = "Run SolidStart frontend server"
 dir = "./packages/web"
-run = "pnpm run dev"
+run = """
+#!/usr/bin/env nu
+mise run generate:graphql-schema --output-file ./packages/web/schema.graphql
+pnpm run dev
+"""
 
 [tasks."drfed-server"]
 description = "Invoke drfed-server command"
