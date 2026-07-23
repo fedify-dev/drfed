@@ -20,20 +20,27 @@ import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 
 import "./app.css";
+import { RelayEnvironmentProvider } from "solid-relay";
+
+import { createRelayEnvironment } from "./RelayEnviroment";
 
 export default function App() {
+  const environment = createRelayEnvironment();
+
   return (
-    <Router
-      root={(props) => (
-        <MetaProvider>
-          <Title>SolidStart - Basic</Title>
-          <a href="/">Index</a>
-          <a href="/about">About</a>
-          <Suspense>{props.children}</Suspense>
-        </MetaProvider>
-      )}
-    >
-      <FileRoutes />
-    </Router>
+    <RelayEnvironmentProvider environment={environment}>
+      <Router
+        root={(props) => (
+          <MetaProvider>
+            <Title>SolidStart - Basic</Title>
+            <a href="/">Index</a>
+            <a href="/about">About</a>
+            <Suspense>{props.children}</Suspense>
+          </MetaProvider>
+        )}
+      >
+        <FileRoutes />
+      </Router>
+    </RelayEnvironmentProvider>
   );
 }

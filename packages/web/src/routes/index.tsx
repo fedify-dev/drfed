@@ -15,15 +15,37 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Title } from "@solidjs/meta";
+import { graphql } from "relay-runtime";
+import { Show } from "solid-js";
+import { createLazyLoadQuery } from "solid-relay";
 
-import Counter from "~/components/Counter";
+import type { HomeViewerQuery } from "./__generated__/HomeViewerQuery.graphql";
+
+const homeViewerQuery = graphql`
+  query HomeViewerQuery {
+    viewer {
+      name
+      admin
+    }
+  }
+`;
 
 export default function Home() {
+  const query = createLazyLoadQuery<HomeViewerQuery>(homeViewerQuery, {});
+
   return (
     <main>
       <Title>Hello World</Title>
       <h1>Hello world!</h1>
-      <Counter />
+      <Show when={query()?.viewer} fallback={<p>로그인되지 않았습니다.</p>}>
+        {(viewer) => (
+          <p>
+            {viewer().name}
+            {viewer().admin ? " (관리자)" : ""}
+          </p>
+        )}
+      </Show>
+
       <p>
         Visit{" "}
         <a href="https://start.solidjs.com" target="_blank">
