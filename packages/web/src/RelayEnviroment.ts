@@ -14,17 +14,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { solidStart } from "@solidjs/start/config";
-import { nitroV2Plugin as nitro } from "@solidjs/vite-plugin-nitro-2";
-import { defineConfig } from "vite";
-import { cjsInterop } from "vite-plugin-cjs-interop";
-import relay from "vite-plugin-relay-lite";
+import {
+  Environment,
+  type FetchFunction,
+  Network,
+  RecordSource,
+  Store,
+} from "relay-runtime";
 
-export default defineConfig({
-  plugins: [
-    solidStart(),
-    nitro(),
-    relay(),
-    cjsInterop({ dependencies: ["relay-runtime"] }),
-  ],
-});
+// oxlint-disable no-async-await
+const fetchFn: FetchFunction = async (params, variables) => {
+  const response = await fetch("http://0.0.0.0:8888/graphql", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: params.text,
+      variables,
+    }),
+  });
+
+  // oxlint-disable return-await no-unsafe-return
+  return await response.json();
+};
+
+export function createRelayEnvironment() {
+  return new Environment({
+    network: Network.create(fetchFn),
+    store: new Store(new RecordSource()),
+  });
+}
