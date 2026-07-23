@@ -23,6 +23,8 @@
       "always",
       { "ignoreConsecutiveComments": true }
     ],
+    "node/no-top-level-await": "off",
+    "oxc/no-optional-chaining": "off",
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],

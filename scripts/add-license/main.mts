@@ -24,7 +24,7 @@ import GPL from "./gpl.mts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const INCLUDED = ["scripts/", "packages/*/src/", "packages/*/bin/"];
-const EXCLUDED = ["**/dist/"];
+const EXCLUDED = ["**/dist/", "**/__generated__/**"];
 
 type Extension = keyof typeof GPL;
 

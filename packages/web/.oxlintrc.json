@@ -1,5 +1,6 @@
 {
   "extends": ["../../.oxlintrc.json"],
+  "ignorePatterns": ["**/__generated__/**"],
   "jsPlugins": ["eslint-plugin-solid"],
   "env": {
     "browser": true,

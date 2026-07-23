@@ -50,10 +50,16 @@
     "@solidjs/router": "^0.15.0",
     "@solidjs/start": "2.0.0-alpha.2",
     "@solidjs/vite-plugin-nitro-2": "^0.1.0",
+    "relay-runtime": "^21.0.1",
     "solid-js": "^1.9.5",
+    "solid-relay": "1.0.0-beta.27",
     "vite": "^7.0.0"
   },
   "devDependencies": {
-    "eslint-plugin-solid": "^0.14.5"
+    "@types/relay-runtime": "^20.1.1",
+    "eslint-plugin-solid": "^0.14.5",
+    "relay-compiler": "^21.0.1",
+    "vite-plugin-cjs-interop": "^4.0.3",
+    "vite-plugin-relay-lite": "^0.12.0"
   }
 }
