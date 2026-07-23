@@ -28,6 +28,7 @@
     "oxc/no-async-await": "off",
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
+    "eslint/max-lines-per-function": "off",
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],
     "eslint/init-declarations": "off",
     "eslint/max-params": ["warn", { "max": 4 }],
