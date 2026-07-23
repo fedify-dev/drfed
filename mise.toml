@@ -2,12 +2,12 @@ min_version = "2026.6.10"
 
 [tools]
 "aqua:dahlia/hongdown" = "0.4.3"
-"github:nushell/nushell" = "latest"
+"github:nushell/nushell" = "0.114.1"
 node = "26"
 "npm:@typescript/native-preview" = "7.0.0-dev.20260620.1"
-"npm:oxlint" = "latest"
-"npm:oxlint-tsgolint" = "latest"
-"npm:pglite-cli" = "latest"
+"npm:oxlint" = "1.75.0"
+"npm:oxlint-tsgolint" = "7.0.2001"
+"npm:pglite-cli" = "0.0.1"
 oxfmt = "0.55.0"
 pnpm = "11"
 
