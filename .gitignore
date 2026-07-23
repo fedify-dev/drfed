@@ -1,5 +1,7 @@
 .DS_Store
+*.graphql
 
 .pgdata/
+
 node_modules/
 packages/*/dist/
