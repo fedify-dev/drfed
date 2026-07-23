@@ -14,42 +14,50 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { action, useSubmission } from "@solidjs/router";
-import { Show } from "solid-js";
+import { graphql } from "relay-runtime";
+import { type JSX, Show, createSignal } from "solid-js";
+import { createMutation } from "solid-relay";
 
-const signin = action(async (formData: FormData) => {
-  "use server";
+import type { SignInMutation } from "./__generated__/SignInMutation.graphql";
 
-  const email = formData.get("email");
-  if (typeof email !== "string") {
-    return { ok: false, message: "이메일이 올바르지 않습니다." };
+const signInMutation = graphql`
+  mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
+    loginByEmail(email: $email, verifyUrl: $verifyUrl) {
+      token
+    }
   }
-
-  await fetch("http://0.0.0.0:8888/graphql", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query: `
-      mutation Login($email: Email!, $verifyUrl: URITemplate!) { loginByEmail(email: $email, verifyUrl: $verifyUrl) { token } }
-      `,
-      variables: {
-        email,
-        verifyUrl: "http://localhost:5173/confirm/{token}?code={code}",
-      },
-    }),
-  });
-
-  return { ok: true, message: "인증 메일을 확인해 주세요." };
-}, "signin");
+`;
 
 export default function SignInPage() {
-  const submission = useSubmission(signin);
+  const [signIn] = createMutation<SignInMutation>(signInMutation);
+  const [message, setMessage] = createSignal<string>("");
+
+  const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (e) => {
+    e.preventDefault();
+    const email = new FormData(e.currentTarget).get("email");
+    if (typeof email !== "string" || email === "") {
+      return;
+    }
+
+    signIn({
+      variables: {
+        email,
+        verifyUrl: `${globalThis.location.origin}/confirm/{token}?code={code}`,
+      },
+      onCompleted: (_response, errors) => {
+        const [error] = errors ?? [];
+
+        setMessage(error?.message ?? "인증 메일을 확인해 주세요.");
+      },
+      onError: (error) => {
+        setMessage(error.message);
+      },
+    });
+  };
 
   return (
     <>
-      <form action={signin} method="post">
+      <form onSubmit={handleSubmit}>
         <input
           name="email"
           type="email"
@@ -58,10 +66,10 @@ export default function SignInPage() {
         />
         <button type="submit">로그인</button>
       </form>
-      <Show when={submission.result?.ok}>
+      <Show when={message() !== ""}>
         <dialog open aria-labelledby="login-dialog-title">
           <h2 id="login-dialog-title">로그인 요청 완료</h2>
-          <p>{submission.result?.message}</p>
+          <p>{message()}</p>
           <form method="dialog">
             <button type="submit">닫기</button>
           </form>
