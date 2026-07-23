@@ -24,6 +24,7 @@ catalog:
   pg: ^8.21.0
   tsdown: ^0.22.3
   typescript: ^6.0.3
+  uuid: ^14.0.1
 
 minimumReleaseAgeExclude:
   - "@logtape/graphql-yoga@2.3.0-dev.840"

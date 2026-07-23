@@ -13,9 +13,14 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// oxlint-disable max-lines-per-function
+import { schema } from "@drfed/models";
 import { instanceMembers } from "@drfed/models/schema";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
+import { DrizzleQueryError } from "drizzle-orm";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
+import { v7 as uuid } from "uuid";
 
 // oxlint-disable-next-line import/no-cycle
 import { Account } from "./account.ts";
@@ -146,3 +151,118 @@ builder.drizzleObjectField(InstanceRef, "members", (t) =>
     },
   ),
 );
+
+export const CreateInstanceErrorType = builder.enumType(
+  "CreateInstanceErrorType",
+  {
+    values: ["SlugAlreadyTaken", "TooManyInstances"] as const,
+  },
+);
+
+interface CreateInstanceError {
+  readonly type: typeof CreateInstanceErrorType.$inferType;
+  readonly message: string;
+}
+
+export const CreateInstanceErrorRef = builder.objectRef<CreateInstanceError>(
+  "CreateInstanceError",
+);
+
+CreateInstanceErrorRef.implement({
+  description:
+    "Represents an error that occurred while creating an `Instance`.",
+  fields: (t) => ({
+    type: t.expose("type", {
+      type: CreateInstanceErrorType,
+      description:
+        "The type of the error.  Use this for programmatic error handling.",
+    }),
+    message: t.exposeString("message", {
+      description:
+        "A human-readable message describing the error.  " +
+        "Don't use this for programmatic error handling, " +
+        "use the `type` field instead.",
+    }),
+  }),
+});
+
+export const CreateInstanceResult = builder.unionType("CreateInstanceResult", {
+  types: [InstanceRef, CreateInstanceErrorRef],
+  resolveType(value) {
+    if ("message" in value) return CreateInstanceErrorRef;
+    return InstanceRef;
+  },
+});
+
+builder.mutationFields((t) => ({
+  createInstance: t.field({
+    type: CreateInstanceResult,
+    description: "Create an instance.",
+    authScopes: { authenticated: true },
+    args: {
+      slug: t.arg({
+        type: "String",
+        required: true,
+        description:
+          "A unique instance slug, which will be a part of the instance " +
+          "domain name (e.g., `slug.drfed.net`).",
+      }),
+    },
+    async resolve(_query, { slug }, ctx) {
+      if (ctx.account == null) {
+        // Note that the following error is not expected to be thrown,
+        // because the `authScopes` option above should prevent this resolver
+        throw new Error("You must be authenticated to create an instance.");
+      }
+      const { account } = ctx;
+      let tooManyInstances = false;
+      try {
+        return await ctx.db.transaction(async (tx) => {
+          const [instance] = await tx
+            .insert(schema.instances)
+            .values({
+              id: uuid(),
+              slug,
+              expires: new Date(
+                Temporal.Now.instant().add({ hours: 8750 }).toString(),
+              ),
+            })
+            .returning();
+          if (instance == null) throw new Error("Failed to create instance.");
+          await tx.insert(schema.instanceMembers).values({
+            instanceId: instance.id,
+            accountId: account.id,
+          });
+          const instances = await tx.$count(
+            schema.instanceMembers,
+            eq(schema.instanceMembers.accountId, account.id),
+          );
+          if (instances > account.maxInstances) {
+            tooManyInstances = true;
+            tx.rollback();
+          }
+          return instance;
+        });
+      } catch (e) {
+        if (tooManyInstances) {
+          return {
+            type: "TooManyInstances" as const,
+            message: `You have reached the maximum number of instances (${account.maxInstances}).`,
+          };
+        }
+        if (
+          e instanceof DrizzleQueryError &&
+          e.cause != null &&
+          "constraint" in e.cause &&
+          e.cause.constraint === "instances_slug_key"
+        ) {
+          return {
+            message: `The slug ${JSON.stringify(slug)} is already taken.`,
+            type: "SlugAlreadyTaken" as const,
+          };
+        }
+        throw e;
+      }
+    },
+  }),
+}));
