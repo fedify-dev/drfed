@@ -62,6 +62,10 @@ export function createYogaServer(
 ): YogaServerInstance<ServerContext, UserContext> {
   const options = fillOptions(_options);
   return createYoga({
+    cors: {
+      origin: [...options.origins],
+      credentials: true,
+    },
     async context(ctx) {
       const anonymous = { db, request: ctx.request, ...options };
       const accessToken = getAccessToken(ctx.request.headers);
@@ -92,7 +96,14 @@ function mockTransport() {
 const fillOptions = (opt: YogaServerOptions): Required<YogaServerOptions> => ({
   mailer: opt?.mailer ?? mockTransport(),
   emailFrom: opt?.emailFrom ?? "noreply@drfed.org",
-  origins: opt?.origins ?? new Set(["https://drfed.org"]),
+  // FIXME: Properly parametrize the following allowlist:
+  origins:
+    opt?.origins ??
+    new Set([
+      "https://drfed.org",
+      "http://localhost:5173",
+      "http://0.0.0.0:5173",
+    ]),
 });
 
 const getAccessToken = (headers: Headers) =>
