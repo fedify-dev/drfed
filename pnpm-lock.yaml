@@ -63,6 +63,9 @@ catalogs:
     typescript:
       specifier: ^6.0.3
       version: 6.0.3
+    uuid:
+      specifier: ^14.0.1
+      version: 14.0.1
 
 importers:
 
@@ -153,6 +156,9 @@ importers:
       '@pothos/plugin-relay':
         specifier: ^4.7.0
         version: 4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
+      '@pothos/plugin-scope-auth':
+        specifier: ^4.1.7
+        version: 4.1.7(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
       '@upyo/core':
         specifier: 'catalog:'
         version: 0.6.0-dev.263
@@ -171,6 +177,9 @@ importers:
       graphql-yoga:
         specifier: ^5.21.2
         version: 5.21.2(graphql@16.14.2)
+      uuid:
+        specifier: 'catalog:'
+        version: 14.0.1
     devDependencies:
       '@electric-sql/pglite':
         specifier: 'catalog:'
@@ -1095,6 +1104,12 @@ packages:
     peerDependencies:
       '@pothos/core': '*'
       graphql: ^16.10.0
+
+  '@pothos/plugin-scope-auth@4.1.7':
+    resolution: {integrity: sha512-FLSjPDziia/bHhVHgWlvFUArI5lzqfJzO3xmtzruProUPRCeS2/yPM7FLWi5fnmp50DgasLXIC7MQYNBODGF8w==}
+    peerDependencies:
+      '@pothos/core': '*'
+      graphql: ^16.10.0 || ^17.0.0
 
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
@@ -2034,10 +2049,12 @@ packages:
 
   drizzle-kit@1.0.0-beta.22:
     resolution: {integrity: sha512-9HTZuQRljQKTgCx4UhiGn8KYYfHGk4+B/bRR1714W67kz0qgJvdrG527i8rQD8uUyET9UTGR1u8syySJD4znGw==}
+    deprecated: The 1.0.0-beta line is superseded by the 1.0 release candidate. Install drizzle-kit@rc instead.
     hasBin: true
 
   drizzle-orm@1.0.0-beta.22:
     resolution: {integrity: sha512-F+DZyVIvH0oVKa/w08Cle1xfoH+pc+htIXHG/frnMLG72aby9NYYr9oc+9XvghnoO4umxFItduz0OMmQJMnenw==}
+    deprecated: The 1.0.0-beta line is superseded by the 1.0 release candidate. Install drizzle-orm@rc instead.
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
       '@cloudflare/workers-types': '>=4'
@@ -3627,6 +3644,10 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==}
 
+  uuid@14.0.1:
+    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
+    hasBin: true
+
   vfile-message@4.0.3:
     resolution: {integrity: sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==}
 
@@ -4510,6 +4531,11 @@ snapshots:
       graphql: 16.14.2
 
   '@pothos/plugin-relay@4.7.0(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
+    dependencies:
+      '@pothos/core': 4.13.0(graphql@16.14.2)
+      graphql: 16.14.2
+
+  '@pothos/plugin-scope-auth@4.1.7(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
     dependencies:
       '@pothos/core': 4.13.0(graphql@16.14.2)
       graphql: 16.14.2
@@ -7006,6 +7032,8 @@ snapshots:
   urlpattern-polyfill@10.1.0: {}
 
   util-deprecate@1.0.2: {}
+
+  uuid@14.0.1: {}
 
   vfile-message@4.0.3:
     dependencies:

@@ -21,6 +21,7 @@ import SchemaBuilder, { type ObjectRef } from "@pothos/core";
 import DrizzlePlugin from "@pothos/plugin-drizzle";
 import ErrorsPlugin from "@pothos/plugin-errors";
 import RelayPlugin from "@pothos/plugin-relay";
+import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { DateTimeResolver, UUIDResolver } from "graphql-scalars";
@@ -95,6 +96,10 @@ export interface SchemaTypes {
   };
   DefaultFieldNullability: false;
   DrizzleRelations: typeof relations;
+  AuthScopes: {
+    authenticated: boolean;
+    admin: boolean;
+  };
 }
 
 export type DrFedSchemaTypes =
@@ -118,8 +123,17 @@ export const builder = new SchemaBuilder<SchemaTypes>({
     getTableConfig,
     relations,
   },
-  plugins: [DrizzlePlugin, RelayPlugin, ErrorsPlugin],
+  plugins: [DrizzlePlugin, RelayPlugin, ErrorsPlugin, ScopeAuthPlugin],
   errors: { defaultTypes: [] },
+  scopeAuth: {
+    authorizeOnSubscribe: true,
+    authScopes(context) {
+      return {
+        authenticated: Boolean(context.session),
+        admin: Boolean(context.account?.admin),
+      };
+    },
+  },
 });
 
 builder.addScalarType("DateTime", DateTimeResolver);
