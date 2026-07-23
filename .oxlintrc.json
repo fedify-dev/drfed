@@ -24,6 +24,7 @@
       { "ignoreConsecutiveComments": true }
     ],
     "eslint/curly": ["error", "multi-line"],
+    "oxc/no-optional-chaining": "off",
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],

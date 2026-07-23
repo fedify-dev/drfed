@@ -8,6 +8,7 @@
     "**/dist/*.{cjs,d.cts,d.mts,d.ts,js,mjs}",
     ".agents/skills/",
     ".claude/skills/",
-    "plans/"
+    "plans/",
+    "**/__generated__/**"
   ]
 }
