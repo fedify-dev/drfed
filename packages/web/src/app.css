@@ -16,44 +16,300 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+}
+
 body {
-  font-family:
-    Gordita, Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
-    sans-serif;
+  margin: 0;
 }
 
-a {
-  margin-right: 1rem;
+button,
+input {
+  font: inherit;
 }
 
-main {
-  text-align: center;
-  padding: 1em;
+.app-shell {
+  min-height: 100svh;
+}
+
+.app-header {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.app-header-inner {
+  align-items: center;
+  display: flex;
+  height: var(--header-h);
   margin: 0 auto;
+  max-width: var(--container);
+  padding: 0 var(--gutter);
 }
 
-h1 {
-  color: #335d92;
-  text-transform: uppercase;
-  font-size: 4rem;
-  font-weight: 100;
-  line-height: 1.1;
-  margin: 4rem auto;
-  max-width: 14rem;
+.brand {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  gap: 0.65rem;
+  letter-spacing: var(--tracking-heading);
+  text-decoration: none;
 }
 
-p {
-  max-width: 14rem;
-  margin: 2rem auto;
-  line-height: 1.35;
+.brand img {
+  border-radius: 50%;
 }
 
-@media (min-width: 480px) {
-  h1 {
-    max-width: none;
+.app-nav {
+  align-self: stretch;
+  display: flex;
+  gap: 0.25rem;
+  margin-left: clamp(1.5rem, 5vw, 4rem);
+}
+
+.app-nav a,
+.header-action {
+  align-items: center;
+  color: var(--ink-soft);
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0 0.85rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.app-nav a:hover,
+.header-action:hover,
+.app-nav a.is-active,
+.header-action.is-active {
+  color: var(--ink);
+}
+
+.app-nav a.is-active::after {
+  background: var(--accent);
+  bottom: -1px;
+  content: "";
+  height: 3px;
+  left: 0.85rem;
+  position: absolute;
+  right: 0.85rem;
+}
+
+.header-action {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  margin-left: auto;
+  min-height: 2.4rem;
+}
+
+.header-action.is-active {
+  background: var(--accent-tint);
+  border-color: var(--accent-soft);
+}
+
+.app-header a:focus-visible,
+.button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+.app-content {
+  margin: 0 auto;
+  max-width: var(--container);
+  min-height: calc(100svh - var(--header-h));
+  padding: clamp(2rem, 5vw, 4rem) var(--gutter);
+}
+
+.app-content > main:not(.auth-page) {
+  width: 100%;
+}
+
+.app-content > main:not(.auth-page) :is(h1, h2, p) {
+  margin-top: 0;
+}
+
+.app-content h1,
+.app-content h2 {
+  font-family: var(--font-serif);
+  letter-spacing: var(--tracking-heading);
+}
+
+.app-content h1 {
+  font-size: var(--text-heading-2);
+  line-height: var(--leading-heading);
+}
+
+.app-content p {
+  color: var(--ink-soft);
+  line-height: var(--leading-body);
+}
+
+.auth-page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100svh - var(--header-h) - clamp(4rem, 10vw, 8rem));
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-panel {
+  max-width: 28rem;
+  padding: clamp(1.5rem, 4vw, 2rem);
+  width: 100%;
+}
+
+.panel-header {
+  border-bottom: 1px solid var(--line);
+  margin: 0 calc(clamp(1.5rem, 4vw, 2rem) * -1) 1.5rem;
+  padding: 0 clamp(1.5rem, 4vw, 2rem) 1.5rem;
+}
+
+.panel-header h1 {
+  font-size: 1.65rem;
+  margin: 0 0 0.5rem;
+}
+
+.panel-header p {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.auth-panel form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  font-size: 0.9rem;
+  font-weight: 650;
+  gap: 0.75rem;
+}
+
+.field input {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.field input::placeholder {
+  color: var(--ink-faint);
+}
+
+.field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  outline: none;
+}
+
+.button {
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 2.9rem;
+  padding: 0.75rem 1.1rem;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.notice {
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  line-height: 1.5;
+  margin: 1.25rem 0 0;
+  padding: 0.85rem 1rem;
+}
+
+.notice.error {
+  border-left: 3px solid var(--danger);
+}
+
+.notice.success {
+  border-left: 3px solid var(--accent);
+}
+
+@media (max-width: 600px) {
+  .app-header-inner {
+    padding: 0 1rem;
   }
 
-  p {
-    max-width: none;
+  .brand span {
+    display: none;
+  }
+
+  .app-nav {
+    margin-left: 0.75rem;
+  }
+
+  .app-nav a,
+  .header-action {
+    padding-inline: 0.65rem;
+  }
+
+  .app-nav a.is-active::after {
+    left: 0.65rem;
+    right: 0.65rem;
+  }
+
+  .app-content {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .auth-page {
+    align-items: flex-start;
+    min-height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button.primary,
+  .field input {
+    transition: none;
   }
 }

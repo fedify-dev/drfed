@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { MetaProvider, Title } from "@solidjs/meta";
-import { Router } from "@solidjs/router";
+import { A, Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 
@@ -33,10 +33,35 @@ export default function App() {
       <Router
         root={(props) => (
           <MetaProvider>
-            <Title>SolidStart - Basic</Title>
-            <a href="/">Index</a>
-            <a href="/about">About</a>
-            <Suspense>{props.children}</Suspense>
+            <Title>DrFed</Title>
+            <div class="app-shell">
+              <header class="app-header">
+                <div class="app-header-inner">
+                  <A class="brand" href="/" aria-label="DrFed home">
+                    <img src="/icon.svg" alt="" width="32" height="32" />
+                    <span>DrFed</span>
+                  </A>
+                  <nav class="app-nav" aria-label="Primary navigation">
+                    <A href="/" end activeClass="is-active">
+                      Workspace
+                    </A>
+                    <A href="/about" activeClass="is-active">
+                      About
+                    </A>
+                  </nav>
+                  <A
+                    class="header-action"
+                    href="/sign-in"
+                    activeClass="is-active"
+                  >
+                    Sign in
+                  </A>
+                </div>
+              </header>
+              <div class="app-content">
+                <Suspense>{props.children}</Suspense>
+              </div>
+            </div>
           </MetaProvider>
         )}
       >

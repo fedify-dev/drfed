@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
 import { type JSX, Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
@@ -29,8 +30,20 @@ const signInMutation = graphql`
 `;
 
 export default function SignInPage() {
-  const [signIn] = createMutation<SignInMutation>(signInMutation);
-  const [message, setMessage] = createSignal<string>("");
+  const [signIn, isPending] = createMutation<SignInMutation>(signInMutation);
+  const [result, setResult] = createSignal<{
+    message: string;
+    status: "error" | "success";
+  }>();
+  const buttonLabel = () => {
+    if (isPending()) {
+      return "Sending link…";
+    }
+    if (result()?.status === "success") {
+      return "Resend sign-in link";
+    }
+    return "Send sign-in link";
+  };
 
   const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (e) => {
     e.preventDefault();
@@ -39,6 +52,7 @@ export default function SignInPage() {
       return;
     }
 
+    setResult();
     signIn({
       variables: {
         email,
@@ -47,34 +61,57 @@ export default function SignInPage() {
       onCompleted: (_response, errors) => {
         const [error] = errors ?? [];
 
-        setMessage(error?.message ?? "인증 메일을 확인해 주세요.");
+        setResult({
+          message:
+            error?.message ??
+            "Check your inbox for a secure sign-in link. You can close this page.",
+          status: error === undefined ? "success" : "error",
+        });
       },
       onError: (error) => {
-        setMessage(error.message);
+        setResult({ message: error.message, status: "error" });
       },
     });
   };
 
   return (
-    <>
-      <form onSubmit={handleSubmit}>
-        <input
-          name="email"
-          type="email"
-          placeholder="example@example.com"
-          required
-        />
-        <button type="submit">로그인</button>
-      </form>
-      <Show when={message() !== ""}>
-        <dialog open aria-labelledby="login-dialog-title">
-          <h2 id="login-dialog-title">로그인 요청 완료</h2>
-          <p>{message()}</p>
-          <form method="dialog">
-            <button type="submit">닫기</button>
-          </form>
-        </dialog>
-      </Show>
-    </>
+    <main class="auth-page">
+      <Title>Sign in — DrFed</Title>
+
+      <section class="panel auth-panel" aria-labelledby="sign-in-title">
+        <header class="panel-header">
+          <h1 id="sign-in-title">Sign in</h1>
+          <p>Enter your email address to receive a secure sign-in link.</p>
+        </header>
+
+        <form onSubmit={handleSubmit}>
+          <label class="field">
+            Email address
+            <input
+              name="email"
+              type="email"
+              autocomplete="email"
+              inputmode="email"
+              placeholder="you@example.com"
+              required
+            />
+          </label>
+          <button class="button primary" type="submit" disabled={isPending()}>
+            {buttonLabel()}
+          </button>
+        </form>
+
+        <Show when={result()}>
+          {(formResult) => (
+            <p
+              class={`notice ${formResult().status}`}
+              role={formResult().status === "error" ? "alert" : "status"}
+            >
+              {formResult().message}
+            </p>
+          )}
+        </Show>
+      </section>
+    </main>
   );
 }
