@@ -1,0 +1,107 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-serif:
+    "Fraunces Variable", Fraunces, Georgia, "Times New Roman", serif;
+  --font-sans:
+    "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas,
+    monospace;
+  --text-body: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+  --text-lede: clamp(1.15rem, 1.05rem + 0.5vw, 1.45rem);
+  --text-heading-1: clamp(2.7rem, 1.9rem + 3.9vw, 4.75rem);
+  --text-heading-2: clamp(1.9rem, 1.5rem + 1.9vw, 2.85rem);
+  --text-heading-3: 1.3rem;
+  --text-label: 0.78rem;
+  --leading-body: 1.65;
+  --leading-heading: 1.08;
+  --tracking-heading: -0.018em;
+  --tracking-label: 0.13em;
+
+  /* Light palette */
+  --bg: #fdfcfb;
+  --bg-tint: #f4f2f0;
+  --surface: #ffffff;
+  --surface-2: #f5f3f1;
+  --card: #ffffff;
+  --ink: #26211f;
+  --ink-soft: #6a615c;
+  --ink-faint: #998f89;
+  --accent: #e45b7d;
+  --accent-strong: #c23a5c;
+  --accent-soft: #f4a9b8;
+  --accent-tint: #f7e3e7;
+  --on-accent: #ffffff;
+  --line: #e9e5e1;
+  --line-strong: #dad4cf;
+  --danger: #cf3f43;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgb(38 33 31 / 5%), 0 2px 8px rgb(38 33 31 / 4%);
+  --shadow-md: 0 4px 14px rgb(38 33 31 / 6%), 0 12px 36px rgb(38 33 31 / 7%);
+
+  /* Layout */
+  --container: 70rem;
+  --container-narrow: 48rem;
+  --gutter: clamp(1.25rem, 5vw, 3rem);
+  --section-space: clamp(4rem, 3rem + 6vw, 8rem);
+  --header-h: 4.25rem;
+
+  /* Shape */
+  --radius-sm: 0.5rem;
+  --radius: 0.875rem;
+  --radius-lg: 1.5rem;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --duration-fast: 0.18s;
+  --duration-normal: 0.25s;
+  --ease-standard: ease;
+  --ease-reveal: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --bg: #181613;
+    --bg-tint: #1e1b17;
+    --surface: #201d19;
+    --surface-2: #272420;
+    --card: #201d19;
+    --ink: #f0ece8;
+    --ink-soft: #bab1aa;
+    --ink-faint: #887f78;
+    --accent: #ef6a88;
+    --accent-strong: #f78da4;
+    --accent-soft: #b34965;
+    --accent-tint: #322a27;
+    --line: #332f2a;
+    --line-strong: #453f39;
+    --danger: #ef726b;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-md: 0 6px 24px rgb(0 0 0 / 40%);
+  }
+}
