@@ -37,7 +37,7 @@ export default function Home() {
     <main>
       <Title>Hello World</Title>
       <h1>Hello world!</h1>
-      <Show when={query()?.viewer} fallback={<p>로그인되지 않았습니다.</p>}>
+      <Show when={query()?.viewer} fallback={<p>You're not signed in.</p>}>
         {(viewer) => (
           <p>
             {viewer().name}

@@ -21,18 +21,28 @@ import {
   RecordSource,
   Store,
 } from "relay-runtime";
+import { getRequestEvent } from "solid-js/web";
+
+import { readSessionCookie } from "./routes/session.ts";
 
 // oxlint-disable no-async-await
 const fetchFn: FetchFunction = async (params, variables) => {
+  const event = getRequestEvent();
+  const accessToken = readSessionCookie(event?.request);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (accessToken !== undefined) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
   const response = await fetch(import.meta.env.VITE_DRFED_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
       query: params.text,
       variables,
     }),
+    credentials: "include"
   });
 
   // oxlint-disable return-await no-unsafe-return

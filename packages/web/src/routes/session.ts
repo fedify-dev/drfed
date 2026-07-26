@@ -16,6 +16,9 @@
 
 import type { APIEvent } from "@solidjs/start/server";
 
+const SESSION_COOKIE = "session";
+const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
 // Note: setCookie(nativeEvent, ...) from @solidjs/start/http is intentionally
 // NOT used here. In @solidjs/start 2.0.0-alpha.2, that function produces a
 // malformed Set-Cookie header in both "use server" RPCs and POST API route
@@ -41,8 +44,11 @@ export async function POST({ request }: APIEvent) {
       ? body.expires
       : undefined;
 
-  // FIXME: Accesstoken validation
   if (accessToken == undefined || expiresValue == undefined) {
+    return new Response(undefined, { status: 400 });
+  }
+
+  if (!ACCESS_TOKEN_PATTERN.test(accessToken)) {
     return new Response(undefined, { status: 400 });
   }
 
@@ -59,7 +65,7 @@ export async function POST({ request }: APIEvent) {
   }
 
   const cookie = [
-    `session=${encodeURIComponent(accessToken)}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(accessToken)}`,
     "HttpOnly",
     "Path=/",
     "SameSite=Lax",
@@ -71,4 +77,35 @@ export async function POST({ request }: APIEvent) {
     status: 204,
     headers: { "Set-Cookie": cookie },
   });
+}
+
+export function readSessionCookie(
+  request: Request | undefined,
+): string | undefined {
+  const cookieHeader = request?.headers.get("cookie");
+
+  if (cookieHeader == undefined || cookieHeader == "") {
+    return undefined;
+  }
+  for (const part of cookieHeader.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) {
+      continue;
+    }
+    if (part.slice(0, eq).trim() !== SESSION_COOKIE) {
+      continue;
+    }
+    const raw = part.slice(eq + 1).trim();
+    if (raw === "") {
+      return undefined;
+    }
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return undefined;
+    }
+    return ACCESS_TOKEN_PATTERN.test(decoded) ? decoded : undefined;
+  }
+  return undefined;
 }
