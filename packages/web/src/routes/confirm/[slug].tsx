@@ -15,57 +15,94 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { useParams, useSearchParams } from "@solidjs/router";
-import { setCookie } from "@solidjs/start/http";
 import { graphql } from "relay-runtime";
-import { Show, onMount } from "solid-js";
+import { Show, createSignal, onMount } from "solid-js";
 import { createMutation } from "solid-relay";
 
 import type { CompleteLoginChallenge } from "./__generated__/CompleteLoginChallenge.graphql";
 
-const CompleteLoginChallenge = graphql`
+const signCompleteMutation = graphql`
   mutation CompleteLoginChallenge($token: UUID!, $code: String!) {
     completeLoginChallenge(token: $token, code: $code) {
       accessToken
+      expires
     }
   }
 `;
 
 export default function ConfirmPage() {
   const params = useParams<{ slug: string }>();
-  const [searchParams] = useSearchParams<{ code: string }>();
-  const [completeLogin, isPending] = createMutation<CompleteLoginChallenge>(
-    CompleteLoginChallenge,
-  );
+  const [searchParams] = useSearchParams<{ code?: string }>();
+  const [complete] =
+    createMutation<CompleteLoginChallenge>(signCompleteMutation);
+  const [result, setResult] = createSignal<{
+    message: string;
+    status: "error" | "success";
+  }>();
+
+  function showSessionError() {
+    setResult({
+      message: "Unable to save a session",
+      status: "error",
+    });
+  }
 
   onMount(() => {
-    const { slug: token } = params;
     const { code } = searchParams;
+    const { slug: token } = params;
 
-    if (
-      typeof token !== "string" ||
-      token === "" ||
-      typeof code !== "string" ||
-      code === ""
-    ) {
+    if (token === "" || code == undefined || code === "") {
       return;
     }
 
-    completeLogin({
-      variables: { token, code },
-      onCompleted(data) {
-        const accessToken = data.completeLoginChallenge?.accessToken;
+    async function saveSession(accessToken: string, expires: string) {
+      try {
+        const response = await fetch("/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accessToken,
+            expires,
+          }),
+        });
 
-        if (accessToken == undefined) {
+        if (!response.ok) {
+          showSessionError();
           return;
         }
-        setCookie("accessToken", accessToken, { path: "/" });
+        // Redirect to the home page
+        globalThis.location.assign("/");
+      } catch {
+        showSessionError();
+      }
+    }
+
+    complete({
+      variables: { token, code },
+      onCompleted(data) {
+        const session = data.completeLoginChallenge;
+        if (
+          session?.accessToken == undefined ||
+          typeof session.expires !== "string"
+        ) {
+          setResult({
+            message: "The sign-in link is invalid or expired.",
+            status: "error",
+          });
+          return;
+        }
+
+        void saveSession(session.accessToken, session.expires);
+      },
+      onError: (error) => {
+        setResult({ message: error.message, status: "error" });
       },
     });
   });
 
   return (
-    <Show when={!isPending()} fallback={<div>확인 중입니다...</div>}>
-      <div>완료완료</div>
+    <Show when={result()}>
+      {(value) => <output class={value().status}>{value().message}</output>}
     </Show>
   );
 }
