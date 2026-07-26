@@ -17,8 +17,24 @@ auto = true
 [hooks]
 postinstall = ["mise deps", "mise generate git-pre-commit --task check --write"]
 
+[tasks.build]
+description = "Build the project"
+depends = ["build:web"]
+silent = "stdout"
+
+[tasks."build:server"]
+description = "Build the project except web"
+run = "pnpm --parallel -F @drfed/graphql -F @drfed/models -F @drfed/drfed build"
+silent = "stdout"
+
 [tasks."build:web"]
 description = "Build SolidStart frontend server"
+depends = [
+  { task = "generate:graphql-schema", args = [
+    "--output-file",
+    "packages/web/schema.graphql",
+  ] },
+]
 dir = "./packages/web"
 run = "pnpm run build"
 
@@ -77,11 +93,6 @@ run = """
 node scripts/add-license/main.mts
 """
 
-[tasks.build]
-description = "Build the project"
-run = "pnpm run --parallel --recursive build"
-silent = "stdout"
-
 [tasks.test]
 description = "Run tests"
 depends = ["build"]
@@ -130,7 +141,7 @@ description = "Generate GraphQL schema"
 usage = """
 flag "-o --output-file <file>" help="The output file for the generated GraphQL schema.  - for stdout.  Defaults to -"
 """
-depends = ["build"]
+depends = ["build:server"]
 run = """
 #!/usr/bin/env nu
 let output_file = (if "usage_output_file" in $env { $env.usage_output_file } else { "-" })
