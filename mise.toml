@@ -36,7 +36,7 @@ depends = [
   ] },
 ]
 dir = "./packages/web"
-run = "pnpm run build"
+run = "pnpm exec relay-compiler --noWatchman && pnpm run build"
 
 [tasks.check]
 description = "Check all"
