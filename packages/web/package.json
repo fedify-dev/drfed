@@ -59,6 +59,7 @@
     "@types/relay-runtime": "^20.1.1",
     "eslint-plugin-solid": "^0.14.5",
     "relay-compiler": "^21.0.1",
+    "typescript": "catalog:",
     "vite-plugin-cjs-interop": "^4.0.3",
     "vite-plugin-relay-lite": "^0.12.0"
   }

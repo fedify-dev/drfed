@@ -1,0 +1,7 @@
+{
+  "extends": "./packages/graphql/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./packages/graphql/node_modules/@types"]
+  },
+  "include": ["packages/graphql/src/**/*.ts"]
+}

@@ -1,0 +1,7 @@
+{
+  "extends": "./packages/drfed/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./packages/drfed/node_modules/@types"]
+  },
+  "include": ["packages/drfed/src/**/*.ts"]
+}

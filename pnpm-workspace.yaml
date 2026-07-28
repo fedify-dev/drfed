@@ -23,8 +23,8 @@ catalog:
   drizzle-orm: 1.0.0-beta.22
   graphql: ^16.14.2
   pg: ^8.21.0
-  tsdown: ^0.22.3
-  typescript: ^6.0.3
+  tsdown: ^0.22.14
+  typescript: ^7.0.2
   uuid: ^14.0.1
 
 minimumReleaseAgeExclude:

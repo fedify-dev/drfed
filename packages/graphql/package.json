@@ -76,7 +76,8 @@
       "src/schema.ts"
     ],
     "dts": {
-      "sourcemap": true
+      "sourcemap": true,
+      "tsconfig": "../../tsconfig.graphql.json"
     },
     "sourcemap": true
   },

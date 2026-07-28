@@ -4,7 +4,6 @@ min_version = "2026.6.10"
 "aqua:dahlia/hongdown" = "0.4.3"
 "github:nushell/nushell" = "0.114.1"
 node = "26"
-"npm:@typescript/native-preview" = "7.0.0-dev.20260620.1"
 "npm:oxlint" = "1.75.0"
 "npm:oxlint-tsgolint" = "7.0.2001"
 "npm:pglite-cli" = "0.0.1"
@@ -44,7 +43,7 @@ depends = ["check:*"]
 
 [tasks."check:types"]
 description = "Check TypeScript types"
-run = "pnpm --recursive exec tsgo --noEmit"
+run = "pnpm --recursive exec tsc --noEmit"
 
 [tasks."check:lint"]
 description = "Check linting"

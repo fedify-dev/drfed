@@ -82,7 +82,8 @@
       "src/schema.ts"
     ],
     "dts": {
-      "sourcemap": true
+      "sourcemap": true,
+      "tsconfig": "../../tsconfig.models.json"
     },
     "sourcemap": true
   },
