@@ -35,23 +35,17 @@ export default function Home() {
 
   return (
     <main>
-      <Title>Hello World</Title>
-      <h1>Hello world!</h1>
+      <Title>Home</Title>
       <Show when={query()?.viewer} fallback={<p>You're not signed in.</p>}>
-        {(viewer) => (
-          <p>
-            {viewer().name}
-            {viewer().admin ? " (관리자)" : ""}
-          </p>
-        )}
+        {(viewer) => <h3>{viewer().name}</h3>}
       </Show>
 
       <p>
         Visit{" "}
-        <a href="https://start.solidjs.com" target="_blank">
-          start.solidjs.com
-        </a>{" "}
-        to learn how to build SolidStart apps.
+        <a href="https://drfed.org" target="_blank">
+          DrFed
+        </a>
+        : A web-based platform for developing and debugging ActivityPub apps
       </p>
     </main>
   );

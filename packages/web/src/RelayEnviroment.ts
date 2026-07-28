@@ -42,7 +42,7 @@ const fetchFn: FetchFunction = async (params, variables) => {
       query: params.text,
       variables,
     }),
-    credentials: "include"
+    credentials: "include",
   });
 
   // oxlint-disable return-await no-unsafe-return

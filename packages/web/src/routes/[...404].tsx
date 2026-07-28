@@ -25,10 +25,10 @@ export default function NotFound() {
       <h1>Page Not Found</h1>
       <p>
         Visit{" "}
-        <a href="https://start.solidjs.com" target="_blank">
-          start.solidjs.com
-        </a>{" "}
-        to learn how to build SolidStart apps.
+        <a href="https://drfed.org" target="_blank">
+          DrFed
+        </a>
+        : A web-based platform for developing and debugging ActivityPub apps
       </p>
     </main>
   );

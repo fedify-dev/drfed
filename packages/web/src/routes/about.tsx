@@ -20,7 +20,13 @@ export default function About() {
   return (
     <main>
       <Title>About</Title>
-      <h1>About</h1>
+      <p>
+        Visit{" "}
+        <a href="https://drfed.org" target="_blank">
+          DrFed
+        </a>
+        : A web-based platform for developing and debugging ActivityPub apps
+      </p>
     </main>
   );
 }
