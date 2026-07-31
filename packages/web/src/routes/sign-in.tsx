@@ -22,6 +22,8 @@ import { getRequestEvent } from "solid-js/web";
 
 import { createRelayEnvironment } from "~/RelayEnviroment";
 
+import "./sign-in.css";
+
 const signInMutation = graphql`
   mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
     loginByEmail(email: $email, verifyUrl: $verifyUrl) {
