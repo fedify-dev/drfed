@@ -1,0 +1,152 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.auth-page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100svh - var(--header-h) - clamp(4rem, 10vw, 8rem));
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-panel {
+  max-width: 28rem;
+  padding: clamp(1.5rem, 4vw, 2rem);
+  width: 100%;
+}
+
+.panel-header {
+  border-bottom: 1px solid var(--line);
+  margin: 0 calc(clamp(1.5rem, 4vw, 2rem) * -1) 1.5rem;
+  padding: 0 clamp(1.5rem, 4vw, 2rem) 1.5rem;
+}
+
+.panel-header h1 {
+  font-size: 1.65rem;
+  margin: 0 0 0.5rem;
+}
+
+.panel-header p {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.auth-panel form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  font-size: 0.9rem;
+  font-weight: 650;
+  gap: 0.75rem;
+}
+
+.field input {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.field input::placeholder {
+  color: var(--ink-faint);
+}
+
+.field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  outline: none;
+}
+
+.button {
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 2.9rem;
+  padding: 0.75rem 1.1rem;
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.notice {
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  line-height: 1.5;
+  margin: 1.25rem 0 0;
+  padding: 0.85rem 1rem;
+}
+
+.notice.error {
+  border-left: 3px solid var(--danger);
+}
+
+.notice.success {
+  border-left: 3px solid var(--accent);
+}
+
+@media (max-width: 600px) {
+  .auth-page {
+    align-items: flex-start;
+    min-height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button.primary,
+  .field input {
+    transition: none;
+  }
+}
