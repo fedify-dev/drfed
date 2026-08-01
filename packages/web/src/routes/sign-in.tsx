@@ -20,7 +20,7 @@ import { commitMutation, graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { getRequestEvent } from "solid-js/web";
 
-import { createRelayEnvironment } from "~/RelayEnviroment";
+import { createRelayEnvironment } from "~/RelayEnvironment";
 
 import "./sign-in.css";
 
