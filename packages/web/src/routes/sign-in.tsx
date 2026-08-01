@@ -99,10 +99,13 @@ export default function SignInPage() {
   };
 
   return (
-    <main class="auth-page">
+    <main class="auth-page form-page">
       <Title>Sign in — DrFed</Title>
 
-      <section class="panel auth-panel" aria-labelledby="sign-in-title">
+      <section
+        class="panel auth-panel form-panel"
+        aria-labelledby="sign-in-title"
+      >
         <header class="panel-header">
           <h1 id="sign-in-title">Sign in</h1>
           <p>Enter your email address to receive a secure sign-in link.</p>
@@ -110,7 +113,10 @@ export default function SignInPage() {
 
         <form action={signInAction} method="post">
           <label class="field">
-            Email address
+            <span class="field-heading">
+              Email address
+              <span class="field-status required">Required</span>
+            </span>
             <input
               name="email"
               type="email"

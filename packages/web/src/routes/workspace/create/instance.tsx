@@ -33,6 +33,7 @@ import { faker } from "@faker-js/faker";
 import { Title } from "@solidjs/meta";
 import { action, redirect, useSubmission } from "@solidjs/router";
 import { commitMutation, graphql } from "relay-runtime";
+import { Show } from "solid-js";
 import { getRequestEvent } from "solid-js/web";
 
 import { createRelayEnvironment } from "~/RelayEnvironment";
@@ -131,44 +132,54 @@ export default function CreateInstancePage() {
 
   const buttonLabel = () => {
     if (createInstanceSubmission.pending === true) {
-      return "Making an instance";
+      return "Creating instance…";
     }
-    return "Done.";
+    return "Create instance";
   };
 
   return (
-    <main class="create-page">
-      <Title>Create An Instance — DrFed</Title>
+    <main class="create-page form-page">
+      <Title>Create an instance — DrFed</Title>
 
       <section
-        class="panel create-panel"
+        class="panel create-panel form-panel"
         aria-labelledby="create-instance-title"
       >
         <header class="panel-header">
-          <h1 id="create-instance-title">Create Instance</h1>
-          <p>Enter your instance name.</p>
+          <h1 id="create-instance-title">Create an instance</h1>
+          <p>Name your new ActivityPub testing environment.</p>
         </header>
 
         <form action={createInstanceAction} method="post">
           <label class="field">
-            Name
+            <span class="field-heading">
+              Name
+              <span class="field-status required">Required</span>
+            </span>
             <input
               name="name"
               type="text"
-              inputmode="text"
-              placeholder="Your Instance Name"
+              autocomplete="off"
+              placeholder="My test instance"
               required
             />
           </label>
           <label class="field">
-            Slug
+            <span class="field-heading">
+              Slug
+              <span class="field-status">Generated · Read only</span>
+            </span>
             <input
               name="slug"
               type="text"
               value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
+              aria-describedby="slug-hint"
               readOnly
-              required
             />
+            <span id="slug-hint" class="field-hint">
+              DrFed generates this identifier automatically. It cannot be
+              edited.
+            </span>
           </label>
           <button
             class="button primary"
@@ -178,6 +189,14 @@ export default function CreateInstancePage() {
             {buttonLabel()}
           </button>
         </form>
+
+        <Show when={createInstanceSubmission.result?.status === "error"}>
+          <p class="notice error" role="alert">
+            {createInstanceSubmission.result?.status === "error"
+              ? createInstanceSubmission.result.message
+              : ""}
+          </p>
+        </Show>
       </section>
     </main>
   );
