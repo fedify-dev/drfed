@@ -15,11 +15,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Title } from "@solidjs/meta";
-import { graphql } from "relay-runtime";
-import { type JSX, Show, createSignal } from "solid-js";
-import { createMutation } from "solid-relay";
+import { action, useSubmission } from "@solidjs/router";
+import { commitMutation, graphql } from "relay-runtime";
+import { Show } from "solid-js";
+import { getRequestEvent } from "solid-js/web";
 
-import type { SignInMutation } from "./__generated__/SignInMutation.graphql";
+import { createRelayEnvironment } from "~/RelayEnvironment";
+
+import "./sign-in.css";
 
 const signInMutation = graphql`
   mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
@@ -29,64 +32,91 @@ const signInMutation = graphql`
   }
 `;
 
+interface SignInResult {
+  message: string;
+  status: "error" | "success";
+}
+
+const signInAction = action(async (formData: FormData) => {
+  "use server";
+
+  const email = formData.get("email");
+  if (typeof email !== "string" || email === "") {
+    return {
+      message: "Enter a valid email address.",
+      status: "error",
+    } satisfies SignInResult;
+  }
+
+  const request = getRequestEvent()?.request;
+  if (request === undefined) {
+    return {
+      message: "Unable to determine the application URL.",
+      status: "error",
+    } satisfies SignInResult;
+  }
+
+  const environment = createRelayEnvironment();
+  const verifyUrl = new URL("/confirm/{token}?code={code}", request.url).href;
+
+  const result = await new Promise<SignInResult>((resolve) => {
+    commitMutation(environment, {
+      mutation: signInMutation,
+      variables: { email, verifyUrl },
+      onCompleted: (_response, errors) => {
+        const errorMessage = errors?.map((e) => e.message).join("\n");
+
+        resolve({
+          message:
+            errorMessage ??
+            "Check your inbox for a secure sign-in link. You can close this page.",
+          status: errorMessage === undefined ? "success" : "error",
+        });
+      },
+      onError: (error) => {
+        resolve({
+          message: error.message,
+          status: "error",
+        });
+      },
+    });
+  });
+
+  return result;
+}, "sign-in");
+
 export default function SignInPage() {
-  const [signIn, isPending] = createMutation<SignInMutation>(signInMutation);
-  const [result, setResult] = createSignal<{
-    message: string;
-    status: "error" | "success";
-  }>();
+  const signInSubmission = useSubmission(signInAction);
+
   const buttonLabel = () => {
-    if (isPending()) {
+    if (signInSubmission.pending === true) {
       return "Sending link…";
     }
-    if (result()?.status === "success") {
+    if (signInSubmission.result?.status === "success") {
       return "Resend sign-in link";
     }
     return "Send sign-in link";
   };
 
-  const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = (e) => {
-    e.preventDefault();
-    const email = new FormData(e.currentTarget).get("email");
-    if (typeof email !== "string" || email === "") {
-      return;
-    }
-
-    setResult();
-    signIn({
-      variables: {
-        email,
-        verifyUrl: `${globalThis.location.origin}/confirm/{token}?code={code}`,
-      },
-      onCompleted: (_response, errors) => {
-        const [error] = errors ?? [];
-
-        setResult({
-          message:
-            error?.message ??
-            "Check your inbox for a secure sign-in link. You can close this page.",
-          status: error === undefined ? "success" : "error",
-        });
-      },
-      onError: (error) => {
-        setResult({ message: error.message, status: "error" });
-      },
-    });
-  };
-
   return (
-    <main class="auth-page">
+    <main class="auth-page form-page">
       <Title>Sign in — DrFed</Title>
 
-      <section class="panel auth-panel" aria-labelledby="sign-in-title">
+      <section
+        class="panel auth-panel form-panel"
+        aria-labelledby="sign-in-title"
+      >
         <header class="panel-header">
           <h1 id="sign-in-title">Sign in</h1>
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-        <form onSubmit={handleSubmit}>
+        <form action={signInAction} method="post">
           <label class="field">
-            Email address
+            <span class="field-heading">
+              Email address
+              <span class="field-status required">Required</span>
+            </span>
             <input
               name="email"
               type="email"
@@ -96,12 +126,16 @@ export default function SignInPage() {
               required
             />
           </label>
-          <button class="button primary" type="submit" disabled={isPending()}>
+          <button
+            class="button primary"
+            type="submit"
+            disabled={signInSubmission.pending}
+          >
             {buttonLabel()}
           </button>
         </form>
 
-        <Show when={result()}>
+        <Show when={signInSubmission.result}>
           {(formResult) => (
             <p
               class={`notice ${formResult().status}`}

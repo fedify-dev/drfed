@@ -121,8 +121,7 @@ input {
   border-color: var(--accent-soft);
 }
 
-.app-header a:focus-visible,
-.button:focus-visible {
+.app-header a:focus-visible {
   outline: 3px solid var(--accent-soft);
   outline-offset: 0.2rem;
 }
@@ -134,11 +133,11 @@ input {
   padding: clamp(2rem, 5vw, 4rem) var(--gutter);
 }
 
-.app-content > main:not(.auth-page) {
+.app-content > main:not(.form-page) {
   width: 100%;
 }
 
-.app-content > main:not(.auth-page) :is(h1, h2, p) {
+.app-content > main:not(.form-page) :is(h1, h2, p) {
   margin-top: 0;
 }
 
@@ -158,7 +157,7 @@ input {
   line-height: var(--leading-body);
 }
 
-.auth-page {
+.form-page {
   align-items: center;
   display: flex;
   justify-content: center;
@@ -172,7 +171,7 @@ input {
   box-shadow: var(--shadow-sm);
 }
 
-.auth-panel {
+.form-panel {
   max-width: 28rem;
   padding: clamp(1.5rem, 4vw, 2rem);
   width: 100%;
@@ -194,16 +193,35 @@ input {
   margin: 0;
 }
 
-.auth-panel form {
+.form-panel form {
   display: grid;
   gap: 1rem;
 }
 
 .field {
   display: grid;
+  gap: 0.5rem;
+}
+
+.field-heading {
+  align-items: baseline;
+  display: flex;
   font-size: 0.9rem;
   font-weight: 650;
-  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.field-status {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.field-status.required {
+  color: var(--accent-strong);
 }
 
 .field input {
@@ -228,6 +246,20 @@ input {
   outline: none;
 }
 
+.field input:read-only {
+  border-style: dashed;
+  color: var(--ink-soft);
+  cursor: default;
+  font-family: var(--font-mono);
+}
+
+.field-hint {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .button {
   align-items: center;
   border: 0;
@@ -238,6 +270,11 @@ input {
   justify-content: center;
   min-height: 2.9rem;
   padding: 0.75rem 1.1rem;
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
 }
 
 .button.primary {
@@ -270,10 +307,6 @@ input {
   border-left: 3px solid var(--danger);
 }
 
-.notice.success {
-  border-left: 3px solid var(--accent);
-}
-
 @media (max-width: 600px) {
   .app-header-inner {
     padding: 0 1rem;
@@ -301,7 +334,7 @@ input {
     padding: 1.5rem 1rem 3rem;
   }
 
-  .auth-page {
+  .form-page {
     align-items: flex-start;
     min-height: auto;
   }

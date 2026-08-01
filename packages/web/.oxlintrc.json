@@ -30,6 +30,7 @@
     "typescript/strict-void-return": "off",
     "typescript/no-non-null-assertion": "off",
     "unicorn/filename-case": "off",
-    "unicorn/prefer-query-selector": "off"
+    "unicorn/prefer-query-selector": "off",
+    "promise/avoid-new": "off"
   }
 }
