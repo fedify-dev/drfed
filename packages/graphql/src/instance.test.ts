@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 
 import { type Database, schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
+import { DrizzleQueryError } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 
@@ -31,8 +32,25 @@ const accountId = "00000000-0000-4000-8000-000000000001";
 const memberId = "00000000-0000-4000-8000-000000000002";
 const pendingMemberId = "00000000-0000-4000-8000-000000000003";
 const instanceId = "00000000-0000-4000-8000-000000000101";
+const duplicateRemoteInstanceId = "00000000-0000-4000-8000-000000000102";
 const sessionId = "00000000-0000-4000-8000-000000000201";
 const accessToken = "test-access-token";
+
+const remoteInstanceQuery = `
+  query RemoteInstance($uuid: UUID!) {
+    accountByUuid(uuid: $uuid) {
+      instances {
+        edges {
+          node {
+            uuid
+            location
+            host
+          }
+        }
+      }
+    }
+  }
+`;
 
 const instanceMembersQuery = `
   query InstanceMembers($uuid: UUID!) {
@@ -122,7 +140,8 @@ const createInstanceMutation = `
       __typename
       ... on Instance {
         uuid
-        slug
+        location
+        host
       }
       ... on CreateInstanceError {
         type
@@ -146,7 +165,8 @@ describe("Mutation.createInstance", () => {
       const body = await response.json();
       assert.equal(body.errors, undefined);
       assert.equal(body.data.createInstance.__typename, "Instance");
-      assert.equal(body.data.createInstance.slug, "my-instance");
+      assert.equal(body.data.createInstance.location, "Local");
+      assert.equal(body.data.createInstance.host, "my-instance.drfed.org");
       assert.equal(typeof body.data.createInstance.uuid, "string");
 
       const instances = await db.select().from(schema.instances);
@@ -154,7 +174,7 @@ describe("Mutation.createInstance", () => {
       const instance = instances[0]!;
       assert.equal(instance.location, "Local");
       const local = await db.query.localInstances.findFirst({
-        where: instance,
+        where: { id: instance.id },
       });
       assert.equal(local?.slug, "my-instance");
 
@@ -227,6 +247,61 @@ describe("Mutation.createInstance", () => {
 
       const instances = await db.select().from(schema.instances);
       assert.equal(instances.length, 1);
+    });
+  });
+});
+
+describe("Remote instance", () => {
+  it("returns a created remote instance", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedRemoteInstance(db);
+
+      const response = await post({
+        query: remoteInstanceQuery,
+        variables: { uuid: accountId },
+      });
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          accountByUuid: {
+            instances: {
+              edges: [
+                {
+                  node: {
+                    uuid: instanceId,
+                    location: "Remote",
+                    host: "remote.example.com",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("requires a unique host", async () => {
+    await withTestHarness(async ({ db }) => {
+      await seedRemoteInstance(db);
+      await db.insert(schema.instances).values({
+        id: duplicateRemoteInstanceId,
+        location: "Remote",
+        created,
+      });
+
+      await assert.rejects(
+        db.insert(schema.remoteInstances).values({
+          id: duplicateRemoteInstanceId,
+          host: "remote.example.com",
+        }),
+        (error: unknown) =>
+          error instanceof DrizzleQueryError &&
+          error.cause != null &&
+          "constraint" in error.cause &&
+          error.cause.constraint === "remote_instances_host_key",
+      );
     });
   });
 });
@@ -330,4 +405,28 @@ async function seedInstanceMembers(db: Database): Promise<void> {
       created,
     },
   ]);
+}
+
+async function seedRemoteInstance(db: Database): Promise<void> {
+  await db.insert(schema.accounts).values({
+    id: accountId,
+    email: "owner@example.com",
+    name: "Owner",
+    created,
+  });
+  await db.insert(schema.instances).values({
+    id: instanceId,
+    location: "Remote",
+    created,
+  });
+  await db.insert(schema.remoteInstances).values({
+    id: instanceId,
+    host: "remote.example.com",
+  });
+  await db.insert(schema.instanceMembers).values({
+    accountId,
+    instanceId,
+    accepted,
+    created,
+  });
 }
