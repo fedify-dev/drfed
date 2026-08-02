@@ -72,6 +72,26 @@ export const relations = defineRelations(schema, (r) => ({
         accepted: { isNotNull: true },
       },
     }),
+    localInstances: r.one.localInstances({
+      from: r.instances.id,
+      to: r.localInstances.id,
+    }),
+    remoteInstances: r.one.remoteInstances({
+      from: r.instances.id,
+      to: r.remoteInstances.id,
+    }),
+  },
+  localInstance: {
+    instances: r.one.instances({
+      from: r.localInstances.id,
+      to: r.instances.id,
+    }),
+  },
+  remoteInstance: {
+    instances: r.one.instances({
+      from: r.remoteInstances.id,
+      to: r.instances.id,
+    }),
   },
   sessions: {
     account: r.one.accounts({
