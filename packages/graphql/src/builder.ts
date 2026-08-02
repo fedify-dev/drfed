@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { type Database, normalizeEmail, relations } from "@drfed/models";
-import type { Account, Session } from "@drfed/models/schema";
+import { type Account, type Session } from "@drfed/models/schema";
 import { Template } from "@fedify/uri-template";
 import SchemaBuilder, { type ObjectRef } from "@pothos/core";
 import DrizzlePlugin from "@pothos/plugin-drizzle";
@@ -56,6 +56,11 @@ export interface ServerContext {
    * Origin list.
    */
   readonly origins: ReadonlySet<string>;
+
+  /**
+   * Root domain.
+   */
+  readonly root: string;
 }
 
 /**

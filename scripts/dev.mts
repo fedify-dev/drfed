@@ -306,6 +306,7 @@ try {
     "../../.pgdata",
     "--listen=0.0.0.0:8888",
     "--log-format=color",
+    "--root-domain=drfed.org",
   ];
 
   const logLevel = process.env.usage_log_level;

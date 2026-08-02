@@ -44,8 +44,8 @@ async function runServer(options: ServerOptions) {
   if (options.seed) {
     await seedData(options.drizzle.db);
   }
-  const { mailer } = options;
-  const yogaServer = createYogaServer(options.drizzle.db, { mailer });
+  const { mailer, root } = options;
+  const yogaServer = createYogaServer(options.drizzle.db, { root, mailer });
   const server = serve({
     fetch: yogaServer.fetch.bind(yogaServer),
     hostname: options.address.host,

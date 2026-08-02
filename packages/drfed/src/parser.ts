@@ -22,7 +22,7 @@ import { message, optionNames } from "@optique/core/message";
 import { map, optional, withDefault } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { flag, option } from "@optique/core/primitives";
-import { socketAddress, url } from "@optique/core/valueparser";
+import { domain, socketAddress, url } from "@optique/core/valueparser";
 import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
 import { LogTapeTransport } from "@upyo/logtape";
@@ -105,6 +105,12 @@ const seedParser = option("--dev-seed", {
   hidden: true,
 });
 
+const rootParser = optional(
+  option("--root-domain", "-r", domain({ lowercase: true }), {
+    description: message`The root domain of host.`,
+  }),
+);
+
 const serverParser = object("DrFed server", {
   address: withDefault(
     option("--listen", "-l", socketAddress({ requirePort: true }), {
@@ -126,6 +132,7 @@ const serverParser = object("DrFed server", {
       ),
     }),
   ),
+  root: rootParser,
   mailer: smtpParser,
   seed: seedParser,
 });
