@@ -68,6 +68,7 @@
     "import/prefer-default-export": "off",
     "jsdoc/require-param-type": "off",
     "jsdoc/require-returns-type": "off",
+    "node/no-top-level-await": "off",
     "promise/avoid-new": "warn"
   },
   "overrides": [
