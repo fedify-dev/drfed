@@ -40,10 +40,28 @@ const InstanceRef = builder.drizzleNode("instances", {
       type: "UUID",
       description: "The UUID of the `Instance`.",
     }),
-    slug: t.exposeString("slug"),
-    expires: t.expose("expires", {
-      type: "DateTime",
-      description: "The expiration date/time of the `Instance`.",
+    location: t.expose("location", {
+      type: "Location",
+      description: 'The location of the `Instance`: "Local" | "Remote"',
+    }),
+    host: t.string({
+      async resolve({ id, location }, _, { db, root }) {
+        if (location === "Local") {
+          const ins = await db.query.localInstances.findFirst({
+            columns: { slug: true },
+            where: { id },
+          });
+          if (ins == null) throwUncontested(id);
+          return `${ins.slug}.${root}`;
+        }
+        const ins = await db.query.remoteInstances.findFirst({
+          columns: { host: true },
+          where: { id },
+        });
+        if (ins == null) throwUncontested(id);
+        return ins.host;
+      },
+      description: "The host of the `Instance`.",
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -51,6 +69,10 @@ const InstanceRef = builder.drizzleNode("instances", {
     }),
   }),
 });
+
+function throwUncontested(id: string): never {
+  throw new Error(`DB consistency is broken.: ${id}`);
+}
 
 export const Instance: DrFedObjectRef = InstanceRef;
 
@@ -218,15 +240,10 @@ builder.mutationFields((t) => ({
       let tooManyInstances = false;
       try {
         return await ctx.db.transaction(async (tx) => {
+          const id = uuid();
           const [instance] = await tx
             .insert(schema.instances)
-            .values({
-              id: uuid(),
-              slug,
-              expires: new Date(
-                Temporal.Now.instant().add({ hours: 8750 }).toString(),
-              ),
-            })
+            .values({ id, location: "Local" })
             .returning();
           if (instance == null) throw new Error("Failed to create instance.");
           await tx.insert(schema.instanceMembers).values({
@@ -241,6 +258,13 @@ builder.mutationFields((t) => ({
             tooManyInstances = true;
             tx.rollback();
           }
+          tx.insert(schema.localInstances).values({
+            id,
+            slug,
+            expires: new Date(
+              Temporal.Now.instant().add({ hours: YEAR_BY_HOURS }).toString(),
+            ),
+          });
           return instance;
         });
       } catch (e) {
@@ -266,3 +290,5 @@ builder.mutationFields((t) => ({
     },
   }),
 }));
+
+const YEAR_BY_HOURS = 8760;

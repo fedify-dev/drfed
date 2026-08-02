@@ -151,7 +151,12 @@ describe("Mutation.createInstance", () => {
 
       const instances = await db.select().from(schema.instances);
       assert.equal(instances.length, 1);
-      assert.equal(instances[0]?.slug, "my-instance");
+      const instance = instances[0]!;
+      assert.equal(instance.location, "Local");
+      const local = await db.query.localInstances.findFirst({
+        where: instance,
+      });
+      assert.equal(local?.slug, "my-instance");
 
       const members = await db.select().from(schema.instanceMembers);
       assert.equal(members.length, 1);
@@ -294,8 +299,12 @@ async function seedInstanceMembers(db: Database): Promise<void> {
   ]);
   await db.insert(schema.instances).values({
     id: instanceId,
-    slug: "test-instance",
+    location: "Local",
     created,
+  });
+  await db.insert(schema.localInstances).values({
+    id: instanceId,
+    slug: "test-instance",
     expires,
   });
   await db.insert(schema.instanceMembers).values([
