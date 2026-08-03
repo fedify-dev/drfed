@@ -23,6 +23,8 @@ import { v7 as uuid } from "uuid";
 
 // oxlint-disable-next-line import/no-cycle
 import { Account } from "./account.ts";
+// oxlint-disable-next-line import/no-cycle
+import { ACTOR_TYPES, Actor, ActorType } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
 
 const InstanceRef = builder.drizzleNode("instances", {
@@ -241,6 +243,72 @@ builder.queryFields((t) => ({
     },
   }),
 }));
+
+const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
+  query: { orderBy: { created: "desc" } },
+  select: (nestedSelection) => ({ with: { instance: nestedSelection() } }),
+  resolveNode: ({ instanceId }) => instanceId,
+});
+
+// oxlint-disable-next-line max-lines-per-function
+builder.drizzleObjectField(InstanceRef, "actors", (t) =>
+  t.connection(
+    {
+      type: Actor,
+      description: "The `Actor`s that belong to the `Instance`.",
+      select(args, ctx, nestedSelection) {
+        return {
+          with: {
+            actors: actorsConnection.getQuery(args, ctx, nestedSelection),
+          },
+        };
+      },
+      resolve(instance, args, ctx) {
+        return {
+          ...actorsConnection.resolve(instance.actors, args, ctx, instance),
+          totalCount() {
+            return ctx.db.$count(
+              schema.actors,
+              eq(schema.actors.instanceId, instance.id),
+            );
+          },
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          totalCount: fb.int({
+            description:
+              "The total number of `Actor`s that belong to the `Instance`." +
+              "Note that pending members are not counted.",
+            resolve(connection) {
+              return connection.totalCount();
+            },
+          }),
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          created: fb.expose("created", {
+            type: "DateTime",
+            description:
+              "The date/time when the `Account` was added to the `Instance`.",
+          }),
+          type: fb.expose("type", {
+            type: ActorType,
+            description: `The type of the \`Actor\`: ${ACTOR_TYPES}`,
+          }),
+          username: fb.exposeString("username", {
+            description: "The username of the `Actor`.",
+          }),
+        };
+      },
+    },
+  ),
+);
 
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",
