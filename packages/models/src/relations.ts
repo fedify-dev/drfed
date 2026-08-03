@@ -72,6 +72,7 @@ export const relations = defineRelations(schema, (r) => ({
         accepted: { isNotNull: true },
       },
     }),
+    actors: r.many.actors({ from: r.instances.id, to: r.actors.instanceId }),
     localInstance: r.one.localInstances({
       from: r.instances.localId,
       to: r.localInstances.id,
@@ -96,6 +97,27 @@ export const relations = defineRelations(schema, (r) => ({
       to: r.accounts.id,
       optional: false,
     }),
+  },
+  actors: {
+    instance: r.one.instances({
+      from: r.actors.instanceId,
+      to: r.instances.id,
+      optional: false,
+    }),
+    localActor: r.one.localActors({
+      from: r.actors.id,
+      to: r.localActors.id,
+    }),
+    remoteActor: r.one.remoteActors({
+      from: r.actors.id,
+      to: r.remoteActors.id,
+    }),
+  },
+  localActors: {
+    actor: r.one.actors({ from: r.localActors.id, to: r.actors.id }),
+  },
+  remoteActors: {
+    actor: r.one.actors({ from: r.remoteActors.id, to: r.actors.id }),
   },
 }));
 
