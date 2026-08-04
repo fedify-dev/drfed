@@ -25,6 +25,9 @@ export default defineConfig(({ command }) => ({
     solidStart(),
     nitro(),
     relay({ codegen: command !== "build" }),
-    cjsInterop({ dependencies: ["relay-runtime"] }),
+    {
+      ...cjsInterop({ dependencies: ["relay-runtime"] }),
+      applyToEnvironment: (environment) => environment.name === "ssr",
+    },
   ],
 }));
