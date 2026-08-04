@@ -326,6 +326,10 @@ builder.mutationFields((t) => ({
               schema.instances,
               eq(schema.instanceMembers.instanceId, schema.instances.id),
             )
+            .innerJoin(
+              schema.localInstances,
+              eq(schema.instances.id, schema.localInstances.id),
+            )
             .where(
               and(
                 eq(schema.instanceMembers.accountId, account.id),
