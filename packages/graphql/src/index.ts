@@ -47,6 +47,11 @@ export interface YogaServerOptions {
    * Origin list.
    */
   origins?: ReadonlySet<string>;
+
+  /**
+   * Root domain.
+   */
+  root?: string | undefined;
 }
 
 /**
@@ -104,6 +109,7 @@ const fillOptions = (opt: YogaServerOptions): Required<YogaServerOptions> => ({
       "http://localhost:5173",
       "http://0.0.0.0:5173",
     ]),
+  root: opt?.root ?? "drfed.org",
 });
 
 const getAccessToken = (headers: Headers) =>

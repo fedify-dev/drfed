@@ -79,7 +79,6 @@ const accountInstancesConnection = drizzleConnectionHelpers(
   },
 );
 
-// oxlint-disable-next-line max-lines-per-function
 builder.drizzleObjectField(AccountRef, "instances", (t) =>
   t.connection(
     {

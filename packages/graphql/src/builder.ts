@@ -56,6 +56,11 @@ export interface ServerContext {
    * Origin list.
    */
   readonly origins: ReadonlySet<string>;
+
+  /**
+   * Root domain.
+   */
+  readonly root: string;
 }
 
 /**

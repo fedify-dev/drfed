@@ -30,6 +30,7 @@
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/max-lines-per-function": "off",
+    "eslint/max-lines": "off",
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],
     "eslint/init-declarations": "off",
     "eslint/max-params": ["warn", { "max": 4 }],
@@ -68,6 +69,7 @@
     "import/prefer-default-export": "off",
     "jsdoc/require-param-type": "off",
     "jsdoc/require-returns-type": "off",
+    "node/no-top-level-await": "off",
     "promise/avoid-new": "warn"
   },
   "overrides": [

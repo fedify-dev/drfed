@@ -13,11 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { defineRelations } from "drizzle-orm";
 
 import * as schema from "./schema.ts";
 
-// oxlint-disable-next-line eslint/max-lines-per-function
 export const relations = defineRelations(schema, (r) => ({
   accounts: {
     instances: r.many.instances({
@@ -71,6 +71,26 @@ export const relations = defineRelations(schema, (r) => ({
       where: {
         accepted: { isNotNull: true },
       },
+    }),
+    localInstances: r.one.localInstances({
+      from: r.instances.id,
+      to: r.localInstances.id,
+    }),
+    remoteInstances: r.one.remoteInstances({
+      from: r.instances.id,
+      to: r.remoteInstances.id,
+    }),
+  },
+  localInstance: {
+    instances: r.one.instances({
+      from: r.localInstances.id,
+      to: r.instances.id,
+    }),
+  },
+  remoteInstance: {
+    instances: r.one.instances({
+      from: r.remoteInstances.id,
+      to: r.instances.id,
     }),
   },
   sessions: {

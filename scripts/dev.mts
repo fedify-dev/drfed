@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-// oxlint-disable no-console no-magic-numbers eslin/max-lines node/no-top-level-await
+// oxlint-disable no-console no-magic-numbers node/no-top-level-await
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
@@ -306,6 +306,7 @@ try {
     "../../.pgdata",
     "--listen=0.0.0.0:8888",
     "--log-format=color",
+    "--root-domain=drfed.org",
   ];
 
   const logLevel = process.env.usage_log_level;
