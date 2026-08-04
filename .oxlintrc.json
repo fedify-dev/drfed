@@ -50,6 +50,7 @@
       "error",
       { "allowSeparatedGroups": true, "ignoreDeclarationSort": true }
     ],
+    "oxc/no-rest-spread-properties": "off",
     "import/consistent-type-specifier-style": "off",
     "import/exports-last": "off",
     "import/group-exports": "off",
