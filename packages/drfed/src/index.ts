@@ -76,7 +76,6 @@ async function runSchemaGenerator(
   await writeFile(options.outputFile, schemaCode, { encoding: "utf-8" });
 }
 
-// oxlint-disable-next-line max-lines-per-function
 export async function main(): Promise<void> {
   const options: Options = run(program, {
     help: "option",

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-lines max-lines-per-function no-underscore-dangle
+// oxlint-disable no-underscore-dangle
 import assert from "node:assert/strict";
 
 import { type Database, schema } from "@drfed/models";
@@ -347,7 +347,6 @@ async function hashSecret(raw: string): Promise<string> {
   ).toHex();
 }
 
-// oxlint-disable-next-line max-lines-per-function
 async function seedInstanceMembers(db: Database): Promise<void> {
   await db.insert(schema.accounts).values([
     {

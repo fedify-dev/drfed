@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-lines-per-function max-statements no-magic-numbers
+// oxlint-disable max-statements no-magic-numbers
 
 import { deepEqual, equal, ok } from "node:assert/strict";
 

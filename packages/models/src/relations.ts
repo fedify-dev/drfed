@@ -13,11 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { defineRelations } from "drizzle-orm";
 
 import * as schema from "./schema.ts";
 
-// oxlint-disable-next-line eslint/max-lines-per-function
 export const relations = defineRelations(schema, (r) => ({
   accounts: {
     instances: r.many.instances({

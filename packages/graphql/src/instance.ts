@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-lines-per-function
 import { schema } from "@drfed/models";
 import { instanceMembers, locationEnum } from "@drfed/models/schema";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
@@ -103,7 +102,6 @@ const instanceMembersConnection = drizzleConnectionHelpers(
   },
 );
 
-// oxlint-disable-next-line max-lines-per-function
 builder.drizzleObjectField(InstanceRef, "members", (t) =>
   t.connection(
     {
