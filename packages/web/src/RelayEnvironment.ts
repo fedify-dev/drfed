@@ -35,7 +35,13 @@ const fetchFn: FetchFunction = async (params, variables) => {
   if (accessToken !== undefined) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
-  const response = await fetch(import.meta.env.VITE_DRFED_URL, {
+
+  const url = new URL(
+    "/graphql",
+    event?.request.url ?? globalThis.location.href,
+  );
+
+  const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({
