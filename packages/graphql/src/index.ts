@@ -101,8 +101,8 @@ const fillOptions = (opt: YogaServerOptions): Required<YogaServerOptions> => ({
     opt?.origins ??
     new Set([
       "https://drfed.org",
-      "http://localhost:5173",
-      "http://0.0.0.0:5173",
+      "http://localhost:3000",
+      "http://0.0.0.0:3000",
     ]),
 });
 
