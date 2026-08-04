@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-lines-per-function
 import { schema } from "@drfed/models";
-import { instanceMembers } from "@drfed/models/schema";
+import { instanceMembers, locationEnum } from "@drfed/models/schema";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { DrizzleQueryError } from "drizzle-orm";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
@@ -24,7 +23,13 @@ import { v7 as uuid } from "uuid";
 
 // oxlint-disable-next-line import/no-cycle
 import { Account } from "./account.ts";
+// oxlint-disable-next-line import/no-cycle
+import { ACTOR_TYPES, Actor, ActorType } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
+
+const Location = builder.enumType("Location", {
+  values: locationEnum.enumValues,
+});
 
 const InstanceRef = builder.drizzleNode("instances", {
   name: "Instance",
@@ -40,10 +45,28 @@ const InstanceRef = builder.drizzleNode("instances", {
       type: "UUID",
       description: "The UUID of the `Instance`.",
     }),
-    slug: t.exposeString("slug"),
-    expires: t.expose("expires", {
-      type: "DateTime",
-      description: "The expiration date/time of the `Instance`.",
+    location: t.expose("location", {
+      type: Location,
+      description: 'The location of the `Instance`: "Local" | "Remote"',
+    }),
+    host: t.string({
+      async resolve({ id, location }, _, { db, root }) {
+        if (location === "Local") {
+          const ins = await db.query.localInstances.findFirst({
+            columns: { slug: true },
+            where: { id },
+          });
+          if (ins == null) throwUncontested(id);
+          return `${ins.slug}.${root}`;
+        }
+        const ins = await db.query.remoteInstances.findFirst({
+          columns: { host: true },
+          where: { id },
+        });
+        if (ins == null) throwUncontested(id);
+        return ins.host;
+      },
+      description: "The host of the `Instance`.",
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -51,6 +74,10 @@ const InstanceRef = builder.drizzleNode("instances", {
     }),
   }),
 });
+
+function throwUncontested(id: string): never {
+  throw new Error(`DB consistency is broken.: ${id}`);
+}
 
 export const Instance: DrFedObjectRef = InstanceRef;
 
@@ -77,7 +104,6 @@ const instanceMembersConnection = drizzleConnectionHelpers(
   },
 );
 
-// oxlint-disable-next-line max-lines-per-function
 builder.drizzleObjectField(InstanceRef, "members", (t) =>
   t.connection(
     {
@@ -152,6 +178,72 @@ builder.drizzleObjectField(InstanceRef, "members", (t) =>
   ),
 );
 
+const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
+  query: { orderBy: { created: "desc" } },
+  select: (nestedSelection) => ({ with: { instance: nestedSelection() } }),
+  resolveNode: ({ instanceId }) => instanceId,
+});
+
+// oxlint-disable-next-line max-lines-per-function
+builder.drizzleObjectField(InstanceRef, "actors", (t) =>
+  t.connection(
+    {
+      type: Actor,
+      description: "The `Actor`s that belong to the `Instance`.",
+      select(args, ctx, nestedSelection) {
+        return {
+          with: {
+            actors: actorsConnection.getQuery(args, ctx, nestedSelection),
+          },
+        };
+      },
+      resolve(instance, args, ctx) {
+        return {
+          ...actorsConnection.resolve(instance.actors, args, ctx, instance),
+          totalCount() {
+            return ctx.db.$count(
+              schema.actors,
+              eq(schema.actors.instanceId, instance.id),
+            );
+          },
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          totalCount: fb.int({
+            description:
+              "The total number of `Actor`s that belong to the `Instance`." +
+              "Note that pending members are not counted.",
+            resolve(connection) {
+              return connection.totalCount();
+            },
+          }),
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          created: fb.expose("created", {
+            type: "DateTime",
+            description:
+              "The date/time when the `Account` was added to the `Instance`.",
+          }),
+          type: fb.expose("type", {
+            type: ActorType,
+            description: `The type of the \`Actor\`: ${ACTOR_TYPES}`,
+          }),
+          username: fb.exposeString("username", {
+            description: "The username of the `Actor`.",
+          }),
+        };
+      },
+    },
+  ),
+);
+
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",
   {
@@ -218,15 +310,10 @@ builder.mutationFields((t) => ({
       let tooManyInstances = false;
       try {
         return await ctx.db.transaction(async (tx) => {
+          const id = uuid();
           const [instance] = await tx
             .insert(schema.instances)
-            .values({
-              id: uuid(),
-              slug,
-              expires: new Date(
-                Temporal.Now.instant().add({ hours: 8750 }).toString(),
-              ),
-            })
+            .values({ id, location: "Local" })
             .returning();
           if (instance == null) throw new Error("Failed to create instance.");
           await tx.insert(schema.instanceMembers).values({
@@ -241,6 +328,13 @@ builder.mutationFields((t) => ({
             tooManyInstances = true;
             tx.rollback();
           }
+          await tx.insert(schema.localInstances).values({
+            id,
+            slug,
+            expires: new Date(
+              Temporal.Now.instant().add({ hours: YEAR_BY_HOURS }).toString(),
+            ),
+          });
           return instance;
         });
       } catch (e) {
@@ -254,7 +348,7 @@ builder.mutationFields((t) => ({
           e instanceof DrizzleQueryError &&
           e.cause != null &&
           "constraint" in e.cause &&
-          e.cause.constraint === "instances_slug_key"
+          e.cause.constraint === "local_instances_slug_key"
         ) {
           return {
             message: `The slug ${JSON.stringify(slug)} is already taken.`,
@@ -266,3 +360,5 @@ builder.mutationFields((t) => ({
     },
   }),
 }));
+
+const YEAR_BY_HOURS = 8760;

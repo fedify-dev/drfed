@@ -50,6 +50,10 @@
       "types": "./dist/account.d.mts",
       "default": "./dist/account.mjs"
     },
+    "./actor": {
+      "types": "./dist/actor.d.mts",
+      "default": "./dist/actor.mjs"
+    },
     "./builder": {
       "types": "./dist/builder.d.mts",
       "default": "./dist/builder.mjs"
@@ -71,6 +75,7 @@
     "entry": [
       "src/index.ts",
       "src/account.ts",
+      "src/actor.ts",
       "src/builder.ts",
       "src/instance.ts",
       "src/schema.ts"

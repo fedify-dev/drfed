@@ -13,11 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { defineRelations } from "drizzle-orm";
 
 import * as schema from "./schema.ts";
 
-// oxlint-disable-next-line eslint/max-lines-per-function
 export const relations = defineRelations(schema, (r) => ({
   accounts: {
     instances: r.many.instances({
@@ -72,6 +72,27 @@ export const relations = defineRelations(schema, (r) => ({
         accepted: { isNotNull: true },
       },
     }),
+    actors: r.many.actors({ from: r.instances.id, to: r.actors.instanceId }),
+    localInstances: r.one.localInstances({
+      from: r.instances.id,
+      to: r.localInstances.id,
+    }),
+    remoteInstances: r.one.remoteInstances({
+      from: r.instances.id,
+      to: r.remoteInstances.id,
+    }),
+  },
+  localInstance: {
+    instances: r.one.instances({
+      from: r.localInstances.id,
+      to: r.instances.id,
+    }),
+  },
+  remoteInstance: {
+    instances: r.one.instances({
+      from: r.remoteInstances.id,
+      to: r.instances.id,
+    }),
   },
   sessions: {
     account: r.one.accounts({
@@ -86,6 +107,27 @@ export const relations = defineRelations(schema, (r) => ({
       to: r.accounts.id,
       optional: false,
     }),
+  },
+  actors: {
+    instance: r.one.instances({
+      from: r.actors.instanceId,
+      to: r.instances.id,
+      optional: false,
+    }),
+    localActor: r.one.localActors({
+      from: r.actors.id,
+      to: r.localActors.id,
+    }),
+    remoteActor: r.one.remoteActors({
+      from: r.actors.id,
+      to: r.remoteActors.id,
+    }),
+  },
+  localActors: {
+    actor: r.one.actors({ from: r.localActors.id, to: r.actors.id }),
+  },
+  remoteActors: {
+    actor: r.one.actors({ from: r.remoteActors.id, to: r.actors.id }),
   },
 }));
 
