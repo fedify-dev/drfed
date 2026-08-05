@@ -39,3 +39,4 @@ minimumReleaseAgeExclude:
   - "@upyo/logtape@0.6.0-dev.263"
   - "@upyo/mock@0.6.0-dev.263"
   - "@upyo/smtp@0.6.0-dev.263"
+  - "@solidjs/start@2.0.0"

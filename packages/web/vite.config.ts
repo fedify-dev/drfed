@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { solidStart } from "@solidjs/start/config";
-import { nitroV2Plugin as nitro } from "@solidjs/vite-plugin-nitro-2";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { cjsInterop } from "vite-plugin-cjs-interop";
 import relay from "vite-plugin-relay-lite";
@@ -25,6 +25,9 @@ export default defineConfig(({ command }) => ({
     solidStart(),
     nitro(),
     relay({ codegen: command !== "build" }),
-    cjsInterop({ dependencies: ["relay-runtime"] }),
+    {
+      ...cjsInterop({ dependencies: ["relay-runtime"] }),
+      applyToEnvironment: (environment) => environment.name === "ssr",
+    },
   ],
 }));
