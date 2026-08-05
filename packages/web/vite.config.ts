@@ -23,7 +23,16 @@ import relay from "vite-plugin-relay-lite";
 export default defineConfig(({ command }) => ({
   plugins: [
     solidStart(),
-    nitro(),
+    nitro({
+      routeRules: {
+        "/graphql": {
+          proxy: {
+            to: "http://127.0.0.1:8888/graphql",
+            forwardHeaders: ["accept"],
+          },
+        },
+      },
+    }),
     relay({ codegen: command !== "build" }),
     {
       ...cjsInterop({ dependencies: ["relay-runtime"] }),
