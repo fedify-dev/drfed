@@ -240,8 +240,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0(solid-js@1.9.14)
       '@solidjs/start':
-        specifier: 2.0.0-rc.10
-        version: 2.0.0-rc.10(@solidjs/router@1.0.0(solid-js@1.9.14))(crossws@0.4.10(srvx@0.11.16))(supports-color@10.2.2)(vite@8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0))
+        specifier: ^2.0.0
+        version: 2.0.0(@solidjs/router@1.0.0(solid-js@1.9.14))(crossws@0.4.10(srvx@0.11.16))(supports-color@10.2.2)(vite@8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0))
       nitro:
         specifier: 3.0.260610-beta
         version: 3.0.260610-beta(@electric-sql/pglite@0.5.3)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.0)(ioredis@5.11.1(supports-color@10.2.2))(jiti@2.7.0)(lru-cache@11.5.1)(rollup@4.62.2)(vite@8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0))
@@ -1494,8 +1494,8 @@ packages:
     peerDependencies:
       solid-js: ^1.8.6
 
-  '@solidjs/start@2.0.0-rc.10':
-    resolution: {integrity: sha512-UXOyBb17uhVpWESTz7gIMGm9FLvjwdiotO9WRs29jkYqezPgz5IltUtoxmPzUUB3/mszGWTGSM7mJZA3k06rOg==}
+  '@solidjs/start@2.0.0':
+    resolution: {integrity: sha512-OXO2BzEi5aqEgPqu9bbSXlKuAr9Pp4D33hJ0cAJh65fQFr6Zn+IxeMSpIyTeR8/Mzz2SAJwGAxwvMuvdZ1ylZQ==}
     engines: {node: '>=24'}
     peerDependencies:
       '@solidjs/router': '>=0.16.0 <2.0.0-0'
@@ -4364,7 +4364,7 @@ snapshots:
     dependencies:
       solid-js: 1.9.14
 
-  '@solidjs/start@2.0.0-rc.10(@solidjs/router@1.0.0(solid-js@1.9.14))(crossws@0.4.10(srvx@0.11.16))(supports-color@10.2.2)(vite@8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0))':
+  '@solidjs/start@2.0.0(@solidjs/router@1.0.0(solid-js@1.9.14))(crossws@0.4.10(srvx@0.11.16))(supports-color@10.2.2)(vite@8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0))':
     dependencies:
       '@babel/core': 7.29.7(supports-color@10.2.2)
       '@babel/traverse': 7.29.8(supports-color@10.2.2)
