@@ -1,18 +1,12 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "dac33dc8-f18a-423f-809f-b6c390dd1bdc",
-  "prevIds": ["08f1dfcb-1110-4550-9777-36d017ecfb10"],
+  "id": "ac4fc4e2-2217-4c4c-9c8a-0ec2a8162819",
+  "prevIds": ["d8ac955f-1e74-4493-ade9-a25c40b01c20"],
   "ddl": [
     {
       "values": ["Application", "Group", "Organization", "Person", "Service"],
       "name": "actor_type",
-      "entityType": "enums",
-      "schema": "public"
-    },
-    {
-      "values": ["Local", "Remote"],
-      "name": "location",
       "entityType": "enums",
       "schema": "public"
     },
@@ -55,18 +49,6 @@
     {
       "isRlsEnabled": false,
       "name": "login_tokens",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "remote_actors",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "remote_instances",
       "entityType": "tables",
       "schema": "public"
     },
@@ -168,14 +150,14 @@
       "table": "actors"
     },
     {
-      "type": "location",
-      "typeSchema": "public",
-      "notNull": true,
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "location",
+      "name": "localId",
       "entityType": "columns",
       "schema": "public",
       "table": "actors"
@@ -215,6 +197,123 @@
       "generated": null,
       "identity": null,
       "name": "instanceId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "iri",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "inboxUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "outboxUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "followersUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "followeesUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "featuredUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "profileUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "avatarUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "headerUrl",
       "entityType": "columns",
       "schema": "public",
       "table": "actors"
@@ -532,14 +631,14 @@
       "table": "instances"
     },
     {
-      "type": "location",
-      "typeSchema": "public",
-      "notNull": true,
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "location",
+      "name": "localId",
       "entityType": "columns",
       "schema": "public",
       "table": "instances"
@@ -553,6 +652,58 @@
       "generated": null,
       "identity": null,
       "name": "created",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "instances"
+    },
+    {
+      "type": "varchar(100)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "host",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "instances"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "nodeInfoUrl",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "instances"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "software",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "instances"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "softwareVersion",
       "entityType": "columns",
       "schema": "public",
       "table": "instances"
@@ -592,19 +743,6 @@
       "generated": null,
       "identity": null,
       "name": "header",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "local_actors"
-    },
-    {
-      "type": "location",
-      "typeSchema": "public",
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'Local'",
-      "generated": null,
-      "identity": null,
-      "name": "location",
       "entityType": "columns",
       "schema": "public",
       "table": "local_actors"
@@ -763,214 +901,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "iriUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "inboxUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "outboxUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "followersUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "followeesUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "featuredUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "profileUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "avatarUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "headerUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "location",
-      "typeSchema": "public",
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'Remote'",
-      "generated": null,
-      "identity": null,
-      "name": "location",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_instances"
-    },
-    {
-      "type": "varchar(100)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "host",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "nodeInfoUrl",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "software",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_instances"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "softwareVersion",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "remote_instances"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "sessions"
     },
     {
@@ -1090,6 +1020,19 @@
     },
     {
       "nameExplicit": false,
+      "columns": ["localId"],
+      "schemaTo": "public",
+      "tableTo": "local_actors",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "actors_localId_local_actors_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "actors"
+    },
+    {
+      "nameExplicit": false,
       "columns": ["instanceId"],
       "schemaTo": "public",
       "tableTo": "instances",
@@ -1142,42 +1085,16 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["id"],
+      "columns": ["localId"],
       "schemaTo": "public",
-      "tableTo": "actors",
+      "tableTo": "local_instances",
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "local_actors_id_actors_id_fkey",
+      "name": "instances_localId_local_instances_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "local_actors"
-    },
-    {
-      "nameExplicit": true,
-      "columns": ["id", "location"],
-      "schemaTo": "public",
-      "tableTo": "actors",
-      "columnsTo": ["id", "location"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "local_actor_fk",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "local_actors"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["id"],
-      "schemaTo": "public",
-      "tableTo": "instances",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "local_instances_id_instances_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "local_instances"
+      "table": "instances"
     },
     {
       "nameExplicit": false,
@@ -1191,45 +1108,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "login_tokens"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["id"],
-      "schemaTo": "public",
-      "tableTo": "actors",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "remote_actors_id_actors_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "nameExplicit": true,
-      "columns": ["id", "location"],
-      "schemaTo": "public",
-      "tableTo": "actors",
-      "columnsTo": ["id", "location"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "remote_actor_fk",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "remote_actors"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["id"],
-      "schemaTo": "public",
-      "tableTo": "instances",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "remote_instances_id_instances_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "remote_instances"
     },
     {
       "nameExplicit": false,
@@ -1303,22 +1181,6 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "remote_actors_pkey",
-      "schema": "public",
-      "table": "remote_actors",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["id"],
-      "nameExplicit": false,
-      "name": "remote_instances_pkey",
-      "schema": "public",
-      "table": "remote_instances",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["id"],
-      "nameExplicit": false,
       "name": "sessions_pkey",
       "schema": "public",
       "table": "sessions",
@@ -1334,21 +1196,39 @@
       "table": "actors"
     },
     {
-      "nameExplicit": true,
-      "columns": ["id", "location"],
-      "nullsNotDistinct": false,
-      "name": "actors_id_location_key",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "actors"
-    },
-    {
       "nameExplicit": false,
       "columns": ["email"],
       "nullsNotDistinct": false,
       "name": "accounts_email_key",
       "schema": "public",
       "table": "accounts",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["localId"],
+      "nullsNotDistinct": false,
+      "name": "actors_localId_key",
+      "schema": "public",
+      "table": "actors",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["iri"],
+      "nullsNotDistinct": false,
+      "name": "actors_iri_key",
+      "schema": "public",
+      "table": "actors",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["host"],
+      "nullsNotDistinct": false,
+      "name": "instances_host_key",
+      "schema": "public",
+      "table": "instances",
       "entityType": "uniques"
     },
     {
@@ -1367,24 +1247,6 @@
       "name": "login_tokens_tokenHash_key",
       "schema": "public",
       "table": "login_tokens",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["iriUrl"],
-      "nullsNotDistinct": false,
-      "name": "remote_actors_iriUrl_key",
-      "schema": "public",
-      "table": "remote_actors",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["host"],
-      "nullsNotDistinct": false,
-      "name": "remote_instances_host_key",
-      "schema": "public",
-      "table": "remote_instances",
       "entityType": "uniques"
     },
     {
@@ -1432,13 +1294,6 @@
       "table": "actors"
     },
     {
-      "value": "\"location\" = 'Local'",
-      "name": "local_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "local_actors"
-    },
-    {
       "value": "\"slug\" ~ '^[a-z0-9-]{4,63}$'",
       "name": "instances_slug_check",
       "entityType": "checks",
@@ -1451,13 +1306,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "local_instances"
-    },
-    {
-      "value": "\"location\" = 'Remote'",
-      "name": "remote_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "remote_actors"
     }
   ],
   "renames": []

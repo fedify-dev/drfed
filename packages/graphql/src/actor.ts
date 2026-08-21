@@ -16,10 +16,8 @@
 
 // oxlint-disable max-lines-per-function eslint/max-lines
 
-import { type relations, schema } from "@drfed/models";
+import { schema } from "@drfed/models";
 import { actorTypeEnum } from "@drfed/models/schema";
-import type { ExpandContext } from "@fedify/uri-template";
-import type { BuildQueryResult, DBQueryConfig } from "drizzle-orm";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
 import { v7 as uuid } from "uuid";
@@ -35,51 +33,6 @@ export const ActorType = builder.enumType("ActorType", {
 
 export const ACTOR_TYPES = actorTypeEnum.enumValues.join(" | ");
 
-type DrizzleRelations = typeof relations;
-type ActorTableConfig = DrizzleRelations["actors"];
-type ActorSelect = DBQueryConfig<"one", DrizzleRelations, ActorTableConfig>;
-
-const ACTOR_REF_SELECT = {
-  columns: { id: true, username: true },
-  with: {
-    instance: {
-      columns: { id: true },
-      with: { localInstances: true, remoteInstances: true },
-    },
-    localActor: true,
-    remoteActor: true,
-  },
-} as const satisfies ActorSelect;
-
-type SelectedActor = BuildQueryResult<
-  DrizzleRelations,
-  ActorTableConfig,
-  typeof ACTOR_REF_SELECT
->;
-
-interface LocalTemplateArgs extends ExpandContext {
-  id: string;
-  host: string;
-  username: string;
-  avatar: string | null;
-  header: string | null;
-}
-
-const getLocalInfo = (actor: SelectedActor, root: string): LocalTemplateArgs =>
-  actor?.localActor == null || actor.instance?.localInstances == null
-    ? throwNonLocal(actor.id, "actor")
-    : {
-        id: actor.id,
-        host: `${actor.instance.localInstances.slug}.${root}`,
-        username: actor.username,
-        avatar: actor.localActor.avatar,
-        header: actor.localActor.header,
-      };
-
-function throwNonLocal(id: string, kind: "actor" | "instance"): never {
-  throw new Error(`This ${kind} is not local: ${id}`);
-}
-
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
   description: "Represents an `Actor` in the DrFed platform.",
@@ -87,27 +40,23 @@ const ActorRef = builder.drizzleNode("actors", {
     column: ({ id }) => id,
     description: "The unique identifier of the `Actor`.",
   },
-  select: ACTOR_REF_SELECT,
   fields: (t) => ({
-    iri: t.field({
-      type: "String",
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor?.iriUrl ??
-        templates.iri.expand(getLocalInfo(parent, ctx.root)),
+    uuid: t.expose("id", {
+      type: "UUID",
+      description: "The UUID of the `Actor`.",
+    }),
+    iri: t.exposeString("iri", {
       description: "The Internationalized Resource Identifier of the `Actor`",
     }),
     handle: t.field({
       type: "String",
       description: "The handle of the `Actor`.",
-      resolve: (parent, _, ctx) =>
-        templates.handle.expand(
-          parent.instance?.remoteInstances
-            ? {
-                username: parent.username,
-                host: parent.instance.remoteInstances.host,
-              }
-            : getLocalInfo(parent, ctx.root),
-        ),
+      select: {
+        columns: { username: true },
+        with: { instance: { columns: { host: true } } },
+      },
+      resolve: ({ instance, username }) =>
+        templates.handle.expand({ username, host: instance.host }),
     }),
     type: t.expose("type", {
       type: ActorType,
@@ -119,101 +68,76 @@ const ActorRef = builder.drizzleNode("actors", {
     instance: t.relation("instance", {
       description: "The `Instance` that the `Actor` belongs to.",
     }),
-    inboxUrl: t.field({
-      type: "String",
+    local: t.relation("localActor", {
+      nullable: true,
+      description: "The local details of the `Actor`, or null if it is remote.",
+    }),
+    inboxUrl: t.exposeString("inboxUrl", {
       description: "The inbox URL of the `Actor`.",
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor?.inboxUrl ??
-        templates.inbox.expand(getLocalInfo(parent, ctx.root)),
     }),
-    outboxUrl: t.field({
-      type: "String",
+    outboxUrl: t.exposeString("outboxUrl", {
       description: "The outbox URL of the `Actor`.",
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor?.outboxUrl ??
-        templates.outbox.expand(getLocalInfo(parent, ctx.root)),
     }),
-    avatarUrl: t.field({
-      type: "String",
+    avatarUrl: t.exposeString("avatarUrl", {
       description: "The avatar URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor
-          ? parent.remoteActor.avatarUrl
-          : templates.avatar.expand(getLocalInfo(parent, ctx.root)),
     }),
-    followersUrl: t.field({
-      type: "String",
+    followersUrl: t.exposeString("followersUrl", {
       description: "The followers URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor != null
-          ? parent.remoteActor.followersUrl
-          : templates.followers.expand(getLocalInfo(parent, ctx.root)),
     }),
-    followeesUrl: t.field({
-      type: "String",
+    followeesUrl: t.exposeString("followeesUrl", {
       description: "The followees URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor != null
-          ? parent.remoteActor.followeesUrl
-          : templates.followees.expand(getLocalInfo(parent, ctx.root)),
     }),
-    headerUrl: t.field({
-      type: "String",
+    headerUrl: t.exposeString("headerUrl", {
       description: "The header URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor != null
-          ? parent.remoteActor.headerUrl
-          : templates.header.expand(getLocalInfo(parent, ctx.root)),
     }),
-    profileUrl: t.field({
-      type: "String",
+    profileUrl: t.exposeString("profileUrl", {
       description: "The profile URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor != null
-          ? parent.remoteActor.profileUrl
-          : templates.profile.expand(getLocalInfo(parent, ctx.root)),
     }),
-    featuredUrl: t.field({
-      type: "String",
+    featuredUrl: t.exposeString("featuredUrl", {
       description: "The featured URL of the `Actor`.",
       nullable: true,
-      resolve: (parent, _, ctx) =>
-        parent.remoteActor != null
-          ? parent.remoteActor.featuredUrl
-          : templates.featured.expand(getLocalInfo(parent, ctx.root)),
+    }),
+    created: t.expose("created", {
+      type: "DateTime",
+      description: "The creation date/time of the `Actor`.",
     }),
   }),
 });
 
 export const Actor: DrFedObjectRef = ActorRef;
 
-const CreateActorsRef = builder.drizzleNode("localActors", {
-  name: "CreateActors",
-  description: "Represents an `Actor` in the DrFed platform.",
+const LocalActorRef = builder.drizzleNode("localActors", {
+  name: "LocalActor",
+  description: "Represents the local details of an `Actor`.",
   id: {
     column: ({ id }) => id,
-    description: "The unique identifier of the `Actor`.",
-  },
-  select: {
-    columns: { id: true },
-    with: { actor: { columns: { username: true } } },
+    description: "The unique identifier of the local actor details.",
   },
   fields: (t) => ({
-    username: t.field({
-      type: "String",
-      description: "username",
-      resolve: ({ actor }) => actor!.username,
+    uuid: t.expose("id", {
+      type: "UUID",
+      description: "The UUID of the local actor details.",
+    }),
+    avatar: t.exposeString("avatar", {
+      nullable: true,
+      description: "The profile image of the actor.",
+    }),
+    header: t.exposeString("header", {
+      nullable: true,
+      description: "The profile banner image of the actor.",
     }),
   }),
 });
 
+export const LocalActor: DrFedObjectRef = LocalActorRef;
+
 interface CreateActorsSuccess {
-  readonly actors: readonly (typeof CreateActorsRef.$inferType)[];
+  readonly actors: readonly (typeof ActorRef.$inferType)[];
 }
 
 const CreateActorsSuccessRef = builder.objectRef<CreateActorsSuccess>(
@@ -223,7 +147,7 @@ const CreateActorsSuccessRef = builder.objectRef<CreateActorsSuccess>(
 CreateActorsSuccessRef.implement({
   fields: (t) => ({
     actors: t.field({
-      type: [CreateActorsRef],
+      type: [ActorRef],
       resolve: ({ actors }) => actors,
     }),
   }),
@@ -276,8 +200,8 @@ const CreateActorsResult = builder.unionType("CreateActorsResult", {
 });
 
 interface SelectedInstance {
+  host: string;
   maxActors: number;
-  slug: string;
 }
 
 builder.mutationFields((t) => ({
@@ -309,7 +233,7 @@ builder.mutationFields((t) => ({
         // because the `authScopes` option above should prevent this resolver
         throw new Error("You must be authenticated to create actors.");
       }
-      const { account, root } = ctx;
+      const { account } = ctx;
 
       let instance: SelectedInstance | undefined;
       let tooManyActors = false;
@@ -318,8 +242,8 @@ builder.mutationFields((t) => ({
           // Find the instance that the account is included
           [instance] = await tx
             .select({
+              host: schema.instances.host,
               maxActors: schema.localInstances.maxActors,
-              slug: schema.localInstances.slug,
             })
             .from(schema.instanceMembers)
             .innerJoin(
@@ -328,7 +252,7 @@ builder.mutationFields((t) => ({
             )
             .innerJoin(
               schema.localInstances,
-              eq(schema.instances.id, schema.localInstances.id),
+              eq(schema.instances.localId, schema.localInstances.id),
             )
             .where(
               and(
@@ -340,8 +264,7 @@ builder.mutationFields((t) => ({
             )
             .limit(1);
           if (instance == null) throw new Error(INSTANCE_NOT_FOUND);
-          const { slug, maxActors } = instance;
-          const host = `${slug}.${root}`;
+          const { host, maxActors } = instance;
           const currActors = await tx.$count(
             schema.actors,
             eq(schema.actors.instanceId, instanceId),
@@ -358,11 +281,13 @@ builder.mutationFields((t) => ({
             };
           }
           // Create actors
+          const localActors = await tx
+            .insert(schema.localActors)
+            .values(Array.from({ length: size }, () => ({ id: uuid() })))
+            .returning();
           const createdActors = await tx
             .insert(schema.actors)
-            .values(
-              Array.from({ length: size }).map(() => genActor(instanceId)),
-            )
+            .values(localActors.map(({ id }) => genActor(id, instanceId, host)))
             .returning();
           const actorCounts = await tx.$count(
             schema.actors,
@@ -372,16 +297,7 @@ builder.mutationFields((t) => ({
             tooManyActors = true;
             tx.rollback();
           }
-          const localActors = await tx
-            .insert(schema.localActors)
-            .values(createdActors)
-            .returning();
-          // oxlint-disable-next-line eslint/id-length
-          const actors = localActors.map((local, i) => ({
-            actor: createdActors[i]!,
-            ...local,
-          }));
-          return { actors };
+          return { actors: createdActors };
         });
       } catch (e) {
         if (instance == null) {
@@ -395,7 +311,7 @@ builder.mutationFields((t) => ({
           return {
             type: TOO_MANY_ACTORS,
             message: `${
-              instance.slug
+              instance.host
             } instance reached the maximum number of actors (${
               instance.maxActors
             })`,
@@ -407,14 +323,27 @@ builder.mutationFields((t) => ({
   }),
 }));
 
-function genActor(instanceId: string): PgInsertValue<typeof schema.actors> {
+function genActor(
+  localId: string,
+  instanceId: string,
+  host: string,
+): PgInsertValue<typeof schema.actors> {
   const id = uuid();
+  const username = id;
+  const templateArgs = { host, id, username };
   return {
     id,
+    localId,
     // FIXME: Generate handle using Faker.js or something
-    username: id,
-    location: "Local",
+    username,
     instanceId,
     type: "Person",
+    iri: templates.iri.expand(templateArgs),
+    inboxUrl: templates.inbox.expand(templateArgs),
+    outboxUrl: templates.outbox.expand(templateArgs),
+    followersUrl: templates.followers.expand(templateArgs),
+    followeesUrl: templates.followees.expand(templateArgs),
+    featuredUrl: templates.featured.expand(templateArgs),
+    profileUrl: templates.profile.expand(templateArgs),
   };
 }

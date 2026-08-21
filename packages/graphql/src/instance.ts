@@ -246,8 +246,6 @@ builder.queryFields((t) => ({
 
 const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
   query: { orderBy: { created: "desc" } },
-  select: (nestedSelection) => ({ with: { instance: nestedSelection() } }),
-  resolveNode: ({ instanceId }) => instanceId,
 });
 
 // oxlint-disable-next-line max-lines-per-function

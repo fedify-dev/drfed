@@ -105,19 +105,12 @@ export const relations = defineRelations(schema, (r) => ({
       optional: false,
     }),
     localActor: r.one.localActors({
-      from: r.actors.id,
+      from: r.actors.localId,
       to: r.localActors.id,
-    }),
-    remoteActor: r.one.remoteActors({
-      from: r.actors.id,
-      to: r.remoteActors.id,
     }),
   },
   localActors: {
-    actor: r.one.actors({ from: r.localActors.id, to: r.actors.id }),
-  },
-  remoteActors: {
-    actor: r.one.actors({ from: r.remoteActors.id, to: r.actors.id }),
+    actor: r.one.actors({ from: r.localActors.id, to: r.actors.localId }),
   },
 }));
 

@@ -42,7 +42,12 @@ const genActorsMutation = `
       resultType: __typename
       ... on CreateActorsSuccess {
         actors {
+          uuid
+          iri
           username
+          local {
+            uuid
+          }
         }
       }
       ... on CreateActorsError {
@@ -58,14 +63,18 @@ const actorQuery = `
     node(id: $id) {
       ... on Actor {
         id
+        uuid
         iri
         handle
         type
         username
         instance {
           uuid
-          location
           host
+        }
+        local {
+          avatar
+          header
         }
         inboxUrl
         outboxUrl
@@ -75,6 +84,7 @@ const actorQuery = `
         headerUrl
         profileUrl
         featuredUrl
+        created
       }
     }
   }
@@ -103,7 +113,17 @@ describe("Mutation.genActors", () => {
       assert.equal(body.data.genActors.actors.length, 2);
       assert.equal(
         body.data.genActors.actors.every(
-          ({ username }: { username: unknown }) => typeof username === "string",
+          (actor: {
+            iri: unknown;
+            local: { uuid: unknown } | null;
+            username: unknown;
+            uuid: unknown;
+          }) =>
+            typeof actor.uuid === "string" &&
+            typeof actor.username === "string" &&
+            actor.iri ===
+              `https://test-instance.drfed.org/users/${actor.uuid}` &&
+            typeof actor.local?.uuid === "string",
         ),
         true,
       );
@@ -114,7 +134,7 @@ describe("Mutation.genActors", () => {
         actors.every(
           (actor) =>
             actor.instanceId === localInstanceId &&
-            actor.location === "Local" &&
+            actor.localId != null &&
             actor.type === "Person",
         ),
         true,
@@ -124,7 +144,7 @@ describe("Mutation.genActors", () => {
       assert.equal(localActors.length, 2);
       assert.deepEqual(
         new Set(localActors.map(({ id }) => id)),
-        new Set(actors.map(({ id }) => id)),
+        new Set(actors.map(({ localId }) => localId)),
       );
     });
   });
@@ -145,14 +165,18 @@ describe("Actor", () => {
         data: {
           node: {
             id: globalId("Actor", localActorId),
+            uuid: localActorId,
             iri: `https://test-instance.drfed.org/users/${localActorId}`,
             handle: "@alice@test-instance.drfed.org",
             type: "Person",
             username: "alice",
             instance: {
               uuid: localInstanceId,
-              location: "Local",
               host: "test-instance.drfed.org",
+            },
+            local: {
+              avatar: "avatar.png",
+              header: "header.png",
             },
             inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
             outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
@@ -162,6 +186,7 @@ describe("Actor", () => {
             headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
             profileUrl: "https://test-instance.drfed.org/@alice",
             featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
+            created: created.toISOString(),
           },
         },
       });
@@ -182,15 +207,16 @@ describe("Actor", () => {
         data: {
           node: {
             id: globalId("Actor", remoteActorId),
+            uuid: remoteActorId,
             iri: "https://remote.example.com/users/bob",
             handle: "@bob@remote.example.com",
             type: "Service",
             username: "bob",
             instance: {
               uuid: remoteInstanceId,
-              location: "Remote",
               host: "remote.example.com",
             },
+            local: null,
             inboxUrl: "https://remote.example.com/users/bob/inbox",
             outboxUrl: "https://remote.example.com/users/bob/outbox",
             avatarUrl: "https://remote.example.com/users/bob/avatar.png",
@@ -199,6 +225,7 @@ describe("Actor", () => {
             headerUrl: "https://remote.example.com/users/bob/header.png",
             profileUrl: "https://remote.example.com/@bob",
             featuredUrl: "https://remote.example.com/users/bob/featured",
+            created: created.toISOString(),
           },
         },
       });
@@ -237,55 +264,56 @@ async function seedAuthenticatedLocalInstance(
 
 async function seedLocalActor(db: Database): Promise<void> {
   await seedLocalInstance(db);
-  await db.insert(schema.actors).values({
-    id: localActorId,
-    instanceId: localInstanceId,
-    location: "Local",
-    type: "Person",
-    username: "alice",
-    created,
-  });
   await db.insert(schema.localActors).values({
     id: localActorId,
     avatar: "avatar.png",
     header: "header.png",
   });
+  await db.insert(schema.actors).values({
+    id: localActorId,
+    localId: localActorId,
+    instanceId: localInstanceId,
+    type: "Person",
+    username: "alice",
+    iri: `https://test-instance.drfed.org/users/${localActorId}`,
+    inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
+    outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+    avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
+    followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
+    followeesUrl: `https://test-instance.drfed.org/users/${localActorId}/followees`,
+    headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
+    profileUrl: "https://test-instance.drfed.org/@alice",
+    featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
+    created,
+  });
 }
 
 async function seedLocalInstance(db: Database): Promise<void> {
-  await db.insert(schema.instances).values({
-    id: localInstanceId,
-    location: "Local",
-    created,
-  });
   await db.insert(schema.localInstances).values({
     id: localInstanceId,
     slug: "test-instance",
     expires,
+  });
+  await db.insert(schema.instances).values({
+    id: localInstanceId,
+    localId: localInstanceId,
+    created,
+    host: "test-instance.drfed.org",
   });
 }
 
 async function seedRemoteActor(db: Database): Promise<void> {
   await db.insert(schema.instances).values({
     id: remoteInstanceId,
-    location: "Remote",
     created,
-  });
-  await db.insert(schema.remoteInstances).values({
-    id: remoteInstanceId,
     host: "remote.example.com",
   });
   await db.insert(schema.actors).values({
     id: remoteActorId,
     instanceId: remoteInstanceId,
-    location: "Remote",
     type: "Service",
     username: "bob",
-    created,
-  });
-  await db.insert(schema.remoteActors).values({
-    id: remoteActorId,
-    iriUrl: "https://remote.example.com/users/bob",
+    iri: "https://remote.example.com/users/bob",
     inboxUrl: "https://remote.example.com/users/bob/inbox",
     outboxUrl: "https://remote.example.com/users/bob/outbox",
     avatarUrl: "https://remote.example.com/users/bob/avatar.png",
@@ -294,6 +322,7 @@ async function seedRemoteActor(db: Database): Promise<void> {
     headerUrl: "https://remote.example.com/users/bob/header.png",
     profileUrl: "https://remote.example.com/@bob",
     featuredUrl: "https://remote.example.com/users/bob/featured",
+    created,
   });
 }
 

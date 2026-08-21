@@ -27,6 +27,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -192,12 +193,23 @@ export const actors = pgTable(
   "actors",
   {
     id: uuid().primaryKey(),
-    location: locationEnum().notNull(),
+    localId: uuid()
+      .unique()
+      .references(() => localActors.id, { onDelete: "cascade" }),
     type: actorTypeEnum().notNull(),
     username: text().notNull(),
     instanceId: uuid()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
+    iri: text().notNull().unique(),
+    inboxUrl: text().notNull(),
+    outboxUrl: text().notNull(),
+    followersUrl: text(),
+    followeesUrl: text(),
+    featuredUrl: text(),
+    profileUrl: text(),
+    avatarUrl: text(),
+    headerUrl: text(),
     name: text(),
     bioHtml: text(),
     automaticallyApprovesFollowers: boolean().notNull().default(false),
@@ -249,72 +261,17 @@ export const actors = pgTable(
       `,
     ),
     index("actor_instance_index").on(t.instanceId),
-    unique("actors_id_location_key").on(t.id, t.location),
   ],
 );
 
 export type Actor = typeof actors.$inferSelect;
 export type NewActor = typeof actors.$inferInsert;
 
-export const localActors = pgTable(
-  "local_actors",
-  {
-    id: uuid()
-      .primaryKey()
-      .references(() => actors.id, { onDelete: "cascade" }),
-    avatar: text(),
-    header: text(),
-    /**
-     * This `location` column is not an actually used value;
-     * it exists to prevent simultaneous Local/Remote registration,
-     * so it must be fixed as `Local`.
-     */
-    location: locationEnum().default("Local").notNull(),
-  },
-  (t) => [
-    check("local_check", sql`${t.location} = 'Local'`),
-    foreignKey({
-      name: "local_actor_fk",
-      columns: [t.id, t.location],
-      foreignColumns: [actors.id, actors.location],
-    }).onDelete("cascade"),
-  ],
-);
+export const localActors = pgTable("local_actors", {
+  id: uuid().primaryKey(),
+  avatar: text(),
+  header: text(),
+});
 
 export type LocalActor = typeof localActors.$inferSelect;
 export type NewLocalActor = typeof localActors.$inferInsert;
-
-export const remoteActors = pgTable(
-  "remote_actors",
-  {
-    id: uuid()
-      .primaryKey()
-      .references(() => actors.id, { onDelete: "cascade" }),
-    iriUrl: text().notNull().unique(),
-    inboxUrl: text().notNull(),
-    outboxUrl: text().notNull(),
-    followersUrl: text(),
-    followeesUrl: text(),
-    featuredUrl: text(),
-    profileUrl: text(),
-    avatarUrl: text(),
-    headerUrl: text(),
-    /**
-     * This `location` column is not an actually used value;
-     * it exists to prevent simultaneous Local/Remote registration,
-     * so it must be fixed as `Remote`.
-     */
-    location: locationEnum().default("Remote").notNull(),
-  },
-  (t) => [
-    check("remote_check", sql`${t.location} = 'Remote'`),
-    foreignKey({
-      name: "remote_actor_fk",
-      columns: [t.id, t.location],
-      foreignColumns: [actors.id, actors.location],
-    }).onDelete("cascade"),
-  ],
-);
-
-export type RemoteActor = typeof remoteActors.$inferSelect;
-export type NewRemoteActor = typeof remoteActors.$inferInsert;
