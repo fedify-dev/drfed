@@ -16,14 +16,18 @@
 
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   index,
   integer,
+  jsonb,
+  pgEnum,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  unique,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -174,3 +178,100 @@ export const sessions = pgTable("sessions", {
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
+
+export const actorTypeEnum = pgEnum("actor_type", [
+  "Application",
+  "Group",
+  "Organization",
+  "Person",
+  "Service",
+]);
+
+export type ActorType = (typeof actorTypeEnum.enumValues)[number];
+
+export const actors = pgTable(
+  "actors",
+  {
+    id: uuid().primaryKey(),
+    localId: uuid()
+      .unique()
+      .references(() => localActors.id, { onDelete: "cascade" }),
+    type: actorTypeEnum().notNull(),
+    username: text().notNull(),
+    instanceId: uuid()
+      .notNull()
+      .references(() => instances.id, { onDelete: "cascade" }),
+    iri: text().notNull().unique(),
+    inboxUrl: text().notNull(),
+    outboxUrl: text().notNull(),
+    followersUrl: text(),
+    followeesUrl: text(),
+    featuredUrl: text(),
+    profileUrl: text(),
+    avatarUrl: text(),
+    headerUrl: text(),
+    name: text(),
+    bioHtml: text(),
+    automaticallyApprovesFollowers: boolean().notNull().default(false),
+    fieldHtmls: jsonb().$type<Record<string, string>>().notNull().default({}),
+    emojis: jsonb().$type<Record<string, string>>().notNull().default({}),
+    tags: jsonb().$type<Record<string, string>>().notNull().default({}),
+    sensitive: boolean().notNull().default(false),
+    // Moderation sanction state, denormalized from flag_action records
+    // (which remain the audit source of truth):
+    // - Not sanctioned: suspended IS NULL
+    // - Temporary suspension: suspended = start, suspendedUntil = end
+    // - Permanent suspension (ban) for local actors, or permanent federation
+    //   block for remote actors: suspended set, suspendedUntil IS NULL
+    // Whether a sanction is *currently* active is always determined by
+    // comparing against the current time (lazy expiry; no cron):
+    // suspended <= now AND (suspendedUntil IS NULL OR suspendedUntil > now).
+    suspended: timestamp({ withTimezone: true }),
+    suspendedUntil: timestamp({ withTimezone: true }),
+    successorId: uuid().references((): AnyPgColumn => actors.id, {
+      onDelete: "set null",
+    }),
+    aliases: text()
+      .array()
+      .notNull()
+      .default(sql`(ARRAY[]::text[])`),
+    followeesCount: integer().notNull().default(0),
+    followersCount: integer().notNull().default(0),
+    postsCount: integer().notNull().default(0),
+    updated: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp)
+      .$onUpdate(() => currentTimestamp),
+    published: timestamp({ withTimezone: true }),
+    created: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp),
+    deleted: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    unique("username_key").on(t.username, t.instanceId),
+    check("actors_username_check", sql`${t.username} NOT LIKE '%@%'`),
+    check(
+      "actors_suspended_check",
+      sql`
+        ${t.suspendedUntil} IS NULL OR (
+          ${t.suspended} IS NOT NULL AND
+          ${t.suspendedUntil} > ${t.suspended}
+        )
+      `,
+    ),
+    index("actor_instance_index").on(t.instanceId),
+  ],
+);
+
+export type Actor = typeof actors.$inferSelect;
+export type NewActor = typeof actors.$inferInsert;
+
+export const localActors = pgTable("local_actors", {
+  id: uuid().primaryKey(),
+  avatar: text(),
+  header: text(),
+});
+
+export type LocalActor = typeof localActors.$inferSelect;
+export type NewLocalActor = typeof localActors.$inferInsert;
