@@ -1,4 +1,5 @@
 packages:
+  - .
   - packages/*
 
 allowBuilds:
@@ -23,6 +24,7 @@ catalog:
   drizzle-orm: 1.0.0-beta.22
   graphql: ^16.14.2
   pg: ^8.21.0
+  skills-npm: ^1.2.0
   tsdown: ^0.22.14
   typescript: ^7.0.2
   uuid: ^14.0.1
@@ -40,3 +42,4 @@ minimumReleaseAgeExclude:
   - "@upyo/mock@0.6.0-dev.263"
   - "@upyo/smtp@0.6.0-dev.263"
   - "@solidjs/start@2.0.0"
+  - solid-relay@1.0.0-beta.29

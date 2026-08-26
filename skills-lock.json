@@ -6,12 +6,6 @@
       "sourceType": "github",
       "skillPath": "skills/graphql-schema-design/SKILL.md",
       "computedHash": "daa7be0631ea37c02ea9e000cfabb867c84fae2e958445beb1f63521f602e448"
-    },
-    "optique": {
-      "source": "dahlia/optique",
-      "sourceType": "github",
-      "skillPath": "packages/core/skills/optique/SKILL.md",
-      "computedHash": "857ce1e2d28c8ee9623588e9fca3a9bebec300044b24f32397e0b0aac8910d8b"
     }
   }
 }
