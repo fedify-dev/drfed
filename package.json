@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "devDependencies": {
+    "skills-npm": "catalog:"
+  },
+  "scripts": {
+    "prepare": "skills-npm --recursive --yes --force"
+  }
+}
