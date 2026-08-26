@@ -19,6 +19,7 @@ import { commitMutation, graphql } from "relay-runtime";
 import { Show, createSignal, onMount } from "solid-js";
 
 import { createRelayEnvironment } from "~/RelayEnvironment";
+import { setSessionCookie } from "~/session";
 
 import type { CompleteLoginChallenge } from "./__generated__/CompleteLoginChallenge.graphql.ts";
 
@@ -37,8 +38,6 @@ type CompleteLogInResult =
       status: "error";
     }
   | {
-      accessToken: string;
-      expires: string;
       message: string;
       status: "success";
     };
@@ -76,9 +75,17 @@ const completeLoginChallengeAction = action(
             return;
           }
 
+          try {
+            setSessionCookie(session.accessToken, session.expires);
+          } catch {
+            resolve({
+              message: "Unable to save a session.",
+              status: "error",
+            });
+            return;
+          }
+
           resolve({
-            accessToken: session.accessToken,
-            expires: session.expires,
             message: "Signing in…",
             status: "success",
           });
@@ -113,23 +120,6 @@ export default function ConfirmPage() {
         setResult(completeResult);
 
         if (completeResult.status === "error") {
-          return;
-        }
-
-        const response = await fetch("/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accessToken: completeResult.accessToken,
-            expires: completeResult.expires,
-          }),
-        });
-
-        if (!response.ok) {
-          setResult({
-            message: "Unable to save a session.",
-            status: "error",
-          });
           return;
         }
 

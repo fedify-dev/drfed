@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { getCookie, getRequestURL } from "@solidjs/start/http";
+import { getCookie } from "@solidjs/start/http";
 import {
   Environment,
   type FetchFunction,
@@ -42,7 +42,7 @@ const fetchGraphQL = async (
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const url = new URL("/graphql", getRequestURL());
+  const url = new URL("/graphql", import.meta.env.VITE_BACKEND_URL);
 
   const response = await fetch(url, {
     method: "POST",
