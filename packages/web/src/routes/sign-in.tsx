@@ -15,12 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Title } from "@solidjs/meta";
-import { action, useSubmission } from "@solidjs/router";
-import { commitMutation, graphql } from "relay-runtime";
-import { Show } from "solid-js";
-import { getRequestEvent } from "solid-js/web";
+import { graphql } from "relay-runtime";
+import { Show, createSignal } from "solid-js";
+import { createMutation } from "solid-relay";
 
-import { createRelayEnvironment } from "~/RelayEnvironment";
+import type { SignInMutation } from "./__generated__/SignInMutation.graphql";
 
 import "./sign-in.css";
 
@@ -37,65 +36,51 @@ interface SignInResult {
   status: "error" | "success";
 }
 
-const signInAction = action(async (formData: FormData) => {
-  "use server";
+export default function SignInPage() {
+  const [result, setResult] = createSignal<SignInResult>();
+  const [commitSignIn, isSigningIn] =
+    createMutation<SignInMutation>(signInMutation);
 
-  const email = formData.get("email");
-  if (typeof email !== "string" || email === "") {
-    return {
-      message: "Enter a valid email address.",
-      status: "error",
-    } satisfies SignInResult;
-  }
+  const submit = (event: SubmitEvent & { currentTarget: HTMLFormElement }) => {
+    event.preventDefault();
 
-  const request = getRequestEvent()?.request;
-  if (request === undefined) {
-    return {
-      message: "Unable to determine the application URL.",
-      status: "error",
-    } satisfies SignInResult;
-  }
+    const verifyUrl = `${globalThis.location.origin}/confirm/{token}?code={code}`;
+    const formData = new FormData(event.currentTarget);
+    const email = formData.get("email");
+    if (typeof email !== "string" || email === "") {
+      setResult({
+        message: "Enter a valid email address.",
+        status: "error",
+      });
+      return;
+    }
 
-  const environment = createRelayEnvironment();
-  const verifyUrl = `${new URL(request.url).origin}/confirm/{token}?code={code}`;
-
-  const result = await new Promise<SignInResult>((resolve) => {
-    commitMutation(environment, {
-      mutation: signInMutation,
+    setResult(undefined);
+    commitSignIn({
       variables: { email, verifyUrl },
       onCompleted: (_response, errors) => {
-        const errorMessage = errors?.map((e) => e.message).join("\n");
+        const graphQLErrors = errors ?? [];
+        if (graphQLErrors.length > 0) {
+          setResult({
+            message: graphQLErrors.map((error) => error.message).join("\n"),
+            status: "error",
+          });
+          return;
+        }
 
-        resolve({
+        setResult({
           message:
-            errorMessage ??
             "Check your inbox for a secure sign-in link. You can close this page.",
-          status: errorMessage === undefined ? "success" : "error",
+          status: "success",
         });
       },
       onError: (error) => {
-        resolve({
+        setResult({
           message: error.message,
           status: "error",
         });
       },
     });
-  });
-
-  return result;
-}, "sign-in");
-
-export default function SignInPage() {
-  const signInSubmission = useSubmission(signInAction);
-
-  const buttonLabel = () => {
-    if (signInSubmission.pending === true) {
-      return "Sending link…";
-    }
-    if (signInSubmission.result?.status === "success") {
-      return "Resend sign-in link";
-    }
-    return "Send sign-in link";
   };
 
   return (
@@ -111,7 +96,7 @@ export default function SignInPage() {
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-        <form action={signInAction} method="post">
+        <form onSubmit={submit}>
           <label class="field">
             <span class="field-heading">
               Email address
@@ -126,16 +111,21 @@ export default function SignInPage() {
               required
             />
           </label>
-          <button
-            class="button primary"
-            type="submit"
-            disabled={signInSubmission.pending}
-          >
-            {buttonLabel()}
+          <button class="button primary" type="submit" disabled={isSigningIn()}>
+            <Show
+              when={isSigningIn()}
+              fallback={
+                result()?.status === "success"
+                  ? "Resend sign-in link"
+                  : "Send sign-in link"
+              }
+            >
+              Sending link…
+            </Show>
           </button>
         </form>
 
-        <Show when={signInSubmission.result}>
+        <Show when={result()}>
           {(formResult) => (
             <p
               class={`notice ${formResult().status}`}
