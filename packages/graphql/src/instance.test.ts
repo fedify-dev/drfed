@@ -179,6 +179,7 @@ describe("Mutation.createInstance", () => {
       assert.equal(members.length, 1);
       assert.equal(members[0]?.accountId, accountId);
       assert.equal(members[0]?.instanceId, instances[0]?.id);
+      assert.ok(members[0]?.accepted instanceof Date);
     });
   });
 

@@ -267,6 +267,7 @@ builder.mutationFields((t) => ({
           await tx.insert(schema.instanceMembers).values({
             instanceId: instance.id,
             accountId: account.id,
+            accepted: new Date(),
           });
           const instances = await tx.$count(
             schema.instanceMembers,
