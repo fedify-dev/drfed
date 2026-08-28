@@ -32,15 +32,10 @@ const completeLoginChallengeMutation = graphql`
   }
 `;
 
-type CompleteLogInResult =
-  | {
-      message: string;
-      status: "error";
-    }
-  | {
-      message: string;
-      status: "success";
-    };
+interface CompleteLoginResult {
+  message: string;
+  status: "error" | "success";
+}
 
 const completeLoginChallengeAction = action(
   async ({ token, code }: { token: string; code: string }) => {
@@ -48,16 +43,16 @@ const completeLoginChallengeAction = action(
 
     const environment = createRelayEnvironment();
 
-    const result = await new Promise<CompleteLogInResult>((resolve) => {
+    const result = await new Promise<CompleteLoginResult>((resolve) => {
       commitMutation<CompleteLoginChallenge>(environment, {
         mutation: completeLoginChallengeMutation,
         variables: { token, code },
         onCompleted: (response, errors) => {
-          const errorMessage = errors?.map((e) => e.message).join("\n");
+          const graphQLErrors = errors ?? [];
 
-          if (errorMessage !== undefined) {
+          if (graphQLErrors.length > 0) {
             resolve({
-              message: errorMessage,
+              message: graphQLErrors.map((error) => error.message).join("\n"),
               status: "error",
             });
             return;
@@ -108,7 +103,7 @@ export default function ConfirmPage() {
   const params = useParams<{ token: string }>();
   const [searchParams] = useSearchParams<{ code?: string }>();
   const completeLoginChallenge = useAction(completeLoginChallengeAction);
-  const [result, setResult] = createSignal<CompleteLogInResult>();
+  const [result, setResult] = createSignal<CompleteLoginResult>();
 
   onMount(() => {
     async function complete() {
@@ -139,7 +134,7 @@ export default function ConfirmPage() {
   });
 
   return (
-    <Show when={result()}>
+    <Show when={result()} fallback={<output>Signing in…</output>}>
       {(value) => <output class={value().status}>{value().message}</output>}
     </Show>
   );
