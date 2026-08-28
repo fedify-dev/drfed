@@ -26,12 +26,11 @@ import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutat
 const createInstanceMutation = graphql`
   mutation CreateInstanceMutation($slug: String!) {
     createInstance(slug: $slug) {
-      __typename
+      resultType: __typename
       ... on Instance {
         id
       }
       ... on CreateInstanceError {
-        type
         message
       }
     }
@@ -66,17 +65,23 @@ export default function CreateInstancePage() {
           return;
         }
 
-        const result = response.createInstance;
-        if ("message" in result) {
-          setErrorMessage(result.message);
-          return;
+        switch (response.createInstance.resultType) {
+          case "CreateInstanceError": {
+            setErrorMessage(response.createInstance.message);
+            return;
+          }
+          case "Instance": {
+            navigate("/workspace/");
+            return;
+          }
+          case "%other": {
+            setErrorMessage("Unable to create the instance.");
+            return;
+          }
+          default: {
+            setErrorMessage("Unable to create the instance.");
+          }
         }
-        if (!("id" in result)) {
-          setErrorMessage("Unable to create the instance.");
-          return;
-        }
-
-        navigate("/workspace/");
       },
       onError: (error) => {
         setErrorMessage(error.message);
