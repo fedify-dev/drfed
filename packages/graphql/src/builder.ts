@@ -104,6 +104,10 @@ export interface SchemaTypes {
       Input: Template;
       Output: Template;
     };
+    URL: {
+      Input: URL;
+      Output: string;
+    };
   };
   DefaultFieldNullability: false;
   DrizzleRelations: typeof relations;
@@ -196,6 +200,7 @@ async function isLocalInstanceMember(
 }
 
 builder.addScalarType("DateTime", DateTimeResolver);
+builder.addScalarType("URL", URLResolver);
 
 builder.scalarType("Email", {
   parseValue: (v) => normalizeEmail(String(v)),

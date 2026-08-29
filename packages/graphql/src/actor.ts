@@ -62,7 +62,7 @@ const ActorRef = builder.drizzleNode("actors", {
     }),
     type: t.expose("type", {
       type: ActorType,
-      description: `The type of the \`Actor\`: ${ACTOR_TYPES}`,
+      description: `The type of the \`Actor\`: ${ACTOR_TYPES_DOC}`,
     }),
     username: t.exposeString("username", {
       description: "The username of the `Actor`.",
@@ -74,33 +74,41 @@ const ActorRef = builder.drizzleNode("actors", {
       nullable: true,
       description: "The local details of the `Actor`, or null if it is remote.",
     }),
-    inboxUrl: t.exposeString("inboxUrl", {
+    inboxUrl: t.expose("inboxUrl", {
+      type: "URL",
       description: "The inbox URL of the `Actor`.",
     }),
-    outboxUrl: t.exposeString("outboxUrl", {
+    outboxUrl: t.expose("outboxUrl", {
+      type: "URL",
       description: "The outbox URL of the `Actor`.",
     }),
-    avatarUrl: t.exposeString("avatarUrl", {
+    avatarUrl: t.expose("avatarUrl", {
+      type: "URL",
       description: "The avatar URL of the `Actor`.",
       nullable: true,
     }),
-    followersUrl: t.exposeString("followersUrl", {
+    followersUrl: t.expose("followersUrl", {
+      type: "URL",
       description: "The followers URL of the `Actor`.",
       nullable: true,
     }),
-    followeesUrl: t.exposeString("followeesUrl", {
+    followeesUrl: t.expose("followeesUrl", {
+      type: "URL",
       description: "The followees URL of the `Actor`.",
       nullable: true,
     }),
-    headerUrl: t.exposeString("headerUrl", {
+    headerUrl: t.expose("headerUrl", {
+      type: "URL",
       description: "The header URL of the `Actor`.",
       nullable: true,
     }),
-    profileUrl: t.exposeString("profileUrl", {
+    profileUrl: t.expose("profileUrl", {
+      type: "URL",
       description: "The profile URL of the `Actor`.",
       nullable: true,
     }),
-    featuredUrl: t.exposeString("featuredUrl", {
+    featuredUrl: t.expose("featuredUrl", {
+      type: "URL",
       description: "The featured URL of the `Actor`.",
       nullable: true,
     }),
@@ -401,7 +409,7 @@ builder.drizzleObjectField("instances", "actors", (t) =>
           }),
           type: fb.expose("type", {
             type: ActorType,
-            description: `The type of the \`Actor\`: ${ACTOR_TYPES}`,
+            description: `The type of the \`Actor\`: ${ACTOR_TYPES_DOC}`,
           }),
           username: fb.exposeString("username", {
             description: "The username of the `Actor`.",
