@@ -18,20 +18,20 @@
 
 import { schema } from "@drfed/models";
 import { actorTypeEnum } from "@drfed/models/schema";
+import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
 import { v7 as uuid } from "uuid";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
-// oxlint-disable-next-line import/no-cycle
 import { Instance } from "./instance.ts";
 import templates from "./uri-templates.ts";
 
-export const ActorType = builder.enumType("ActorType", {
+const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
 });
 
-export const ACTOR_TYPES = actorTypeEnum.enumValues.join(" | ");
+const ACTOR_TYPES = actorTypeEnum.enumValues.join(" | ");
 
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
@@ -347,3 +347,65 @@ function genActor(
     profileUrl: templates.profile.expand(templateArgs),
   };
 }
+
+const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
+  query: { orderBy: { created: "desc" } },
+});
+
+builder.drizzleObjectField("instances", "actors", (t) =>
+  t.connection(
+    {
+      type: Actor,
+      description: "The `Actor`s that belong to the `Instance`.",
+      select(args, ctx, nestedSelection) {
+        return {
+          with: {
+            actors: actorsConnection.getQuery(args, ctx, nestedSelection),
+          },
+        };
+      },
+      resolve(instance, args, ctx) {
+        return {
+          ...actorsConnection.resolve(instance.actors, args, ctx, instance),
+          totalCount() {
+            return ctx.db.$count(
+              schema.actors,
+              eq(schema.actors.instanceId, instance.id),
+            );
+          },
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          totalCount: fb.int({
+            description:
+              "The total number of `Actor`s that belong to the `Instance`.",
+            resolve(connection) {
+              return connection.totalCount();
+            },
+          }),
+        };
+      },
+    },
+    {
+      fields(fb) {
+        return {
+          created: fb.expose("created", {
+            type: "DateTime",
+            description:
+              "The date/time when the `Actor` was added to the `Instance`.",
+          }),
+          type: fb.expose("type", {
+            type: ActorType,
+            description: `The type of the \`Actor\`: ${ACTOR_TYPES}`,
+          }),
+          username: fb.exposeString("username", {
+            description: "The username of the `Actor`.",
+          }),
+        };
+      },
+    },
+  ),
+);
