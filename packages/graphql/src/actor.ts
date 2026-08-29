@@ -31,7 +31,9 @@ const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
 });
 
-const ACTOR_TYPES = actorTypeEnum.enumValues.join(" | ");
+const ACTOR_TYPES_DOC = actorTypeEnum.enumValues
+  .map((t) => `\`${t}\``)
+  .join(" | ");
 
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
