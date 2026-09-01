@@ -24,7 +24,7 @@ import { createMutation } from "solid-relay";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 
-import "./sign-in.css";
+import styles from "~/form.module.css";
 
 const signInMutation = graphql`
   mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
@@ -87,32 +87,32 @@ export default function SignInPage() {
   };
 
   return (
-    <main class="auth-page form-page">
+    <main class={styles.page}>
       <Title>Sign in — DrFed</Title>
 
-      <section
-        class="panel auth-panel form-panel"
-        aria-labelledby="sign-in-title"
-      >
-        <header class="panel-header">
+      <section class={styles.panel} aria-labelledby="sign-in-title">
+        <header class={styles.header}>
           <h1 id="sign-in-title">Sign in</h1>
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-        <form onSubmit={submit}>
-          <TextField class="field" name="email" required>
-            <TextField.Label class="field-heading">
+        <form class={styles.form} onSubmit={submit}>
+          <TextField class={styles.field} name="email" required>
+            <TextField.Label class={styles.fieldHeading}>
               Email address
-              <span class="field-status required">Required</span>
+              <span class={`${styles.fieldStatus} ${styles.required}`}>
+                Required
+              </span>
             </TextField.Label>
             <TextField.Input
+              class={styles.input}
               type="email"
               autocomplete="email"
               inputMode="email"
               placeholder="you@example.com"
             />
           </TextField>
-          <Button class="button primary" type="submit" disabled={isSigningIn()}>
+          <Button class={styles.button} type="submit" disabled={isSigningIn()}>
             <Show
               when={isSigningIn()}
               fallback={
@@ -130,11 +130,15 @@ export default function SignInPage() {
           {(formResult) => (
             <Switch>
               <Match when={formResult().status === "error"}>
-                <Alert class="notice error">{formResult().message}</Alert>
+                <Alert class={`${styles.notice} ${styles.error}`}>
+                  {formResult().message}
+                </Alert>
               </Match>
 
               <Match when={formResult().status === "success"}>
-                <output class="notice success">{formResult().message}</output>
+                <output class={`${styles.notice} ${styles.success}`}>
+                  {formResult().message}
+                </output>
               </Match>
             </Switch>
           )}

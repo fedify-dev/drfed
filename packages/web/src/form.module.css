@@ -1,0 +1,179 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.page {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: calc(100svh - var(--header-h) - clamp(4rem, 10vw, 8rem));
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  max-width: 28rem;
+  padding: clamp(1.5rem, 4vw, 2rem);
+  width: 100%;
+}
+
+.header {
+  border-bottom: 1px solid var(--line);
+  margin: 0 calc(clamp(1.5rem, 4vw, 2rem) * -1) 1.5rem;
+  padding: 0 clamp(1.5rem, 4vw, 2rem) 1.5rem;
+}
+
+.header h1 {
+  font-size: 1.65rem;
+  margin: 0 0 0.5rem;
+}
+
+.header p {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.fieldHeading {
+  align-items: baseline;
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 650;
+  justify-content: space-between;
+}
+
+.fieldStatus {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.required {
+  color: var(--accent-strong);
+}
+
+.input {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.input::placeholder {
+  color: var(--ink-faint);
+}
+
+.input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  outline: none;
+}
+
+.input:read-only {
+  border-style: dashed;
+  color: var(--ink-soft);
+  cursor: default;
+  font-family: var(--font-mono);
+}
+
+.hint {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.button {
+  align-items: center;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--on-accent);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 2.9rem;
+  padding: 0.75rem 1.1rem;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.notice {
+  background: var(--accent-tint);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  line-height: 1.5;
+  margin: 1.25rem 0 0;
+  padding: 0.85rem 1rem;
+}
+
+.error {
+  border-left: 3px solid var(--danger);
+}
+
+.success {
+  border-left: 3px solid var(--accent);
+}
+
+@media (max-width: 600px) {
+  .page {
+    align-items: flex-start;
+    min-height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .input {
+    transition: none;
+  }
+}

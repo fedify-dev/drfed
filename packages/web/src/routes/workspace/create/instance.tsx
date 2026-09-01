@@ -23,6 +23,8 @@ import { createMutation } from "solid-relay";
 
 import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql.ts";
 
+import styles from "~/form.module.css";
+
 const createInstanceMutation = graphql`
   mutation CreateInstanceMutation($slug: String!) {
     createInstance(slug: $slug) {
@@ -97,38 +99,36 @@ export default function CreateInstancePage() {
   };
 
   return (
-    <main class="create-page form-page">
+    <main class={styles.page}>
       <Title>Create an instance — DrFed</Title>
 
-      <section
-        class="panel create-panel form-panel"
-        aria-labelledby="create-instance-title"
-      >
-        <header class="panel-header">
+      <section class={styles.panel} aria-labelledby="create-instance-title">
+        <header class={styles.header}>
           <h1 id="create-instance-title">Create an instance</h1>
           <p>Review the generated identifier for your new instance.</p>
         </header>
 
-        <form onSubmit={submit}>
-          <label class="field">
-            <span class="field-heading">
+        <form class={styles.form} onSubmit={submit}>
+          <label class={styles.field}>
+            <span class={styles.fieldHeading}>
               Slug
-              <span class="field-status">Generated · Read only</span>
+              <span class={styles.fieldStatus}>Generated · Read only</span>
             </span>
             <input
+              class={styles.input}
               name="slug"
               type="text"
               value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
               aria-describedby="slug-hint"
               readOnly
             />
-            <span id="slug-hint" class="field-hint">
+            <span id="slug-hint" class={styles.hint}>
               DrFed generates this identifier automatically. It cannot be
               edited.
             </span>
           </label>
           <button
-            class="button primary"
+            class={styles.button}
             type="submit"
             disabled={isCreatingInstance()}
           >
@@ -137,7 +137,7 @@ export default function CreateInstancePage() {
         </form>
 
         <Show when={errorMessage()}>
-          <p class="notice error" role="alert">
+          <p class={`${styles.notice} ${styles.error}`} role="alert">
             {errorMessage()}
           </p>
         </Show>
