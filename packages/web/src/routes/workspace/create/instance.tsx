@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { faker } from "@faker-js/faker";
+import { Button } from "@kobalte/core/button";
+import { TextField } from "@kobalte/core/text-field";
 import { Title } from "@solidjs/meta";
 import { useNavigate } from "@solidjs/router";
 import { graphql } from "relay-runtime";
@@ -109,31 +111,32 @@ export default function CreateInstancePage() {
         </header>
 
         <form class={styles.form} onSubmit={submit}>
-          <label class={styles.field}>
-            <span class={styles.fieldHeading}>
+          <TextField
+            class={styles.field}
+            name="slug"
+            value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
+            readOnly
+          >
+            <TextField.Label class={styles.fieldHeading}>
               Slug
               <span class={styles.fieldStatus}>Generated · Read only</span>
-            </span>
-            <input
-              class={styles.input}
-              name="slug"
-              type="text"
-              value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
-              aria-describedby="slug-hint"
-              readOnly
-            />
-            <span id="slug-hint" class={styles.hint}>
+            </TextField.Label>
+
+            <TextField.Input class={styles.input} />
+
+            <TextField.Description class={styles.hint}>
               DrFed generates this identifier automatically. It cannot be
               edited.
-            </span>
-          </label>
-          <button
+            </TextField.Description>
+          </TextField>
+
+          <Button
             class={styles.button}
             type="submit"
             disabled={isCreatingInstance()}
           >
             {buttonLabel()}
-          </button>
+          </Button>
         </form>
 
         <Show when={errorMessage()}>
