@@ -47,7 +47,7 @@ export default function App() {
                     class={styles.navigation}
                     aria-label="Primary navigation"
                   >
-                    <A href="/" end activeClass={styles.active}>
+                    <A href="/workspace" end activeClass={styles.active}>
                       Workspace
                     </A>
                     <A href="/about" activeClass={styles.active}>

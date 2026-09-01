@@ -36,9 +36,7 @@ export default function InstanceSummary(props: {
   return (
     <p>
       {data()?.host}
-      <Link href={`/workspace/create/${data()?.host}/actors`}>
-        Create Actors
-      </Link>
+      <Link href={`/workspace/create/${data()?.id}/actors`}>Create Actors</Link>
     </p>
   );
 }
