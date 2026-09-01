@@ -152,6 +152,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   line-height: 1.5;
   margin: 1.25rem 0 0;
   padding: 0.85rem 1rem;
+  display: block;
 }
 
 .error {
