@@ -14,9 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { Alert } from "@kobalte/core/alert";
+import { Button } from "@kobalte/core/button";
+import { TextField } from "@kobalte/core/text-field";
 import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
-import { Show, createSignal } from "solid-js";
+import { Match, Show, Switch, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
@@ -97,21 +100,19 @@ export default function SignInPage() {
         </header>
 
         <form onSubmit={submit}>
-          <label class="field">
-            <span class="field-heading">
+          <TextField class="field" name="email" required>
+            <TextField.Label class="field-heading">
               Email address
               <span class="field-status required">Required</span>
-            </span>
-            <input
-              name="email"
+            </TextField.Label>
+            <TextField.Input
               type="email"
               autocomplete="email"
-              inputmode="email"
+              inputMode="email"
               placeholder="you@example.com"
-              required
             />
-          </label>
-          <button class="button primary" type="submit" disabled={isSigningIn()}>
+          </TextField>
+          <Button class="button primary" type="submit" disabled={isSigningIn()}>
             <Show
               when={isSigningIn()}
               fallback={
@@ -122,17 +123,20 @@ export default function SignInPage() {
             >
               Sending link…
             </Show>
-          </button>
+          </Button>
         </form>
 
         <Show when={result()}>
           {(formResult) => (
-            <p
-              class={`notice ${formResult().status}`}
-              role={formResult().status === "error" ? "alert" : "status"}
-            >
-              {formResult().message}
-            </p>
+            <Switch>
+              <Match when={formResult().status === "error"}>
+                <Alert class="notice error">{formResult().message}</Alert>
+              </Match>
+
+              <Match when={formResult().status === "success"}>
+                <output class="notice success">{formResult().message}</output>
+              </Match>
+            </Switch>
           )}
         </Show>
       </section>
