@@ -23,7 +23,7 @@ import { createMutation } from "solid-relay";
 
 import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql.ts";
 
-import styles from "~/form.module.css";
+import styles from "~/styles/form.module.css";
 
 const createInstanceMutation = graphql`
   mutation CreateInstanceMutation($slug: String!) {

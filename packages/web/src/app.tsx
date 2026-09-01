@@ -19,13 +19,13 @@ import { A, Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 
-import "./drfed.css";
-import "./app.css";
+import "./styles/drfed.css";
+import "./styles/app.css";
 import { RelayEnvironmentProvider } from "solid-relay";
 
 import { createRelayEnvironment } from "./RelayEnvironment.ts";
 
-import styles from "./app.module.css";
+import styles from "./styles/app.module.css";
 
 export default function App() {
   const environment = createRelayEnvironment();

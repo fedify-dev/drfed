@@ -24,7 +24,7 @@ import { createMutation } from "solid-relay";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 
-import styles from "~/form.module.css";
+import styles from "~/styles/form.module.css";
 
 const signInMutation = graphql`
   mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
