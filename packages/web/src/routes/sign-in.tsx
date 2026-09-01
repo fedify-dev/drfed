@@ -19,7 +19,7 @@ import { Button } from "@kobalte/core/button";
 import { TextField } from "@kobalte/core/text-field";
 import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
-import { Show, createSignal } from "solid-js";
+import { Match, Show, Switch, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
@@ -126,17 +126,22 @@ export default function SignInPage() {
           </Button>
         </form>
 
-        <Show
-          when={result()?.status === "error"}
-          fallback={
-            <output class={`${styles.notice} ${styles.success}`}>
-              {result()?.message}
-            </output>
-          }
-        >
-          <Alert class={`${styles.notice} ${styles.error}`}>
-            {result()?.message}
-          </Alert>
+        <Show when={result()}>
+          {(formResult) => (
+            <Switch>
+              <Match when={formResult().status === "error"}>
+                <Alert class={`${styles.notice} ${styles.error}`}>
+                  {formResult().message}
+                </Alert>
+              </Match>
+
+              <Match when={formResult().status === "success"}>
+                <output class={`${styles.notice} ${styles.success}`}>
+                  {formResult().message}
+                </output>
+              </Match>
+            </Switch>
+          )}
         </Show>
       </section>
     </main>
