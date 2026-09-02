@@ -111,7 +111,7 @@ describe("Mutation.genActors", () => {
       assert.equal(body.errors, undefined);
       assert.equal(body.data.genActors.resultType, "CreateActorsSuccess");
       assert.equal(body.data.genActors.actors.length, 2);
-      assert.equal(
+      assert.ok(
         body.data.genActors.actors.every(
           (actor: {
             iri: unknown;
@@ -121,11 +121,16 @@ describe("Mutation.genActors", () => {
           }) =>
             typeof actor.uuid === "string" &&
             typeof actor.username === "string" &&
-            actor.iri ===
-              `https://test-instance.drfed.org/users/${actor.uuid}` &&
+            typeof actor.iri === "string" &&
             typeof actor.local?.uuid === "string",
         ),
-        true,
+      );
+      assert.deepStrictEqual(
+        body.data.genActors.actors.map((actor: { iri: string }) => actor.iri),
+        body.data.genActors.actors.map(
+          (actor: { uuid: string }) =>
+            `https://test-instance.drfed.org/users/${actor.uuid}`,
+        ),
       );
 
       const actors = await db.select().from(schema.actors);

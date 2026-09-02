@@ -24,7 +24,7 @@ import type { YogaServerInstance } from "graphql-yoga";
 
 const logger = getLogger(["drfed", "graphql", "test"]);
 
-const testEndpoint = "http://drfed.test/graphql";
+const testEndpoint = "https://drfed.test/graphql";
 
 /**
  * The `fetch()` function exposed by the test Yoga server.

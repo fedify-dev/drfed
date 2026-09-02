@@ -26,6 +26,7 @@
     "eslint/curly": ["error", "multi-line"],
     "oxc/no-optional-chaining": "off",
     "oxc/no-async-await": "off",
+    "jsdoc/require-param": "off",
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/max-lines-per-function": "off",

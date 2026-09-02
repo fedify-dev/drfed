@@ -56,13 +56,11 @@ const actorConstructors: Record<
  */
 type LocalActorRecord = Actor & { readonly instance: Instance };
 
-// DrFed hosts multiple instances under distinct hosts, so every dispatcher
-// must only serve the actors whose instance matches the requested host.
-const findLocalActor = async (
+async function findLocalActor(
   db: Database,
-  fedCtx: Context<unknown>,
+  ctx: Context<unknown>,
   identifier: string,
-): Promise<LocalActorRecord | null> => {
+): Promise<LocalActorRecord | null> {
   if (!validateUuid(identifier)) return null;
   const actor = await db.query.actors.findFirst({
     where: { id: identifier },
@@ -70,17 +68,17 @@ const findLocalActor = async (
   });
   return actor == null ||
     actor.localId == null ||
-    actor.instance.host !== fedCtx.host
+    actor.instance.host !== ctx.host
     ? null
     : actor;
-};
+}
 
 async function findActiveActor(
   db: Database,
-  fedCtx: Context<unknown>,
+  ctx: Context<unknown>,
   identifier: string,
 ): Promise<LocalActorRecord | null> {
-  const actor = await findLocalActor(db, fedCtx, identifier);
+  const actor = await findLocalActor(db, ctx, identifier);
   return actor == null || actor.deleted != null ? null : actor;
 }
 
@@ -92,25 +90,23 @@ async function findActiveActor(
  * throws on duplicate registration.
  * @param context The server context holding the `Federation` instance.
  */
-export default function buildFederation(
-  context: Omit<ServerContext, "request">,
-): void {
-  const { db, federation } = context;
-
+export default function buildFederation<
+  T extends Pick<ServerContext, "db" | "federation">,
+>({ db, federation }: T): void {
   federation
-    .setActorDispatcher("/users/{identifier}", async (fedCtx, identifier) => {
-      const actor = await findLocalActor(db, fedCtx, identifier);
+    .setActorDispatcher("/users/{identifier}", async (ctx, identifier) => {
+      const actor = await findLocalActor(db, ctx, identifier);
       if (actor == null) return null;
       // Deleted actors are served as `Tombstone`s (HTTP 410) so that remote
       // peers purge them instead of retrying on 404.
       if (actor.deleted != null) {
-        return new Tombstone({ id: fedCtx.getActorUri(identifier) });
+        return new Tombstone({ id: ctx.getActorUri(identifier) });
       }
-      return toActorObject(fedCtx, identifier, actor);
+      return toActorObject(ctx, identifier, actor);
     })
-    .mapHandle(async (fedCtx, username) => {
+    .mapHandle(async (ctx, username) => {
       const instance = await db.query.instances.findFirst({
-        where: { host: fedCtx.host },
+        where: { host: ctx.host },
       });
       if (instance == null) return null;
       const actor = await db.query.actors.findFirst({
@@ -128,10 +124,10 @@ export default function buildFederation(
     // FIXME: Record incoming activities once the data model can store them;
     // until then the catch-all below only surfaces them in the logs so that
     // deliveries are not silently discarded.
-    .on(Activity, (_fedCtx, activity) => {
+    .on(Activity, (_ctx, activity) => {
       logger.debug("Received an activity: {activity}", { activity });
     })
-    .onError((_fedCtx, error) => {
+    .onError((_ctx, error) => {
       logger.error("An error occurred while processing an inbox: {error}", {
         error,
       });
@@ -139,9 +135,9 @@ export default function buildFederation(
 
   federation.setOutboxDispatcher(
     "/users/{identifier}/outbox",
-    async (fedCtx, identifier) =>
+    async (ctx, identifier) =>
       // FIXME: Return the actual activities once the data model stores them
-      (await findActiveActor(db, fedCtx, identifier)) == null
+      (await findActiveActor(db, ctx, identifier)) == null
         ? null
         : { items: [] },
   );
@@ -149,39 +145,39 @@ export default function buildFederation(
   federation
     .setFollowersDispatcher(
       "/users/{identifier}/followers",
-      async (fedCtx, identifier) =>
+      async (ctx, identifier) =>
         // FIXME: Return the actual followers once the data model stores
         // follows
-        (await findActiveActor(db, fedCtx, identifier)) == null
+        (await findActiveActor(db, ctx, identifier)) == null
           ? null
           : { items: [] },
     )
     .setCounter(
-      async (fedCtx, identifier) =>
-        (await findActiveActor(db, fedCtx, identifier))?.followersCount ?? null,
+      async (ctx, identifier) =>
+        (await findActiveActor(db, ctx, identifier))?.followersCount ?? null,
     );
 
   federation
     .setFollowingDispatcher(
       "/users/{identifier}/followees",
-      async (fedCtx, identifier) =>
+      async (ctx, identifier) =>
         // FIXME: Return the actual followees once the data model stores
         // follows
-        (await findActiveActor(db, fedCtx, identifier)) == null
+        (await findActiveActor(db, ctx, identifier)) == null
           ? null
           : { items: [] },
     )
     .setCounter(
-      async (fedCtx, identifier) =>
-        (await findActiveActor(db, fedCtx, identifier))?.followeesCount ?? null,
+      async (ctx, identifier) =>
+        (await findActiveActor(db, ctx, identifier))?.followeesCount ?? null,
     );
 
   federation.setFeaturedDispatcher(
     "/users/{identifier}/featured",
-    async (fedCtx, identifier) =>
+    async (ctx, identifier) =>
       // FIXME: Return the actual pinned objects once the data model stores
       // them
-      (await findActiveActor(db, fedCtx, identifier)) == null
+      (await findActiveActor(db, ctx, identifier)) == null
         ? null
         : { items: [] },
   );
@@ -189,22 +185,22 @@ export default function buildFederation(
 
 // Whether a sanction is *currently* active is always determined by comparing
 // against the current time (lazy expiry; no cron); see the actors table.
-const isSuspended = ({ suspended, suspendedUntil }: Actor): boolean => {
+function isSuspended({ suspended, suspendedUntil }: Actor): boolean {
   const now = new Date();
   return (
     suspended != null &&
     suspended <= now &&
     (suspendedUntil == null || suspendedUntil > now)
   );
-};
+}
 
 function toActorObject(
-  fedCtx: Context<unknown>,
+  ctx: Context<unknown>,
   identifier: string,
   actor: LocalActorRecord,
 ): ActorObject {
   return actorConstructors[actor.type]({
-    id: fedCtx.getActorUri(identifier),
+    id: ctx.getActorUri(identifier),
     preferredUsername: actor.username,
     name: actor.name,
     summary: actor.bioHtml,
@@ -221,12 +217,12 @@ function toActorObject(
     sensitive: actor.sensitive,
     suspended: isSuspended(actor),
     aliases: actor.aliases.map((alias) => new URL(alias)),
-    inbox: fedCtx.getInboxUri(identifier),
-    outbox: fedCtx.getOutboxUri(identifier),
-    followers: fedCtx.getFollowersUri(identifier),
-    following: fedCtx.getFollowingUri(identifier),
-    featured: fedCtx.getFeaturedUri(identifier),
-    endpoints: new Endpoints({ sharedInbox: fedCtx.getInboxUri() }),
+    inbox: ctx.getInboxUri(identifier),
+    outbox: ctx.getOutboxUri(identifier),
+    followers: ctx.getFollowersUri(identifier),
+    following: ctx.getFollowingUri(identifier),
+    featured: ctx.getFeaturedUri(identifier),
+    endpoints: new Endpoints({ sharedInbox: ctx.getInboxUri() }),
   });
 }
 
