@@ -70,16 +70,19 @@
     "@drfed/graphql": "workspace:*",
     "@drfed/models": "workspace:*",
     "@electric-sql/pglite": "catalog:",
+    "@fedify/fedify": "catalog:",
+    "@fedify/pglite": "catalog:",
+    "@fedify/postgres": "catalog:",
     "@logtape/drizzle-orm": "catalog:",
     "@logtape/logtape": "catalog:",
     "@optique/core": "catalog:",
     "@optique/logtape": "catalog:",
     "@optique/run": "catalog:",
-    "@upyo/smtp": "catalog:",
     "@upyo/logtape": "catalog:",
+    "@upyo/smtp": "catalog:",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
-    "pg": "catalog:",
+    "postgres": "^3.4.9",
     "srvx": "^0.11.16"
   }
 }

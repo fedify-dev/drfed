@@ -8,6 +8,9 @@ allowBuilds:
 
 catalog:
   "@electric-sql/pglite": ^0.5.3
+  "@fedify/fedify": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/postgres": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/pglite": 2.4.0-pr.1020.43+41cebe9c
   "@logtape/drizzle-orm": ^2.2.2
   "@logtape/graphql-yoga": 2.3.0-dev.840
   "@logtape/logtape": 2.3.0-dev.840
@@ -30,6 +33,14 @@ catalog:
   uuid: ^14.0.1
 
 minimumReleaseAgeExclude:
+  - "@fedify/fedify@2.4.0-pr.1020.43"
+  - "@fedify/postgres@2.4.0-pr.1020.43"
+  - "@fedify/uri-template@2.4.0-pr.1020.43"
+  - "@fedify/vocab-runtime@2.4.0-pr.1020.43"
+  - "@fedify/vocab-tools@2.4.0-pr.1020.43"
+  - "@fedify/vocab@2.4.0-pr.1020.43"
+  - "@fedify/webfinger@2.4.0-pr.1020.43"
+  - "@fedify/pglite@2.4.0-pr.1020.43"
   - "@logtape/graphql-yoga@2.3.0-dev.840"
   - "@logtape/logtape@2.3.0-dev.840"
   - "@logtape/testing-node@2.3.0-dev.840"

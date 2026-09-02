@@ -20,14 +20,17 @@ import process from "node:process";
 import { createYogaServer } from "@drfed/graphql";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
+import { createFederation } from "@fedify/fedify";
+import { PgliteKvStore } from "@fedify/pglite";
+import { PostgresKvStore } from "@fedify/postgres";
 import { configure, getConsoleSink } from "@logtape/logtape";
 import { createLoggingConfig } from "@optique/logtape";
 import { run } from "@optique/run";
 import { SmtpTransport } from "@upyo/smtp";
 import { printSchema } from "graphql";
+import postgres from "postgres";
 import { serve } from "srvx";
 
-// oxlint-disable-next-line import/no-relative-parent-imports
 import metadata from "../package.json" with { type: "json" };
 import type {
   Options,
@@ -38,14 +41,20 @@ import program from "./program.ts";
 import seedData from "./seed.ts";
 
 async function runServer(options: ServerOptions) {
-  if (options.drizzle.migrate) {
-    await migrate({ credentials: options.drizzle.credentials });
-  }
-  if (options.seed) {
-    await seedData(options.drizzle.db);
-  }
+  const { credentials } = options.drizzle;
+  if (options.drizzle.migrate) await migrate({ credentials });
+  if (options.seed) await seedData(options.drizzle.db);
+  const kv =
+    "driver" in credentials
+      ? new PgliteKvStore(credentials.client)
+      : new PostgresKvStore(postgres(credentials.url));
+  const federation = createFederation({ kv });
   const { mailer, root } = options;
-  const yogaServer = createYogaServer(options.drizzle.db, { root, mailer });
+  const yogaServer = createYogaServer(options.drizzle.db, {
+    root,
+    mailer,
+    federation,
+  });
   const server = serve({
     fetch: yogaServer.fetch.bind(yogaServer),
     hostname: options.address.host,
@@ -56,7 +65,7 @@ async function runServer(options: ServerOptions) {
     if (mailer instanceof SmtpTransport) {
       mailer.closeAllConnections();
     }
-    // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then no-magic-numbers
+    // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then
     server.close().then(() => process.exit(0));
   }
   process.once("SIGINT", shutdown);

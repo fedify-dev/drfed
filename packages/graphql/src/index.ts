@@ -15,6 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
+import {
+  type Federation,
+  MemoryKvStore,
+  createFederation,
+} from "@fedify/fedify";
 import { getYogaLogger } from "@logtape/graphql-yoga";
 import { getLogger } from "@logtape/logtape";
 import type { Transport } from "@upyo/core";
@@ -27,8 +32,8 @@ import {
 
 import { hashSecret } from "./auth/hash.ts";
 import type { ServerContext, UserContext } from "./builder.ts";
+import buildFederation from "./federation.ts";
 import { schema } from "./schema.ts";
-
 /**
  * Options for Yoga server.
  */
@@ -52,6 +57,11 @@ export interface YogaServerOptions {
    * Root domain.
    */
   root?: string | undefined;
+
+  /**
+   * The federation instance.
+   */
+  federation?: Federation<unknown>;
 }
 
 /**
@@ -73,6 +83,7 @@ export function createYogaServer(
     },
     async context(ctx) {
       const anonymous = { db, request: ctx.request, ...options };
+      buildFederation(anonymous);
       const accessToken = getAccessToken(ctx.request.headers);
       if (accessToken == null) {
         return anonymous;
@@ -98,12 +109,15 @@ function mockTransport() {
   return new MockTransport();
 }
 
-const fillOptions = (opt: YogaServerOptions): Required<YogaServerOptions> => ({
+const fillOptions = (
+  opt: YogaServerOptions,
+): Omit<ServerContext, "db" | "request"> => ({
   mailer: opt?.mailer ?? mockTransport(),
   emailFrom: opt?.emailFrom ?? "noreply@drfed.org",
   // FIXME: Properly parametrize the following allowlist:
   origins: opt?.origins ?? new Set(["https://drfed.org"]),
   root: opt?.root ?? "drfed.org",
+  federation: opt?.federation ?? createFederation({ kv: new MemoryKvStore() }),
 });
 
 const getAccessToken = (headers: Headers) =>
@@ -114,7 +128,7 @@ const findSession = async (accessToken: string, db: Database) =>
   await db.query.sessions.findFirst({
     where: {
       tokenHash: await hashSecret(accessToken),
-      expires: { gt: new Date(Temporal.Now.instant().toString()) },
+      expires: { gt: new Date() },
     },
     with: { account: true },
   });
