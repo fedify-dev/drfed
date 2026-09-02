@@ -45,9 +45,6 @@ catalogs:
     '@types/node':
       specifier: ^26.0.0
       version: 26.0.0
-    '@types/pg':
-      specifier: ^8.20.0
-      version: 8.20.0
     '@upyo/core':
       specifier: 0.6.0-dev.263+e633e1e6
       version: 0.6.0-dev.263
@@ -66,9 +63,9 @@ catalogs:
     graphql:
       specifier: ^16.14.2
       version: 16.14.2
-    pg:
-      specifier: ^8.21.0
-      version: 8.21.0
+    postgres:
+      specifier: ^3.4.9
+      version: 3.4.9
     skills-npm:
       specifier: ^1.2.0
       version: 1.2.0
@@ -138,7 +135,7 @@ importers:
         specifier: 'catalog:'
         version: 16.14.2
       postgres:
-        specifier: ^3.4.9
+        specifier: 'catalog:'
         version: 3.4.9
       srvx:
         specifier: ^0.11.16
@@ -150,9 +147,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.0.0
-      '@types/pg':
-        specifier: 'catalog:'
-        version: 8.20.0
       tsdown:
         specifier: 'catalog:'
         version: 0.22.14(typescript@7.0.2)
@@ -244,9 +238,9 @@ importers:
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
-      pg:
+      postgres:
         specifier: 'catalog:'
-        version: 8.21.0
+        version: 3.4.9
     devDependencies:
       '@logtape/testing-node':
         specifier: 'catalog:'
@@ -254,9 +248,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.0.0
-      '@types/pg':
-        specifier: 'catalog:'
-        version: 8.20.0
       drizzle-kit:
         specifier: 1.0.0-beta.22
         version: 1.0.0-beta.22
@@ -5096,6 +5087,7 @@ snapshots:
       '@types/node': 26.0.0
       pg-protocol: 1.14.0
       pg-types: 2.2.0
+    optional: true
 
   '@types/relay-runtime@20.1.1': {}
 
@@ -6303,15 +6295,19 @@ snapshots:
   pg-cloudflare@1.4.0:
     optional: true
 
-  pg-connection-string@2.13.0: {}
+  pg-connection-string@2.13.0:
+    optional: true
 
-  pg-int8@1.0.1: {}
+  pg-int8@1.0.1:
+    optional: true
 
   pg-pool@3.14.0(pg@8.21.0):
     dependencies:
       pg: 8.21.0
+    optional: true
 
-  pg-protocol@1.14.0: {}
+  pg-protocol@1.14.0:
+    optional: true
 
   pg-types@2.2.0:
     dependencies:
@@ -6320,6 +6316,7 @@ snapshots:
       postgres-bytea: 1.0.1
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
+    optional: true
 
   pg@8.21.0:
     dependencies:
@@ -6330,10 +6327,12 @@ snapshots:
       pgpass: 1.0.5
     optionalDependencies:
       pg-cloudflare: 1.4.0
+    optional: true
 
   pgpass@1.0.5:
     dependencies:
       split2: 4.2.0
+    optional: true
 
   picocolors@1.1.1: {}
 
@@ -6356,15 +6355,19 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  postgres-array@2.0.0: {}
+  postgres-array@2.0.0:
+    optional: true
 
-  postgres-bytea@1.0.1: {}
+  postgres-bytea@1.0.1:
+    optional: true
 
-  postgres-date@1.0.7: {}
+  postgres-date@1.0.7:
+    optional: true
 
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+    optional: true
 
   postgres@3.4.9: {}
 
@@ -6609,7 +6612,8 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
-  split2@4.2.0: {}
+  split2@4.2.0:
+    optional: true
 
   sprintf-js@1.0.3: {}
 
@@ -6887,7 +6891,8 @@ snapshots:
 
   xdg-basedir@5.1.0: {}
 
-  xtend@4.0.2: {}
+  xtend@4.0.2:
+    optional: true
 
   yallist@3.1.1: {}
 

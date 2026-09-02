@@ -28,7 +28,6 @@ import { createLoggingConfig } from "@optique/logtape";
 import { run } from "@optique/run";
 import { SmtpTransport } from "@upyo/smtp";
 import { printSchema } from "graphql";
-import postgres from "postgres";
 import { serve } from "srvx";
 
 import metadata from "../package.json" with { type: "json" };
@@ -47,7 +46,7 @@ async function runServer(options: ServerOptions) {
   const kv =
     "driver" in credentials
       ? new PgliteKvStore(credentials.client)
-      : new PostgresKvStore(postgres(credentials.url));
+      : new PostgresKvStore(credentials.client);
   const federation = createFederation({ kv });
   const { mailer, root } = options;
   const yogaServer = createYogaServer(options.drizzle.db, {

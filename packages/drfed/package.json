@@ -62,7 +62,6 @@
   "devDependencies": {
     "@logtape/testing-node": "catalog:",
     "@types/node": "catalog:",
-    "@types/pg": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"
   },
@@ -82,7 +81,7 @@
     "@upyo/smtp": "catalog:",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
-    "postgres": "^3.4.9",
+    "postgres": "catalog:",
     "srvx": "^0.11.16"
   }
 }
