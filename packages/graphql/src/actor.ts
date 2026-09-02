@@ -18,6 +18,7 @@
 
 import { schema } from "@drfed/models";
 import { actorTypeEnum } from "@drfed/models/schema";
+import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
@@ -25,7 +26,6 @@ import { v7 as uuid } from "uuid";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
-import templates from "./uri-templates.ts";
 
 const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
@@ -57,8 +57,7 @@ const ActorRef = builder.drizzleNode("actors", {
         columns: { username: true },
         with: { instance: { columns: { host: true } } },
       },
-      resolve: ({ instance, username }) =>
-        templates.handle.expand({ username, host: instance.host }),
+      resolve: ({ instance, username }) => `@${username}@${instance.host}`,
     }),
     type: t.expose("type", {
       type: ActorType,
@@ -291,13 +290,19 @@ builder.mutationFields((t) => ({
             };
           }
           // Create actors
+          const fedCtx = ctx.federation.createContext(
+            new URL(`https://${host}`),
+            undefined,
+          );
           const localActors = await tx
             .insert(schema.localActors)
             .values(Array.from({ length: size }, () => ({ id: uuid() })))
             .returning();
           const createdActors = await tx
             .insert(schema.actors)
-            .values(localActors.map(({ id }) => genActor(id, instanceId, host)))
+            .values(
+              localActors.map(({ id }) => genActor(id, instanceId, fedCtx)),
+            )
             .returning();
           const actorCounts = await tx.$count(
             schema.actors,
@@ -336,11 +341,10 @@ builder.mutationFields((t) => ({
 function genActor(
   localId: string,
   instanceId: string,
-  host: string,
+  fedCtx: Context<unknown>,
 ): PgInsertValue<typeof schema.actors> {
   const id = uuid();
   const username = id;
-  const templateArgs = { host, id, username };
   return {
     id,
     localId,
@@ -348,13 +352,13 @@ function genActor(
     username,
     instanceId,
     type: "Person",
-    iri: templates.iri.expand(templateArgs),
-    inboxUrl: templates.inbox.expand(templateArgs),
-    outboxUrl: templates.outbox.expand(templateArgs),
-    followersUrl: templates.followers.expand(templateArgs),
-    followeesUrl: templates.followees.expand(templateArgs),
-    featuredUrl: templates.featured.expand(templateArgs),
-    profileUrl: templates.profile.expand(templateArgs),
+    iri: fedCtx.getActorUri(id).href,
+    inboxUrl: fedCtx.getInboxUri(id).href,
+    outboxUrl: fedCtx.getOutboxUri(id).href,
+    followersUrl: fedCtx.getFollowersUri(id).href,
+    followeesUrl: fedCtx.getFollowingUri(id).href,
+    featuredUrl: fedCtx.getFeaturedUri(id).href,
+    profileUrl: new URL(`/@${username}`, fedCtx.origin).href,
   };
 }
 

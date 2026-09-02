@@ -101,6 +101,7 @@
     "@drfed/models": "workspace:*",
     "@fedify/uri-template": "^2.3.1",
     "@fedify/fedify": "catalog:",
+    "@fedify/vocab": "catalog:",
     "@logtape/graphql-yoga": "catalog:",
     "@logtape/logtape": "catalog:",
     "@pothos/core": "^4.13.0",

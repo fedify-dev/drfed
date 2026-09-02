@@ -18,6 +18,9 @@ catalogs:
     '@fedify/postgres':
       specifier: 2.4.0-pr.1020.43+41cebe9c
       version: 2.4.0-pr.1020.43
+    '@fedify/vocab':
+      specifier: 2.4.0-pr.1020.43+41cebe9c
+      version: 2.4.0-pr.1020.43
     '@logtape/drizzle-orm':
       specifier: ^2.2.2
       version: 2.2.2
@@ -168,6 +171,9 @@ importers:
       '@fedify/uri-template':
         specifier: ^2.3.1
         version: 2.3.1
+      '@fedify/vocab':
+        specifier: 'catalog:'
+        version: 2.4.0-pr.1020.43
       '@logtape/graphql-yoga':
         specifier: 'catalog:'
         version: 2.3.0-dev.840(@logtape/logtape@2.3.0-dev.840)(graphql-yoga@5.21.2(graphql@16.14.2))(graphql@16.14.2)

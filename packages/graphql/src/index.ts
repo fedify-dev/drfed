@@ -76,6 +76,7 @@ export function createYogaServer(
   _options: YogaServerOptions = {},
 ): YogaServerInstance<ServerContext, UserContext> {
   const options = fillOptions(_options);
+  buildFederation({ db, ...options });
   return createYoga({
     cors: {
       origin: [...options.origins],
@@ -83,7 +84,6 @@ export function createYogaServer(
     },
     async context(ctx) {
       const anonymous = { db, request: ctx.request, ...options };
-      buildFederation(anonymous);
       const accessToken = getAccessToken(ctx.request.headers);
       if (accessToken == null) {
         return anonymous;

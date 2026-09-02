@@ -11,6 +11,7 @@ catalog:
   "@fedify/fedify": 2.4.0-pr.1020.43+41cebe9c
   "@fedify/postgres": 2.4.0-pr.1020.43+41cebe9c
   "@fedify/pglite": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/vocab": 2.4.0-pr.1020.43+41cebe9c
   "@logtape/drizzle-orm": ^2.2.2
   "@logtape/graphql-yoga": 2.3.0-dev.840
   "@logtape/logtape": 2.3.0-dev.840
