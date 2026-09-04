@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { Link } from "@kobalte/core/link";
 import { graphql } from "relay-runtime";
 import { For, Show } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
@@ -48,9 +49,14 @@ export default function WorkspacePage() {
       <section>
         <Show when={query()?.viewer} fallback={<p>You're not signed in.</p>}>
           {(viewer) => (
-            <For each={viewer().instances.edges}>
-              {(edge) => <InstanceSummary $instance={edge.node} />}
-            </For>
+            <>
+              <For each={viewer().instances.edges}>
+                {(edge) => <InstanceSummary $instance={edge.node} />}
+              </For>
+              <Link href="/workspace/create/instance">
+                Create A New Instance
+              </Link>
+            </>
           )}
         </Show>
       </section>
