@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { type Database, schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
 
+import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
 
 const accepted = new Date("2026-08-04T00:00:00.000Z");
@@ -329,10 +330,4 @@ async function seedRemoteActor(db: Database): Promise<void> {
     featuredUrl: "https://remote.example.com/users/bob/featured",
     created,
   });
-}
-
-async function hashSecret(raw: string): Promise<string> {
-  return new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)),
-  ).toHex();
 }

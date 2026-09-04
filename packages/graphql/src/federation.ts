@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import type { Actor, Instance } from "@drfed/models/schema";
+import type { Actor } from "@drfed/models/schema";
 import {
   type Context,
   type Federation,
@@ -55,33 +55,27 @@ const actorConstructors: Record<
   Service: (props) => new Service(props),
 };
 
-/**
- * An actor record joined with the instance it belongs to.
- */
-type LocalActorRecord = Actor & { readonly instance: Instance };
-
 async function findLocalActor(
   db: Database,
   ctx: Context<unknown>,
   identifier: string,
-): Promise<LocalActorRecord | null> {
+): Promise<Actor | null> {
   if (!validateUuid(identifier)) return null;
   const actor = await db.query.actors.findFirst({
-    where: { id: identifier },
-    with: { instance: true },
+    where: {
+      id: identifier,
+      localId: { isNotNull: true },
+      instance: { host: ctx.host },
+    },
   });
-  return actor == null ||
-    actor.localId == null ||
-    actor.instance.host !== ctx.host
-    ? null
-    : actor;
+  return actor ?? null;
 }
 
 async function findActiveActor(
   db: Database,
   ctx: Context<unknown>,
   identifier: string,
-): Promise<LocalActorRecord | null> {
+): Promise<Actor | null> {
   const actor = await findLocalActor(db, ctx, identifier);
   return actor == null || actor.deleted != null ? null : actor;
 }
@@ -108,16 +102,15 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       return toActorObject(ctx, identifier, actor);
     })
     .mapHandle(async (ctx, username) => {
-      const instance = await db.query.instances.findFirst({
-        where: { host: ctx.host },
-      });
-      if (instance == null) return null;
       const actor = await db.query.actors.findFirst({
-        where: { username, instanceId: instance.id },
+        where: {
+          username,
+          localId: { isNotNull: true },
+          instance: { host: ctx.host },
+          deleted: { isNull: true },
+        },
       });
-      return actor == null || actor.localId == null || actor.deleted != null
-        ? null
-        : actor.id;
+      return actor?.id ?? null;
     });
   // FIXME: Provide actor key pairs via setKeyPairsDispatcher() once the
   // data model stores signing keys.
@@ -217,7 +210,7 @@ function isSuspended({ suspended, suspendedUntil }: Actor): boolean {
 function toActorObject(
   ctx: Context<unknown>,
   identifier: string,
-  actor: LocalActorRecord,
+  actor: Actor,
 ): ActorObject {
   return actorConstructors[actor.type]({
     id: ctx.getActorUri(identifier),

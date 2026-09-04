@@ -54,7 +54,12 @@ async function runServer(options: ServerOptions) {
     mailer,
   });
   const server = serve({
-    fetch: yogaServer.fetch.bind(yogaServer),
+    fetch: (req) =>
+      federation.fetch(req, {
+        onNotFound: yogaServer.fetch,
+        onNotAcceptable: yogaServer.fetch,
+        contextData: undefined,
+      }),
     hostname: options.address.host,
     manual: true,
     port: options.address.port,
@@ -64,7 +69,12 @@ async function runServer(options: ServerOptions) {
       mailer.closeAllConnections();
     }
     // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then
-    server.close().then(() => process.exit(0));
+    server.close().then(async () => {
+      await ("driver" in credentials
+        ? credentials.client.close()
+        : credentials.client.end());
+      process.exit(0);
+    });
   }
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

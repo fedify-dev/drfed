@@ -208,11 +208,6 @@ const CreateActorsResult = builder.unionType("CreateActorsResult", {
   },
 });
 
-interface SelectedInstance {
-  host: string;
-  maxActors: number;
-}
-
 builder.mutationFields((t) => ({
   genActors: t.field({
     type: CreateActorsResult,
@@ -244,112 +239,82 @@ builder.mutationFields((t) => ({
       }
       const { account } = ctx;
 
-      let instance: SelectedInstance | undefined;
-      let tooManyActors = false;
-      try {
-        return await ctx.db.transaction(async (tx) => {
-          // Find the instance that the account is included
-          [instance] = await tx
-            .select({
-              host: schema.instances.host,
-              maxActors: schema.localInstances.maxActors,
-            })
-            .from(schema.instanceMembers)
-            .innerJoin(
-              schema.instances,
-              eq(schema.instanceMembers.instanceId, schema.instances.id),
-            )
-            .innerJoin(
-              schema.localInstances,
-              eq(schema.instances.localId, schema.localInstances.id),
-            )
-            .where(
-              and(
-                eq(schema.instanceMembers.accountId, account.id),
-                gt(schema.localInstances.expires, new Date()),
-                eq(schema.instances.id, instanceId),
-                isNotNull(schema.instanceMembers.accepted),
-              ),
-            )
-            .limit(1);
-          if (instance == null) throw new Error(INSTANCE_NOT_FOUND);
-          const { host, maxActors } = instance;
-          const currActors = await tx.$count(
-            schema.actors,
-            eq(schema.actors.instanceId, instanceId),
-          );
-
-          if (size + currActors > maxActors) {
-            return {
-              type: TOO_MANY_ACTORS,
-              message: `${size} is too big. The maximum number of actors of ${
-                host
-              } is ${maxActors} and the current number of actors is ${
-                currActors
-              }.`,
-            };
-          }
-          // Create actors
-          const fedCtx = ctx.federation.createContext(
-            new URL(`https://${host}`),
-            undefined,
-          );
-          const localActors = await tx
-            .insert(schema.localActors)
-            .values(Array.from({ length: size }, () => ({ id: uuid() })))
-            .returning();
-          const createdActors = await tx
-            .insert(schema.actors)
-            .values(
-              localActors.map(({ id }) => genActor(id, instanceId, fedCtx)),
-            )
-            .returning();
-          const actorCounts = await tx.$count(
-            schema.actors,
-            eq(schema.actors.instanceId, instanceId),
-          );
-          if (actorCounts > maxActors) {
-            tooManyActors = true;
-            tx.rollback();
-          }
-          return { actors: createdActors };
-        });
-      } catch (e) {
+      return await ctx.db.transaction(async (tx) => {
+        // Find the instance that the account is included
+        const [instance] = await tx
+          .select({
+            slug: schema.localInstances.slug,
+            maxActors: schema.localInstances.maxActors,
+          })
+          .from(schema.instanceMembers)
+          .for("update", { of: schema.localInstances })
+          .innerJoin(
+            schema.instances,
+            eq(schema.instanceMembers.instanceId, schema.instances.id),
+          )
+          .innerJoin(
+            schema.localInstances,
+            eq(schema.instances.localId, schema.localInstances.id),
+          )
+          .where(
+            and(
+              eq(schema.instanceMembers.accountId, account.id),
+              gt(schema.localInstances.expires, new Date()),
+              eq(schema.instances.id, instanceId),
+              isNotNull(schema.instanceMembers.accepted),
+            ),
+          )
+          .limit(1);
         if (instance == null) {
-          if (e instanceof Error && e.message === INSTANCE_NOT_FOUND) {
-            return {
-              type: INSTANCE_NOT_FOUND,
-              message: "Can't find the instance.",
-            };
-          }
-        } else if (tooManyActors) {
           return {
-            type: TOO_MANY_ACTORS,
-            message: `${
-              instance.host
-            } instance reached the maximum number of actors (${
-              instance.maxActors
-            })`,
+            type: INSTANCE_NOT_FOUND,
+            message: "Can't find the instance.",
           };
         }
-        throw e;
-      }
+        const { slug, maxActors } = instance;
+        const host = `${slug}.${ctx.root}`;
+        const currActors = await tx.$count(
+          schema.actors,
+          eq(schema.actors.instanceId, instanceId),
+        );
+
+        if (size + currActors > maxActors) {
+          return {
+            type: TOO_MANY_ACTORS,
+            message: `${size} is too big. The maximum number of actors of ${
+              host
+            } is ${maxActors} and the current number of actors is ${
+              currActors
+            }.`,
+          };
+        }
+        // Create actors
+        const fedCtx = ctx.federation.createContext(
+          new URL(`https://${host}`),
+          undefined,
+        );
+        const ids = Array.from({ length: size }, () => ({ id: uuid() }));
+        await tx.insert(schema.localActors).values(ids);
+        const createdActors = await tx
+          .insert(schema.actors)
+          .values(ids.map(({ id }) => genActor(id, instanceId, fedCtx)))
+          .returning();
+        return { actors: createdActors };
+      });
     },
   }),
 }));
 
 function genActor(
-  localId: string,
+  id: string,
   instanceId: string,
   fedCtx: Context<unknown>,
 ): PgInsertValue<typeof schema.actors> {
-  const id = uuid();
-  const username = id;
   return {
     id,
-    localId,
+    localId: id,
     // FIXME: Generate handle using Faker.js or something
-    username,
+    username: id,
     instanceId,
     type: "Person",
     iri: fedCtx.getActorUri(id).href,
@@ -358,7 +323,7 @@ function genActor(
     followersUrl: fedCtx.getFollowersUri(id).href,
     followeesUrl: fedCtx.getFollowingUri(id).href,
     featuredUrl: fedCtx.getFeaturedUri(id).href,
-    profileUrl: new URL(`/@${username}`, fedCtx.origin).href,
+    profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
   };
 }
 
