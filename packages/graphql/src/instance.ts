@@ -59,17 +59,19 @@ export const Instance: DrFedObjectRef = InstanceRef;
 
 const LocalInstanceRef = builder.drizzleNode("localInstances", {
   name: "LocalInstance",
-  description: "Represents an `Instance` in the DrFed platform.",
+  description:
+    "Represents a `LocalInstance`, i.e., an `Instance` hosted by this DrFed " +
+    "deployment.",
   id: {
     column(instance) {
       return instance.id;
     },
-    description: "The unique identifier of the `Instance`.",
+    description: "The unique identifier of the `LocalInstance`.",
   },
   fields: (t) => ({
     uuid: t.expose("id", {
       type: "UUID",
-      description: "The UUID of the `Instance`.",
+      description: "The UUID of the `LocalInstance`.",
     }),
     slug: t.exposeString("slug"),
     expires: t.expose("expires", {
@@ -81,6 +83,16 @@ const LocalInstanceRef = builder.drizzleNode("localInstances", {
 });
 
 export const LocalInstance: DrFedObjectRef = LocalInstanceRef;
+
+builder.drizzleObjectField(InstanceRef, "localInstance", (t) =>
+  t.relation("localInstance", {
+    nullable: true,
+    description:
+      "The `LocalInstance` backing the `Instance` when it is hosted by " +
+      "this DrFed deployment.  `null` if the `Instance` is remote, i.e., " +
+      "hosted by another server on the fediverse.",
+  }),
+);
 
 const instanceMembersConnection = drizzleConnectionHelpers(
   builder,

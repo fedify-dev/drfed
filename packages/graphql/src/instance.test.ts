@@ -27,11 +27,13 @@ const accepted = new Date("2026-06-24T00:00:00.000Z");
 const created = new Date("2026-06-24T00:00:00.000Z");
 const expires = new Date("2026-07-24T00:00:00.000Z");
 const ok = 200;
+const defaultMaxActors = 10;
 
 const accountId = "00000000-0000-4000-8000-000000000001";
 const memberId = "00000000-0000-4000-8000-000000000002";
 const pendingMemberId = "00000000-0000-4000-8000-000000000003";
 const instanceId = "00000000-0000-4000-8000-000000000101";
+const localInstanceId = "00000000-0000-4000-8000-000000000103";
 const duplicateRemoteInstanceId = "00000000-0000-4000-8000-000000000102";
 const sessionId = "00000000-0000-4000-8000-000000000201";
 const accessToken = "test-access-token";
@@ -44,6 +46,26 @@ const remoteInstanceQuery = `
           node {
             uuid
             host
+          }
+        }
+      }
+    }
+  }
+`;
+
+const localInstanceQuery = `
+  query LocalInstance($uuid: UUID!) {
+    accountByUuid(uuid: $uuid) {
+      instances {
+        edges {
+          node {
+            host
+            localInstance {
+              uuid
+              slug
+              expires
+              maxActors
+            }
           }
         }
       }
@@ -249,6 +271,71 @@ describe("Mutation.createInstance", () => {
   });
 });
 
+describe("Instance.localInstance", () => {
+  it("returns the `LocalInstance` backing a local `Instance`", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+
+      const response = await post({
+        query: localInstanceQuery,
+        variables: { uuid: accountId },
+      });
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          accountByUuid: {
+            instances: {
+              edges: [
+                {
+                  node: {
+                    host: "test-instance.drfed.org",
+                    localInstance: {
+                      uuid: localInstanceId,
+                      slug: "test-instance",
+                      expires: expires.toISOString(),
+                      maxActors: defaultMaxActors,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("returns null for a remote `Instance`", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedRemoteInstance(db);
+
+      const response = await post({
+        query: localInstanceQuery,
+        variables: { uuid: accountId },
+      });
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          accountByUuid: {
+            instances: {
+              edges: [
+                {
+                  node: {
+                    host: "remote.example.com",
+                    localInstance: null,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+  });
+});
+
 describe("Remote instance", () => {
   it("returns a created remote instance", async () => {
     await withTestHarness(async ({ db, post }) => {
@@ -364,13 +451,13 @@ async function seedInstanceMembers(db: Database): Promise<void> {
     },
   ]);
   await db.insert(schema.localInstances).values({
-    id: instanceId,
+    id: localInstanceId,
     slug: "test-instance",
     expires,
   });
   await db.insert(schema.instances).values({
     id: instanceId,
-    localId: instanceId,
+    localId: localInstanceId,
     created,
     host: "test-instance.drfed.org",
   });

@@ -72,13 +72,13 @@ export const relations = defineRelations(schema, (r) => ({
         accepted: { isNotNull: true },
       },
     }),
-    localInstances: r.one.localInstances({
+    localInstance: r.one.localInstances({
       from: r.instances.localId,
       to: r.localInstances.id,
     }),
   },
-  localInstance: {
-    instances: r.one.instances({
+  localInstances: {
+    instance: r.one.instances({
       from: r.localInstances.id,
       to: r.instances.localId,
     }),
