@@ -61,7 +61,7 @@ export default function WorkspacePage() {
       <section>
         <Show when={query()?.viewer} fallback={<p>You're not signed in.</p>}>
           {(viewer) => (
-            <For each={viewer().instances.edges}>
+            <For each={viewer().instances?.edges}>
               {(edge) => <InstanceSummary $instance={edge.node} />}
             </For>
           )}

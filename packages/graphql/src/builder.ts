@@ -115,6 +115,10 @@ export interface SchemaTypes {
      * the `LocalInstance` with the given UUID.
      */
     localInstanceMember: string;
+    /**
+     * Whether the viewer is the `Account` with the given UUID.
+     */
+    accountSelf: string;
   };
 }
 
@@ -149,6 +153,9 @@ export const builder = new SchemaBuilder<SchemaTypes>({
         admin: Boolean(context.account?.admin),
         localInstanceMember(localInstanceId) {
           return isLocalInstanceMember(context, localInstanceId);
+        },
+        accountSelf(accountId) {
+          return context.account?.id === accountId;
         },
       };
     },

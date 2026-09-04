@@ -37,6 +37,7 @@ const localInstanceId = "00000000-0000-4000-8000-000000000103";
 const otherInstanceId = "00000000-0000-4000-8000-000000000104";
 const otherLocalInstanceId = "00000000-0000-4000-8000-000000000105";
 const localInstanceNodeId = btoa(`LocalInstance:${localInstanceId}`);
+const instanceNodeId = btoa(`Instance:${instanceId}`);
 const duplicateRemoteInstanceId = "00000000-0000-4000-8000-000000000102";
 const sessionId = "00000000-0000-4000-8000-000000000201";
 const otherSessionId = "00000000-0000-4000-8000-000000000202";
@@ -102,6 +103,19 @@ const localInstanceNodeQuery = `
       ... on LocalInstance {
         uuid
         slug
+      }
+    }
+  }
+`;
+
+const instanceNodeQuery = `
+  query InstanceNode($id: ID!) {
+    node(id: $id) {
+      ... on Instance {
+        host
+        localInstance {
+          slug
+        }
       }
     }
   }
@@ -175,7 +189,7 @@ const instanceMembersResponse = {
                     admin: false,
                     node: {
                       uuid: memberId,
-                      email: "member@example.com",
+                      email: null,
                       name: "Member",
                     },
                   },
@@ -193,14 +207,23 @@ describe("Instance.members", () => {
   it("returns the instance's accepted members", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedInstanceMembers(db);
+      const auth = await createSession(db);
 
-      const response = await post({
-        query: instanceMembersQuery,
-        variables: { uuid: accountId },
-      });
+      const response = await post(
+        { query: instanceMembersQuery, variables: { uuid: accountId } },
+        auth,
+      );
 
       assert.equal(response.status, ok);
-      assert.deepEqual(await response.json(), instanceMembersResponse);
+      const body = await response.json();
+      // The viewer reads their own email but not a fellow member's; the
+      // authorization error is confined to that one field.
+      assert.deepEqual(body.data, instanceMembersResponse.data);
+      assert.equal(body.errors.length, 1);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to resolve Account.email",
+      );
     });
   });
 });
@@ -360,11 +383,12 @@ describe("Instance.localInstance", () => {
   it("returns null for a remote `Instance`", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedRemoteInstance(db);
+      const auth = await createSession(db);
 
-      const response = await post({
-        query: localInstanceQuery,
-        variables: { uuid: accountId },
-      });
+      const response = await post(
+        { query: localInstanceQuery, variables: { uuid: accountId } },
+        auth,
+      );
 
       assert.equal(response.status, ok);
       assert.deepEqual(await response.json(), {
@@ -466,18 +490,19 @@ describe("LocalInstance authorization", () => {
     await withTestHarness(async ({ db, post }) => {
       await seedInstanceMembers(db);
 
+      // `Instance` carries no scope, so an anonymous viewer still reaches it
+      // through `node(id:)`; only `localInstance` is denied.
       const response = await post({
-        query: localInstanceQuery,
-        variables: { uuid: accountId },
+        query: instanceNodeQuery,
+        variables: { id: instanceNodeId },
       });
 
       assert.equal(response.status, ok);
       const body = await response.json();
-      const [edge] = body.data.accountByUuid.instances.edges;
       // The field is nullable, so it absorbs the error and the rest of the
       // `Instance` still resolves.
-      assert.equal(edge.node.localInstance, null);
-      assert.equal(edge.node.host, "test-instance.drfed.org");
+      assert.equal(body.data.node.localInstance, null);
+      assert.equal(body.data.node.host, "test-instance.drfed.org");
       assert.equal(body.errors.length, 1);
       assert.equal(
         body.errors[0].message,
@@ -786,11 +811,12 @@ describe("Remote instance", () => {
   it("returns a created remote instance", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedRemoteInstance(db);
+      const auth = await createSession(db);
 
-      const response = await post({
-        query: remoteInstanceQuery,
-        variables: { uuid: accountId },
-      });
+      const response = await post(
+        { query: remoteInstanceQuery, variables: { uuid: accountId } },
+        auth,
+      );
 
       assert.equal(response.status, ok);
       assert.deepEqual(await response.json(), {
