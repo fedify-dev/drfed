@@ -18,9 +18,9 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import { createYogaServer } from "@drfed/graphql";
+import createFederation from "@drfed/graphql/federation";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
-import { createFederation } from "@fedify/fedify";
 import { PgliteKvStore } from "@fedify/pglite";
 import { PostgresKvStore } from "@fedify/postgres";
 import { configure, getConsoleSink } from "@logtape/logtape";
@@ -47,12 +47,11 @@ async function runServer(options: ServerOptions) {
     "driver" in credentials
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
-  const federation = createFederation({ kv });
+  const federation = await createFederation(options.drizzle.db, { kv });
   const { mailer, root } = options;
-  const yogaServer = createYogaServer(options.drizzle.db, {
+  const yogaServer = createYogaServer(options.drizzle.db, federation, {
     root,
     mailer,
-    federation,
   });
   const server = serve({
     fetch: yogaServer.fetch.bind(yogaServer),

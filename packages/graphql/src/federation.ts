@@ -16,7 +16,13 @@
 
 import type { Database } from "@drfed/models";
 import type { Actor, Instance } from "@drfed/models/schema";
-import type { Context } from "@fedify/fedify";
+import {
+  type Context,
+  type Federation,
+  type FederationBuilder,
+  type FederationOptions,
+  createFederationBuilder,
+} from "@fedify/fedify";
 import {
   Activity,
   Application,
@@ -30,8 +36,6 @@ import {
 } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 import { validate as validateUuid } from "uuid";
-
-import type { ServerContext } from "./builder.ts";
 
 /**
  * The vocabulary object types that DrFed serves as actors.
@@ -83,17 +87,16 @@ async function findActiveActor(
 }
 
 /**
- * Registers the ActivityPub dispatchers on the `Federation` instance.
- * The registered paths define the URI layout of the federated objects,
- * which makes the object URI getters (e.g. `Context.getActorUri()`)
- * available.  Call this exactly once per `Federation` instance; Fedify
- * throws on duplicate registration.
- * @param context The server context holding the `Federation` instance.
+ * Creates a `FederationBuilder` with every ActivityPub dispatcher and
+ * listener that DrFed serves registered on it.  The registered paths define
+ * the URI layout of the federated objects, which makes the object URI getters
+ * (e.g. `Context.getActorUri()`) available once the builder is built.
+ * @param db The database to resolve local actors from.
+ * @returns A builder that has not been built yet.
  */
-export default function buildFederation<
-  T extends Pick<ServerContext, "db" | "federation">,
->({ db, federation }: T): void {
-  federation
+export function buildFederation(db: Database): FederationBuilder<unknown> {
+  const builder = createFederationBuilder<unknown>();
+  builder
     .setActorDispatcher("/users/{identifier}", async (ctx, identifier) => {
       const actor = await findLocalActor(db, ctx, identifier);
       if (actor == null) return null;
@@ -119,7 +122,7 @@ export default function buildFederation<
   // FIXME: Provide actor key pairs via setKeyPairsDispatcher() once the
   // data model stores signing keys.
 
-  federation
+  builder
     .setInboxListeners("/users/{identifier}/inbox", "/inbox")
     // FIXME: Record incoming activities once the data model can store them;
     // until then the catch-all below only surfaces them in the logs so that
@@ -133,7 +136,7 @@ export default function buildFederation<
       });
     });
 
-  federation.setOutboxDispatcher(
+  builder.setOutboxDispatcher(
     "/users/{identifier}/outbox",
     async (ctx, identifier) =>
       // FIXME: Return the actual activities once the data model stores them
@@ -142,7 +145,7 @@ export default function buildFederation<
         : { items: [] },
   );
 
-  federation
+  builder
     .setFollowersDispatcher(
       "/users/{identifier}/followers",
       async (ctx, identifier) =>
@@ -157,7 +160,7 @@ export default function buildFederation<
         (await findActiveActor(db, ctx, identifier))?.followersCount ?? null,
     );
 
-  federation
+  builder
     .setFollowingDispatcher(
       "/users/{identifier}/followees",
       async (ctx, identifier) =>
@@ -172,7 +175,7 @@ export default function buildFederation<
         (await findActiveActor(db, ctx, identifier))?.followeesCount ?? null,
     );
 
-  federation.setFeaturedDispatcher(
+  builder.setFeaturedDispatcher(
     "/users/{identifier}/featured",
     async (ctx, identifier) =>
       // FIXME: Return the actual pinned objects once the data model stores
@@ -181,6 +184,23 @@ export default function buildFederation<
         ? null
         : { items: [] },
   );
+  return builder;
+}
+
+/**
+ * Creates a `Federation` instance with every DrFed dispatcher registered.
+ * Every registration happens on a fresh builder inside this function, so the
+ * returned instance is complete and must not be mutated further.
+ * @param db The database to resolve local actors from.
+ * @param options Options for the underlying Fedify `Federation`, such as
+ *                the `kv` store.
+ * @returns The built `Federation` instance.
+ */
+export default async function createFederation(
+  db: Database,
+  options: FederationOptions<unknown>,
+): Promise<Federation<unknown>> {
+  return await buildFederation(db).build(options);
 }
 
 // Whether a sanction is *currently* active is always determined by comparing
