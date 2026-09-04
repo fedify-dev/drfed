@@ -54,6 +54,11 @@
     "oxc/no-rest-spread-properties": "off",
     "import/consistent-type-specifier-style": "off",
     "import/exports-last": "off",
+    "import/extensions": [
+      "error",
+      "always",
+      { "checkTypeImports": true, "ignorePackages": true }
+    ],
     "import/group-exports": "off",
     "import/max-dependencies": ["warn", { "max": 20 }],
     "import/no-default-export": "off",

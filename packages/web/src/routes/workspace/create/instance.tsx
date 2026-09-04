@@ -21,7 +21,7 @@ import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
 
-import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql";
+import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql.ts";
 
 const createInstanceMutation = graphql`
   mutation CreateInstanceMutation($slug: String!) {

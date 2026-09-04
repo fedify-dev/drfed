@@ -19,7 +19,7 @@ import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
 
-import type { SignInMutation } from "./__generated__/SignInMutation.graphql";
+import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 
 import "./sign-in.css";
 
