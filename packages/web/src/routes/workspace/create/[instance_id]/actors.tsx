@@ -29,7 +29,7 @@ import {
   useRelayEnvironment,
 } from "solid-relay";
 
-import type { GetHostQuery } from "./__generated__/GetHostQuery.graphql";
+import type { GetHostQuery } from "./__generated__/GetHostQuery.graphql.tsx";
 
 import styles from "~/styles/form.module.css";
 
@@ -71,7 +71,6 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
   return (
     <main class={styles.page}>
       <Title>Create Actors</Title>
-      <NumberField></NumberField>
       <section class={styles.panel} aria-labelledby="create-actors-title">
         <header class={styles.header}>
           <h1 id="create-actors-title">Create Actors</h1>

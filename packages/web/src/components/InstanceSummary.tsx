@@ -18,7 +18,7 @@ import { Link } from "@kobalte/core/link";
 import { graphql } from "relay-runtime";
 import { createFragment } from "solid-relay";
 
-import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql";
+import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql.tsx";
 
 export default function InstanceSummary(props: {
   $instance: InstanceSummary_instance$key;

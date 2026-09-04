@@ -18,9 +18,9 @@ import { graphql } from "relay-runtime";
 import { For, Show } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
 
-import InstanceSummary from "~/components/InstanceSummary";
+import InstanceSummary from "~/components/InstanceSummary.tsx";
 
-import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql";
+import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql.tsx";
 
 const workspaceQuery = graphql`
   query WorkspaceQuery {
