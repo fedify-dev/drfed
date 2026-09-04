@@ -56,6 +56,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --line: #e9e5e1;
   --line-strong: #dad4cf;
   --danger: #cf3f43;
+  --success: #247a46;
+  --warning: #9a5800;
 
   /* Elevation */
   --shadow-sm: 0 1px 2px rgb(38 33 31 / 5%), 0 2px 8px rgb(38 33 31 / 4%);
@@ -100,6 +102,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     --line: #332f2a;
     --line-strong: #453f39;
     --danger: #ef726b;
+    --success: #66cf8a;
+    --warning: #f0ad4e;
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
     --shadow-md: 0 6px 24px rgb(0 0 0 / 40%);

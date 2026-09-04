@@ -260,6 +260,22 @@ input {
   margin: 0;
 }
 
+.field-error {
+  color: var(--danger);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field input[aria-invalid="true"]:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
 .button {
   align-items: center;
   border: 0;
@@ -304,7 +320,21 @@ input {
 }
 
 .notice.error {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   border-left: 3px solid var(--danger);
+  color: var(--danger);
+}
+
+.notice.success {
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  border-left: 3px solid var(--success);
+  color: var(--success);
+}
+
+.notice.warning {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border-left: 3px solid var(--warning);
+  color: var(--warning);
 }
 
 @media (max-width: 600px) {

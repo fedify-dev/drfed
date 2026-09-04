@@ -120,7 +120,7 @@ export default function SignInPage() {
                 />
                 <Show when={field.errors}>
                   {(errors) => (
-                    <span id="email-error" class="field-hint" role="alert">
+                    <span id="email-error" class="field-error" role="alert">
                       {errors()[0]}
                     </span>
                   )}
