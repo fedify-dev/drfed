@@ -46,7 +46,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@kobalte/core": "^0.13.13",
+=======
+    "@formisch/solid": "1.0.0",
+>>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^1.0.0",
     "@solidjs/start": "^2.0.0",
@@ -54,6 +58,7 @@
     "relay-runtime": "^21.0.1",
     "solid-js": "^1.9.5",
     "solid-relay": "1.0.0-beta.29",
+    "valibot": "1.4.2",
     "vite": "^8.2.0"
   },
   "devDependencies": {
