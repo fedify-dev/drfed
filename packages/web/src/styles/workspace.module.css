@@ -1,0 +1,221 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.5rem 0 1.25rem;
+}
+
+.header h1 {
+  font-size: 1.65rem;
+  margin: 0;
+}
+
+.cardLabel,
+.emptyLabel {
+  color: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.createButton,
+.secondaryButton,
+.cardAction {
+  align-items: center;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.createButton {
+  background: var(--accent);
+  color: var(--on-accent);
+  flex: 0 0 auto;
+  gap: 0.55rem;
+  min-height: 2.6rem;
+  padding: 0.6rem 0.9rem;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.createButton span {
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.createButton:hover {
+  background: var(--accent-strong);
+}
+
+.createButton:focus-visible,
+.secondaryButton:focus-visible,
+.cardAction:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+.instanceList {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.instanceCard {
+  align-items: center;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 1rem 1.25rem;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.instanceCard + .instanceCard {
+  border-top: 1px solid var(--line);
+}
+
+.instanceCard:hover {
+  background: var(--surface-2);
+}
+
+.instanceMarker {
+  background: var(--accent);
+  border: 0.3rem solid var(--accent-tint);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--accent-soft);
+  height: 1rem;
+  margin-right: 0.9rem;
+  width: 1rem;
+}
+
+.cardHeading {
+  min-width: 0;
+}
+
+.cardLabel {
+  margin: 0 0 0.25rem;
+}
+
+.cardHeading h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-heading-3);
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cardAction {
+  color: var(--accent-strong);
+  gap: 0.5rem;
+  margin-left: 1.5rem;
+  padding: 0.5rem;
+}
+
+.cardAction span {
+  font-size: 1.2rem;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.cardAction:hover span {
+  transform: translateX(0.25rem);
+}
+
+.emptyState {
+  background: var(--card);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  margin: 0 auto;
+  max-width: var(--container-narrow);
+  padding: clamp(2rem, 7vw, 4rem);
+  text-align: center;
+  width: 100%;
+}
+
+.emptyState h2 {
+  font-size: var(--text-heading-2);
+  margin: 0 0 0.75rem;
+}
+
+.emptyState > p:not(.emptyLabel) {
+  margin: 0 auto 1.5rem;
+  max-width: 34rem;
+}
+
+.emptyLabel {
+  margin-bottom: 0.75rem;
+}
+
+.secondaryButton {
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  transition:
+    background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.secondaryButton:hover {
+  background: var(--accent-tint);
+  border-color: var(--accent-soft);
+}
+
+@media (max-width: 600px) {
+  .header {
+    padding-top: 0;
+  }
+
+  .instanceCard {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 1rem;
+  }
+
+  .cardAction {
+    grid-column: 2;
+    justify-self: start;
+    margin: 0.5rem 0 0 -0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .createButton,
+  .secondaryButton,
+  .instanceCard,
+  .cardAction span {
+    transition: none;
+  }
+  .cardAction:hover span {
+    transform: none;
+  }
+}

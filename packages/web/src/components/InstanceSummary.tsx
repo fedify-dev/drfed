@@ -16,9 +16,12 @@
 
 import { Link } from "@kobalte/core/link";
 import { graphql } from "relay-runtime";
+import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
 import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql.tsx";
+
+import styles from "~/styles/workspace.module.css";
 
 export default function InstanceSummary(props: {
   $instance: InstanceSummary_instance$key;
@@ -34,9 +37,23 @@ export default function InstanceSummary(props: {
   );
 
   return (
-    <p>
-      {data()?.host}
-      <Link href={`/workspace/create/${data()?.id}/actors`}>Create Actors</Link>
-    </p>
+    <Show when={data()}>
+      {(instance) => (
+        <article class={styles.instanceCard}>
+          <div class={styles.instanceMarker} aria-hidden="true" />
+          <div class={styles.cardHeading}>
+            <p class={styles.cardLabel}>Instance host</p>
+            <h2>{instance().host}</h2>
+          </div>
+          <Link
+            class={styles.cardAction}
+            href={`/workspace/create/${instance().id}/actors`}
+          >
+            Create actors
+            <span aria-hidden="true">→</span>
+          </Link>
+        </article>
+      )}
+    </Show>
   );
 }
