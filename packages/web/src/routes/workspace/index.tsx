@@ -14,11 +14,58 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { graphql } from "relay-runtime";
+import { For, Show } from "solid-js";
+import { createFragment, createLazyLoadQuery } from "solid-relay";
+
+import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql";
+import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql";
+
+const workspaceQuery = graphql`
+  query WorkspaceQuery {
+    viewer {
+      instances(first: 100) {
+        edges {
+          node {
+            ...InstanceSummary_instance
+          }
+        }
+      }
+    }
+  }
+`;
+
+function InstanceSummary(props: { $instance: InstanceSummary_instance$key }) {
+  const data = createFragment(
+    graphql`
+      fragment InstanceSummary_instance on Instance {
+        id
+        host
+      }
+    `,
+    () => props.$instance,
+  );
+
+  return <p>{data()?.host}</p>;
+}
+
 export default function WorkspacePage() {
+  const query = createLazyLoadQuery<WorkspaceQuery>(
+    workspaceQuery,
+    {},
+    { fetchPolicy: "store-and-network" },
+  );
+
   return (
     <main>
       <section>
-        <p>Nothing Yet but it is a workspace for you.</p>
+        <Show when={query()?.viewer} fallback={<p>You're not signed in.</p>}>
+          {(viewer) => (
+            <For each={viewer().instances.edges}>
+              {(edge) => <InstanceSummary $instance={edge.node} />}
+            </For>
+          )}
+        </Show>
       </section>
     </main>
   );

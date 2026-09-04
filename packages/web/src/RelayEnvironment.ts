@@ -14,45 +14,59 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { getCookie } from "@solidjs/start/http";
 import {
   Environment,
   type FetchFunction,
+  type GraphQLResponse,
   Network,
   RecordSource,
   Store,
 } from "relay-runtime";
-import { getRequestEvent } from "solid-js/web";
 
-import { readSessionCookie } from "./routes/session.ts";
+const SESSION_COOKIE = "session";
+const ACCESS_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
 // oxlint-disable no-async-await
-const fetchFn: FetchFunction = async (params, variables) => {
-  const event = getRequestEvent();
-  const accessToken = readSessionCookie(event?.request);
+const fetchGraphQL = async (
+  query: string,
+  variables: Parameters<FetchFunction>[1],
+): Promise<GraphQLResponse> => {
+  "use server";
+
+  const accessToken = getCookie(SESSION_COOKIE);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (accessToken !== undefined) {
+  if (accessToken !== undefined && ACCESS_TOKEN_PATTERN.test(accessToken)) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const url = new URL(
-    "/graphql",
-    event?.request.url ?? globalThis.location.href,
-  );
+  const url = new URL("/graphql", import.meta.env.VITE_BACKEND_URL);
 
   const response = await fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      query: params.text,
+      query,
       variables,
     }),
-    credentials: "include",
   });
+
+  if (!response.ok) {
+    throw new Error(`GraphQL request failed (${response.status})`);
+  }
 
   // oxlint-disable return-await no-unsafe-return
   return await response.json();
+};
+
+const fetchFn: FetchFunction = async (params, variables) => {
+  if (params.text == undefined || params.text == "") {
+    throw new Error(`Relay operation ${params.name} has no query text.`);
+  }
+  const graphQLResponse = await fetchGraphQL(params.text, variables);
+  return graphQLResponse;
 };
 
 export function createRelayEnvironment() {

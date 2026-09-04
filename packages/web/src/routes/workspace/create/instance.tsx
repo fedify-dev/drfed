@@ -16,107 +16,81 @@
 
 import { faker } from "@faker-js/faker";
 import { Title } from "@solidjs/meta";
-import { action, redirect, useSubmission } from "@solidjs/router";
-import { commitMutation, graphql } from "relay-runtime";
-import { Show } from "solid-js";
-import { getRequestEvent } from "solid-js/web";
-
-import { createRelayEnvironment } from "~/RelayEnvironment";
+import { useNavigate } from "@solidjs/router";
+import { graphql } from "relay-runtime";
+import { Show, createSignal } from "solid-js";
+import { createMutation } from "solid-relay";
 
 import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql";
 
 const createInstanceMutation = graphql`
-  mutation CreateInstanceMutation(
-    $slug: String! # $name: String
-  ) {
+  mutation CreateInstanceMutation($slug: String!) {
     createInstance(slug: $slug) {
+      resultType: __typename
       ... on Instance {
         id
+      }
+      ... on CreateInstanceError {
+        message
       }
     }
   }
 `;
 
-type CreateInstanceResult =
-  | {
-      payload: {
-        id: string;
-      };
-      status: "success";
+export default function CreateInstancePage() {
+  const navigate = useNavigate();
+  const [errorMessage, setErrorMessage] = createSignal<string>();
+  const [commitCreateInstance, isCreatingInstance] =
+    createMutation<CreateInstanceMutation>(createInstanceMutation);
+
+  const submit = (event: SubmitEvent & { currentTarget: HTMLFormElement }) => {
+    event.preventDefault();
+
+    const formData = new FormData(event.currentTarget);
+    const slug = formData.get("slug");
+    if (typeof slug !== "string" || slug === "") {
+      setErrorMessage("Enter a valid slug.");
+      return;
     }
-  | {
-      message: string;
-      status: "error";
-    };
 
-const createInstanceAction = action(async (formData: FormData) => {
-  "use server";
-
-  const slug = formData.get("slug");
-  if (typeof slug !== "string" || slug === "") {
-    return {
-      message: "Enter a valid slug.",
-      status: "error",
-    } satisfies CreateInstanceResult;
-  }
-
-  const request = getRequestEvent()?.request;
-  if (request === undefined) {
-    return {
-      message: "Unable to determine the application URL.",
-      status: "error",
-    } satisfies CreateInstanceResult;
-  }
-
-  const environment = createRelayEnvironment();
-
-  const result = await new Promise<CreateInstanceResult>((resolve) => {
-    commitMutation<CreateInstanceMutation>(environment, {
-      mutation: createInstanceMutation,
+    setErrorMessage(undefined);
+    commitCreateInstance({
       variables: { slug },
       onCompleted: (response, errors) => {
-        const errorMessage = errors?.map((e) => e.message).join("\n");
+        const graphQLErrors = errors ?? [];
+        if (graphQLErrors.length > 0) {
+          setErrorMessage(
+            graphQLErrors.map((error) => error.message).join("\n"),
+          );
+          return;
+        }
 
-        if (typeof errorMessage == "string") {
-          resolve({
-            message: errorMessage,
-            status: "error",
-          });
-        } else if (response.createInstance.id === undefined) {
-          resolve({
-            message: "Empty ID Returned",
-            status: "error",
-          });
-        } else {
-          resolve({
-            payload: {
-              id: response.createInstance.id,
-            },
-            status: "success",
-          });
+        switch (response.createInstance.resultType) {
+          case "CreateInstanceError": {
+            setErrorMessage(response.createInstance.message);
+            return;
+          }
+          case "Instance": {
+            navigate("/workspace/");
+            return;
+          }
+          case "%other": {
+            setErrorMessage("Unable to create the instance.");
+            return;
+          }
+          default: {
+            setErrorMessage("Unable to create the instance.");
+          }
         }
       },
       onError: (error) => {
-        resolve({
-          message: error.message,
-          status: "error",
-        });
+        setErrorMessage(error.message);
       },
     });
-  });
-
-  if (result.status === "error") {
-    return result;
-  }
-
-  return redirect(`/workspace/`);
-}, "create-instance");
-
-export default function CreateInstancePage() {
-  const createInstanceSubmission = useSubmission(createInstanceAction);
+  };
 
   const buttonLabel = () => {
-    if (createInstanceSubmission.pending === true) {
+    if (isCreatingInstance()) {
       return "Creating instance…";
     }
     return "Create instance";
@@ -132,23 +106,10 @@ export default function CreateInstancePage() {
       >
         <header class="panel-header">
           <h1 id="create-instance-title">Create an instance</h1>
-          <p>Name your new ActivityPub testing environment.</p>
+          <p>Review the generated identifier for your new instance.</p>
         </header>
 
-        <form action={createInstanceAction} method="post">
-          <label class="field">
-            <span class="field-heading">
-              Name
-              <span class="field-status required">Required</span>
-            </span>
-            <input
-              name="name"
-              type="text"
-              autocomplete="off"
-              placeholder="My test instance"
-              required
-            />
-          </label>
+        <form onSubmit={submit}>
           <label class="field">
             <span class="field-heading">
               Slug
@@ -169,17 +130,15 @@ export default function CreateInstancePage() {
           <button
             class="button primary"
             type="submit"
-            disabled={createInstanceSubmission.pending}
+            disabled={isCreatingInstance()}
           >
             {buttonLabel()}
           </button>
         </form>
 
-        <Show when={createInstanceSubmission.result?.status === "error"}>
+        <Show when={errorMessage()}>
           <p class="notice error" role="alert">
-            {createInstanceSubmission.result?.status === "error"
-              ? createInstanceSubmission.result.message
-              : ""}
+            {errorMessage()}
           </p>
         </Show>
       </section>

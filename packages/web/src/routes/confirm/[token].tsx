@@ -19,6 +19,7 @@ import { commitMutation, graphql } from "relay-runtime";
 import { Show, createSignal, onMount } from "solid-js";
 
 import { createRelayEnvironment } from "~/RelayEnvironment";
+import { setSessionCookie } from "~/session";
 
 import type { CompleteLoginChallenge } from "./__generated__/CompleteLoginChallenge.graphql.ts";
 
@@ -31,17 +32,10 @@ const completeLoginChallengeMutation = graphql`
   }
 `;
 
-type CompleteLogInResult =
-  | {
-      message: string;
-      status: "error";
-    }
-  | {
-      accessToken: string;
-      expires: string;
-      message: string;
-      status: "success";
-    };
+interface CompleteLoginResult {
+  message: string;
+  status: "error" | "success";
+}
 
 const completeLoginChallengeAction = action(
   async ({ token, code }: { token: string; code: string }) => {
@@ -49,16 +43,16 @@ const completeLoginChallengeAction = action(
 
     const environment = createRelayEnvironment();
 
-    const result = await new Promise<CompleteLogInResult>((resolve) => {
+    const result = await new Promise<CompleteLoginResult>((resolve) => {
       commitMutation<CompleteLoginChallenge>(environment, {
         mutation: completeLoginChallengeMutation,
         variables: { token, code },
         onCompleted: (response, errors) => {
-          const errorMessage = errors?.map((e) => e.message).join("\n");
+          const graphQLErrors = errors ?? [];
 
-          if (errorMessage !== undefined) {
+          if (graphQLErrors.length > 0) {
             resolve({
-              message: errorMessage,
+              message: graphQLErrors.map((error) => error.message).join("\n"),
               status: "error",
             });
             return;
@@ -76,9 +70,17 @@ const completeLoginChallengeAction = action(
             return;
           }
 
+          try {
+            setSessionCookie(session.accessToken, session.expires);
+          } catch {
+            resolve({
+              message: "Unable to save a session.",
+              status: "error",
+            });
+            return;
+          }
+
           resolve({
-            accessToken: session.accessToken,
-            expires: session.expires,
             message: "Signing in…",
             status: "success",
           });
@@ -101,7 +103,7 @@ export default function ConfirmPage() {
   const params = useParams<{ token: string }>();
   const [searchParams] = useSearchParams<{ code?: string }>();
   const completeLoginChallenge = useAction(completeLoginChallengeAction);
-  const [result, setResult] = createSignal<CompleteLogInResult>();
+  const [result, setResult] = createSignal<CompleteLoginResult>();
 
   onMount(() => {
     async function complete() {
@@ -113,23 +115,6 @@ export default function ConfirmPage() {
         setResult(completeResult);
 
         if (completeResult.status === "error") {
-          return;
-        }
-
-        const response = await fetch("/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accessToken: completeResult.accessToken,
-            expires: completeResult.expires,
-          }),
-        });
-
-        if (!response.ok) {
-          setResult({
-            message: "Unable to save a session.",
-            status: "error",
-          });
           return;
         }
 
@@ -149,7 +134,7 @@ export default function ConfirmPage() {
   });
 
   return (
-    <Show when={result()}>
+    <Show when={result()} fallback={<output>Signing in…</output>}>
       {(value) => <output class={value().status}>{value().message}</output>}
     </Show>
   );
