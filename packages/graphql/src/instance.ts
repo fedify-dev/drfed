@@ -94,6 +94,15 @@ builder.drizzleObjectField(InstanceRef, "localInstance", (t) =>
   }),
 );
 
+builder.drizzleObjectField(LocalInstanceRef, "instance", (t) =>
+  t.relation("instance", {
+    nullable: true,
+    description:
+      "The `Instance` this `LocalInstance` backs, which carries the " +
+      "federation-facing data such as the host name.",
+  }),
+);
+
 const instanceMembersConnection = drizzleConnectionHelpers(
   builder,
   "instanceMembers",
@@ -190,6 +199,29 @@ builder.drizzleObjectField(InstanceRef, "members", (t) =>
     },
   ),
 );
+
+builder.queryFields((t) => ({
+  localInstanceBySlug: t.drizzleField({
+    type: LocalInstanceRef,
+    nullable: true,
+    description:
+      "Get a `LocalInstance` by its slug.  Returns `null` if no " +
+      "`LocalInstance` has the given slug.",
+    authScopes: { authenticated: true },
+    args: {
+      slug: t.arg({
+        type: "String",
+        required: true,
+        description:
+          "The slug of the `LocalInstance` to retrieve, i.e., the label " +
+          "that forms the first part of its host name.",
+      }),
+    },
+    resolve(query, _root, { slug }, ctx) {
+      return ctx.db.query.localInstances.findFirst(query({ where: { slug } }));
+    },
+  }),
+}));
 
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",

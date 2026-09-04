@@ -73,6 +73,21 @@ const localInstanceQuery = `
   }
 `;
 
+const localInstanceBySlugQuery = `
+  query LocalInstanceBySlug($slug: String!) {
+    localInstanceBySlug(slug: $slug) {
+      uuid
+      slug
+      expires
+      maxActors
+      instance {
+        uuid
+        host
+      }
+    }
+  }
+`;
+
 const instanceMembersQuery = `
   query InstanceMembers($uuid: UUID!) {
     accountByUuid(uuid: $uuid) {
@@ -336,6 +351,80 @@ describe("Instance.localInstance", () => {
   });
 });
 
+describe("Query.localInstanceBySlug", () => {
+  it("returns the `LocalInstance` with the given slug", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      const auth = await createSession(db);
+
+      const response = await post(
+        {
+          query: localInstanceBySlugQuery,
+          variables: { slug: "test-instance" },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          localInstanceBySlug: {
+            uuid: localInstanceId,
+            slug: "test-instance",
+            expires: expires.toISOString(),
+            maxActors: defaultMaxActors,
+            instance: {
+              uuid: instanceId,
+              host: "test-instance.drfed.org",
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("returns null when no `LocalInstance` has the slug", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      const auth = await createSession(db);
+
+      const response = await post(
+        {
+          query: localInstanceBySlugQuery,
+          variables: { slug: "no-such-instance" },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: { localInstanceBySlug: null },
+      });
+    });
+  });
+
+  it("denies the field to an unauthenticated viewer", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+
+      const response = await post({
+        query: localInstanceBySlugQuery,
+        variables: { slug: "test-instance" },
+      });
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.localInstanceBySlug, null);
+      assert.equal(body.errors.length, 1);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to resolve Query.localInstanceBySlug",
+      );
+      assert.deepEqual(body.errors[0].path, ["localInstanceBySlug"]);
+    });
+  });
+});
+
 describe("Remote instance", () => {
   it("returns a created remote instance", async () => {
     await withTestHarness(async ({ db, post }) => {
@@ -405,6 +494,19 @@ async function authenticate(
     ...(maxInstances == null ? {} : { maxInstances }),
     created,
   });
+  return createSession(db);
+}
+
+/**
+ * Opens an authenticated session for the account seeded as {@link accountId},
+ * then returns the request options carrying the session's bearer token.  Use
+ * this instead of {@link authenticate} when the account already exists, e.g.
+ * after {@link seedInstanceMembers}.
+ *
+ * @param db The database to seed.
+ * @returns Request options with an `Authorization` header for {@link post}.
+ */
+async function createSession(db: Database): Promise<RequestInit> {
   await db.insert(schema.sessions).values({
     id: sessionId,
     accountId,
