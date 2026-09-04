@@ -18,6 +18,7 @@ import { Link } from "@kobalte/core/link";
 import { Title } from "@solidjs/meta";
 import { Show } from "solid-js";
 
+// oxlint-disable-next-line capitalized-comments
 // import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql";
 
 // const instanceDetailQuery = graphql`
@@ -55,12 +56,14 @@ import { Show } from "solid-js";
 // type RouteData = ReturnType<typeof loadInstanceQuery>;
 
 export default function InstanceDetailPage() {
+  // oxlint-disable-next-line capitalized-comments
   // const data = createPreloadedQuery<InstanceDetailQuery>(
   //   instanceDetailQuery,
   //   () => props.data,
   // );
   //
 
+  // oxlint-disable-next-line  unicorn/consistent-function-scoping
   const data = () => ({
     instance: {
       host: "hi",
@@ -69,12 +72,14 @@ export default function InstanceDetailPage() {
   });
 
   return (
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     <Show when={data()?.instance} fallback={<p>Instance not found.</p>}>
       {(instance) => (
         <main>
           <Title>{instance().host} — DrFed</Title>
           <h1>{instance().host}</h1>
           <Show when={instance()}>
+            {/*oxlint-disable-next-line eslint/no-shadow */}
             {(instance) => (
               <Show when={instance().nodeInfoUrl}>
                 {(nodeInfoUrl) => (
