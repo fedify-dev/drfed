@@ -19,7 +19,7 @@ import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
 
-import type { HomeViewerQuery } from "./__generated__/HomeViewerQuery.graphql";
+import type { HomeViewerQuery } from "./__generated__/HomeViewerQuery.graphql.ts";
 
 const homeViewerQuery = graphql`
   query HomeViewerQuery {

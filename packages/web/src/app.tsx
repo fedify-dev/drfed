@@ -23,7 +23,7 @@ import "./drfed.css";
 import "./app.css";
 import { RelayEnvironmentProvider } from "solid-relay";
 
-import { createRelayEnvironment } from "./RelayEnvironment";
+import { createRelayEnvironment } from "./RelayEnvironment.ts";
 
 export default function App() {
   const environment = createRelayEnvironment();

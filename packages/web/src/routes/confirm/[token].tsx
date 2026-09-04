@@ -18,8 +18,8 @@ import { action, useAction, useParams, useSearchParams } from "@solidjs/router";
 import { commitMutation, graphql } from "relay-runtime";
 import { Show, createSignal, onMount } from "solid-js";
 
-import { createRelayEnvironment } from "~/RelayEnvironment";
-import { setSessionCookie } from "~/session";
+import { createRelayEnvironment } from "~/RelayEnvironment.ts";
+import { setSessionCookie } from "~/session.ts";
 
 import type { CompleteLoginChallenge } from "./__generated__/CompleteLoginChallenge.graphql.ts";
 

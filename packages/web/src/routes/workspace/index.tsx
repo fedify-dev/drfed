@@ -18,8 +18,8 @@ import { graphql } from "relay-runtime";
 import { For, Show } from "solid-js";
 import { createFragment, createLazyLoadQuery } from "solid-relay";
 
-import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql";
-import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql";
+import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql.ts";
+import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql.ts";
 
 const workspaceQuery = graphql`
   query WorkspaceQuery {
