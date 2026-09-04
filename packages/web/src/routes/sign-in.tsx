@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
+import * as v from "valibot";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 
@@ -31,6 +33,15 @@ const signInMutation = graphql`
   }
 `;
 
+const signInSchema = v.object({
+  email: v.pipe(
+    v.string(),
+    v.trim(),
+    v.nonEmpty("Enter a valid email address."),
+    v.email("Enter a valid email address."),
+  ),
+});
+
 interface SignInResult {
   message: string;
   status: "error" | "success";
@@ -40,21 +51,13 @@ export default function SignInPage() {
   const [result, setResult] = createSignal<SignInResult>();
   const [commitSignIn, isSigningIn] =
     createMutation<SignInMutation>(signInMutation);
+  const signInForm = createForm({
+    schema: signInSchema,
+    initialInput: { email: "" },
+  });
 
-  const submit = (event: SubmitEvent & { currentTarget: HTMLFormElement }) => {
-    event.preventDefault();
-
+  const submit: SubmitHandler<typeof signInSchema> = ({ email }) => {
     const verifyUrl = `${globalThis.location.origin}/confirm/{token}?code={code}`;
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get("email");
-    if (typeof email !== "string" || email === "") {
-      setResult({
-        message: "Enter a valid email address.",
-        status: "error",
-      });
-      return;
-    }
-
     setResult(undefined);
     commitSignIn({
       variables: { email, verifyUrl },
@@ -96,21 +99,35 @@ export default function SignInPage() {
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-        <form onSubmit={submit}>
-          <label class="field">
-            <span class="field-heading">
-              Email address
-              <span class="field-status required">Required</span>
-            </span>
-            <input
-              name="email"
-              type="email"
-              autocomplete="email"
-              inputmode="email"
-              placeholder="you@example.com"
-              required
-            />
-          </label>
+        <Form of={signInForm} onSubmit={submit}>
+          <Field of={signInForm} path={["email"]}>
+            {(field) => (
+              <label class="field">
+                <span class="field-heading">
+                  Email address
+                  <span class="field-status required">Required</span>
+                </span>
+                <input
+                  {...field.props}
+                  type="email"
+                  value={field.input ?? ""}
+                  autocomplete="email"
+                  inputmode="email"
+                  placeholder="you@example.com"
+                  required
+                  aria-invalid={Boolean(field.errors)}
+                  aria-describedby={field.errors ? "email-error" : undefined}
+                />
+                <Show when={field.errors}>
+                  {(errors) => (
+                    <span id="email-error" class="field-hint" role="alert">
+                      {errors()[0]}
+                    </span>
+                  )}
+                </Show>
+              </label>
+            )}
+          </Field>
           <button class="button primary" type="submit" disabled={isSigningIn()}>
             <Show
               when={isSigningIn()}
@@ -123,7 +140,7 @@ export default function SignInPage() {
               Sending link…
             </Show>
           </button>
-        </form>
+        </Form>
 
         <Show when={result()}>
           {(formResult) => (
