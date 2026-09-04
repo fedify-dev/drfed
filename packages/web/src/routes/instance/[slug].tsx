@@ -14,87 +14,88 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Link } from "@kobalte/core/link";
 import { Title } from "@solidjs/meta";
-import { Show } from "solid-js";
+import { A, useParams } from "@solidjs/router";
+import { For } from "solid-js";
 
-// oxlint-disable-next-line capitalized-comments
-// import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql";
+import styles from "~/styles/instance.module.css";
 
-// const instanceDetailQuery = graphql`
-//   query InstanceDetailQuery($instanceSlug: String!) {
-//     instance: node(slug: $instanceSlug) {
-//       ... on Instance {
-//         host
-//         nodeInfoUrl
-//       }
-//     }
-//   }
-// `;
-
-// const loadInstanceQuery = query(
-//   (instanceSlug: string) =>
-//     loadQuery<InstanceDetailQuery>(
-//       useRelayEnvironment()(),
-//       instanceDetailQuery,
-//       {
-//         instanceSlug,
-//       },
-//     ),
-//   "InstanceDetailQuery",
-// );
-
-// export const route = {
-//   preload({ params }) {
-//     if (params.slug === undefined) {
-//       throw new Error("Missing slug route parameter.");
-//     }
-//     return loadInstanceQuery(params.slug);
-//   },
-// } satisfies RouteDefinition;
-
-// type RouteData = ReturnType<typeof loadInstanceQuery>;
+const actors = ["@sherry", "@newsroom", "@garden"] as const;
 
 export default function InstanceDetailPage() {
-  // oxlint-disable-next-line capitalized-comments
-  // const data = createPreloadedQuery<InstanceDetailQuery>(
-  //   instanceDetailQuery,
-  //   () => props.data,
-  // );
-  //
-
-  // oxlint-disable-next-line  unicorn/consistent-function-scoping
-  const data = () => ({
-    instance: {
-      host: "hi",
-      nodeInfoUrl: "bye",
-    },
-  });
+  const params = useParams();
+  const host = () => params.slug ?? "social.example";
 
   return (
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
-    <Show when={data()?.instance} fallback={<p>Instance not found.</p>}>
-      {(instance) => (
-        <main>
-          <Title>{instance().host} — DrFed</Title>
-          <h1>{instance().host}</h1>
-          <Show when={instance()}>
-            {/*oxlint-disable-next-line eslint/no-shadow */}
-            {(instance) => (
-              <Show when={instance().nodeInfoUrl}>
-                {(nodeInfoUrl) => (
-                  <p>
-                    NodeInfo: <Link href={nodeInfoUrl()}>{nodeInfoUrl()}</Link>
-                    WebFingerURL:{" "}
-                    <Link href="">{`${instance().host}/.well-known/webfinger`}</Link>
-                    SharedInbox: <Link>TBD</Link>
-                  </p>
-                )}
-              </Show>
+    <main class={styles.page}>
+      <Title>{host()} — DrFed</Title>
+
+      <A class={styles.backLink} href="/workspace">
+        <span aria-hidden="true">←</span> All instances
+      </A>
+
+      <header class={styles.header}>
+        <h1>{host()}</h1>
+        <A
+          class={styles.createButton}
+          href="/workspace/create/instance-demo/actors"
+        >
+          <span aria-hidden="true">＋</span>
+          Create actor
+        </A>
+      </header>
+
+      <section class={styles.details} aria-labelledby="connection-title">
+        <div>
+          <p class={styles.sectionLabel}>Connection record</p>
+          <h2 id="connection-title">Federation endpoints</h2>
+        </div>
+        <dl class={styles.endpointList}>
+          <div>
+            <dt>NodeInfo</dt>
+            <dd>
+              <a href={`https://${host()}/nodeinfo/2.1`}>/nodeinfo/2.1</a>
+            </dd>
+          </div>
+          <div>
+            <dt>WebFinger</dt>
+            <dd>
+              <a href={`https://${host()}/.well-known/webfinger`}>
+                /.well-known/webfinger
+              </a>
+            </dd>
+          </div>
+          <div>
+            <dt>Shared inbox</dt>
+            <dd>
+              <a href={`https://${host()}/inbox`}>/inbox</a>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class={styles.actors} aria-labelledby="actors-title">
+        <header class={styles.sectionHeader}>
+          <div>
+            <p class={styles.sectionLabel}>Local identities</p>
+            <h2 id="actors-title">Actors</h2>
+          </div>
+          <p>{actors.length} registered</p>
+        </header>
+
+        <div class={styles.actorList}>
+          <For each={actors}>
+            {(handle) => (
+              <article class={styles.actorCard}>
+                <span class={styles.actorMarker} aria-hidden="true" />
+                <p>
+                  {handle}@{host()}
+                </p>
+              </article>
             )}
-          </Show>
-        </main>
-      )}
-    </Show>
+          </For>
+        </div>
+      </section>
+    </main>
   );
 }

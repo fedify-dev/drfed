@@ -1,0 +1,198 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.page {
+  display: grid;
+  gap: 1.5rem;
+  padding-bottom: 3rem;
+}
+
+.backLink {
+  align-items: center;
+  color: var(--ink-soft);
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 700;
+  gap: 0.45rem;
+  justify-self: start;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--accent-strong);
+}
+
+.header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.25rem 0 1.25rem;
+}
+
+.header h1 {
+  font-family: var(--font-mono);
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  line-height: 1.2;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.createButton {
+  align-items: center;
+  background: var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--on-accent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-weight: 800;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.95rem;
+  text-decoration: none;
+}
+
+.createButton:hover {
+  background: var(--accent-strong);
+}
+
+.details,
+.actors {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+}
+
+.sectionLabel {
+  color: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+}
+
+.details h2,
+.sectionHeader h2 {
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.endpointList {
+  margin: 1.25rem 0 0;
+}
+
+.endpointList div {
+  align-items: baseline;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  padding: 0.9rem 0;
+}
+
+.endpointList div:last-child {
+  padding-bottom: 0;
+}
+
+.endpointList dt {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.endpointList dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.endpointList a {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  text-decoration-color: var(--accent-soft);
+  text-underline-offset: 0.2rem;
+}
+
+.sectionHeader {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.sectionHeader > p {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin: 0 0 0.15rem;
+}
+
+.actorList {
+  border-top: 1px solid var(--line);
+}
+
+.actorCard {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
+.actorCard + .actorCard {
+  border-top: 1px solid var(--line);
+}
+
+.actorMarker {
+  background: var(--accent);
+  border: 0.25rem solid var(--accent-tint);
+  border-radius: 50%;
+  height: 0.85rem;
+  width: 0.85rem;
+}
+
+.actorCard p {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.backLink:focus-visible,
+.createButton:focus-visible,
+.endpointList a:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+@media (max-width: 520px) {
+  .header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .endpointList div {
+    gap: 0.25rem;
+    grid-template-columns: 1fr;
+  }
+}
