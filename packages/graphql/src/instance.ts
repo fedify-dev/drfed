@@ -61,7 +61,26 @@ const LocalInstanceRef = builder.drizzleNode("localInstances", {
   name: "LocalInstance",
   description:
     "Represents a `LocalInstance`, i.e., an `Instance` hosted by this DrFed " +
-    "deployment.",
+    "deployment.  Only accepted members of the `Instance` it backs, and " +
+    "site administrators, can read it, because it carries operational " +
+    "details such as the expiry date and the actor quota.",
+  authScopes(localInstance) {
+    return {
+      $any: {
+        admin: true,
+        localInstanceMember: localInstance.id,
+      },
+    };
+  },
+  // Check the scopes on the type itself rather than only on each field.
+  // Without this, a selection that touches no scoped field still resolves, so
+  // `node(id: $id) { __typename }` would answer `"LocalInstance"` to a viewer
+  // who may not read one.  Note this closes the data channel only: the
+  // presence of the authorization error still tells such a viewer that the ID
+  // resolves to an existing `LocalInstance`, since an unknown ID yields a
+  // plain `null` with no error.  That residual signal is accepted, as it is
+  // for slugs, and it additionally requires already knowing a UUID.
+  runScopesOnType: true,
   id: {
     column(instance) {
       return instance.id;

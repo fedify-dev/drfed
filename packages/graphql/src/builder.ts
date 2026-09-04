@@ -15,7 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { type Database, normalizeEmail, relations } from "@drfed/models";
-import type { Account, Session } from "@drfed/models/schema";
+import {
+  type Account,
+  type Session,
+  instanceMembers,
+  instances,
+} from "@drfed/models/schema";
 import { Template } from "@fedify/uri-template";
 import SchemaBuilder, { type ObjectRef } from "@pothos/core";
 import DrizzlePlugin from "@pothos/plugin-drizzle";
@@ -24,6 +29,7 @@ import RelayPlugin from "@pothos/plugin-relay";
 import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
+import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
 import { DateTimeResolver, UUIDResolver } from "graphql-scalars";
 
 /**
@@ -104,6 +110,11 @@ export interface SchemaTypes {
   AuthScopes: {
     authenticated: boolean;
     admin: boolean;
+    /**
+     * Whether the viewer is an accepted member of the `Instance` backed by
+     * the `LocalInstance` with the given UUID.
+     */
+    localInstanceMember: string;
   };
 }
 
@@ -136,10 +147,46 @@ export const builder = new SchemaBuilder<SchemaTypes>({
       return {
         authenticated: Boolean(context.session),
         admin: Boolean(context.account?.admin),
+        localInstanceMember(localInstanceId) {
+          return isLocalInstanceMember(context, localInstanceId);
+        },
       };
     },
   },
 });
+
+/**
+ * Determines whether the viewer is an accepted member of the `Instance` that
+ * the given `LocalInstance` backs.  Pending members, i.e. those who have been
+ * invited but have not accepted yet, do not count.
+ *
+ * Pothos caches scope results per request by scope name and parameter, so this
+ * runs at most once per `LocalInstance` per request.
+ *
+ * @param context The request context, whose `account` is the viewer.
+ * @param localInstanceId The UUID of the `LocalInstance` to check.
+ * @returns Whether the viewer is an accepted member.
+ */
+async function isLocalInstanceMember(
+  context: UserContext,
+  localInstanceId: string,
+): Promise<boolean> {
+  const { account } = context;
+  if (account == null) return false;
+  const rows = await context.db
+    .select({ instanceId: instanceMembers.instanceId })
+    .from(instanceMembers)
+    .innerJoin(instances, eq(instanceMembers.instanceId, instances.id))
+    .where(
+      and(
+        eq(instances.localId, localInstanceId),
+        eq(instanceMembers.accountId, account.id),
+        isNotNull(instanceMembers.accepted),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
 
 builder.addScalarType("DateTime", DateTimeResolver);
 

@@ -34,9 +34,16 @@ const memberId = "00000000-0000-4000-8000-000000000002";
 const pendingMemberId = "00000000-0000-4000-8000-000000000003";
 const instanceId = "00000000-0000-4000-8000-000000000101";
 const localInstanceId = "00000000-0000-4000-8000-000000000103";
+const otherInstanceId = "00000000-0000-4000-8000-000000000104";
+const otherLocalInstanceId = "00000000-0000-4000-8000-000000000105";
+const localInstanceNodeId = btoa(`LocalInstance:${localInstanceId}`);
 const duplicateRemoteInstanceId = "00000000-0000-4000-8000-000000000102";
 const sessionId = "00000000-0000-4000-8000-000000000201";
+const otherSessionId = "00000000-0000-4000-8000-000000000202";
+const strangerId = "00000000-0000-4000-8000-000000000004";
+const siteAdminId = "00000000-0000-4000-8000-000000000005";
 const accessToken = "test-access-token";
+const otherAccessToken = "other-access-token";
 
 const remoteInstanceQuery = `
   query RemoteInstance($uuid: UUID!) {
@@ -84,6 +91,34 @@ const localInstanceBySlugQuery = `
         uuid
         host
       }
+    }
+  }
+`;
+
+const localInstanceNodeQuery = `
+  query LocalInstanceNode($id: ID!) {
+    node(id: $id) {
+      __typename
+      ... on LocalInstance {
+        uuid
+        slug
+      }
+    }
+  }
+`;
+
+const localInstanceNodesQuery = `
+  query LocalInstanceNodes($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      __typename
+    }
+  }
+`;
+
+const localInstanceTypenameQuery = `
+  query LocalInstanceTypename($id: ID!) {
+    node(id: $id) {
+      __typename
     }
   }
 `;
@@ -290,11 +325,12 @@ describe("Instance.localInstance", () => {
   it("returns the `LocalInstance` backing a local `Instance`", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedInstanceMembers(db);
+      const auth = await createSession(db);
 
-      const response = await post({
-        query: localInstanceQuery,
-        variables: { uuid: accountId },
-      });
+      const response = await post(
+        { query: localInstanceQuery, variables: { uuid: accountId } },
+        auth,
+      );
 
       assert.equal(response.status, ok);
       assert.deepEqual(await response.json(), {
@@ -425,6 +461,327 @@ describe("Query.localInstanceBySlug", () => {
   });
 });
 
+describe("LocalInstance authorization", () => {
+  it("denies `Instance.localInstance` to an unauthenticated viewer", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+
+      const response = await post({
+        query: localInstanceQuery,
+        variables: { uuid: accountId },
+      });
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      const [edge] = body.data.accountByUuid.instances.edges;
+      // The field is nullable, so it absorbs the error and the rest of the
+      // `Instance` still resolves.
+      assert.equal(edge.node.localInstance, null);
+      assert.equal(edge.node.host, "test-instance.drfed.org");
+      assert.equal(body.errors.length, 1);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("denies `node(id:)` on a `LocalInstance` to an unauthenticated viewer", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+
+      const response = await post({
+        query: localInstanceNodeQuery,
+        variables: { id: localInstanceNodeId },
+      });
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.node, null);
+      assert.equal(body.errors.length, 1);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("hides a `LocalInstance` from an unauthenticated `__typename` probe", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+
+      const response = await post({
+        query: localInstanceTypenameQuery,
+        variables: { id: localInstanceNodeId },
+      });
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      // `runScopesOnType` is what keeps `__typename` out of the response: a
+      // selection of only `__typename` touches no scoped field, so without it
+      // `data.node.__typename` would come back as `"LocalInstance"`.  The
+      // error below still reveals that the ID resolves to something; only the
+      // data channel is closed here.
+      assert.equal(body.data.node, null);
+      assert.equal(body.errors.length, 1);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("denies a logged-in viewer who is not a member", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      await db.insert(schema.accounts).values({
+        id: strangerId,
+        email: "stranger@example.com",
+        name: "Stranger",
+        created,
+      });
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: strangerId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodeQuery,
+          variables: { id: localInstanceNodeId },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.node, null);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("denies a member who has not accepted the invitation yet", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      // `seedInstanceMembers` seeds this account with `accepted: null`.
+      await seedInstanceMembers(db);
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: pendingMemberId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodeQuery,
+          variables: { id: localInstanceNodeId },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.node, null);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("allows a site administrator who is not a member", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      await db.insert(schema.accounts).values({
+        id: siteAdminId,
+        email: "admin@example.com",
+        name: "Site Admin",
+        admin: true,
+        created,
+      });
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: siteAdminId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodeQuery,
+          variables: { id: localInstanceNodeId },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          node: {
+            __typename: "LocalInstance",
+            uuid: localInstanceId,
+            slug: "test-instance",
+          },
+        },
+      });
+    });
+  });
+
+  it("denies `nodes(ids:)` to a logged-in non-member", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      await db.insert(schema.accounts).values({
+        id: strangerId,
+        email: "stranger@example.com",
+        name: "Stranger",
+        created,
+      });
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: strangerId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodesQuery,
+          variables: { ids: [localInstanceNodeId] },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.deepEqual(body.data.nodes, [null]);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("denies `localInstanceBySlug` to a logged-in non-member", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      await db.insert(schema.accounts).values({
+        id: strangerId,
+        email: "stranger@example.com",
+        name: "Stranger",
+        created,
+      });
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: strangerId,
+        token: otherAccessToken,
+      });
+
+      // The field's own `authenticated` scope passes here, so this exercises
+      // the type scope rather than the pre-resolver one.
+      const response = await post(
+        {
+          query: localInstanceBySlugQuery,
+          variables: { slug: "test-instance" },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.localInstanceBySlug, null);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("denies a viewer who is a member of a different `Instance`", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedInstanceMembers(db);
+      await db.insert(schema.accounts).values({
+        id: strangerId,
+        email: "stranger@example.com",
+        name: "Stranger",
+        created,
+      });
+      // An accepted membership somewhere else must not grant access here; this
+      // is what pins the `instances.localId` condition in the predicate.
+      await db.insert(schema.localInstances).values({
+        id: otherLocalInstanceId,
+        slug: "other-instance",
+        expires,
+      });
+      await db.insert(schema.instances).values({
+        id: otherInstanceId,
+        localId: otherLocalInstanceId,
+        created,
+        host: "other-instance.drfed.org",
+      });
+      await db.insert(schema.instanceMembers).values({
+        accountId: strangerId,
+        instanceId: otherInstanceId,
+        accepted,
+        created,
+      });
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: strangerId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodeQuery,
+          variables: { id: localInstanceNodeId },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.data.node, null);
+      assert.equal(
+        body.errors[0].message,
+        "Not authorized to read fields for LocalInstance",
+      );
+    });
+  });
+
+  it("allows an accepted member of the backing `Instance`", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      // `memberId` is an accepted member with `admin: false`, unlike the owner
+      // `accountId`, so this cannot pass by way of the per-instance admin flag.
+      await seedInstanceMembers(db);
+      const auth = await createSession(db, {
+        id: otherSessionId,
+        account: memberId,
+        token: otherAccessToken,
+      });
+
+      const response = await post(
+        {
+          query: localInstanceNodeQuery,
+          variables: { id: localInstanceNodeId },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      assert.deepEqual(await response.json(), {
+        data: {
+          node: {
+            __typename: "LocalInstance",
+            uuid: localInstanceId,
+            slug: "test-instance",
+          },
+        },
+      });
+    });
+  });
+});
+
 describe("Remote instance", () => {
   it("returns a created remote instance", async () => {
     await withTestHarness(async ({ db, post }) => {
@@ -498,21 +855,27 @@ async function authenticate(
 }
 
 /**
- * Opens an authenticated session for the account seeded as {@link accountId},
- * then returns the request options carrying the session's bearer token.  Use
- * this instead of {@link authenticate} when the account already exists, e.g.
- * after {@link seedInstanceMembers}.
+ * Opens an authenticated session for an already-seeded account, then returns
+ * the request options carrying the session's bearer token.  Use this instead
+ * of {@link authenticate} when the account already exists, e.g. after
+ * {@link seedInstanceMembers}.
  *
  * @param db The database to seed.
+ * @param options The session id, account id, and bearer token to use.  Each
+ *                defaults to the instance owner's.
  * @returns Request options with an `Authorization` header for {@link post}.
  */
-async function createSession(db: Database): Promise<RequestInit> {
+async function createSession(
+  db: Database,
+  options: { id?: string; account?: string; token?: string } = {},
+): Promise<RequestInit> {
+  const { id = sessionId, account = accountId, token = accessToken } = options;
   await db.insert(schema.sessions).values({
-    id: sessionId,
-    accountId,
-    tokenHash: await hashSecret(accessToken),
+    id,
+    accountId: account,
+    tokenHash: await hashSecret(token),
   });
-  return { headers: { authorization: `Bearer ${accessToken}` } };
+  return { headers: { authorization: `Bearer ${token}` } };
 }
 
 /**
