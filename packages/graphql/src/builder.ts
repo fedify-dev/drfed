@@ -21,6 +21,7 @@ import {
   instanceMembers,
   instances,
 } from "@drfed/models/schema";
+import type { Federation } from "@fedify/fedify";
 import { Template } from "@fedify/uri-template";
 import SchemaBuilder, { type ObjectRef } from "@pothos/core";
 import DrizzlePlugin from "@pothos/plugin-drizzle";
@@ -30,7 +31,7 @@ import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
-import { DateTimeResolver, UUIDResolver } from "graphql-scalars";
+import { DateTimeResolver, URLResolver, UUIDResolver } from "graphql-scalars";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -67,6 +68,11 @@ export interface ServerContext {
    * Root domain.
    */
   readonly root: string;
+
+  /**
+   * The federation instance.
+   */
+  readonly federation: Federation<unknown>;
 }
 
 /**
@@ -103,6 +109,10 @@ export interface SchemaTypes {
     URITemplate: {
       Input: Template;
       Output: Template;
+    };
+    URL: {
+      Input: URL;
+      Output: string;
     };
   };
   DefaultFieldNullability: false;
@@ -196,6 +206,7 @@ async function isLocalInstanceMember(
 }
 
 builder.addScalarType("DateTime", DateTimeResolver);
+builder.addScalarType("URL", URLResolver);
 
 builder.scalarType("Email", {
   parseValue: (v) => normalizeEmail(String(v)),

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
+import type { Federation } from "@fedify/fedify";
 import { getYogaLogger } from "@logtape/graphql-yoga";
 import { getLogger } from "@logtape/logtape";
 import type { Transport } from "@upyo/core";
@@ -28,7 +29,6 @@ import {
 import { hashSecret } from "./auth/hash.ts";
 import type { ServerContext, UserContext } from "./builder.ts";
 import { schema } from "./schema.ts";
-
 /**
  * Options for Yoga server.
  */
@@ -57,12 +57,18 @@ export interface YogaServerOptions {
 /**
  * Creates a Yoga server instance with the provided schema and context.
  * @param {Database} db The database instance.
+ * @param {Federation<unknown>} federation The federation instance.  It must
+ *        already have every dispatcher registered (see `createFederation()`
+ *        in `@drfed/graphql/federation`); this function only stores it in
+ *        the resolver context and never mutates it, so the same instance can
+ *        be shared by several servers.
  * @param {YogaServerOptions} _options Options for server.
  * @returns A `YogaServerInstance` configured with the schema and context for
  *          handling GraphQL requests.
  */
 export function createYogaServer(
   db: Database,
+  federation: Federation<unknown>,
   _options: YogaServerOptions = {},
 ): YogaServerInstance<ServerContext, UserContext> {
   const options = fillOptions(_options);
@@ -72,7 +78,7 @@ export function createYogaServer(
       credentials: true,
     },
     async context(ctx) {
-      const anonymous = { db, request: ctx.request, ...options };
+      const anonymous = { db, federation, request: ctx.request, ...options };
       const accessToken = getAccessToken(ctx.request.headers);
       if (accessToken == null) {
         return anonymous;
@@ -98,12 +104,14 @@ function mockTransport() {
   return new MockTransport();
 }
 
-const fillOptions = (opt: YogaServerOptions): Required<YogaServerOptions> => ({
-  mailer: opt?.mailer ?? mockTransport(),
-  emailFrom: opt?.emailFrom ?? "noreply@drfed.org",
+const fillOptions = (
+  opt: YogaServerOptions,
+): Omit<ServerContext, "db" | "request" | "federation"> => ({
+  mailer: opt.mailer ?? mockTransport(),
+  emailFrom: opt.emailFrom ?? "noreply@drfed.org",
   // FIXME: Properly parametrize the following allowlist:
-  origins: opt?.origins ?? new Set(["https://drfed.org"]),
-  root: opt?.root ?? "drfed.org",
+  origins: opt.origins ?? new Set(["https://drfed.org"]),
+  root: opt.root ?? "drfed.org",
 });
 
 const getAccessToken = (headers: Headers) =>
@@ -114,7 +122,7 @@ const findSession = async (accessToken: string, db: Database) =>
   await db.query.sessions.findFirst({
     where: {
       tokenHash: await hashSecret(accessToken),
-      expires: { gt: new Date(Temporal.Now.instant().toString()) },
+      expires: { gt: new Date() },
     },
     with: { account: true },
   });

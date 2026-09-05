@@ -15,8 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import { createYogaServer } from "@drfed/graphql";
 import type { ServerContext, UserContext } from "@drfed/graphql/builder";
+import createFederation from "@drfed/graphql/federation";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PGlite } from "@electric-sql/pglite";
+import { type Federation, MemoryKvStore } from "@fedify/fedify";
 import { getLogger } from "@logtape/logtape";
 import { MockTransport } from "@upyo/mock";
 import { drizzle } from "drizzle-orm/pglite";
@@ -24,7 +26,7 @@ import type { YogaServerInstance } from "graphql-yoga";
 
 const logger = getLogger(["drfed", "graphql", "test"]);
 
-const testEndpoint = "http://drfed.test/graphql";
+const testEndpoint = "https://drfed.test/graphql";
 
 /**
  * The `fetch()` function exposed by the test Yoga server.
@@ -64,6 +66,11 @@ export interface TestHarness {
    * The temporary mailer.
    */
   readonly mailer: MockTransport;
+
+  /**
+   * The federation instance the Yoga server was created with.
+   */
+  readonly federation: Federation<unknown>;
 
   /**
    * The test server's `fetch()` function, bound to the Yoga server instance.
@@ -162,12 +169,14 @@ export async function withTestHarness<T>(
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
-    const yoga = createYogaServer(db, { mailer });
+    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const yoga = createYogaServer(db, federation, { mailer });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
 
     const harness: TestHarness = {
       db,
       mailer,
+      federation,
       fetch,
       yoga,
       async post(body, init) {

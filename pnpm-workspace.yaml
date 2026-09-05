@@ -8,6 +8,10 @@ allowBuilds:
 
 catalog:
   "@electric-sql/pglite": ^0.5.3
+  "@fedify/fedify": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/postgres": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/pglite": 2.4.0-pr.1020.43+41cebe9c
+  "@fedify/vocab": 2.4.0-pr.1020.43+41cebe9c
   "@logtape/drizzle-orm": ^2.2.2
   "@logtape/graphql-yoga": 2.3.0-dev.840
   "@logtape/logtape": 2.3.0-dev.840
@@ -16,7 +20,6 @@ catalog:
   "@optique/logtape": ^1.2.0
   "@optique/run": ^1.2.0
   "@types/node": ^26.0.0
-  "@types/pg": ^8.20.0
   "@upyo/core": 0.6.0-dev.263+e633e1e6
   "@upyo/logtape": 0.6.0-dev.263+e633e1e6
   "@upyo/mock": 0.6.0-dev.263+e633e1e6
@@ -24,12 +27,21 @@ catalog:
   drizzle-orm: 1.0.0-beta.22
   graphql: ^16.14.2
   pg: ^8.21.0
+  postgres: ^3.4.9
   skills-npm: ^1.2.0
   tsdown: ^0.22.14
   typescript: ^7.0.2
   uuid: ^14.0.1
 
 minimumReleaseAgeExclude:
+  - "@fedify/fedify@2.4.0-pr.1020.43"
+  - "@fedify/postgres@2.4.0-pr.1020.43"
+  - "@fedify/uri-template@2.4.0-pr.1020.43"
+  - "@fedify/vocab-runtime@2.4.0-pr.1020.43"
+  - "@fedify/vocab-tools@2.4.0-pr.1020.43"
+  - "@fedify/vocab@2.4.0-pr.1020.43"
+  - "@fedify/webfinger@2.4.0-pr.1020.43"
+  - "@fedify/pglite@2.4.0-pr.1020.43"
   - "@logtape/graphql-yoga@2.3.0-dev.840"
   - "@logtape/logtape@2.3.0-dev.840"
   - "@logtape/testing-node@2.3.0-dev.840"
