@@ -37,9 +37,9 @@ const remoteActorId = "00000000-0000-4000-8000-000000000202";
 const sessionId = "00000000-0000-4000-8000-000000000301";
 const accessToken = "test-access-token";
 
-const genActorsMutation = `
-  mutation GenActors($instance: ID!, $size: Int!) {
-    genActors(instance: $instance, size: $size) {
+const generateActorsMutation = `
+  mutation GenerateActors($instance: ID!, $size: Int!) {
+    generateActors(instance: $instance, size: $size) {
       resultType: __typename
       ... on CreateActorsSuccess {
         actors {
@@ -91,14 +91,14 @@ const actorQuery = `
   }
 `;
 
-describe("Mutation.genActors", () => {
+describe("Mutation.generateActors", () => {
   it("creates local actors", async () => {
     await withTestHarness(async ({ db, post }) => {
       const auth = await seedAuthenticatedLocalInstance(db);
 
       const response = await post(
         {
-          query: genActorsMutation,
+          query: generateActorsMutation,
           variables: {
             instance: globalId("Instance", localInstanceId),
             size: 2,
@@ -110,10 +110,10 @@ describe("Mutation.genActors", () => {
       assert.equal(response.status, ok);
       const body = await response.json();
       assert.equal(body.errors, undefined);
-      assert.equal(body.data.genActors.resultType, "CreateActorsSuccess");
-      assert.equal(body.data.genActors.actors.length, 2);
+      assert.equal(body.data.generateActors.resultType, "CreateActorsSuccess");
+      assert.equal(body.data.generateActors.actors.length, 2);
       assert.ok(
-        body.data.genActors.actors.every(
+        body.data.generateActors.actors.every(
           (actor: {
             iri: unknown;
             local: { uuid: unknown } | null;
@@ -127,8 +127,10 @@ describe("Mutation.genActors", () => {
         ),
       );
       assert.deepStrictEqual(
-        body.data.genActors.actors.map((actor: { iri: string }) => actor.iri),
-        body.data.genActors.actors.map(
+        body.data.generateActors.actors.map(
+          (actor: { iri: string }) => actor.iri,
+        ),
+        body.data.generateActors.actors.map(
           (actor: { uuid: string }) =>
             `https://test-instance.drfed.org/users/${actor.uuid}`,
         ),

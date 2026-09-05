@@ -209,7 +209,7 @@ const CreateActorsResult = builder.unionType("CreateActorsResult", {
 });
 
 builder.mutationFields((t) => ({
-  genActors: t.field({
+  generateActors: t.field({
     type: CreateActorsResult,
     description: "Create actors.",
     authScopes: { authenticated: true },
@@ -297,7 +297,7 @@ builder.mutationFields((t) => ({
         await tx.insert(schema.localActors).values(ids);
         const createdActors = await tx
           .insert(schema.actors)
-          .values(ids.map(({ id }) => genActor(id, instanceId, fedCtx)))
+          .values(ids.map(({ id }) => generateActor(id, instanceId, fedCtx)))
           .returning();
         return { actors: createdActors };
       });
@@ -305,7 +305,7 @@ builder.mutationFields((t) => ({
   }),
 }));
 
-function genActor(
+function generateActor(
   id: string,
   instanceId: string,
   fedCtx: Context<unknown>,
