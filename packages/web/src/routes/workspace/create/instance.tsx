@@ -44,7 +44,16 @@ const createInstanceMutation = graphql`
 `;
 
 const createInstanceSchema = v.object({
-  slug: v.pipe(v.string(), v.trim(), v.nonEmpty("Enter a valid slug.")),
+  slug: v.pipe(
+    v.string(),
+    v.trim(),
+    v.minLength(4, "The slug must contain at least 4 characters."),
+    v.maxLength(63, "The slug must contain at most 63 characters."),
+    v.regex(
+      /^[a-z0-9-]+$/u,
+      "The slug can contain only lowercase letters, numbers, and hyphens.",
+    ),
+  ),
 });
 
 export default function CreateInstancePage() {
@@ -56,7 +65,7 @@ export default function CreateInstancePage() {
   const createInstanceForm = createForm({
     schema: createInstanceSchema,
     initialInput: {
-      slug: `${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`,
+      slug: `${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`.toLowerCase(),
     },
   });
 
