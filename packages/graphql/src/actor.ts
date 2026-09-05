@@ -209,7 +209,7 @@ const CreateActorsResult = builder.unionType("CreateActorsResult", {
 });
 
 builder.mutationFields((t) => ({
-  genActors: t.field({
+  generateActors: t.field({
     type: CreateActorsResult,
     description: "Create actors.",
     authScopes: { authenticated: true },
