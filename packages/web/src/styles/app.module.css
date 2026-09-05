@@ -1,0 +1,142 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.shell {
+  min-height: 100svh;
+}
+
+.header {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.headerInner {
+  align-items: center;
+  display: flex;
+  height: var(--header-h);
+  margin: 0 auto;
+  max-width: var(--container);
+  padding: 0 var(--gutter);
+}
+
+.brand {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  gap: 0.65rem;
+  letter-spacing: var(--tracking-heading);
+  text-decoration: none;
+}
+
+.brand img {
+  border-radius: 50%;
+}
+
+.navigation {
+  align-self: stretch;
+  display: flex;
+  gap: 0.25rem;
+  margin-left: clamp(1.5rem, 5vw, 4rem);
+}
+
+.navigation a,
+.headerAction {
+  align-items: center;
+  color: var(--ink-soft);
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0 0.85rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.navigation a:hover,
+.headerAction:hover,
+.navigation a.active,
+.headerAction.active {
+  color: var(--ink);
+}
+
+.navigation a.active::after {
+  background: var(--accent);
+  bottom: -1px;
+  content: "";
+  height: 3px;
+  left: 0.85rem;
+  position: absolute;
+  right: 0.85rem;
+}
+
+.headerAction {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  margin-left: auto;
+  min-height: 2.4rem;
+}
+
+.headerAction.active {
+  background: var(--accent-tint);
+  border-color: var(--accent-soft);
+}
+
+.header a:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+
+.content {
+  margin: 0 auto;
+  max-width: var(--container);
+  min-height: calc(100svh - var(--header-h));
+  padding: clamp(2rem, 5vw, 4rem) var(--gutter);
+}
+
+@media (max-width: 600px) {
+  .headerInner {
+    padding: 0 1rem;
+  }
+
+  .brand span {
+    display: none;
+  }
+
+  .navigation {
+    margin-left: 0.75rem;
+  }
+
+  .navigation a,
+  .headerAction {
+    padding-inline: 0.65rem;
+  }
+
+  .navigation a.active::after {
+    left: 0.65rem;
+    right: 0.65rem;
+  }
+
+  .content {
+    padding: 1.5rem 1rem 3rem;
+  }
+}

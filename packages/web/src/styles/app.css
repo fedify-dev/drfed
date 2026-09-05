@@ -16,6 +16,40 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-.auth-panel .notice.success {
-  border-left: 3px solid var(--accent);
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+h1,
+h2 {
+  font-family: var(--font-serif);
+  letter-spacing: var(--tracking-heading);
+  margin-top: 0;
+}
+
+h1 {
+  font-size: var(--text-heading-2);
+  line-height: var(--leading-heading);
+}
+
+p {
+  color: var(--ink-soft);
+  line-height: var(--leading-body);
+  margin-top: 0;
 }

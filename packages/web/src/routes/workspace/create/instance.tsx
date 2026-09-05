@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { faker } from "@faker-js/faker";
+import { Button } from "@kobalte/core/button";
+import { TextField } from "@kobalte/core/text-field";
 import { Title } from "@solidjs/meta";
 import { useNavigate } from "@solidjs/router";
 import { graphql } from "relay-runtime";
@@ -22,6 +24,8 @@ import { Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
 
 import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql.ts";
+
+import styles from "~/styles/form.module.css";
 
 const createInstanceMutation = graphql`
   mutation CreateInstanceMutation($slug: String!) {
@@ -97,47 +101,46 @@ export default function CreateInstancePage() {
   };
 
   return (
-    <main class="create-page form-page">
+    <main class={styles.page}>
       <Title>Create an instance — DrFed</Title>
 
-      <section
-        class="panel create-panel form-panel"
-        aria-labelledby="create-instance-title"
-      >
-        <header class="panel-header">
+      <section class={styles.panel} aria-labelledby="create-instance-title">
+        <header class={styles.header}>
           <h1 id="create-instance-title">Create an instance</h1>
           <p>Review the generated identifier for your new instance.</p>
         </header>
 
-        <form onSubmit={submit}>
-          <label class="field">
-            <span class="field-heading">
+        <form class={styles.form} onSubmit={submit}>
+          <TextField
+            class={styles.field}
+            name="slug"
+            value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
+            readOnly
+          >
+            <TextField.Label class={styles.fieldHeading}>
               Slug
-              <span class="field-status">Generated · Read only</span>
-            </span>
-            <input
-              name="slug"
-              type="text"
-              value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
-              aria-describedby="slug-hint"
-              readOnly
-            />
-            <span id="slug-hint" class="field-hint">
+              <span class={styles.fieldStatus}>Generated · Read only</span>
+            </TextField.Label>
+
+            <TextField.Input class={styles.input} />
+
+            <TextField.Description class={styles.hint}>
               DrFed generates this identifier automatically. It cannot be
               edited.
-            </span>
-          </label>
-          <button
-            class="button primary"
+            </TextField.Description>
+          </TextField>
+
+          <Button
+            class={styles.button}
             type="submit"
             disabled={isCreatingInstance()}
           >
             {buttonLabel()}
-          </button>
+          </Button>
         </form>
 
         <Show when={errorMessage()}>
-          <p class="notice error" role="alert">
+          <p class={`${styles.notice} ${styles.error}`} role="alert">
             {errorMessage()}
           </p>
         </Show>

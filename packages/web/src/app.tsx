@@ -19,11 +19,13 @@ import { A, Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 
-import "./drfed.css";
-import "./app.css";
+import "./styles/drfed.css";
+import "./styles/app.css";
 import { RelayEnvironmentProvider } from "solid-relay";
 
 import { createRelayEnvironment } from "./RelayEnvironment.ts";
+
+import styles from "./styles/app.module.css";
 
 export default function App() {
   const environment = createRelayEnvironment();
@@ -34,31 +36,34 @@ export default function App() {
         root={(props) => (
           <MetaProvider>
             <Title>DrFed</Title>
-            <div class="app-shell">
-              <header class="app-header">
-                <div class="app-header-inner">
-                  <A class="brand" href="/" aria-label="DrFed home">
+            <div class={styles.shell}>
+              <header class={styles.header}>
+                <div class={styles.headerInner}>
+                  <A class={styles.brand} href="/" aria-label="DrFed home">
                     <img src="/icon.svg" alt="" width="32" height="32" />
                     <span>DrFed</span>
                   </A>
-                  <nav class="app-nav" aria-label="Primary navigation">
-                    <A href="/" end activeClass="is-active">
+                  <nav
+                    class={styles.navigation}
+                    aria-label="Primary navigation"
+                  >
+                    <A href="/workspace" end activeClass={styles.active}>
                       Workspace
                     </A>
-                    <A href="/about" activeClass="is-active">
+                    <A href="/about" activeClass={styles.active}>
                       About
                     </A>
                   </nav>
                   <A
-                    class="header-action"
+                    class={styles.headerAction}
                     href="/sign-in"
-                    activeClass="is-active"
+                    activeClass={styles.active}
                   >
                     Sign in
                   </A>
                 </div>
               </header>
-              <div class="app-content">
+              <div class={styles.content}>
                 <Suspense>{props.children}</Suspense>
               </div>
             </div>

@@ -16,10 +16,11 @@
 
 import { graphql } from "relay-runtime";
 import { For, Show } from "solid-js";
-import { createFragment, createLazyLoadQuery } from "solid-relay";
+import { createLazyLoadQuery } from "solid-relay";
 
-import type { InstanceSummary_instance$key } from "./__generated__/InstanceSummary_instance.graphql.ts";
-import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql.ts";
+import InstanceSummary from "~/components/InstanceSummary.tsx";
+
+import type { WorkspaceQuery } from "./__generated__/WorkspaceQuery.graphql.tsx";
 
 const workspaceQuery = graphql`
   query WorkspaceQuery {
@@ -34,20 +35,6 @@ const workspaceQuery = graphql`
     }
   }
 `;
-
-function InstanceSummary(props: { $instance: InstanceSummary_instance$key }) {
-  const data = createFragment(
-    graphql`
-      fragment InstanceSummary_instance on Instance {
-        id
-        host
-      }
-    `,
-    () => props.$instance,
-  );
-
-  return <p>{data()?.host}</p>;
-}
 
 export default function WorkspacePage() {
   const query = createLazyLoadQuery<WorkspaceQuery>(
