@@ -15,11 +15,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { faker } from "@faker-js/faker";
+import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Title } from "@solidjs/meta";
 import { useNavigate } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
+import * as v from "valibot";
 
 import type { CreateInstanceMutation } from "./__generated__/CreateInstanceMutation.graphql.ts";
 
@@ -37,22 +39,24 @@ const createInstanceMutation = graphql`
   }
 `;
 
+const createInstanceSchema = v.object({
+  slug: v.pipe(v.string(), v.trim(), v.nonEmpty("Enter a valid slug.")),
+});
+
 export default function CreateInstancePage() {
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = createSignal<string>();
   const [commitCreateInstance, isCreatingInstance] =
     createMutation<CreateInstanceMutation>(createInstanceMutation);
 
-  const submit = (event: SubmitEvent & { currentTarget: HTMLFormElement }) => {
-    event.preventDefault();
+  const createInstanceForm = createForm({
+    schema: createInstanceSchema,
+    initialInput: {
+      slug: `${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`,
+    },
+  });
 
-    const formData = new FormData(event.currentTarget);
-    const slug = formData.get("slug");
-    if (typeof slug !== "string" || slug === "") {
-      setErrorMessage("Enter a valid slug.");
-      return;
-    }
-
+  const submit: SubmitHandler<typeof createInstanceSchema> = ({ slug }) => {
     setErrorMessage(undefined);
     commitCreateInstance({
       variables: { slug },
@@ -109,24 +113,39 @@ export default function CreateInstancePage() {
           <p>Review the generated identifier for your new instance.</p>
         </header>
 
-        <form onSubmit={submit}>
-          <label class="field">
-            <span class="field-heading">
-              Slug
-              <span class="field-status">Generated · Read only</span>
-            </span>
-            <input
-              name="slug"
-              type="text"
-              value={`${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`}
-              aria-describedby="slug-hint"
-              readOnly
-            />
-            <span id="slug-hint" class="field-hint">
-              DrFed generates this identifier automatically. It cannot be
-              edited.
-            </span>
-          </label>
+        <Form of={createInstanceForm} onSubmit={submit}>
+          <Field of={createInstanceForm} path={["slug"]}>
+            {(field) => (
+              <label class="field">
+                <span class="field-heading">
+                  Slug
+                  <span class="field-status">Generated · Read only</span>
+                </span>
+                <input
+                  {...field.props}
+                  name="slug"
+                  type="text"
+                  value={field.input ?? ""}
+                  aria-invalid={Boolean(field.errors)}
+                  aria-describedby={
+                    field.errors ? "slug-hint slug-error" : "slug-hint"
+                  }
+                  readOnly
+                />
+                <span id="slug-hint" class="field-hint">
+                  DrFed generates this identifier automatically. It cannot be
+                  edited.
+                </span>
+                <Show when={field.errors}>
+                  {(errors) => (
+                    <span id="slug-error" class="field-error" role="alert">
+                      {errors()[0]}
+                    </span>
+                  )}
+                </Show>
+              </label>
+            )}
+          </Field>
           <button
             class="button primary"
             type="submit"
@@ -134,8 +153,7 @@ export default function CreateInstancePage() {
           >
             {buttonLabel()}
           </button>
-        </form>
-
+        </Form>
         <Show when={errorMessage()}>
           <p class="notice error" role="alert">
             {errorMessage()}
