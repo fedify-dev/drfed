@@ -59,17 +59,38 @@ export const Instance: DrFedObjectRef = InstanceRef;
 
 const LocalInstanceRef = builder.drizzleNode("localInstances", {
   name: "LocalInstance",
-  description: "Represents an `Instance` in the DrFed platform.",
+  description:
+    "Represents a `LocalInstance`, i.e., an `Instance` hosted by this DrFed " +
+    "deployment.  Only accepted members of the `Instance` it backs, and " +
+    "site administrators, can read it, because it carries operational " +
+    "details such as the expiry date and the actor quota.",
+  authScopes(localInstance) {
+    return {
+      $any: {
+        admin: true,
+        localInstanceMember: localInstance.id,
+      },
+    };
+  },
+  // Check the scopes on the type itself rather than only on each field.
+  // Without this, a selection that touches no scoped field still resolves, so
+  // `node(id: $id) { __typename }` would answer `"LocalInstance"` to a viewer
+  // who may not read one.  Note this closes the data channel only: the
+  // presence of the authorization error still tells such a viewer that the ID
+  // resolves to an existing `LocalInstance`, since an unknown ID yields a
+  // plain `null` with no error.  That residual signal is accepted, as it is
+  // for slugs, and it additionally requires already knowing a UUID.
+  runScopesOnType: true,
   id: {
     column(instance) {
       return instance.id;
     },
-    description: "The unique identifier of the `Instance`.",
+    description: "The unique identifier of the `LocalInstance`.",
   },
   fields: (t) => ({
     uuid: t.expose("id", {
       type: "UUID",
-      description: "The UUID of the `Instance`.",
+      description: "The UUID of the `LocalInstance`.",
     }),
     slug: t.exposeString("slug"),
     expires: t.expose("expires", {
@@ -81,6 +102,25 @@ const LocalInstanceRef = builder.drizzleNode("localInstances", {
 });
 
 export const LocalInstance: DrFedObjectRef = LocalInstanceRef;
+
+builder.drizzleObjectField(InstanceRef, "localInstance", (t) =>
+  t.relation("localInstance", {
+    nullable: true,
+    description:
+      "The `LocalInstance` backing the `Instance` when it is hosted by " +
+      "this DrFed deployment.  `null` if the `Instance` is remote, i.e., " +
+      "hosted by another server on the fediverse.",
+  }),
+);
+
+builder.drizzleObjectField(LocalInstanceRef, "instance", (t) =>
+  t.relation("instance", {
+    nullable: true,
+    description:
+      "The `Instance` this `LocalInstance` backs, which carries the " +
+      "federation-facing data such as the host name.",
+  }),
+);
 
 const instanceMembersConnection = drizzleConnectionHelpers(
   builder,
@@ -178,6 +218,29 @@ builder.drizzleObjectField(InstanceRef, "members", (t) =>
     },
   ),
 );
+
+builder.queryFields((t) => ({
+  localInstanceBySlug: t.drizzleField({
+    type: LocalInstanceRef,
+    nullable: true,
+    description:
+      "Get a `LocalInstance` by its slug.  Returns `null` if no " +
+      "`LocalInstance` has the given slug.",
+    authScopes: { authenticated: true },
+    args: {
+      slug: t.arg({
+        type: "String",
+        required: true,
+        description:
+          "The slug of the `LocalInstance` to retrieve, i.e., the label " +
+          "that forms the first part of its host name.",
+      }),
+    },
+    resolve(query, _root, { slug }, ctx) {
+      return ctx.db.query.localInstances.findFirst(query({ where: { slug } }));
+    },
+  }),
+}));
 
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",

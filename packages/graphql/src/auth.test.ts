@@ -21,12 +21,15 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
 
-import { withTestHarness } from "./harness.test.ts";
+import { type TestHarness, withTestHarness } from "./harness.test.ts";
 
 const okStatus = 200;
 const accountId = "00000000-0000-4000-8000-000000000001";
 const email = "noreply@drfed.org";
 const verifyUrl = "https://drfed.org/transports/mock?token={token}&code={code}";
+const memberId = "00000000-0000-4000-8000-000000000002";
+const memberEmail = "member@example.com";
+const instanceId = "00000000-0000-4000-8000-000000000101";
 
 const loginMutation = `
   mutation Login($email: Email!, $verifyUrl: URITemplate) {
@@ -46,6 +49,31 @@ const completeLoginMutation = `
       account {
         uuid
         email
+      }
+    }
+  }
+`;
+
+const completeLoginReachingOthersMutation = `
+  mutation CompleteLoginReachingOthers($token: UUID!, $code: String!) {
+    completeLoginChallenge(token: $token, code: $code) {
+      account {
+        uuid
+        email
+        instances {
+          edges {
+            node {
+              members {
+                edges {
+                  node {
+                    uuid
+                    email
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -71,7 +99,82 @@ const revokeSessionMutation = `
 const loginUrlPattern =
   /https:\/\/drfed\.org\/transports\/mock\?token=[0-9a-f-]+&code=[0-9a-z]+/u;
 
+/**
+ * Runs the login-by-email flow far enough to obtain a challenge token and the
+ * one-time code mailed with it.
+ *
+ * @param post The harness request helper.
+ * @param mailer The harness mock mailer.
+ * @returns The challenge token and its one-time code.
+ */
+async function requestLoginCode(
+  post: TestHarness["post"],
+  mailer: TestHarness["mailer"],
+): Promise<{ token: string; code: string }> {
+  const loginResponse = await post({
+    query: loginMutation,
+    variables: { email, verifyUrl },
+  });
+  equal(loginResponse.status, okStatus);
+  const loginBody = await loginResponse.json();
+  equal(loginBody.errors, undefined);
+  const { token } = loginBody.data.loginByEmail;
+
+  const [message] = mailer.getSentMessages();
+  ok(message);
+  const urlMatch = message.content.text?.match(loginUrlPattern);
+  ok(urlMatch);
+  const code = new URL(urlMatch[0]).searchParams.get("code");
+  ok(code);
+  return { token, code };
+}
+
 describe("email authentication", () => {
+  it("does not let the login grant reach another account's email", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db.insert(schema.accounts).values([
+        { id: accountId, email, name: "Login Test" },
+        { id: memberId, email: memberEmail, name: "Fellow Member" },
+      ]);
+      await db
+        .insert(schema.instances)
+        .values({ id: instanceId, host: "shared.example.com" });
+      await db.insert(schema.instanceMembers).values([
+        { accountId, instanceId, accepted: new Date() },
+        { accountId: memberId, instanceId, accepted: new Date() },
+      ]);
+
+      const { token, code } = await requestLoginCode(post, mailer);
+
+      // `Session.account` grants `ownAccount`, but the grant must cover only
+      // the viewer's own account -- not every account reachable underneath it.
+      // This request carries no Authorization header at all.
+      const response = await post({
+        query: completeLoginReachingOthersMutation,
+        variables: { token, code },
+      });
+
+      equal(response.status, okStatus);
+      const body = await response.json();
+      const { account } = body.data.completeLoginChallenge;
+      equal(account.uuid, accountId);
+      equal(account.email, email);
+
+      const members = account.instances.edges[0].node.members.edges;
+      const fellow = members.find(
+        (edge: { node: { uuid: string } }) => edge.node.uuid === memberId,
+      );
+      ok(fellow);
+      equal(fellow.node.email, null);
+      ok(
+        body.errors.some(
+          (e: { message: string }) =>
+            e.message === "Not authorized to resolve Account.email",
+        ),
+      );
+    });
+  });
+
   it("logs in, authenticates the viewer, and revokes the session", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
       await db.insert(schema.accounts).values({

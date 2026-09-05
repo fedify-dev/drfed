@@ -36,7 +36,12 @@ const SessionRef = builder.drizzleObject("sessions", {
         return typeof accessToken === "string" ? accessToken : null;
       },
     }),
-    account: t.relation("account"),
+    // The only `Session` a client can obtain is the one `completeLoginChallenge`
+    // just created for it, and `Session` is not a `Node`, so the account behind
+    // a session is always the viewer's own.  Granting `ownAccount` here lets
+    // the login response carry the viewer's private fields even though the
+    // request that produced it had no session yet.
+    account: t.relation("account", { grantScopes: ["ownAccount"] }),
     created: t.expose("created", { type: "DateTime" }),
     expires: t.expose("expires", { type: "DateTime" }),
   }),

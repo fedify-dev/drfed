@@ -21,6 +21,26 @@ import builder, { type DrFedObjectRef } from "./builder.ts";
 // oxlint-disable-next-line import/no-cycle
 import { Instance } from "./instance.ts";
 
+/**
+ * The auth scopes for `Account` fields that only the `Account` itself and
+ * site administrators may read.
+ *
+ * @param account The `Account` the field belongs to.
+ * @returns A scope map granting access to the account itself or a site
+ *          administrator.
+ */
+function selfOrSiteAdmin(account: { readonly id: string }) {
+  return {
+    $any: {
+      admin: true,
+      accountSelf: account.id,
+      // Granted by `Session.account`, whose account is always the viewer's own
+      // but which is resolved on a request that carries no session yet.
+      $granted: "ownAccount",
+    },
+  };
+}
+
 const AccountRef = builder.drizzleNode("accounts", {
   name: "Account",
   description:
@@ -39,13 +59,21 @@ const AccountRef = builder.drizzleNode("accounts", {
     }),
     email: t.expose("email", {
       type: "Email",
-      description: "The email address of the `Account`.",
+      nullable: true,
+      description:
+        "The email address of the `Account`.  `null` unless the viewer is " +
+        "the `Account` itself or a site administrator.",
+      authScopes: selfOrSiteAdmin,
     }),
     name: t.exposeString("name", {
       description: "The display name of the `Account`.",
     }),
     admin: t.exposeBoolean("admin", {
-      description: "Whether the `Account` has administrator privileges.",
+      nullable: true,
+      description:
+        "Whether the `Account` has administrator privileges.  `null` unless " +
+        "the viewer is the `Account` itself or a site administrator.",
+      authScopes: selfOrSiteAdmin,
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -83,7 +111,12 @@ builder.drizzleObjectField(AccountRef, "instances", (t) =>
   t.connection(
     {
       type: Instance,
-      description: "The `Instance`s that the `Account` belongs to.",
+      nullable: true,
+      description:
+        "The `Instance`s that the `Account` belongs to.  `null` unless the " +
+        "viewer is the `Account` itself or a site administrator; an empty " +
+        "connection means the `Account` belongs to no `Instance`.",
+      authScopes: selfOrSiteAdmin,
       select(args, ctx, nestedSelection) {
         return {
           with: {
@@ -164,6 +197,7 @@ builder.queryFields((t) => ({
     },
     description: "Get an `Account` by its UUID.",
     nullable: true,
+    authScopes: { authenticated: true },
     resolve(query, _, { uuid }, ctx) {
       return ctx.db.query.accounts.findFirst(query({ where: { id: uuid } }));
     },
