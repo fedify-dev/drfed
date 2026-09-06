@@ -12,3 +12,4 @@ index.db
 
 # Agent skills from npm packages (managed by skills-npm)
 **/skills/npm-*
+mise.local.toml
