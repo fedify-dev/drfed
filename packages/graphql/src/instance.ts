@@ -15,14 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { schema } from "@drfed/models";
-import { instanceMembers } from "@drfed/models/schema";
-import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { DrizzleQueryError } from "drizzle-orm";
-import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
+import { eq } from "drizzle-orm/sql/expressions";
 import { v7 as uuid } from "uuid";
 
-// oxlint-disable-next-line import/no-cycle
-import { Account } from "./account.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
 
 const InstanceRef = builder.drizzleNode("instances", {
@@ -120,103 +116,6 @@ builder.drizzleObjectField(LocalInstanceRef, "instance", (t) =>
       "The `Instance` this `LocalInstance` backs, which carries the " +
       "federation-facing data such as the host name.",
   }),
-);
-
-const instanceMembersConnection = drizzleConnectionHelpers(
-  builder,
-  "instanceMembers",
-  {
-    query: {
-      orderBy: { created: "desc" },
-    },
-    select(nestedSelection) {
-      return {
-        with: {
-          account: nestedSelection(),
-        },
-        where: {
-          accepted: { isNotNull: true },
-        },
-      };
-    },
-    resolveNode(instanceMember) {
-      return instanceMember.account;
-    },
-  },
-);
-
-builder.drizzleObjectField(InstanceRef, "members", (t) =>
-  t.connection(
-    {
-      type: Account,
-      description: "The `Account`s that belong to the `Instance`.",
-      select(args, ctx, nestedSelection) {
-        return {
-          with: {
-            instanceMembers: instanceMembersConnection.getQuery(
-              args,
-              ctx,
-              nestedSelection,
-            ),
-          },
-        };
-      },
-      resolve(instance, args, ctx) {
-        return {
-          ...instanceMembersConnection.resolve(
-            instance.instanceMembers,
-            args,
-            ctx,
-            instance,
-          ),
-          totalCount() {
-            return ctx.db.$count(
-              instanceMembers,
-              and(
-                eq(instanceMembers.instanceId, instance.id),
-                isNotNull(instanceMembers.accepted),
-              ),
-            );
-          },
-        };
-      },
-    },
-    {
-      fields(fb) {
-        return {
-          totalCount: fb.int({
-            description:
-              "The total number of `Account`s that belong to the `Instance`." +
-              "Note that pending members are not counted.",
-            resolve(connection) {
-              return connection.totalCount();
-            },
-          }),
-        };
-      },
-    },
-    {
-      fields(fb) {
-        return {
-          created: fb.expose("created", {
-            type: "DateTime",
-            description:
-              "The date/time when the `Account` was added to the `Instance`.",
-          }),
-          accepted: fb.expose("accepted", {
-            type: "DateTime",
-            nullable: true,
-            description:
-              "The date/time when the `Account` accepted membership in the `Instance`.",
-          }),
-          admin: fb.exposeBoolean("admin", {
-            description:
-              "Whether the `Account` has administrator privileges in the `Instance`.",
-          }),
-        };
-      },
-    },
-  ),
 );
 
 builder.queryFields((t) => ({

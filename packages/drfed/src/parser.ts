@@ -27,8 +27,9 @@ import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
 import { LogTapeTransport } from "@upyo/logtape";
 import { SmtpTransport } from "@upyo/smtp";
-import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 const pgliteParser = map(
   option(
@@ -67,19 +68,20 @@ const postgresParser = map(
       description: message`The URL of the PostgreSQL database to connect to.  Mutually exclusive with ${optionNames(["--pglite-data-path", "--data-path", "-d"])}.`,
     },
   ),
-  (dbUrl) => ({
-    credentials: {
-      url: dbUrl.href,
-    },
-    db: drizzlePostgres({
-      connection: {
-        connectionString: dbUrl.href,
+  (dbUrl) => {
+    const client = postgres(dbUrl.href);
+    return {
+      credentials: {
+        client,
       },
-      relations,
-      schema,
-      logger: getLogger(),
-    }),
-  }),
+      db: drizzlePostgres({
+        client,
+        relations,
+        schema,
+        logger: getLogger(),
+      }),
+    };
+  },
 );
 
 const smtpParser = map(

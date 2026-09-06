@@ -18,25 +18,26 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
-import { drizzle as drizzlePostgres } from "drizzle-orm/node-postgres";
-import { migrate as migratePostgres } from "drizzle-orm/node-postgres/migrator";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
-import { Pool, type PoolConfig } from "pg";
+import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
+import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
+import postgres, { type Options, type Sql } from "postgres";
 
 export type MigrateCredentials =
   | PostgresMigrateCredentials
   | PGliteMigrateCredentials;
 
 export type PostgresMigrateCredentials =
-  | (Omit<PoolConfig, "connectionString" | "max"> & {
+  | {
+      readonly driver?: never;
       readonly url: string;
+      readonly options?: Omit<Options<Record<string, never>>, "max">;
+    }
+  | {
       readonly driver?: never;
-    })
-  | (PoolConfig & {
-      readonly url?: never;
-      readonly driver?: never;
-    });
+      readonly client: Sql;
+    };
 
 export type PGliteMigrateCredentials =
   | {
@@ -143,22 +144,18 @@ async function migratePostgresDatabase(
   credentials: PostgresMigrateCredentials,
   config: MigrationConfig,
 ): Promise<void> {
-  const pool =
-    "url" in credentials
-      ? new Pool({
-          ...credentials,
-          connectionString: credentials.url,
-          max: 1,
-        })
-      : new Pool({
-          ...credentials,
-          max: 1,
-        });
+  const client =
+    "client" in credentials
+      ? credentials.client
+      : postgres(credentials.url, { ...credentials.options, max: 1 });
+  const shouldCloseClient = !("client" in credentials);
 
   try {
-    await migratePostgres(drizzlePostgres({ client: pool }), config);
+    await migratePostgres(drizzlePostgres({ client }), config);
   } finally {
-    await pool.end();
+    if (shouldCloseClient) {
+      await client.end();
+    }
   }
 }
 

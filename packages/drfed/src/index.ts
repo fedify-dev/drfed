@@ -18,8 +18,11 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import { createYogaServer } from "@drfed/graphql";
+import createFederation from "@drfed/graphql/federation";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
+import { PgliteKvStore } from "@fedify/pglite";
+import { PostgresKvStore } from "@fedify/postgres";
 import { configure, getConsoleSink } from "@logtape/logtape";
 import { createLoggingConfig } from "@optique/logtape";
 import { run } from "@optique/run";
@@ -27,7 +30,6 @@ import { SmtpTransport } from "@upyo/smtp";
 import { printSchema } from "graphql";
 import { serve } from "srvx";
 
-// oxlint-disable-next-line import/no-relative-parent-imports
 import metadata from "../package.json" with { type: "json" };
 import type {
   Options,
@@ -38,16 +40,26 @@ import program from "./program.ts";
 import seedData from "./seed.ts";
 
 async function runServer(options: ServerOptions) {
-  if (options.drizzle.migrate) {
-    await migrate({ credentials: options.drizzle.credentials });
-  }
-  if (options.seed) {
-    await seedData(options.drizzle.db);
-  }
+  const { credentials } = options.drizzle;
+  if (options.drizzle.migrate) await migrate({ credentials });
+  if (options.seed) await seedData(options.drizzle.db);
+  const kv =
+    "driver" in credentials
+      ? new PgliteKvStore(credentials.client)
+      : new PostgresKvStore(credentials.client);
+  const federation = await createFederation(options.drizzle.db, { kv });
   const { mailer, root } = options;
-  const yogaServer = createYogaServer(options.drizzle.db, { root, mailer });
+  const yogaServer = createYogaServer(options.drizzle.db, federation, {
+    root,
+    mailer,
+  });
   const server = serve({
-    fetch: yogaServer.fetch.bind(yogaServer),
+    fetch: (req) =>
+      federation.fetch(req, {
+        onNotFound: yogaServer.fetch,
+        onNotAcceptable: yogaServer.fetch,
+        contextData: undefined,
+      }),
     hostname: options.address.host,
     manual: true,
     port: options.address.port,
@@ -56,8 +68,13 @@ async function runServer(options: ServerOptions) {
     if (mailer instanceof SmtpTransport) {
       mailer.closeAllConnections();
     }
-    // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then no-magic-numbers
-    server.close().then(() => process.exit(0));
+    // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then
+    server.close().then(async () => {
+      await ("driver" in credentials
+        ? credentials.client.close()
+        : credentials.client.end());
+      process.exit(0);
+    });
   }
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);

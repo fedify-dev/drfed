@@ -24,9 +24,9 @@
       { "ignoreConsecutiveComments": true }
     ],
     "eslint/curly": ["error", "multi-line"],
-    "node/no-top-level-await": "off",
     "oxc/no-optional-chaining": "off",
     "oxc/no-async-await": "off",
+    "jsdoc/require-param": "off",
     "eslint/eqeqeq": ["off", "smart"],
     "eslint/func-style": ["off"],
     "eslint/max-lines-per-function": "off",
@@ -42,6 +42,7 @@
     "eslint/no-eq-null": "off",
     "eslint/no-magic-numbers": "off",
     "eslint/no-ternary": "off",
+    "eslint/no-negated-condition": "off",
     "eslint/no-nested-ternary": "off",
     "eslint/no-undefined": "off",
     "eslint/no-void": "off",

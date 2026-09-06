@@ -17,6 +17,7 @@
 import "./account.ts";
 import "./instance.ts";
 import "./auth/entry.ts";
+import "./actor.ts";
 import builder from "./builder.ts";
 
 builder.queryType({});

@@ -21,6 +21,7 @@ import { type Database, schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { DrizzleQueryError } from "drizzle-orm";
 
+import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
 
 const accepted = new Date("2026-06-24T00:00:00.000Z");
@@ -902,19 +903,6 @@ async function createSession(
     tokenHash: await hashSecret(token),
   });
   return { headers: { authorization: `Bearer ${token}` } };
-}
-
-/**
- * Computes the SHA-256 hex digest the server stores for a bearer token,
- * mirroring `hashSecret` in *auth/hash.ts*.
- *
- * @param raw The raw access token.
- * @returns The lowercase hex-encoded SHA-256 digest.
- */
-async function hashSecret(raw: string): Promise<string> {
-  return new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw)),
-  ).toHex();
 }
 
 async function seedInstanceMembers(db: Database): Promise<void> {

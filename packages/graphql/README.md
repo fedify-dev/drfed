@@ -24,10 +24,18 @@ Usage
 
 ~~~~ ts
 import { createYogaServer } from "@drfed/graphql";
+import createFederation from "@drfed/graphql/federation";
 
-const yoga = createYogaServer(db);
-serve({ fetch: yoga.fetch.bind(yoga) });
+const federation = await createFederation(db, { kv });
+const yoga = createYogaServer(db, federation);
+serve({
+  fetch: (request) =>
+    federation.fetch(request, { onNotFound: yoga.fetch, contextData: undefined }),
+});
 ~~~~
 
-`createYogaServer` accepts a Drizzle database instance and returns a
-GraphQL Yoga server ready to handle HTTP requests.
+`createFederation` builds a Fedify `Federation` with every DrFed dispatcher
+registered.  `createYogaServer` accepts a Drizzle database instance, that
+federation, and optional server options, and returns a GraphQL Yoga server
+ready to handle HTTP requests.  The federation is stored in the resolver
+context as is; `createYogaServer` never registers anything on it.
