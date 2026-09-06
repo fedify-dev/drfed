@@ -18,24 +18,22 @@
 
 import assert from "node:assert/strict";
 
-import { type Database, schema } from "@drfed/models";
+import { schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
 
-import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
-
-const accepted = new Date("2026-08-04T00:00:00.000Z");
-const created = new Date("2026-08-04T00:00:00.000Z");
-const expires = new Date("2030-08-04T00:00:00.000Z");
-const ok = 200;
-
-const accountId = "00000000-0000-4000-8000-000000000001";
-const localInstanceId = "00000000-0000-4000-8000-000000000101";
-const remoteInstanceId = "00000000-0000-4000-8000-000000000102";
-const localActorId = "00000000-0000-4000-8000-000000000201";
-const remoteActorId = "00000000-0000-4000-8000-000000000202";
-const sessionId = "00000000-0000-4000-8000-000000000301";
-const accessToken = "test-access-token";
+import {
+  created,
+  globalId,
+  localActorId,
+  localInstanceId,
+  ok,
+  remoteActorId,
+  remoteInstanceId,
+  seedAuthenticatedLocalInstance,
+  seedLocalActor,
+  seedRemoteActor,
+} from "./seed.test.ts";
 
 const generateActorsMutation = `
   mutation GenerateActors($instance: ID!, $size: Int!) {
@@ -240,96 +238,3 @@ describe("Actor", () => {
     });
   });
 });
-
-function globalId(type: "Actor" | "Instance", id: string): string {
-  return Buffer.from(`${type}:${id}`).toString("base64");
-}
-
-async function seedAuthenticatedLocalInstance(
-  db: Database,
-): Promise<RequestInit> {
-  await db.insert(schema.accounts).values({
-    id: accountId,
-    email: "owner@example.com",
-    name: "Owner",
-    created,
-  });
-  await db.insert(schema.sessions).values({
-    id: sessionId,
-    accountId,
-    tokenHash: await hashSecret(accessToken),
-  });
-  await seedLocalInstance(db);
-  await db.insert(schema.instanceMembers).values({
-    accountId,
-    instanceId: localInstanceId,
-    admin: true,
-    accepted,
-    created,
-  });
-  return { headers: { authorization: `Bearer ${accessToken}` } };
-}
-
-async function seedLocalActor(db: Database): Promise<void> {
-  await seedLocalInstance(db);
-  await db.insert(schema.localActors).values({
-    id: localActorId,
-    avatar: "avatar.png",
-    header: "header.png",
-  });
-  await db.insert(schema.actors).values({
-    id: localActorId,
-    localId: localActorId,
-    instanceId: localInstanceId,
-    type: "Person",
-    username: "alice",
-    iri: `https://test-instance.drfed.org/users/${localActorId}`,
-    inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-    outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
-    avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-    followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-    followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
-    headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
-    profileUrl: "https://test-instance.drfed.org/@alice",
-    featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
-    created,
-  });
-}
-
-async function seedLocalInstance(db: Database): Promise<void> {
-  await db.insert(schema.localInstances).values({
-    id: localInstanceId,
-    slug: "test-instance",
-    expires,
-  });
-  await db.insert(schema.instances).values({
-    id: localInstanceId,
-    localId: localInstanceId,
-    created,
-    host: "test-instance.drfed.org",
-  });
-}
-
-async function seedRemoteActor(db: Database): Promise<void> {
-  await db.insert(schema.instances).values({
-    id: remoteInstanceId,
-    created,
-    host: "remote.example.com",
-  });
-  await db.insert(schema.actors).values({
-    id: remoteActorId,
-    instanceId: remoteInstanceId,
-    type: "Service",
-    username: "bob",
-    iri: "https://remote.example.com/users/bob",
-    inboxUrl: "https://remote.example.com/users/bob/inbox",
-    outboxUrl: "https://remote.example.com/users/bob/outbox",
-    avatarUrl: "https://remote.example.com/users/bob/avatar.png",
-    followersUrl: "https://remote.example.com/users/bob/followers",
-    followingUrl: "https://remote.example.com/users/bob/following",
-    headerUrl: "https://remote.example.com/users/bob/header.png",
-    profileUrl: "https://remote.example.com/@bob",
-    featuredUrl: "https://remote.example.com/users/bob/featured",
-    created,
-  });
-}

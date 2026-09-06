@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
@@ -288,3 +288,56 @@ export const localActors = pgTable("local_actors", {
 
 export type LocalActor = typeof localActors.$inferSelect;
 export type NewLocalActor = typeof localActors.$inferInsert;
+
+export const objectTypeEnum = pgEnum("object_type", ["Article", "Note"]);
+export type ObjectType = (typeof objectTypeEnum.enumValues)[number];
+export const objectVisibilityEnum = pgEnum("object_visibility", [
+  "public",
+  "unlisted",
+  "followers",
+]);
+export type ObjectVisibility = (typeof objectVisibilityEnum.enumValues)[number];
+
+/** ActivityPub objects authored by actors. */
+export const objects = pgTable(
+  "objects",
+  {
+    id: uuid().primaryKey(),
+    actorId: uuid()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    type: objectTypeEnum().notNull(),
+    iri: text().notNull().unique(),
+    url: text(),
+    visibility: objectVisibilityEnum().notNull().default("public"),
+    name: text(),
+    summary: text(),
+    contentHtml: text().notNull(),
+    language: varchar({ length: 35 }),
+    sensitive: boolean().notNull().default(false),
+    published: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp),
+    updated: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp)
+      .$onUpdate(() => currentTimestamp),
+    created: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp),
+    deleted: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    check(
+      "objects_content_html_check",
+      sql`trim(both from ${t.contentHtml}) <> ''`,
+    ),
+    index("object_actor_published_index").on(
+      t.actorId,
+      desc(t.published),
+      desc(t.id),
+    ),
+  ],
+);
+export type ActivityPubObject = typeof objects.$inferSelect;
+export type NewActivityPubObject = typeof objects.$inferInsert;
