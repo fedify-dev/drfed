@@ -130,11 +130,7 @@ importers:
         version: 0.6.0-dev.263(@upyo/core@0.6.0-dev.263)
       drizzle-orm:
         specifier: 'catalog:'
-<<<<<<< HEAD
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
-=======
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2))
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql:
         specifier: 'catalog:'
         version: 16.14.2
@@ -183,11 +179,7 @@ importers:
         version: 4.13.0(graphql@16.14.2)
       '@pothos/plugin-drizzle':
         specifier: ^0.17.4
-<<<<<<< HEAD
-        version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9))(graphql@16.14.2)
-=======
-        version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+        version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)
       '@pothos/plugin-errors':
         specifier: ^4.9.1
         version: 4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
@@ -205,11 +197,7 @@ importers:
         version: 0.6.0-dev.263(@upyo/core@0.6.0-dev.263)
       drizzle-orm:
         specifier: 'catalog:'
-<<<<<<< HEAD
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
-=======
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2))
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql:
         specifier: 'catalog:'
         version: 16.14.2
@@ -249,13 +237,8 @@ importers:
         version: 2.3.0-dev.840
       drizzle-orm:
         specifier: 'catalog:'
-<<<<<<< HEAD
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       postgres:
-=======
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2))
-      pg:
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
         specifier: 'catalog:'
         version: 3.4.9
     devDependencies:
@@ -277,15 +260,12 @@ importers:
 
   packages/web:
     dependencies:
-<<<<<<< HEAD
-      '@kobalte/core':
-        specifier: ^0.13.13
-        version: 0.13.13(solid-js@1.9.14)
-=======
       '@formisch/solid':
         specifier: 1.0.0
         version: 1.0.0(solid-js@1.9.14)(typescript@7.0.2)(valibot@1.4.2(typescript@7.0.2))
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+      '@kobalte/core':
+        specifier: ^0.13.13
+        version: 0.13.13(solid-js@1.9.14)
       '@solidjs/meta':
         specifier: ^0.29.4
         version: 0.29.4(solid-js@1.9.14)
@@ -856,7 +836,6 @@ packages:
     resolution: {integrity: sha512-322xch1WhasP/vjH4yDPA1RnYwI6tlG72aH7fCpdFge8IC845urKEMET9LzJ2G5HfeCKAXPAcaZZEx9FXnTNrg==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-<<<<<<< HEAD
   '@fedify/uri-template@2.4.0-pr.1020.43':
     resolution: {integrity: sha512-2JsU5q+pDNMuoD3ZcJLwubpZWgixwcy0H4yVY/bpz/vEEEWu+g22pa6r52rloWvn5ARJXAkMxcyHDcBlZojpBg==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
@@ -885,7 +864,7 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
-=======
+
   '@formisch/solid@1.0.0':
     resolution: {integrity: sha512-J5RF48YCM6SNYVkt+CJ0+5MHPC38wi3zgBM5hOpwnWFU5Q/gtdjb+vO63uJKWLAU7XQlnZVDo7rBzf8bVsvvcA==}
     peerDependencies:
@@ -895,7 +874,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
 
   '@graphql-tools/executor@1.5.3':
     resolution: {integrity: sha512-mgBFC0bsrZPZLu9EnydpMnAuQ8Iiq0CEbUcsmvXsm2/iYektGHDN/+bmb7hicA6dWZtdPfklYJmr21WD0GnOfA==}
@@ -4343,7 +4321,6 @@ snapshots:
 
   '@fedify/uri-template@2.3.1': {}
 
-<<<<<<< HEAD
   '@fedify/uri-template@2.4.0-pr.1020.43': {}
 
   '@fedify/vocab-runtime@2.4.0-pr.1020.43':
@@ -4395,14 +4372,13 @@ snapshots:
       '@floating-ui/utils': 0.2.12
 
   '@floating-ui/utils@0.2.12': {}
-=======
+
   '@formisch/solid@1.0.0(solid-js@1.9.14)(typescript@7.0.2)(valibot@1.4.2(typescript@7.0.2))':
     dependencies:
       solid-js: 1.9.14
       valibot: 1.4.2(typescript@7.0.2)
     optionalDependencies:
       typescript: 7.0.2
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
 
   '@graphql-tools/executor@1.5.3(graphql@16.14.2)':
     dependencies:
@@ -4786,17 +4762,10 @@ snapshots:
     dependencies:
       graphql: 16.14.2
 
-<<<<<<< HEAD
-  '@pothos/plugin-drizzle@0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9))(graphql@16.14.2)':
+  '@pothos/plugin-drizzle@0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)':
     dependencies:
       '@pothos/core': 4.13.0(graphql@16.14.2)
-      drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
-=======
-  '@pothos/plugin-drizzle@0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)':
-    dependencies:
-      '@pothos/core': 4.13.0(graphql@16.14.2)
-      drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2))
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+      drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql: 16.14.2
 
   '@pothos/plugin-errors@4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
@@ -5411,7 +5380,6 @@ snapshots:
 
   asap@2.0.6: {}
 
-<<<<<<< HEAD
   asn1js@3.0.10:
     dependencies:
       pvtsutils: 1.3.6
@@ -5420,10 +5388,6 @@ snapshots:
 
   babel-plugin-jsx-dom-expressions@0.40.7(@babel/core@7.29.7):
     dependencies:
-=======
-  babel-plugin-jsx-dom-expressions@0.40.7(@babel/core@7.29.7):
-    dependencies:
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
       '@babel/core': 7.29.7
       '@babel/helper-module-imports': 7.18.6
       '@babel/plugin-syntax-jsx': 7.29.7(@babel/core@7.29.7)
@@ -5589,21 +5553,14 @@ snapshots:
       get-tsconfig: 4.14.0
       jiti: 2.7.0
 
-<<<<<<< HEAD
-  drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9):
-=======
-  drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@types/pg@8.20.0)(pg@8.21.0)(valibot@1.4.2(typescript@7.0.2)):
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
+  drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)):
     optionalDependencies:
       '@electric-sql/pglite': 0.5.3
       '@opentelemetry/api': 1.9.1
       '@types/pg': 8.20.0
       pg: 8.21.0
-<<<<<<< HEAD
       postgres: 3.4.9
-=======
       valibot: 1.4.2(typescript@7.0.2)
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
 
   dts-resolver@3.0.0: {}
 
@@ -6643,7 +6600,6 @@ snapshots:
       seroval: 1.5.4
       seroval-plugins: 1.5.4(seroval@1.5.4)
 
-<<<<<<< HEAD
   solid-presence@0.2.0(solid-js@1.9.14):
     dependencies:
       '@corvu/utils': 0.4.2(solid-js@1.9.14)
@@ -6654,8 +6610,6 @@ snapshots:
       '@corvu/utils': 0.4.2(solid-js@1.9.14)
       solid-js: 1.9.14
 
-=======
->>>>>>> c537fd7 (Add Formisch and Valibot dependencies)
   solid-refresh@0.6.3(solid-js@1.9.14):
     dependencies:
       '@babel/generator': 7.29.8
