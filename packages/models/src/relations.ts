@@ -98,7 +98,15 @@ export const relations = defineRelations(schema, (r) => ({
       optional: false,
     }),
   },
+  objects: {
+    actor: r.one.actors({
+      from: r.objects.actorId,
+      to: r.actors.id,
+      optional: false,
+    }),
+  },
   actors: {
+    objects: r.many.objects({ from: r.actors.id, to: r.objects.actorId }),
     instance: r.one.instances({
       from: r.actors.instanceId,
       to: r.instances.id,

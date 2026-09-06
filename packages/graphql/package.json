@@ -70,6 +70,10 @@
       "types": "./dist/schema.d.mts",
       "default": "./dist/schema.mjs"
     },
+    "./object": {
+      "types": "./dist/object.d.mts",
+      "default": "./dist/object.mjs"
+    },
     "./origin": {
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
@@ -88,6 +92,7 @@
       "src/federation.ts",
       "src/instance.ts",
       "src/schema.ts",
+      "src/object.ts",
       "src/origin.ts"
     ],
     "dts": {
