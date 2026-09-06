@@ -76,32 +76,41 @@ export default function WorkspacePage() {
       >
         {(viewer) => (
           <Show
-            when={viewer().instances.edges.length > 0}
-            fallback={
-              <section
-                class={styles.emptyState}
-                aria-labelledby="empty-workspace-title"
-              >
-                <p class={styles.emptyLabel}>No instances yet</p>
-                <h2 id="empty-workspace-title">Build your first test server</h2>
-                <p>
-                  Start with an instance, then add actors to explore federation
-                  flows.
-                </p>
-                <Link
-                  class={styles.secondaryButton}
-                  href="/workspace/create/instance"
-                >
-                  Create an instance
-                </Link>
-              </section>
-            }
+            when={viewer().instances}
+            fallback={<p>No Instance Available</p>}
           >
-            <section class={styles.instanceList} aria-label="Instances">
-              <For each={viewer().instances.edges}>
-                {(edge) => <InstanceSummary $instance={edge.node} />}
-              </For>
-            </section>
+            {(instances) => (
+              <Show
+                when={instances().edges.length > 0}
+                fallback={
+                  <section
+                    class={styles.emptyState}
+                    aria-labelledby="empty-workspace-title"
+                  >
+                    <p class={styles.emptyLabel}>No instances yet</p>
+                    <h2 id="empty-workspace-title">
+                      Build your first test server
+                    </h2>
+                    <p>
+                      Start with an instance, then add actors to explore
+                      federation flows.
+                    </p>
+                    <Link
+                      class={styles.secondaryButton}
+                      href="/workspace/create/instance"
+                    >
+                      Create an instance
+                    </Link>
+                  </section>
+                }
+              >
+                <section class={styles.instanceList} aria-label="Instances">
+                  <For each={instances().edges}>
+                    {(edge) => <InstanceSummary $instance={edge.node} />}
+                  </For>
+                </section>
+              </Show>
+            )}
           </Show>
         )}
       </Show>
