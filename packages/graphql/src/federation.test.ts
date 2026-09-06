@@ -51,7 +51,7 @@ describe("createFederation()", () => {
       );
       assert.equal(
         ctx.getFollowingUri("identifier").href,
-        "https://drfed.test/users/identifier/followees",
+        "https://drfed.test/users/identifier/following",
       );
       assert.equal(
         ctx.getFeaturedUri("identifier").href,

@@ -81,7 +81,7 @@ const actorQuery = `
         outboxUrl
         avatarUrl
         followersUrl
-        followeesUrl
+        followingUrl
         headerUrl
         profileUrl
         featuredUrl
@@ -190,7 +190,7 @@ describe("Actor", () => {
             outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
             avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
             followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-            followeesUrl: `https://test-instance.drfed.org/users/${localActorId}/followees`,
+            followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
             headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
             profileUrl: "https://test-instance.drfed.org/@alice",
             featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
@@ -229,7 +229,7 @@ describe("Actor", () => {
             outboxUrl: "https://remote.example.com/users/bob/outbox",
             avatarUrl: "https://remote.example.com/users/bob/avatar.png",
             followersUrl: "https://remote.example.com/users/bob/followers",
-            followeesUrl: "https://remote.example.com/users/bob/followees",
+            followingUrl: "https://remote.example.com/users/bob/following",
             headerUrl: "https://remote.example.com/users/bob/header.png",
             profileUrl: "https://remote.example.com/@bob",
             featuredUrl: "https://remote.example.com/users/bob/featured",
@@ -288,7 +288,7 @@ async function seedLocalActor(db: Database): Promise<void> {
     outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
     avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
     followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-    followeesUrl: `https://test-instance.drfed.org/users/${localActorId}/followees`,
+    followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
     headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
     profileUrl: "https://test-instance.drfed.org/@alice",
     featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
@@ -326,7 +326,7 @@ async function seedRemoteActor(db: Database): Promise<void> {
     outboxUrl: "https://remote.example.com/users/bob/outbox",
     avatarUrl: "https://remote.example.com/users/bob/avatar.png",
     followersUrl: "https://remote.example.com/users/bob/followers",
-    followeesUrl: "https://remote.example.com/users/bob/followees",
+    followingUrl: "https://remote.example.com/users/bob/following",
     headerUrl: "https://remote.example.com/users/bob/header.png",
     profileUrl: "https://remote.example.com/@bob",
     featuredUrl: "https://remote.example.com/users/bob/featured",

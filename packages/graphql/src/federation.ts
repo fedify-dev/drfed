@@ -155,9 +155,9 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
 
   builder
     .setFollowingDispatcher(
-      "/users/{identifier}/followees",
+      "/users/{identifier}/following",
       async (ctx, identifier) =>
-        // FIXME: Return the actual followees once the data model stores
+        // FIXME: Return the actual following once the data model stores
         // follows
         (await findActiveActor(db, ctx, identifier)) == null
           ? null
@@ -165,7 +165,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
     )
     .setCounter(
       async (ctx, identifier) =>
-        (await findActiveActor(db, ctx, identifier))?.followeesCount ?? null,
+        (await findActiveActor(db, ctx, identifier))?.followingCount ?? null,
     );
 
   builder.setFeaturedDispatcher(

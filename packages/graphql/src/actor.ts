@@ -91,9 +91,9 @@ const ActorRef = builder.drizzleNode("actors", {
       description: "The followers URL of the `Actor`.",
       nullable: true,
     }),
-    followeesUrl: t.expose("followeesUrl", {
+    followingUrl: t.expose("followingUrl", {
       type: "URL",
-      description: "The followees URL of the `Actor`.",
+      description: "The following URL of the `Actor`.",
       nullable: true,
     }),
     headerUrl: t.expose("headerUrl", {
@@ -321,7 +321,7 @@ function generateActor(
     inboxUrl: fedCtx.getInboxUri(id).href,
     outboxUrl: fedCtx.getOutboxUri(id).href,
     followersUrl: fedCtx.getFollowersUri(id).href,
-    followeesUrl: fedCtx.getFollowingUri(id).href,
+    followingUrl: fedCtx.getFollowingUri(id).href,
     featuredUrl: fedCtx.getFeaturedUri(id).href,
     profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
   };

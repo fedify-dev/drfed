@@ -205,7 +205,7 @@ export const actors = pgTable(
     inboxUrl: text().notNull(),
     outboxUrl: text().notNull(),
     followersUrl: text(),
-    followeesUrl: text(),
+    followingUrl: text(),
     featuredUrl: text(),
     profileUrl: text(),
     avatarUrl: text(),
@@ -235,7 +235,7 @@ export const actors = pgTable(
       .array()
       .notNull()
       .default(sql`(ARRAY[]::text[])`),
-    followeesCount: integer().notNull().default(0),
+    followingCount: integer().notNull().default(0),
     followersCount: integer().notNull().default(0),
     postsCount: integer().notNull().default(0),
     updated: timestamp({ withTimezone: true })
