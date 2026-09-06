@@ -14,13 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-<<<<<<< HEAD
+import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Alert } from "@kobalte/core/alert";
 import { Button } from "@kobalte/core/button";
 import { TextField } from "@kobalte/core/text-field";
-=======
-import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
->>>>>>> a7bd83c (Migrate sign-in form to Formisch)
 import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
 import { Match, Show, Switch, createSignal } from "solid-js";
@@ -102,56 +99,46 @@ export default function SignInPage() {
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-<<<<<<< HEAD
-        <form class={styles.form} onSubmit={submit}>
-          <TextField class={styles.field} name="email" required>
-            <TextField.Label class={styles.fieldHeading}>
-              Email address
-              <span class={`${styles.fieldStatus} ${styles.required}`}>
-                Required
-              </span>
-            </TextField.Label>
-            <TextField.Input
-              class={styles.input}
-              type="email"
-              autocomplete="email"
-              inputMode="email"
-              placeholder="you@example.com"
-            />
-          </TextField>
-          <Button class={styles.button} type="submit" disabled={isSigningIn()}>
-=======
-        <Form of={signInForm} onSubmit={submit}>
+        <Form class={styles.form} of={signInForm} onSubmit={submit}>
           <Field of={signInForm} path={["email"]}>
             {(field) => (
-              <label class="field">
-                <span class="field-heading">
+              <TextField
+                class={styles.field}
+                name={field.props.name}
+                value={field.input ?? ""}
+                required
+              >
+                <TextField.Label class={styles.fieldHeading}>
                   Email address
-                  <span class="field-status required">Required</span>
-                </span>
-                <input
+                  <span class={`${styles.fieldStatus} ${styles.required}`}>
+                    Required
+                  </span>
+                </TextField.Label>
+                <TextField.Input
                   {...field.props}
+                  class={styles.input}
                   type="email"
-                  value={field.input ?? ""}
                   autocomplete="email"
-                  inputmode="email"
+                  inputMode="email"
                   placeholder="you@example.com"
-                  required
                   aria-invalid={Boolean(field.errors)}
                   aria-describedby={field.errors ? "email-error" : undefined}
                 />
                 <Show when={field.errors}>
                   {(errors) => (
-                    <span id="email-error" class="field-error" role="alert">
+                    <span
+                      id="email-error"
+                      class={`${styles.notice} ${styles.error}`}
+                      role="alert"
+                    >
                       {errors()[0]}
                     </span>
                   )}
                 </Show>
-              </label>
+              </TextField>
             )}
           </Field>
-          <button class="button primary" type="submit" disabled={isSigningIn()}>
->>>>>>> a7bd83c (Migrate sign-in form to Formisch)
+          <Button class={styles.button} type="submit" disabled={isSigningIn()}>
             <Show
               when={isSigningIn()}
               fallback={
@@ -162,13 +149,8 @@ export default function SignInPage() {
             >
               Sending link…
             </Show>
-<<<<<<< HEAD
           </Button>
-        </form>
-=======
-          </button>
         </Form>
->>>>>>> a7bd83c (Migrate sign-in form to Formisch)
 
         <Show when={result()}>
           {(formResult) => (

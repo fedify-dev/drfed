@@ -15,9 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { faker } from "@faker-js/faker";
+import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Button } from "@kobalte/core/button";
 import { TextField } from "@kobalte/core/text-field";
-import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Title } from "@solidjs/meta";
 import { useNavigate } from "@solidjs/router";
 import { graphql } from "relay-runtime";
