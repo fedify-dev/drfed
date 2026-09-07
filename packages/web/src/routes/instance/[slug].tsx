@@ -18,6 +18,8 @@ import { Title } from "@solidjs/meta";
 import { A, useParams } from "@solidjs/router";
 import { For } from "solid-js";
 
+import { ActorDetail } from "~/components/ActorDetail.tsx";
+
 import styles from "~/styles/instance.module.css";
 
 const actors = ["@sherry", "@newsroom", "@garden"] as const;
@@ -54,21 +56,25 @@ export default function InstanceDetailPage() {
           <div>
             <dt>NodeInfo</dt>
             <dd>
-              <a href={`https://${host()}/nodeinfo/2.1`}>/nodeinfo/2.1</a>
+              <a href={`https://${host()}/nodeinfo/2.1`}>
+                {`https://${host()}/nodeinfo/2.1`}
+              </a>
             </dd>
           </div>
           <div>
             <dt>WebFinger</dt>
             <dd>
               <a href={`https://${host()}/.well-known/webfinger`}>
-                /.well-known/webfinger
+                {`https://${host()}/.well-known/webfinger`}
               </a>
             </dd>
           </div>
           <div>
             <dt>Shared inbox</dt>
             <dd>
-              <a href={`https://${host()}/inbox`}>/inbox</a>
+              <a
+                href={`https://${host()}/inbox`}
+              >{`https://${host()}/inbox`}</a>
             </dd>
           </div>
         </dl>
@@ -85,14 +91,7 @@ export default function InstanceDetailPage() {
 
         <div class={styles.actorList}>
           <For each={actors}>
-            {(handle) => (
-              <article class={styles.actorCard}>
-                <span class={styles.actorMarker} aria-hidden="true" />
-                <p>
-                  {handle}@{host()}
-                </p>
-              </article>
-            )}
+            {(handle) => <ActorDetail handle={handle} host={host()} />}
           </For>
         </div>
       </section>
