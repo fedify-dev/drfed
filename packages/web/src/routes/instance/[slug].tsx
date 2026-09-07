@@ -111,7 +111,7 @@ export default function InstanceDetailPage(
             <h1>{instance().host}</h1>
             <A
               class={styles.createButton}
-              href="/workspace/create/instance-demo/actors"
+              href={`/workspace/create/${instance().id}/actors`}
             >
               <span aria-hidden="true">＋</span>
               Create actor
