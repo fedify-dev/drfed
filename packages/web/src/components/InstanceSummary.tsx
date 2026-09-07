@@ -31,6 +31,9 @@ export default function InstanceSummary(props: {
       fragment InstanceSummary_instance on Instance {
         id
         host
+        localInstance {
+          slug
+        }
       }
     `,
     () => props.$instance,
@@ -45,13 +48,17 @@ export default function InstanceSummary(props: {
             <p class={styles.cardLabel}>Instance host</p>
             <h2>{instance().host}</h2>
           </div>
-          <Link
-            class={styles.cardAction}
-            href={`/workspace/create/${instance().id}/actors`}
-          >
-            Create actors
-            <span aria-hidden="true">→</span>
-          </Link>
+          <Show when={instance().localInstance}>
+            {(localInstance) => (
+              <Link
+                class={styles.cardAction}
+                href={`/instance/${localInstance().slug}`}
+              >
+                View Detail
+                <span aria-hidden="true">→</span>
+              </Link>
+            )}
+          </Show>
         </article>
       )}
     </Show>
