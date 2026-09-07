@@ -14,13 +14,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { graphql } from "relay-runtime";
+import { Show } from "solid-js";
+import { createFragment } from "solid-relay";
+
+import type { ActorDetail_actor$key } from "./__generated__/ActorDetail_actor.graphql.ts";
+
 import styles from "~/styles/instance.module.css";
 
-export const ActorDetail = (props: { handle: string; host: string }) => (
-  <article class={styles.actorCard}>
-    <span class={styles.actorMarker} aria-hidden="true" />
-    <p>
-      {props.handle}@{props.host}
-    </p>
-  </article>
-);
+export const ActorDetail = (props: { $actor: ActorDetail_actor$key }) => {
+  const actorData = createFragment(
+    graphql`
+      fragment ActorDetail_actor on Actor {
+        handle
+      }
+    `,
+    () => props.$actor,
+  );
+
+  return (
+    <Show when={actorData()}>
+      {(actor) => (
+        <article class={styles.actorCard}>
+          <span class={styles.actorMarker} aria-hidden="true" />
+          <p>{actor().handle}</p>
+        </article>
+      )}
+    </Show>
+  );
+};

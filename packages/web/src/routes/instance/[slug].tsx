@@ -15,86 +15,158 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Title } from "@solidjs/meta";
-import { A, useParams } from "@solidjs/router";
-import { For } from "solid-js";
+import {
+  A,
+  type RouteDefinition,
+  type RouteSectionProps,
+  query,
+} from "@solidjs/router";
+import { graphql } from "relay-runtime";
+import { For, Show } from "solid-js";
+import {
+  createPreloadedQuery,
+  loadQuery,
+  useRelayEnvironment,
+} from "solid-relay";
 
 import { ActorDetail } from "~/components/ActorDetail.tsx";
 
+import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql.ts";
+
 import styles from "~/styles/instance.module.css";
 
-const actors = ["@sherry", "@newsroom", "@garden"] as const;
+// Temp Query to show first 100.
+const instanceDetailQuery = graphql`
+  query InstanceDetailQuery($slug: String!) {
+    localInstanceBySlug(slug: $slug) {
+      instance {
+        id
+        host
+        actors(first: 100) {
+          totalCount
+          edges {
+            node {
+              ...ActorDetail_actor
+            }
+          }
+        }
+      }
+    }
+  }
+`;
 
-export default function InstanceDetailPage() {
-  const params = useParams();
-  const host = () => params.slug ?? "social.example";
+const loadInstanceDetailQuery = query(
+  (slug: string) =>
+    loadQuery<InstanceDetailQuery>(
+      useRelayEnvironment()(),
+      instanceDetailQuery,
+      { slug },
+    ),
+  "InstanceDetailQuery",
+);
+
+export const route = {
+  preload({ params }) {
+    if (params.slug === undefined) {
+      throw new Error("Missing slug route parameter.");
+    }
+
+    return loadInstanceDetailQuery(params.slug);
+  },
+} satisfies RouteDefinition;
+
+type RouteData = ReturnType<typeof loadInstanceDetailQuery>;
+
+export default function InstanceDetailPage(
+  props: RouteSectionProps<RouteData>,
+) {
+  const data = createPreloadedQuery<InstanceDetailQuery>(
+    instanceDetailQuery,
+    () => props.data,
+  );
+
+  const instanceData = () => data()?.localInstanceBySlug?.instance;
 
   return (
-    <main class={styles.page}>
-      <Title>{host()} — DrFed</Title>
+    <Show
+      when={instanceData()}
+      fallback={
+        <main class={styles.page}>
+          <A class={styles.backLink} href="/workspace">
+            <span aria-hidden="true">←</span> All instances
+          </A>
+          <p>Instance not found.</p>
+        </main>
+      }
+    >
+      {(instance) => (
+        <main class={styles.page}>
+          <Title>{instance().host} — DrFed</Title>
 
-      <A class={styles.backLink} href="/workspace">
-        <span aria-hidden="true">←</span> All instances
-      </A>
+          <A class={styles.backLink} href="/workspace">
+            <span aria-hidden="true">←</span> All instances
+          </A>
 
-      <header class={styles.header}>
-        <h1>{host()}</h1>
-        <A
-          class={styles.createButton}
-          href="/workspace/create/instance-demo/actors"
-        >
-          <span aria-hidden="true">＋</span>
-          Create actor
-        </A>
-      </header>
+          <header class={styles.header}>
+            <h1>{instance().host}</h1>
+            <A
+              class={styles.createButton}
+              href="/workspace/create/instance-demo/actors"
+            >
+              <span aria-hidden="true">＋</span>
+              Create actor
+            </A>
+          </header>
 
-      <section class={styles.details} aria-labelledby="connection-title">
-        <div>
-          <p class={styles.sectionLabel}>Connection record</p>
-          <h2 id="connection-title">Federation endpoints</h2>
-        </div>
-        <dl class={styles.endpointList}>
-          <div>
-            <dt>NodeInfo</dt>
-            <dd>
-              <a href={`https://${host()}/nodeinfo/2.1`}>
-                {`https://${host()}/nodeinfo/2.1`}
-              </a>
-            </dd>
-          </div>
-          <div>
-            <dt>WebFinger</dt>
-            <dd>
-              <a href={`https://${host()}/.well-known/webfinger`}>
-                {`https://${host()}/.well-known/webfinger`}
-              </a>
-            </dd>
-          </div>
-          <div>
-            <dt>Shared inbox</dt>
-            <dd>
-              <a
-                href={`https://${host()}/inbox`}
-              >{`https://${host()}/inbox`}</a>
-            </dd>
-          </div>
-        </dl>
-      </section>
+          <section class={styles.details} aria-labelledby="connection-title">
+            <div>
+              <p class={styles.sectionLabel}>Connection record</p>
+              <h2 id="connection-title">Federation endpoints</h2>
+            </div>
+            <dl class={styles.endpointList}>
+              <div>
+                <dt>NodeInfo</dt>
+                <dd>
+                  <a href={`https://${instance().host}/nodeinfo/2.1`}>
+                    {`https://${instance().host}/nodeinfo/2.1`}
+                  </a>
+                </dd>
+              </div>
+              <div>
+                <dt>WebFinger</dt>
+                <dd>
+                  <a href={`https://${instance().host}/.well-known/webfinger`}>
+                    {`https://${instance().host}/.well-known/webfinger`}
+                  </a>
+                </dd>
+              </div>
+              <div>
+                <dt>Shared inbox</dt>
+                <dd>
+                  <a
+                    href={`https://${instance().host}/inbox`}
+                  >{`https://${instance().host}/inbox`}</a>
+                </dd>
+              </div>
+            </dl>
+          </section>
 
-      <section class={styles.actors} aria-labelledby="actors-title">
-        <header class={styles.sectionHeader}>
-          <div>
-            <p class={styles.sectionLabel}>Local identities</p>
-            <h2 id="actors-title">Actors</h2>
-          </div>
-          <p>{actors.length} registered</p>
-        </header>
-
-        <div class={styles.actorList}>
-          <For each={actors}>
-            {(handle) => <ActorDetail handle={handle} host={host()} />}
-          </For>
-        </div>
-      </section>
-    </main>
+          <section class={styles.actors} aria-labelledby="actors-title">
+            <header class={styles.sectionHeader}>
+              <div>
+                <p class={styles.sectionLabel}>Local identities</p>
+                <h2 id="actors-title">Actors</h2>
+              </div>
+              <p>{instance().actors.totalCount} registered</p>
+            </header>
+            <div class={styles.actorList}>
+              <For each={instance().actors.edges}>
+                {(edge) => <ActorDetail $actor={edge.node} />}
+              </For>
+            </div>
+          </section>
+        </main>
+      )}
+    </Show>
   );
 }
