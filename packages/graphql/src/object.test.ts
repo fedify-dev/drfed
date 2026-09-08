@@ -71,7 +71,7 @@ describe("Mutation.createObject", () => {
       assert.equal(object.contentHtml, contentHtml);
       assert.equal(
         object.iri,
-        `https://test-instance.drfed.org/users/${localActorId}/objects/${object.uuid}`,
+        `https://test-instance.drfed.org/users/${localActorId}/${object.uuid}`,
       );
       assert.equal(object.sensitive, false);
       assert.equal(object.url, null);
@@ -239,7 +239,7 @@ describe("Actor.objects", () => {
         actorId: localActorId,
         type: "Note",
         visibility: "followers",
-        iri: `https://test-instance.drfed.org/users/${localActorId}/objects/${id}`,
+        iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
         contentHtml: "GraphQL debugging content",
       });
       const query = `query($object: ID!, $actor: ID!) {
@@ -282,7 +282,7 @@ describe("Actor.objects", () => {
           id,
           actorId: index === 4 ? remoteActorId : localActorId,
           type: "Note" as const,
-          iri: `https://test.example/objects/${id}`,
+          iri: `https://test.example/${id}`,
           contentHtml: "test",
           published: new Date(index === 0 ? "2027-01-01" : "2026-01-01"),
           deleted: index === 3 ? new Date() : null,

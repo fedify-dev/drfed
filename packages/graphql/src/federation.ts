@@ -29,7 +29,7 @@ import {
   createFederationBuilder,
 } from "@fedify/fedify";
 import {
-  Object as ASObject,
+  Object as APObject,
   Activity,
   Application,
   Article,
@@ -140,9 +140,9 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       });
     });
 
-  builder.setObjectDispatcher<ASObject, "identifier" | "id">(
-    ASObject,
-    "/users/{identifier}/objects/{id}",
+  builder.setObjectDispatcher<APObject, "identifier" | "id">(
+    APObject,
+    "/users/{identifier}/{id}",
     async (ctx, { identifier, id }) => {
       if (!validateUuid(identifier) || !validateUuid(id)) return null;
       const object = await db.query.objects.findFirst({
@@ -159,7 +159,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       if (object == null || object.visibility === "followers") return null;
       if (object.deleted != null) {
         return new Tombstone({
-          id: ctx.getObjectUri(ASObject, { identifier, id }),
+          id: ctx.getObjectUri(APObject, { identifier, id }),
           deleted: Temporal.Instant.from(object.deleted.toISOString()),
         });
       }
@@ -304,7 +304,7 @@ const logger = getLogger(["drfed", "graphql", "federation"]);
 
 const OUTBOX_PAGE_SIZE = 20;
 type ObjectProps = ConstructorParameters<typeof Note>[0];
-const objectConstructors: Record<ObjectType, (props: ObjectProps) => ASObject> =
+const objectConstructors: Record<ObjectType, (props: ObjectProps) => APObject> =
   {
     Article: (props) => new Article(props),
     Note: (props) => new Note(props),
@@ -329,7 +329,7 @@ function recipients(
   }
 }
 
-function toObject(ctx: Context<unknown>, object: ActivityPubObject): ASObject {
+function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
   return objectConstructors[object.type]({
     id: new URL(object.iri),
     attribution: ctx.getActorUri(object.actorId),
