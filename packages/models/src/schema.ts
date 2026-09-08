@@ -32,6 +32,8 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+import type { Uuid } from "./uuid.ts";
+
 const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 
 /**
@@ -40,7 +42,7 @@ const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 export const accounts = pgTable(
   "accounts",
   {
-    id: uuid().primaryKey(),
+    id: uuid().$type<Uuid>().primaryKey(),
     email: varchar({ length: 255 }).notNull().unique(),
     name: varchar({ length: 100 }).notNull(),
     maxInstances: integer("max_instances").notNull().default(10),
@@ -66,10 +68,12 @@ export type NewAccount = typeof accounts.$inferInsert;
  * The database table to represent instances.
  */
 export const instances = pgTable("instances", {
-  id: uuid().primaryKey(),
-  localId: uuid().references(() => localInstances.id, {
-    onDelete: "cascade",
-  }),
+  id: uuid().$type<Uuid>().primaryKey(),
+  localId: uuid()
+    .$type<Uuid>()
+    .references(() => localInstances.id, {
+      onDelete: "cascade",
+    }),
   created: timestamp({ withTimezone: true })
     .notNull()
     .default(currentTimestamp),
@@ -85,7 +89,7 @@ export type NewInstance = typeof instances.$inferInsert;
 export const localInstances = pgTable(
   "local_instances",
   {
-    id: uuid().primaryKey(),
+    id: uuid().$type<Uuid>().primaryKey(),
     slug: varchar({ length: 63 }).notNull().unique(),
     expires: timestamp({ withTimezone: true }).notNull(),
     maxActors: integer().notNull().default(10),
@@ -108,9 +112,11 @@ export const instanceMembers = pgTable(
   "instance_members",
   {
     accountId: uuid()
+      .$type<Uuid>()
       .notNull()
       .references(() => accounts.id),
     instanceId: uuid()
+      .$type<Uuid>()
       .notNull()
       .references(() => instances.id),
     admin: boolean().notNull().default(false),
@@ -140,8 +146,9 @@ export type NewInstanceMember = typeof instanceMembers.$inferInsert;
  * email.
  */
 export const loginChallenges = pgTable("login_challenges", {
-  id: uuid().primaryKey(),
+  id: uuid().$type<Uuid>().primaryKey(),
   accountId: uuid()
+    .$type<Uuid>()
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   tokenHash: varchar({ length: 64 }).notNull().unique(),
@@ -163,8 +170,9 @@ export type NewLoginChallenge = typeof loginChallenges.$inferInsert;
  * the `tokenHash` is the hash of the bearer access token.
  */
 export const sessions = pgTable("sessions", {
-  id: uuid().primaryKey(),
+  id: uuid().$type<Uuid>().primaryKey(),
   accountId: uuid()
+    .$type<Uuid>()
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   tokenHash: varchar({ length: 64 }).notNull().unique(),
@@ -192,13 +200,15 @@ export type ActorType = (typeof actorTypeEnum.enumValues)[number];
 export const actors = pgTable(
   "actors",
   {
-    id: uuid().primaryKey(),
+    id: uuid().$type<Uuid>().primaryKey(),
     localId: uuid()
+      .$type<Uuid>()
       .unique()
       .references(() => localActors.id, { onDelete: "cascade" }),
     type: actorTypeEnum().notNull(),
     username: text().notNull(),
     instanceId: uuid()
+      .$type<Uuid>()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
     iri: text().notNull().unique(),
@@ -228,9 +238,11 @@ export const actors = pgTable(
     // suspended <= now AND (suspendedUntil IS NULL OR suspendedUntil > now).
     suspended: timestamp({ withTimezone: true }),
     suspendedUntil: timestamp({ withTimezone: true }),
-    successorId: uuid().references((): AnyPgColumn => actors.id, {
-      onDelete: "set null",
-    }),
+    successorId: uuid()
+      .$type<Uuid>()
+      .references((): AnyPgColumn => actors.id, {
+        onDelete: "set null",
+      }),
     aliases: text()
       .array()
       .notNull()
@@ -268,7 +280,7 @@ export type Actor = typeof actors.$inferSelect;
 export type NewActor = typeof actors.$inferInsert;
 
 export const localActors = pgTable("local_actors", {
-  id: uuid().primaryKey(),
+  id: uuid().$type<Uuid>().primaryKey(),
   avatar: text(),
   header: text(),
 });

@@ -18,6 +18,7 @@
 
 import type { Database } from "@drfed/models";
 import { loginChallenges, sessions } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import { and, eq, gt, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type UserContext } from "../builder.ts";
@@ -100,7 +101,7 @@ const verifyCode = async (userCode: string, dbCodeHash: string) =>
   )) ||
   new LoginChallengeError(`The user's code and DB's one don't match`).throw();
 
-const consumeChallenge = async (challengeId: string, now: Date, tx: Database) =>
+const consumeChallenge = async (challengeId: Uuid, now: Date, tx: Database) =>
   (
     await tx
       .update(loginChallenges)
@@ -117,8 +118,8 @@ const consumeChallenge = async (challengeId: string, now: Date, tx: Database) =>
   new LoginChallengeError("Updating `consumed` failed.").throw();
 
 const insertSession = async (
-  id: string,
-  accountId: string,
+  id: Uuid,
+  accountId: Uuid,
   tokenHash: string,
   tx: Database,
 ) => await tx.insert(sessions).values({ id, accountId, tokenHash });

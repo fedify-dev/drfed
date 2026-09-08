@@ -13,9 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import assert from "node:assert/strict";
 
 import { type Database, schema } from "@drfed/models";
+import type { Uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
 
 import { withTestHarness } from "./harness.test.ts";
@@ -351,7 +353,7 @@ describe("Account.instances", () => {
  */
 async function createSession(
   db: Database,
-  options: { id?: string; account?: string; token?: string } = {},
+  options: { id?: Uuid; account?: Uuid; token?: string } = {},
 ): Promise<RequestInit> {
   const { id = sessionId, account = accountId, token = accessToken } = options;
   await db.insert(schema.sessions).values({

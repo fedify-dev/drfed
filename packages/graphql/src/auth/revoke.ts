@@ -17,6 +17,7 @@
 // oxlint-disable no-magic-numbers
 
 import { sessions } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import { and, eq } from "drizzle-orm/sql/expressions";
 
 import builder, { type UserContext } from "../builder.ts";
@@ -58,7 +59,7 @@ const LogoutSuccessRef = builder
     }),
   });
 
-const deleteSession = (id: string, ctx: UserContext) =>
+const deleteSession = (id: Uuid, ctx: UserContext) =>
   ctx.db
     .delete(sessions)
     .where(

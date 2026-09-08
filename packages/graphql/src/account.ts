@@ -13,7 +13,9 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import { instanceMembers } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
 
@@ -28,7 +30,7 @@ import { Instance } from "./instance.ts";
  * @returns A scope map granting access to the account itself or a site
  *          administrator.
  */
-function selfOrSiteAdmin(account: { readonly id: string }) {
+function selfOrSiteAdmin(account: { readonly id: Uuid }) {
   return {
     $any: {
       admin: true,

@@ -17,13 +17,14 @@
 // oxlint-disable no-magic-numbers
 
 import { schema } from "@drfed/models";
+import type { Uuid } from "@drfed/models/uuid";
 
 import builder, { type UserContext } from "../builder.ts";
 import { generateBase36Code, hashSecret } from "./hash.ts";
 import { logReceipt, sendMail } from "./mail.ts";
 
 interface LoginChallengeShape {
-  readonly token: string;
+  readonly token: Uuid;
 }
 
 const LoginChallengeRef = builder
@@ -88,7 +89,7 @@ const findAccount = async (email: string, ctx: UserContext) =>
   });
 
 const insertChallenge = async (
-  accountId: string,
+  accountId: Uuid,
   { token, code }: { token: string; code: string },
   ctx: UserContext,
 ) =>

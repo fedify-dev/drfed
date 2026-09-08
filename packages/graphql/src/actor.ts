@@ -18,11 +18,11 @@
 
 import { schema } from "@drfed/models";
 import { actorTypeEnum } from "@drfed/models/schema";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
-import { v7 as uuid } from "uuid";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
@@ -238,6 +238,8 @@ builder.mutationFields((t) => ({
         throw new Error("You must be authenticated to create actors.");
       }
       const { account } = ctx;
+      // Relay decodes global IDs as strings; Instance uses UUID identifiers.
+      const targetInstanceId = instanceId as Uuid;
 
       return await ctx.db.transaction(async (tx) => {
         // Find the instance that the account is included
@@ -260,7 +262,7 @@ builder.mutationFields((t) => ({
             and(
               eq(schema.instanceMembers.accountId, account.id),
               gt(schema.localInstances.expires, new Date()),
-              eq(schema.instances.id, instanceId),
+              eq(schema.instances.id, targetInstanceId),
               isNotNull(schema.instanceMembers.accepted),
             ),
           )
@@ -275,7 +277,7 @@ builder.mutationFields((t) => ({
         const host = `${slug}.${ctx.root}`;
         const currActors = await tx.$count(
           schema.actors,
-          eq(schema.actors.instanceId, instanceId),
+          eq(schema.actors.instanceId, targetInstanceId),
         );
 
         if (size + currActors > maxActors) {
@@ -297,7 +299,9 @@ builder.mutationFields((t) => ({
         await tx.insert(schema.localActors).values(ids);
         const createdActors = await tx
           .insert(schema.actors)
-          .values(ids.map(({ id }) => generateActor(id, instanceId, fedCtx)))
+          .values(
+            ids.map(({ id }) => generateActor(id, targetInstanceId, fedCtx)),
+          )
           .returning();
         return { actors: createdActors };
       });
@@ -306,8 +310,8 @@ builder.mutationFields((t) => ({
 }));
 
 function generateActor(
-  id: string,
-  instanceId: string,
+  id: Uuid,
+  instanceId: Uuid,
   fedCtx: Context<unknown>,
 ): PgInsertValue<typeof schema.actors> {
   return {

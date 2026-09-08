@@ -21,6 +21,7 @@ import {
   instanceMembers,
   instances,
 } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Template } from "@fedify/uri-template";
 import SchemaBuilder, { type ObjectRef } from "@pothos/core";
@@ -103,8 +104,8 @@ export interface SchemaTypes {
       Output: string;
     };
     UUID: {
-      Input: string;
-      Output: string;
+      Input: Uuid;
+      Output: Uuid;
     };
     URITemplate: {
       Input: Template;
@@ -124,11 +125,11 @@ export interface SchemaTypes {
      * Whether the viewer is an accepted member of the `Instance` backed by
      * the `LocalInstance` with the given UUID.
      */
-    localInstanceMember: string;
+    localInstanceMember: Uuid;
     /**
      * Whether the viewer is the `Account` with the given UUID.
      */
-    accountSelf: string;
+    accountSelf: Uuid;
   };
 }
 
@@ -186,7 +187,7 @@ export const builder = new SchemaBuilder<SchemaTypes>({
  */
 async function isLocalInstanceMember(
   context: UserContext,
-  localInstanceId: string,
+  localInstanceId: Uuid,
 ): Promise<boolean> {
   const { account } = context;
   if (account == null) return false;

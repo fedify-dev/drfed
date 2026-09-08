@@ -16,6 +16,7 @@
 
 import type { Database } from "@drfed/models";
 import type { Actor } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import {
   type Context,
   type Federation,
@@ -63,7 +64,7 @@ async function findLocalActor(
   if (!validateUuid(identifier)) return null;
   const actor = await db.query.actors.findFirst({
     where: {
-      id: identifier,
+      id: identifier as Uuid,
       localId: { isNotNull: true },
       instance: { host: ctx.host },
     },
