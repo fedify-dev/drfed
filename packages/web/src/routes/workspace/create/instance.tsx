@@ -56,6 +56,8 @@ const createInstanceSchema = v.object({
   ),
 });
 
+const generateSlugWord = () => faker.word.noun({ length: { min: 1, max: 20 } });
+
 export default function CreateInstancePage() {
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = createSignal<string>();
@@ -65,7 +67,9 @@ export default function CreateInstancePage() {
   const createInstanceForm = createForm({
     schema: createInstanceSchema,
     initialInput: {
-      slug: `${faker.word.noun()}-${faker.word.noun()}-${faker.word.noun()}`.toLowerCase(),
+      slug: [generateSlugWord(), generateSlugWord(), generateSlugWord()]
+        .join("-")
+        .toLowerCase(),
     },
   });
 
