@@ -19,14 +19,17 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 
 import { schema } from "@drfed/models";
+import type { Uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
+import { eq } from "drizzle-orm";
 
 import { type TestHarness, withTestHarness } from "./harness.test.ts";
 
 const okStatus = 200;
 const accountId = "00000000-0000-4000-8000-000000000001";
 const email = "noreply@drfed.org";
-const verifyUrl = "https://drfed.org/transports/mock?token={token}&code={code}";
+const verifyUrl =
+  "https://drfed.org/transports/mock?challengeId={challengeId}&code={code}";
 const memberId = "00000000-0000-4000-8000-000000000002";
 const memberEmail = "member@example.com";
 const instanceId = "00000000-0000-4000-8000-000000000101";
@@ -34,16 +37,16 @@ const instanceId = "00000000-0000-4000-8000-000000000101";
 const loginMutation = `
   mutation Login($email: Email!, $verifyUrl: URITemplate) {
     loginByEmail(email: $email, verifyUrl: $verifyUrl) {
-      ... on SendMail {
-        token
+      ... on LoginChallenge {
+        challengeId
       }
     }
   }
 `;
 
 const completeLoginMutation = `
-  mutation CompleteLogin($token: UUID!, $code: String!) {
-    completeLoginChallenge(token: $token, code: $code) {
+  mutation CompleteLogin($challengeId: UUID!, $code: String!) {
+    completeLoginChallenge(challengeId: $challengeId, code: $code) {
       id
       accessToken
       account {
@@ -55,8 +58,8 @@ const completeLoginMutation = `
 `;
 
 const completeLoginReachingOthersMutation = `
-  mutation CompleteLoginReachingOthers($token: UUID!, $code: String!) {
-    completeLoginChallenge(token: $token, code: $code) {
+  mutation CompleteLoginReachingOthers($challengeId: UUID!, $code: String!) {
+    completeLoginChallenge(challengeId: $challengeId, code: $code) {
       account {
         uuid
         email
@@ -97,20 +100,20 @@ const revokeSessionMutation = `
 `;
 
 const loginUrlPattern =
-  /https:\/\/drfed\.org\/transports\/mock\?token=[0-9a-f-]+&code=[0-9a-z]+/u;
+  /https:\/\/drfed\.org\/transports\/mock\?challengeId=[0-9a-f-]+&code=[0-9a-z]+/u;
 
 /**
- * Runs the login-by-email flow far enough to obtain a challenge token and the
+ * Runs the login-by-email flow far enough to obtain a challenge ID and the
  * one-time code mailed with it.
  *
  * @param post The harness request helper.
  * @param mailer The harness mock mailer.
- * @returns The challenge token and its one-time code.
+ * @returns The challenge ID and its one-time code.
  */
 async function requestLoginCode(
   post: TestHarness["post"],
   mailer: TestHarness["mailer"],
-): Promise<{ token: string; code: string }> {
+): Promise<{ challengeId: Uuid; code: string }> {
   const loginResponse = await post({
     query: loginMutation,
     variables: { email, verifyUrl },
@@ -118,7 +121,7 @@ async function requestLoginCode(
   equal(loginResponse.status, okStatus);
   const loginBody = await loginResponse.json();
   equal(loginBody.errors, undefined);
-  const { token } = loginBody.data.loginByEmail;
+  const { challengeId } = loginBody.data.loginByEmail;
 
   const [message] = mailer.getSentMessages();
   ok(message);
@@ -126,7 +129,7 @@ async function requestLoginCode(
   ok(urlMatch);
   const code = new URL(urlMatch[0]).searchParams.get("code");
   ok(code);
-  return { token, code };
+  return { challengeId, code };
 }
 
 describe("email authentication", () => {
@@ -144,14 +147,14 @@ describe("email authentication", () => {
         { accountId: memberId, instanceId, accepted: new Date() },
       ]);
 
-      const { token, code } = await requestLoginCode(post, mailer);
+      const { challengeId, code } = await requestLoginCode(post, mailer);
 
       // `Session.account` grants `ownAccount`, but the grant must cover only
       // the viewer's own account -- not every account reachable underneath it.
       // This request carries no Authorization header at all.
       const response = await post({
         query: completeLoginReachingOthersMutation,
-        variables: { token, code },
+        variables: { challengeId, code },
       });
 
       equal(response.status, okStatus);
@@ -175,6 +178,126 @@ describe("email authentication", () => {
     });
   });
 
+  it("returns a challenge ID without creating a challenge for an unknown email", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      const response = await post({
+        query: loginMutation,
+        variables: { email, verifyUrl },
+      });
+      const body = await response.json();
+      equal(body.errors, undefined);
+      equal(typeof body.data.loginByEmail.challengeId, "string");
+      equal(mailer.getSentMessages().length, 0);
+      equal((await db.query.loginChallenges.findMany()).length, 0);
+    });
+  });
+
+  it("mails the public ID and plaintext code when no URL is supplied", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+      const response = await post({
+        query: loginMutation,
+        variables: { email },
+      });
+      const body = await response.json();
+      equal(body.errors, undefined);
+      const { challengeId } = body.data.loginByEmail;
+      const row = await db.query.loginChallenges.findFirst({
+        where: { id: challengeId },
+      });
+      ok(row);
+      equal(row.code.length, schema.LOGIN_CHALLENGE_CODE_LENGTH);
+      const [message] = mailer.getSentMessages();
+      ok(
+        message?.content.text?.includes(
+          `challenge ID: ${challengeId} and code: ${row.code}`,
+        ),
+      );
+    });
+  });
+
+  it("rejects wrong codes and expired or missing challenges without creating sessions", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+      const { challengeId, code } = await requestLoginCode(post, mailer);
+      const row = await db.query.loginChallenges.findFirst({
+        where: { id: challengeId },
+      });
+      equal(row?.code, code);
+      const invalidRequests = [
+        { challengeId, code: "wrong-code" },
+        { challengeId, code: `${code[0] === "0" ? "1" : "0"}${code.slice(1)}` },
+        { challengeId: crypto.randomUUID(), code },
+      ];
+      const invalidBodies = await Promise.all(
+        invalidRequests.map(async (variables) =>
+          (await post({ query: completeLoginMutation, variables })).json(),
+        ),
+      );
+      for (const body of invalidBodies) {
+        equal(body.errors, undefined);
+        equal(body.data.completeLoginChallenge, null);
+      }
+      equal(
+        (
+          await db.query.loginChallenges.findFirst({
+            where: { id: challengeId },
+          })
+        )?.consumed,
+        null,
+      );
+      await db
+        .update(schema.loginChallenges)
+        .set({ expires: new Date(0) })
+        .where(eq(schema.loginChallenges.id, challengeId));
+      const expired = await (
+        await post({
+          query: completeLoginMutation,
+          variables: { challengeId, code },
+        })
+      ).json();
+      equal(expired.errors, undefined);
+      equal(expired.data.completeLoginChallenge, null);
+      equal((await db.query.sessions.findMany()).length, 0);
+    });
+  });
+
+  it("creates only one session for competing completions and rejects replay", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+      const { challengeId } = await requestLoginCode(post, mailer);
+      // Use a deterministic letter-containing code to exercise case folding.
+      await db
+        .update(schema.loginChallenges)
+        .set({ code: "abc123" })
+        .where(eq(schema.loginChallenges.id, challengeId));
+      const request = {
+        query: completeLoginMutation,
+        variables: { challengeId: challengeId.toUpperCase(), code: "ABC123" },
+      };
+      const responses = await Promise.all([post(request), post(request)]);
+      const bodies = await Promise.all(
+        responses.map((response) => response.json()),
+      );
+      bodies.forEach((body) => equal(body.errors, undefined));
+      equal(
+        bodies.filter((body) => body.data.completeLoginChallenge != null)
+          .length,
+        1,
+      );
+      equal((await db.query.sessions.findMany()).length, 1);
+      const replay = await (await post(request)).json();
+      equal(replay.errors, undefined);
+      equal(replay.data.completeLoginChallenge, null);
+    });
+  });
+
   it("logs in, authenticates the viewer, and revokes the session", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
       await db.insert(schema.accounts).values({
@@ -192,8 +315,8 @@ describe("email authentication", () => {
       const loginBody = await loginResponse.json();
       equal(loginBody.errors, undefined);
 
-      const { token } = loginBody.data.loginByEmail;
-      equal(typeof token, "string");
+      const { challengeId } = loginBody.data.loginByEmail;
+      equal(typeof challengeId, "string");
 
       const messages = mailer.getSentMessages();
       equal(messages.length, 1);
@@ -208,14 +331,14 @@ describe("email authentication", () => {
       const loginUrl = new URL(urlMatch[0]);
       equal(loginUrl.origin, "https://drfed.org");
       equal(loginUrl.pathname, "/transports/mock");
-      equal(loginUrl.searchParams.get("token"), token);
+      equal(loginUrl.searchParams.get("challengeId"), challengeId);
 
       const code = loginUrl.searchParams.get("code");
       ok(code);
 
       const completeResponse = await post({
         query: completeLoginMutation,
-        variables: { token, code },
+        variables: { challengeId, code },
       });
       equal(completeResponse.status, okStatus);
 

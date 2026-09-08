@@ -15,9 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { schema } from "@drfed/models";
+import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { DrizzleQueryError } from "drizzle-orm";
 import { eq } from "drizzle-orm/sql/expressions";
-import { v7 as uuid } from "uuid";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 

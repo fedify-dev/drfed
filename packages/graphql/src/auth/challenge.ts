@@ -16,13 +16,20 @@
 
 // oxlint-disable no-magic-numbers
 
-import type { Database } from "@drfed/models";
-import { loginTokens, sessions } from "@drfed/models/schema";
-import { and, eq, gt, isNull } from "drizzle-orm/sql/expressions";
+import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
 
-import builder, { type UserContext } from "../builder.ts";
-import { LoginChallengeError } from "./errors.ts";
-import { equalSecretHashes, generateAccessToken, hashSecret } from "./hash.ts";
+import type { Database } from "@drfed/models";
+import {
+  LoginChallengeError,
+  consumeLoginChallenge,
+  findLoginChallenge,
+} from "@drfed/models/login";
+import { sessions } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
+
+import builder from "../builder.ts";
+import { generateAccessToken, hashSecret } from "./hash.ts";
 
 const SessionRef = builder.drizzleObject("sessions", {
   name: "Session",
@@ -53,21 +60,27 @@ builder.mutationFields((t) => ({
     nullable: true,
     description: "Complete login challenge.",
     args: {
-      token: t.arg({ type: "UUID", required: true }),
+      challengeId: t.arg({ type: "UUID", required: true }),
       code: t.arg({ type: "String", required: true }),
     },
-    async resolve(query, _root, { token, code }, ctx) {
+    async resolve(query, _root, { challengeId, code }, ctx) {
       try {
-        const tokenHash = await hashSecret(token.toLowerCase());
-        const now = new Date(Temporal.Now.instant().toString());
-        const row = await findToken(tokenHash, now, ctx);
+        const now = new Date();
+        const row = await findLoginChallenge(ctx.db, challengeId, now);
         const id = crypto.randomUUID();
         const accessToken = generateAccessToken();
         const accessHash = await hashSecret(accessToken);
 
-        await verifyCode(code, row.codeHash);
+        const providedCode = Buffer.from(code.toLowerCase());
+        const expectedCode = Buffer.from(row.code);
+        if (
+          providedCode.length !== expectedCode.length ||
+          !timingSafeEqual(providedCode, expectedCode)
+        ) {
+          throw new LoginChallengeError("The provided code does not match.");
+        }
         await ctx.db.transaction(async (tx) => {
-          await consumeToken(row.id, now, tx);
+          await consumeLoginChallenge(tx, row.id, now);
           await insertSession(id, row.accountId, accessHash, tx);
         });
 
@@ -85,40 +98,9 @@ builder.mutationFields((t) => ({
   }),
 }));
 
-const findToken = async (tokenHash: string, now: Date, ctx: UserContext) =>
-  (await ctx.db.query.loginTokens.findFirst({
-    where: { tokenHash, expires: { gt: now }, consumed: { isNull: true } },
-  })) ??
-  new LoginChallengeError(
-    `Can't find an alive login token: ${tokenHash}.`,
-  ).throw();
-
-const verifyCode = async (userCode: string, dbCodeHash: string) =>
-  (await equalSecretHashes(
-    await hashSecret(userCode.toLowerCase()),
-    dbCodeHash,
-  )) ||
-  new LoginChallengeError(`The user's code and DB's one don't match`).throw();
-
-const consumeToken = async (tokenId: string, now: Date, tx: Database) =>
-  (
-    await tx
-      .update(loginTokens)
-      .set({ consumed: now })
-      .where(
-        and(
-          eq(loginTokens.id, tokenId),
-          isNull(loginTokens.consumed),
-          gt(loginTokens.expires, now),
-        ),
-      )
-      .returning({ consumed: loginTokens.consumed })
-  )[0]?.consumed ??
-  new LoginChallengeError("Updating `consumed` failed.").throw();
-
 const insertSession = async (
-  id: string,
-  accountId: string,
+  id: Uuid,
+  accountId: Uuid,
   tokenHash: string,
   tx: Database,
 ) => await tx.insert(sessions).values({ id, accountId, tokenHash });

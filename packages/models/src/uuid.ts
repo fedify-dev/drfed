@@ -13,23 +13,27 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-// oxlint-disable func-names func-style id-length
+import { v7 } from "uuid";
 
-// oxlint-disable max-classes-per-file no-throw-literal
-export class Throwable extends Error {
-  throw(): never {
-    throw this;
-  }
+/**
+ * A UUID string.  It does not guarantee that the string is a normalized UUID.
+ */
+export type Uuid = ReturnType<typeof crypto.randomUUID>;
+
+/**
+ * Compares two UUIDs for equality, ignoring case.
+ * @param left A UUID string to compare.
+ * @param right Another UUID string to compare.
+ * @returns `true` if the UUIDs are equal (ignoring case), `false` otherwise.
+ */
+export function areUuidsEqual(left: Uuid, right: Uuid): boolean {
+  return left.toLowerCase() === right.toLowerCase();
 }
 
-export class VerifyUrlExpandingError extends Throwable {
-  constructor(message: string) {
-    super("Error while expand verify URL.");
-    this.name = "VerifyUrlExpandingError";
-    this.message = message;
-  }
-}
-
-export function throwError(error: Error): never {
-  throw error;
+/**
+ * Generates a new UUIDv7 string.
+ * @returns A new UUIDv7 string.
+ */
+export function uuidV7(): Uuid {
+  return v7() as Uuid;
 }

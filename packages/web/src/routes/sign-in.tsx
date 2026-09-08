@@ -31,7 +31,7 @@ import styles from "~/styles/form.module.css";
 const signInMutation = graphql`
   mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
     loginByEmail(email: $email, verifyUrl: $verifyUrl) {
-      token
+      challengeId
     }
   }
 `;
@@ -60,7 +60,7 @@ export default function SignInPage() {
   });
 
   const submit: SubmitHandler<typeof signInSchema> = ({ email }) => {
-    const verifyUrl = `${globalThis.location.origin}/confirm/{token}?code={code}`;
+    const verifyUrl = `${globalThis.location.origin}/confirm/{challengeId}?code={code}`;
     setResult(undefined);
     commitSignIn({
       variables: { email, verifyUrl },

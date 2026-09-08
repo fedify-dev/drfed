@@ -34,31 +34,6 @@ export const hashSecret = async (raw: string): Promise<string> =>
 
 const textEncoder = new TextEncoder();
 
-// FIXME: We should use `SubtleCrypto.verify()` instead of comparing the HMACs
-// ourselves.  https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/verify#hmac
-export async function equalSecretHashes(
-  leftHash: string,
-  rightHash: string,
-): Promise<boolean> {
-  const macs = (await Promise.all([leftHash, rightHash].map(getHmac))).map(
-    (buf) => new Uint8Array(buf),
-  );
-
-  // oxlint-disable-next-line no-bitwise id-length
-  const difference = macs[0]!.reduce((p, c, i) => p | (c ^ macs[1]![i]!), 0);
-
-  return difference === 0;
-}
-// FIXME: We should store the key in a secure place and not generate it
-// every time the server starts.
-const compareKey = await crypto.subtle.generateKey(
-  { name: "HMAC", hash: "SHA-256" },
-  false,
-  ["sign"],
-);
-const getHmac = (hash: string) =>
-  crypto.subtle.sign("HMAC", compareKey, textEncoder.encode(hash));
-
 const ACCESS_TOKEN_BYTES = 32;
 
 export const generateAccessToken = (): string =>

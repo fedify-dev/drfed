@@ -1,0 +1,1 @@
+ALTER TABLE "login_tokens" RENAME TO "login_challenges";

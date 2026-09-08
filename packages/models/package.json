@@ -65,6 +65,14 @@
     "./schema": {
       "types": "./dist/schema.d.mts",
       "default": "./dist/schema.mjs"
+    },
+    "./uuid": {
+      "types": "./dist/uuid.d.mts",
+      "default": "./dist/uuid.mjs"
+    },
+    "./login": {
+      "types": "./dist/login.d.mts",
+      "default": "./dist/login.mjs"
     }
   },
   "files": [
@@ -79,7 +87,9 @@
       "src/email.ts",
       "src/migrate.ts",
       "src/relations.ts",
-      "src/schema.ts"
+      "src/schema.ts",
+      "src/uuid.ts",
+      "src/login.ts"
     ],
     "dts": {
       "sourcemap": true,
@@ -102,6 +112,7 @@
     "@electric-sql/pglite": "catalog:",
     "@logtape/logtape": "catalog:",
     "drizzle-orm": "catalog:",
-    "postgres": "catalog:"
+    "postgres": "catalog:",
+    "uuid": "catalog:"
   }
 }

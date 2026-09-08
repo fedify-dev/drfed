@@ -21,14 +21,14 @@ import { VerifyUrlExpandingError } from "./errors.ts";
 
 export interface ExpandVerifyUrlParams {
   template: Template | undefined | null;
-  token: `${string}-${string}-${string}-${string}-${string}`;
+  challengeId: `${string}-${string}-${string}-${string}-${string}`;
   code: string;
   origins: ReadonlySet<string>;
 }
 
 export default function expandVerifyUrl({
   template,
-  token,
+  challengeId,
   code,
   origins,
 }: ExpandVerifyUrlParams): string | null {
@@ -39,7 +39,7 @@ export default function expandVerifyUrl({
     if (template == null) {
       return null;
     }
-    const url = expandUrl(template, token, code);
+    const url = expandUrl(template, challengeId, code);
     assertAllow(url, origins);
     return url.toString();
   } catch (error) {
@@ -49,12 +49,12 @@ export default function expandVerifyUrl({
   }
 }
 
-function expandUrl(template: Template, token: string, code: string) {
-  const expanded = template.expand({ token, code });
-  if (!(expanded.includes(token) && expanded.includes(code))) {
+function expandUrl(template: Template, challengeId: string, code: string) {
+  const expanded = template.expand({ challengeId, code });
+  if (!(expanded.includes(challengeId) && expanded.includes(code))) {
     throw new VerifyUrlExpandingError(
       // oxlint-disable-next-line prefer-template
-      "`template` doesn't seem have `token` or `code` variables. `template:`" +
+      "`template` doesn't seem have `challengeId` or `code` variables. `template:`" +
         template,
     );
   }
