@@ -16,19 +16,78 @@
 
 import { Button } from "@kobalte/core/button";
 import { A, action, useAction, useSubmission } from "@solidjs/router";
-import { graphql } from "relay-runtime";
+import { commitMutation, graphql } from "relay-runtime";
 import { Show, Suspense } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
 
+import { createRelayEnvironment } from "~/RelayEnvironment.ts";
 import { deleteSessionCookie } from "~/session.ts";
 
 import type { HeaderAccountButtonQuery } from "./__generated__/HeaderAccountButtonQuery.graphql.ts";
+import type { RevokeSession } from "./__generated__/RevokeSession.graphql.ts";
 
 import styles from "~/styles/app.module.css";
 
+const revokeSessionMutation = graphql`
+  mutation RevokeSession {
+    revokeSession {
+      revoke
+    }
+  }
+`;
+
+interface revokeSessionResult {
+  message: string;
+  status: "error" | "success";
+}
+
 const signOutAction = action(async () => {
   "use server";
+
+  const environment = createRelayEnvironment();
+
   deleteSessionCookie();
+
+  const result = await new Promise<revokeSessionResult>((resolve) => {
+    commitMutation<RevokeSession>(environment, {
+      mutation: revokeSessionMutation,
+      variables: {},
+      onCompleted: (response, errors) => {
+        const graphQLErrors = errors ?? [];
+
+        if (graphQLErrors.length > 0) {
+          resolve({
+            message: graphQLErrors.map((error) => error.message).join("\n"),
+            status: "error",
+          });
+          return;
+        }
+
+        try {
+          deleteSessionCookie();
+        } catch {
+          resolve({
+            message: "Unable to delete session in cookie",
+            status: "error",
+          });
+          return;
+        }
+
+        resolve({
+          message: "Signed Out",
+          status: "success",
+        });
+      },
+      onError: (error) => {
+        resolve({
+          message: error.message,
+          status: "error",
+        });
+      },
+    });
+  });
+
+  return result;
 }, "sign-out");
 
 export function HeaderAccountButton() {
