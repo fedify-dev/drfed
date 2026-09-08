@@ -16,7 +16,7 @@
 
 import { schema } from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
-import { Object as ASObject } from "@fedify/vocab";
+import { Object as APObject } from "@fedify/vocab";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 import { v7 as uuid, validate as validateUuid } from "uuid";
@@ -300,7 +300,7 @@ builder.mutationFields((t) => ({
           new URL(`https://${actor.host}`),
           undefined,
         );
-        const iri = fedCtx.getObjectUri(ASObject, {
+        const iri = fedCtx.getObjectUri(APObject, {
           identifier: actorId,
           id,
         }).href;

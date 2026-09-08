@@ -21,7 +21,7 @@ import createFederation, { buildFederation } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
 import { uuidV7 } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
-import { Object as ASObject } from "@fedify/vocab";
+import { Object as APObject } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
 import { v7 as uuid } from "uuid";
@@ -45,8 +45,8 @@ describe("createFederation()", () => {
       });
       const ctx = federation.createContext(origin, undefined);
       assert.equal(
-        ctx.getObjectUri(ASObject, { identifier: "a", id: "b" }).href,
-        "https://drfed.test/users/a/objects/b",
+        ctx.getObjectUri(APObject, { identifier: "a", id: "b" }).href,
+        "https://drfed.test/users/a/b",
       );
       assert.equal(
         ctx.getActorUri("identifier").href,
@@ -188,7 +188,7 @@ function values(id: string) {
   return {
     id,
     actorId: localActorId,
-    iri: `${actorIri}/objects/${id}`,
+    iri: `${actorIri}/${id}`,
     type: "Note" as const,
     contentHtml: "<p>Hello</p>",
   };
@@ -302,9 +302,9 @@ describe("ActivityPub objects", () => {
         }
         const iri =
           scenario === "missing"
-            ? `${actorIri}/objects/${uuid()}`
+            ? `${actorIri}/${uuid()}`
             : scenario === "malformed"
-              ? `${actorIri}/objects/bad`
+              ? `${actorIri}/bad`
               : scenario === "host"
                 ? object.iri.replace("test-instance.drfed.org", "wrong.example")
                 : scenario === "actor" || scenario === "remote"
