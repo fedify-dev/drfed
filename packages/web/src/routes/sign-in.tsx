@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { Field, Form, type SubmitHandler, createForm } from "@formisch/solid";
 import { Alert } from "@kobalte/core/alert";
 import { Button } from "@kobalte/core/button";
 import { TextField } from "@kobalte/core/text-field";
@@ -21,6 +22,7 @@ import { Title } from "@solidjs/meta";
 import { graphql } from "relay-runtime";
 import { Match, Show, Switch, createSignal } from "solid-js";
 import { createMutation } from "solid-relay";
+import * as v from "valibot";
 
 import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 
@@ -34,6 +36,15 @@ const signInMutation = graphql`
   }
 `;
 
+const signInSchema = v.object({
+  email: v.pipe(
+    v.string(),
+    v.trim(),
+    v.nonEmpty("Enter a valid email address."),
+    v.email("Enter a valid email address."),
+  ),
+});
+
 interface SignInResult {
   message: string;
   status: "error" | "success";
@@ -43,21 +54,13 @@ export default function SignInPage() {
   const [result, setResult] = createSignal<SignInResult>();
   const [commitSignIn, isSigningIn] =
     createMutation<SignInMutation>(signInMutation);
+  const signInForm = createForm({
+    schema: signInSchema,
+    initialInput: { email: "" },
+  });
 
-  const submit = (event: SubmitEvent & { currentTarget: HTMLFormElement }) => {
-    event.preventDefault();
-
+  const submit: SubmitHandler<typeof signInSchema> = ({ email }) => {
     const verifyUrl = `${globalThis.location.origin}/confirm/{token}?code={code}`;
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get("email");
-    if (typeof email !== "string" || email === "") {
-      setResult({
-        message: "Enter a valid email address.",
-        status: "error",
-      });
-      return;
-    }
-
     setResult(undefined);
     commitSignIn({
       variables: { email, verifyUrl },
@@ -96,22 +99,45 @@ export default function SignInPage() {
           <p>Enter your email address to receive a secure sign-in link.</p>
         </header>
 
-        <form class={styles.form} onSubmit={submit}>
-          <TextField class={styles.field} name="email" required>
-            <TextField.Label class={styles.fieldHeading}>
-              Email address
-              <span class={`${styles.fieldStatus} ${styles.required}`}>
-                Required
-              </span>
-            </TextField.Label>
-            <TextField.Input
-              class={styles.input}
-              type="email"
-              autocomplete="email"
-              inputMode="email"
-              placeholder="you@example.com"
-            />
-          </TextField>
+        <Form class={styles.form} of={signInForm} onSubmit={submit}>
+          <Field of={signInForm} path={["email"]}>
+            {(field) => (
+              <TextField
+                class={styles.field}
+                name={field.props.name}
+                value={field.input ?? ""}
+                required
+              >
+                <TextField.Label class={styles.fieldHeading}>
+                  Email address
+                  <span class={`${styles.fieldStatus} ${styles.required}`}>
+                    Required
+                  </span>
+                </TextField.Label>
+                <TextField.Input
+                  {...field.props}
+                  class={styles.input}
+                  type="email"
+                  autocomplete="email"
+                  inputMode="email"
+                  placeholder="you@example.com"
+                  aria-invalid={Boolean(field.errors)}
+                  aria-describedby={field.errors ? "email-error" : undefined}
+                />
+                <Show when={field.errors}>
+                  {(errors) => (
+                    <span
+                      id="email-error"
+                      class={`${styles.notice} ${styles.error}`}
+                      role="alert"
+                    >
+                      {errors()[0]}
+                    </span>
+                  )}
+                </Show>
+              </TextField>
+            )}
+          </Field>
           <Button class={styles.button} type="submit" disabled={isSigningIn()}>
             <Show
               when={isSigningIn()}
@@ -124,7 +150,7 @@ export default function SignInPage() {
               Sending link…
             </Show>
           </Button>
-        </form>
+        </Form>
 
         <Show when={result()}>
           {(formResult) => (

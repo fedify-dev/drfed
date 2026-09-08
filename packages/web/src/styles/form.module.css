@@ -102,6 +102,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   outline: none;
 }
 
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.input[aria-invalid="true"]:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
 .input:read-only {
   border-style: dashed;
   color: var(--ink-soft);
@@ -155,12 +164,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   display: block;
 }
 
-.error {
+.notice.error {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   border-left: 3px solid var(--danger);
+  color: var(--danger);
 }
 
-.success {
-  border-left: 3px solid var(--accent);
+.notice.success {
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  border-left: 3px solid var(--success);
+  color: var(--success);
+}
+
+.field .notice.error {
+  background: transparent;
+  border-left: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0;
+  padding: 0;
 }
 
 @media (max-width: 600px) {

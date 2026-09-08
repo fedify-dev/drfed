@@ -130,7 +130,7 @@ importers:
         version: 0.6.0-dev.263(@upyo/core@0.6.0-dev.263)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql:
         specifier: 'catalog:'
         version: 16.14.2
@@ -179,7 +179,7 @@ importers:
         version: 4.13.0(graphql@16.14.2)
       '@pothos/plugin-drizzle':
         specifier: ^0.17.4
-        version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9))(graphql@16.14.2)
+        version: 0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)
       '@pothos/plugin-errors':
         specifier: ^4.9.1
         version: 4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)
@@ -197,7 +197,7 @@ importers:
         version: 0.6.0-dev.263(@upyo/core@0.6.0-dev.263)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql:
         specifier: 'catalog:'
         version: 16.14.2
@@ -237,7 +237,7 @@ importers:
         version: 2.3.0-dev.840
       drizzle-orm:
         specifier: 'catalog:'
-        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
+        version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       postgres:
         specifier: 'catalog:'
         version: 3.4.9
@@ -260,6 +260,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@formisch/solid':
+        specifier: 1.0.0
+        version: 1.0.0(solid-js@1.9.14)(typescript@7.0.2)(valibot@1.4.2(typescript@7.0.2))
       '@kobalte/core':
         specifier: ^0.13.13
         version: 0.13.13(solid-js@1.9.14)
@@ -284,6 +287,9 @@ importers:
       solid-relay:
         specifier: 1.0.0-beta.29
         version: 1.0.0-beta.29(relay-runtime@21.0.1)(seroval@1.6.0)(solid-js@1.9.14)
+      valibot:
+        specifier: 1.4.2
+        version: 1.4.2(typescript@7.0.2)
       vite:
         specifier: ^8.2.0
         version: 8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)
@@ -858,6 +864,16 @@ packages:
 
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
+
+  '@formisch/solid@1.0.0':
+    resolution: {integrity: sha512-J5RF48YCM6SNYVkt+CJ0+5MHPC38wi3zgBM5hOpwnWFU5Q/gtdjb+vO63uJKWLAU7XQlnZVDo7rBzf8bVsvvcA==}
+    peerDependencies:
+      solid-js: '>=1.6 <2'
+      typescript: '>=5 <8'
+      valibot: '>=1.4.1 <2'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   '@graphql-tools/executor@1.5.3':
     resolution: {integrity: sha512-mgBFC0bsrZPZLu9EnydpMnAuQ8Iiq0CEbUcsmvXsm2/iYektGHDN/+bmb7hicA6dWZtdPfklYJmr21WD0GnOfA==}
@@ -3726,6 +3742,14 @@ packages:
     resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
     hasBin: true
 
+  valibot@1.4.2:
+    resolution: {integrity: sha512-gjdCvJ6d3RyHAneqxMYMW9QMCwYMb3jpOO0IyHZV1bnRHFBHrX3VkIILt5XYR0WhwHiH7Mty8ovuPZ/O3gamrg==}
+    peerDependencies:
+      typescript: '>=5'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
+
   verkit@0.3.0:
     resolution: {integrity: sha512-Njrh4U8UODGajoZ44QS2C/BsoEM9DTI/aCqY5swsizb+/ap0FamvnCMcZAxrR5+aoC0ZqkawEfpC/N2SBc+xeA==}
     engines: {node: '>=18.12.0'}
@@ -4349,6 +4373,13 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
+  '@formisch/solid@1.0.0(solid-js@1.9.14)(typescript@7.0.2)(valibot@1.4.2(typescript@7.0.2))':
+    dependencies:
+      solid-js: 1.9.14
+      valibot: 1.4.2(typescript@7.0.2)
+    optionalDependencies:
+      typescript: 7.0.2
+
   '@graphql-tools/executor@1.5.3(graphql@16.14.2)':
     dependencies:
       '@graphql-tools/utils': 11.1.0(graphql@16.14.2)
@@ -4731,10 +4762,10 @@ snapshots:
     dependencies:
       graphql: 16.14.2
 
-  '@pothos/plugin-drizzle@0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9))(graphql@16.14.2)':
+  '@pothos/plugin-drizzle@0.17.4(@pothos/core@4.13.0(graphql@16.14.2))(drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)))(graphql@16.14.2)':
     dependencies:
       '@pothos/core': 4.13.0(graphql@16.14.2)
-      drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)
+      drizzle-orm: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
       graphql: 16.14.2
 
   '@pothos/plugin-errors@4.9.1(@pothos/core@4.13.0(graphql@16.14.2))(graphql@16.14.2)':
@@ -5522,13 +5553,14 @@ snapshots:
       get-tsconfig: 4.14.0
       jiti: 2.7.0
 
-  drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9):
+  drizzle-orm@1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2)):
     optionalDependencies:
       '@electric-sql/pglite': 0.5.3
       '@opentelemetry/api': 1.9.1
       '@types/pg': 8.20.0
       pg: 8.21.0
       postgres: 3.4.9
+      valibot: 1.4.2(typescript@7.0.2)
 
   dts-resolver@3.0.0: {}
 
@@ -6813,6 +6845,10 @@ snapshots:
   urlpattern-polyfill@10.1.0: {}
 
   uuid@14.0.1: {}
+
+  valibot@1.4.2(typescript@7.0.2):
+    optionalDependencies:
+      typescript: 7.0.2
 
   verkit@0.3.0: {}
 
