@@ -121,7 +121,7 @@ export function HeaderAccountButton() {
 
   return (
     <ErrorBoundary fallback={() => <></>}>
-      <Suspense fallback={<div class={styles.headerAction}>Signing Out..</div>}>
+      <Suspense fallback={<></>}>
         <Show when={query()}>
           {(data) => (
             <Show
