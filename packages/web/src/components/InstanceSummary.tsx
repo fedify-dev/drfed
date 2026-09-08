@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Link } from "@kobalte/core/link";
+import { A } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
@@ -50,13 +50,13 @@ export default function InstanceSummary(props: {
           </div>
           <Show when={instance().localInstance}>
             {(localInstance) => (
-              <Link
+              <A
                 class={styles.cardAction}
                 href={`/instance/${localInstance().slug}`}
               >
                 View Detail
                 <span aria-hidden="true">→</span>
-              </Link>
+              </A>
             )}
           </Show>
         </article>
