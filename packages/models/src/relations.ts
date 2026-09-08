@@ -40,9 +40,9 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.accounts.id,
       to: r.sessions.accountId,
     }),
-    loginTokens: r.many.loginTokens({
+    loginChallenges: r.many.loginChallenges({
       from: r.accounts.id,
-      to: r.loginTokens.accountId,
+      to: r.loginChallenges.accountId,
     }),
   },
   instanceMembers: {
@@ -91,9 +91,9 @@ export const relations = defineRelations(schema, (r) => ({
       optional: false,
     }),
   },
-  loginTokens: {
+  loginChallenges: {
     account: r.one.accounts({
-      from: r.loginTokens.accountId,
+      from: r.loginChallenges.accountId,
       to: r.accounts.id,
       optional: false,
     }),

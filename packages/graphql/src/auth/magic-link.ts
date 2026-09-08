@@ -22,23 +22,25 @@ import builder, { type UserContext } from "../builder.ts";
 import { generateBase36Code, hashSecret } from "./hash.ts";
 import { logReceipt, sendMail } from "./mail.ts";
 
-interface SendMailShape {
+interface LoginChallengeShape {
   readonly token: string;
 }
 
-const SendMailRef = builder.objectRef<SendMailShape>("SendMail").implement({
-  description: "The mail sent.",
-  fields: (t) => ({
-    token: t.expose("token", {
-      type: "UUID",
-      description: "Token for login.",
+const LoginChallengeRef = builder
+  .objectRef<LoginChallengeShape>("LoginChallenge")
+  .implement({
+    description: "An email login challenge.",
+    fields: (t) => ({
+      token: t.expose("token", {
+        type: "UUID",
+        description: "Token for login.",
+      }),
     }),
-  }),
-});
+  });
 
 builder.mutationFields((t) => ({
   loginByEmail: t.field({
-    type: SendMailRef,
+    type: LoginChallengeRef,
     description: "Send a magic link to email. Always returns `token: UUID`.",
     args: {
       email: t.arg({
@@ -68,7 +70,7 @@ builder.mutationFields((t) => ({
         code: generateBase36Code(CODE_LEN),
       };
 
-      await insertToken(account.id, verifier, ctx);
+      await insertChallenge(account.id, verifier, ctx);
       // Do not check the email was sent. Instructs users to request a resend if
       // the email does not arrive after a few minutes at the web page.
       logReceipt(await sendMail(account.email, verifier, ctx));
@@ -85,12 +87,12 @@ const findAccount = async (email: string, ctx: UserContext) =>
     where: { email },
   });
 
-const insertToken = async (
+const insertChallenge = async (
   accountId: string,
   { token, code }: { token: string; code: string },
   ctx: UserContext,
 ) =>
-  await ctx.db.insert(schema.loginTokens).values({
+  await ctx.db.insert(schema.loginChallenges).values({
     id: crypto.randomUUID(),
     accountId,
     tokenHash: await hashSecret(token),

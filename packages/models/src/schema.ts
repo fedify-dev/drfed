@@ -134,12 +134,12 @@ export type InstanceMember = typeof instanceMembers.$inferSelect;
 export type NewInstanceMember = typeof instanceMembers.$inferInsert;
 
 /**
- * Tokens for email login. `tokenHash` and `codeHash` store SHA-256 hex digests,
+ * Challenges for email login. `tokenHash` and `codeHash` store SHA-256 hex digests,
  * not the raw secrets.  The `tokenHash` field is used for lookup and
  * the `codeHash` field is the hash of the raw code that is sent to the user's
  * email.
  */
-export const loginTokens = pgTable("login_tokens", {
+export const loginChallenges = pgTable("login_challenges", {
   id: uuid().primaryKey(),
   accountId: uuid()
     .notNull()
@@ -155,8 +155,8 @@ export const loginTokens = pgTable("login_tokens", {
   consumed: timestamp({ withTimezone: true }),
 });
 
-export type LoginToken = typeof loginTokens.$inferSelect;
-export type NewLoginToken = typeof loginTokens.$inferInsert;
+export type LoginChallenge = typeof loginChallenges.$inferSelect;
+export type NewLoginChallenge = typeof loginChallenges.$inferInsert;
 
 /**
  * Authenticated sessions. The `id` field is used to revoke a session, and

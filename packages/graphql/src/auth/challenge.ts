@@ -17,7 +17,7 @@
 // oxlint-disable no-magic-numbers
 
 import type { Database } from "@drfed/models";
-import { loginTokens, sessions } from "@drfed/models/schema";
+import { loginChallenges, sessions } from "@drfed/models/schema";
 import { and, eq, gt, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type UserContext } from "../builder.ts";
@@ -60,14 +60,14 @@ builder.mutationFields((t) => ({
       try {
         const tokenHash = await hashSecret(token.toLowerCase());
         const now = new Date(Temporal.Now.instant().toString());
-        const row = await findToken(tokenHash, now, ctx);
+        const row = await findChallenge(tokenHash, now, ctx);
         const id = crypto.randomUUID();
         const accessToken = generateAccessToken();
         const accessHash = await hashSecret(accessToken);
 
         await verifyCode(code, row.codeHash);
         await ctx.db.transaction(async (tx) => {
-          await consumeToken(row.id, now, tx);
+          await consumeChallenge(row.id, now, tx);
           await insertSession(id, row.accountId, accessHash, tx);
         });
 
@@ -85,12 +85,12 @@ builder.mutationFields((t) => ({
   }),
 }));
 
-const findToken = async (tokenHash: string, now: Date, ctx: UserContext) =>
-  (await ctx.db.query.loginTokens.findFirst({
+const findChallenge = async (tokenHash: string, now: Date, ctx: UserContext) =>
+  (await ctx.db.query.loginChallenges.findFirst({
     where: { tokenHash, expires: { gt: now }, consumed: { isNull: true } },
   })) ??
   new LoginChallengeError(
-    `Can't find an alive login token: ${tokenHash}.`,
+    `Can't find an alive login challenge: ${tokenHash}.`,
   ).throw();
 
 const verifyCode = async (userCode: string, dbCodeHash: string) =>
@@ -100,19 +100,19 @@ const verifyCode = async (userCode: string, dbCodeHash: string) =>
   )) ||
   new LoginChallengeError(`The user's code and DB's one don't match`).throw();
 
-const consumeToken = async (tokenId: string, now: Date, tx: Database) =>
+const consumeChallenge = async (challengeId: string, now: Date, tx: Database) =>
   (
     await tx
-      .update(loginTokens)
+      .update(loginChallenges)
       .set({ consumed: now })
       .where(
         and(
-          eq(loginTokens.id, tokenId),
-          isNull(loginTokens.consumed),
-          gt(loginTokens.expires, now),
+          eq(loginChallenges.id, challengeId),
+          isNull(loginChallenges.consumed),
+          gt(loginChallenges.expires, now),
         ),
       )
-      .returning({ consumed: loginTokens.consumed })
+      .returning({ consumed: loginChallenges.consumed })
   )[0]?.consumed ??
   new LoginChallengeError("Updating `consumed` failed.").throw();
 
