@@ -26,16 +26,13 @@ builder.mutationFields((t) => ({
   revokeSession: t.field({
     type: LogoutSuccessRef,
     description: "Revokes a session. Return always `revoke: true`.",
-    args: {
-      session: t.arg({
-        type: "UUID",
-        required: true,
-        description: "The session ID to revoke.",
-      }),
+    authScopes: {
+      authenticated: true,
     },
-    async resolve(_query, { session }, ctx) {
-      if (ctx.session != null) {
-        await deleteSession(session, ctx);
+    async resolve(_query, _, ctx) {
+      const sessionId = ctx.session?.id;
+      if (sessionId) {
+        await deleteSession(sessionId, ctx);
       }
       // Return always true to prevent brute-force attack.
       return { revoke: true };

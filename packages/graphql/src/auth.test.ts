@@ -92,8 +92,8 @@ const viewerQuery = `
 `;
 
 const revokeSessionMutation = `
-  mutation RevokeSession($session: UUID!) {
-    revokeSession(session: $session) {
+  mutation RevokeSession {
+    revokeSession {
       revoke
     }
   }
@@ -363,7 +363,6 @@ describe("email authentication", () => {
       const revokeResponse = await post(
         {
           query: revokeSessionMutation,
-          variables: { session: session.id },
         },
         authorization,
       );
