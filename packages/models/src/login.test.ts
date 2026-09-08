@@ -47,8 +47,7 @@ beforeEach(async () => {
   await db.insert(schema.loginChallenges).values({
     id: challengeId,
     accountId,
-    tokenHash: "a".repeat(64),
-    codeHash: "b".repeat(64),
+    code: "abc123",
     created: now,
     expires,
   });

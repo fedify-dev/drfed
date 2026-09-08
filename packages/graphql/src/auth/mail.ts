@@ -46,8 +46,11 @@ Otherwise, please just ignore this mail.`,
 
 const linkOrRaw = (
   link: string | null,
-  { token, code }: ExpandVerifyUrlParams,
-) => (link == null ? `use token: ${token} and code: ${code}` : `open ${link}`);
+  { challengeId, code }: ExpandVerifyUrlParams,
+) =>
+  link == null
+    ? `use challenge ID: ${challengeId} and code: ${code}`
+    : `open ${link}`;
 
 export function logReceipt(receipt: Receipt<string>): void {
   if (receipt.successful) {

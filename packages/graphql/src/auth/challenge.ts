@@ -16,16 +16,20 @@
 
 // oxlint-disable no-magic-numbers
 
+import { Buffer } from "node:buffer";
+import { timingSafeEqual } from "node:crypto";
+
 import type { Database } from "@drfed/models";
 import {
   LoginChallengeError,
   consumeLoginChallenge,
+  findLoginChallenge,
 } from "@drfed/models/login";
 import { sessions } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 
-import builder, { type UserContext } from "../builder.ts";
-import { equalSecretHashes, generateAccessToken, hashSecret } from "./hash.ts";
+import builder from "../builder.ts";
+import { generateAccessToken, hashSecret } from "./hash.ts";
 
 const SessionRef = builder.drizzleObject("sessions", {
   name: "Session",
@@ -56,19 +60,25 @@ builder.mutationFields((t) => ({
     nullable: true,
     description: "Complete login challenge.",
     args: {
-      token: t.arg({ type: "UUID", required: true }),
+      challengeId: t.arg({ type: "UUID", required: true }),
       code: t.arg({ type: "String", required: true }),
     },
-    async resolve(query, _root, { token, code }, ctx) {
+    async resolve(query, _root, { challengeId, code }, ctx) {
       try {
-        const tokenHash = await hashSecret(token.toLowerCase());
-        const now = new Date(Temporal.Now.instant().toString());
-        const row = await findChallenge(tokenHash, now, ctx);
+        const now = new Date();
+        const row = await findLoginChallenge(ctx.db, challengeId, now);
         const id = crypto.randomUUID();
         const accessToken = generateAccessToken();
         const accessHash = await hashSecret(accessToken);
 
-        await verifyCode(code, row.codeHash);
+        const providedCode = Buffer.from(code.toLowerCase());
+        const expectedCode = Buffer.from(row.code);
+        if (
+          providedCode.length !== expectedCode.length ||
+          !timingSafeEqual(providedCode, expectedCode)
+        ) {
+          throw new LoginChallengeError("The provided code does not match.");
+        }
         await ctx.db.transaction(async (tx) => {
           await consumeLoginChallenge(tx, row.id, now);
           await insertSession(id, row.accountId, accessHash, tx);
@@ -87,31 +97,6 @@ builder.mutationFields((t) => ({
     },
   }),
 }));
-
-const findChallenge = async (
-  tokenHash: string,
-  now: Date,
-  ctx: UserContext,
-) => {
-  const challenge = await ctx.db.query.loginChallenges.findFirst({
-    where: { tokenHash, expires: { gt: now }, consumed: { isNull: true } },
-  });
-  if (challenge == null) {
-    throw new LoginChallengeError("Login challenge not found.");
-  }
-  return challenge;
-};
-
-const verifyCode = async (userCode: string, dbCodeHash: string) => {
-  if (
-    !(await equalSecretHashes(
-      await hashSecret(userCode.toLowerCase()),
-      dbCodeHash,
-    ))
-  ) {
-    throw new LoginChallengeError("The user's code and DB's one don't match");
-  }
-};
 
 const insertSession = async (
   id: Uuid,

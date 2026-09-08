@@ -17,14 +17,14 @@
 // oxlint-disable no-magic-numbers
 
 import { schema } from "@drfed/models";
-import type { Uuid } from "@drfed/models/uuid";
+import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 
 import builder, { type UserContext } from "../builder.ts";
-import { generateBase36Code, hashSecret } from "./hash.ts";
+import { generateBase36Code } from "./hash.ts";
 import { logReceipt, sendMail } from "./mail.ts";
 
 interface LoginChallengeShape {
-  readonly token: Uuid;
+  readonly challengeId: Uuid;
 }
 
 const LoginChallengeRef = builder
@@ -32,9 +32,9 @@ const LoginChallengeRef = builder
   .implement({
     description: "An email login challenge.",
     fields: (t) => ({
-      token: t.expose("token", {
+      challengeId: t.expose("challengeId", {
         type: "UUID",
-        description: "Token for login.",
+        description: "The public identifier of the login challenge.",
       }),
     }),
   });
@@ -42,7 +42,8 @@ const LoginChallengeRef = builder
 builder.mutationFields((t) => ({
   loginByEmail: t.field({
     type: LoginChallengeRef,
-    description: "Send a magic link to email. Always returns `token: UUID`.",
+    description:
+      "Send a magic link to email. Always returns `challengeId: UUID`.",
     args: {
       email: t.arg({
         type: "Email",
@@ -53,22 +54,23 @@ builder.mutationFields((t) => ({
         type: "URITemplate",
         required: false,
         description:
+          "Use {challengeId} and {code} variables. " +
           "The URL's origin must be in the server's allowlist. " +
-          "When omitted, the email carries the raw token and code.",
+          "When omitted, the email carries the challenge ID and verification code.",
       }),
     },
     async resolve(_root, { email, verifyUrl }, ctx) {
-      const token = crypto.randomUUID();
+      const challengeId = uuidV7();
       const account = await findAccount(email, ctx);
       if (account == null) {
-        // Returned token even if the account does not exist to prevent account
+        // Return an ID even for an unknown account to prevent account
         // enumeration. Consider mailing in a worker to prevent timing attacks.
-        return { token };
+        return { challengeId };
       }
       const verifier = {
-        token,
+        challengeId,
         template: verifyUrl,
-        code: generateBase36Code(CODE_LEN),
+        code: generateBase36Code(schema.LOGIN_CHALLENGE_CODE_LENGTH),
       };
 
       await insertChallenge(account.id, verifier, ctx);
@@ -76,12 +78,10 @@ builder.mutationFields((t) => ({
       // the email does not arrive after a few minutes at the web page.
       logReceipt(await sendMail(account.email, verifier, ctx));
 
-      return { token };
+      return { challengeId };
     },
   }),
 }));
-
-const CODE_LEN = 6;
 
 const findAccount = async (email: string, ctx: UserContext) =>
   await ctx.db.query.accounts.findFirst({
@@ -90,12 +90,11 @@ const findAccount = async (email: string, ctx: UserContext) =>
 
 const insertChallenge = async (
   accountId: Uuid,
-  { token, code }: { token: string; code: string },
+  { challengeId, code }: { challengeId: Uuid; code: string },
   ctx: UserContext,
 ) =>
   await ctx.db.insert(schema.loginChallenges).values({
-    id: crypto.randomUUID(),
+    id: challengeId,
     accountId,
-    tokenHash: await hashSecret(token),
-    codeHash: await hashSecret(code),
+    code,
   });

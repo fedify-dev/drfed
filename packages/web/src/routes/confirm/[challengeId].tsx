@@ -24,8 +24,8 @@ import { setSessionCookie } from "~/session.ts";
 import type { CompleteLoginChallenge } from "./__generated__/CompleteLoginChallenge.graphql.ts";
 
 const completeLoginChallengeMutation = graphql`
-  mutation CompleteLoginChallenge($token: UUID!, $code: String!) {
-    completeLoginChallenge(token: $token, code: $code) {
+  mutation CompleteLoginChallenge($challengeId: UUID!, $code: String!) {
+    completeLoginChallenge(challengeId: $challengeId, code: $code) {
       accessToken
       expires
     }
@@ -38,7 +38,7 @@ interface CompleteLoginResult {
 }
 
 const completeLoginChallengeAction = action(
-  async ({ token, code }: { token: string; code: string }) => {
+  async ({ challengeId, code }: { challengeId: string; code: string }) => {
     "use server";
 
     const environment = createRelayEnvironment();
@@ -46,7 +46,7 @@ const completeLoginChallengeAction = action(
     const result = await new Promise<CompleteLoginResult>((resolve) => {
       commitMutation<CompleteLoginChallenge>(environment, {
         mutation: completeLoginChallengeMutation,
-        variables: { token, code },
+        variables: { challengeId, code },
         onCompleted: (response, errors) => {
           const graphQLErrors = errors ?? [];
 
@@ -100,7 +100,7 @@ const completeLoginChallengeAction = action(
 );
 
 export default function ConfirmPage() {
-  const params = useParams<{ token: string }>();
+  const params = useParams<{ challengeId: string }>();
   const [searchParams] = useSearchParams<{ code?: string }>();
   const completeLoginChallenge = useAction(completeLoginChallengeAction);
   const [result, setResult] = createSignal<CompleteLoginResult>();
@@ -109,7 +109,7 @@ export default function ConfirmPage() {
     async function complete() {
       try {
         const completeResult = await completeLoginChallenge({
-          token: params.token,
+          challengeId: params.challengeId,
           code: searchParams.code ?? "",
         });
         setResult(completeResult);

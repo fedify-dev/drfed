@@ -18,6 +18,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  char,
   check,
   index,
   integer,
@@ -139,11 +140,12 @@ export const instanceMembers = pgTable(
 export type InstanceMember = typeof instanceMembers.$inferSelect;
 export type NewInstanceMember = typeof instanceMembers.$inferInsert;
 
+/** The length of an email login verification code. */
+export const LOGIN_CHALLENGE_CODE_LENGTH = 6;
+
 /**
- * Challenges for email login. `tokenHash` and `codeHash` store SHA-256 hex digests,
- * not the raw secrets.  The `tokenHash` field is used for lookup and
- * the `codeHash` field is the hash of the raw code that is sent to the user's
- * email.
+ * Email login challenges identified by a public UUID and verified by a
+ * plaintext code. Each challenge expires after 15 minutes and is single-use.
  */
 export const loginChallenges = pgTable("login_challenges", {
   id: uuid().$type<Uuid>().primaryKey(),
@@ -151,8 +153,7 @@ export const loginChallenges = pgTable("login_challenges", {
     .$type<Uuid>()
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
-  tokenHash: varchar({ length: 64 }).notNull().unique(),
-  codeHash: varchar({ length: 64 }).notNull(),
+  code: char({ length: LOGIN_CHALLENGE_CODE_LENGTH }).notNull(),
   created: timestamp({ withTimezone: true })
     .notNull()
     .default(currentTimestamp),
