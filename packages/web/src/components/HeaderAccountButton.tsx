@@ -46,8 +46,6 @@ const signOutAction = action(async () => {
 
   const environment = createRelayEnvironment();
 
-  deleteSessionCookie();
-
   const result = await new Promise<revokeSessionResult>((resolve) => {
     commitMutation<RevokeSession>(environment, {
       mutation: revokeSessionMutation,
@@ -93,7 +91,6 @@ const signOutAction = action(async () => {
 export function HeaderAccountButton() {
   const signOut = useAction(signOutAction);
   const submission = useSubmission(signOutAction);
-
   const query = createLazyLoadQuery<HeaderAccountButtonQuery>(
     graphql`
       query HeaderAccountButtonQuery {
@@ -106,8 +103,10 @@ export function HeaderAccountButton() {
   );
 
   async function handleSignOut() {
-    await signOut();
-    globalThis.location.replace("/");
+    const result = await signOut();
+    if (result.status === "success") {
+      globalThis.location.replace("/");
+    }
   }
 
   return (
