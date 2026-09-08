@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { Link } from "@kobalte/core/link";
 import { Title } from "@solidjs/meta";
+import { A } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { For, Show } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
@@ -54,10 +54,10 @@ export default function WorkspacePage() {
       <header class={styles.header}>
         <h1>Your instances</h1>
         <Show when={query()?.viewer}>
-          <Link class={styles.createButton} href="/workspace/create/instance">
+          <A class={styles.createButton} href="/workspace/create/instance">
             <span aria-hidden="true">+</span>
             New instance
-          </Link>
+          </A>
         </Show>
       </header>
 
@@ -68,9 +68,9 @@ export default function WorkspacePage() {
             <p class={styles.emptyLabel}>Workspace unavailable</p>
             <h2 id="signed-out-title">Sign in to manage your instances</h2>
             <p>Your workspace is linked to your DrFed account.</p>
-            <Link class={styles.secondaryButton} href="/sign-in">
+            <A class={styles.secondaryButton} href="/sign-in">
               Sign in
-            </Link>
+            </A>
           </section>
         }
       >
@@ -95,12 +95,12 @@ export default function WorkspacePage() {
                       Start with an instance, then add actors to explore
                       federation flows.
                     </p>
-                    <Link
+                    <A
                       class={styles.secondaryButton}
                       href="/workspace/create/instance"
                     >
                       Create an instance
-                    </Link>
+                    </A>
                   </section>
                 }
               >
