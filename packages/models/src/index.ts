@@ -18,3 +18,4 @@ export * from "./db.ts";
 export * from "./migrate.ts";
 export { relations } from "./relations.ts";
 export * as schema from "./schema.ts";
+export * from "./login.ts";

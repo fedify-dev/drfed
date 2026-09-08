@@ -17,12 +17,14 @@
 // oxlint-disable no-magic-numbers
 
 import type { Database } from "@drfed/models";
-import { loginChallenges, sessions } from "@drfed/models/schema";
+import {
+  LoginChallengeError,
+  consumeLoginChallenge,
+} from "@drfed/models/login";
+import { sessions } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
-import { and, eq, gt, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type UserContext } from "../builder.ts";
-import { LoginChallengeError } from "./errors.ts";
 import { equalSecretHashes, generateAccessToken, hashSecret } from "./hash.ts";
 
 const SessionRef = builder.drizzleObject("sessions", {
@@ -68,7 +70,7 @@ builder.mutationFields((t) => ({
 
         await verifyCode(code, row.codeHash);
         await ctx.db.transaction(async (tx) => {
-          await consumeChallenge(row.id, now, tx);
+          await consumeLoginChallenge(tx, row.id, now);
           await insertSession(id, row.accountId, accessHash, tx);
         });
 
@@ -86,36 +88,30 @@ builder.mutationFields((t) => ({
   }),
 }));
 
-const findChallenge = async (tokenHash: string, now: Date, ctx: UserContext) =>
-  (await ctx.db.query.loginChallenges.findFirst({
+const findChallenge = async (
+  tokenHash: string,
+  now: Date,
+  ctx: UserContext,
+) => {
+  const challenge = await ctx.db.query.loginChallenges.findFirst({
     where: { tokenHash, expires: { gt: now }, consumed: { isNull: true } },
-  })) ??
-  new LoginChallengeError(
-    `Can't find an alive login challenge: ${tokenHash}.`,
-  ).throw();
+  });
+  if (challenge == null) {
+    throw new LoginChallengeError("Login challenge not found.");
+  }
+  return challenge;
+};
 
-const verifyCode = async (userCode: string, dbCodeHash: string) =>
-  (await equalSecretHashes(
-    await hashSecret(userCode.toLowerCase()),
-    dbCodeHash,
-  )) ||
-  new LoginChallengeError(`The user's code and DB's one don't match`).throw();
-
-const consumeChallenge = async (challengeId: Uuid, now: Date, tx: Database) =>
-  (
-    await tx
-      .update(loginChallenges)
-      .set({ consumed: now })
-      .where(
-        and(
-          eq(loginChallenges.id, challengeId),
-          isNull(loginChallenges.consumed),
-          gt(loginChallenges.expires, now),
-        ),
-      )
-      .returning({ consumed: loginChallenges.consumed })
-  )[0]?.consumed ??
-  new LoginChallengeError("Updating `consumed` failed.").throw();
+const verifyCode = async (userCode: string, dbCodeHash: string) => {
+  if (
+    !(await equalSecretHashes(
+      await hashSecret(userCode.toLowerCase()),
+      dbCodeHash,
+    ))
+  ) {
+    throw new LoginChallengeError("The user's code and DB's one don't match");
+  }
+};
 
 const insertSession = async (
   id: Uuid,

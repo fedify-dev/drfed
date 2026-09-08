@@ -22,14 +22,6 @@ export class Throwable extends Error {
   }
 }
 
-export class LoginChallengeError extends Throwable {
-  constructor(message: string) {
-    super("Error while login challenge.");
-    this.name = "LoginChallengeError";
-    this.message = message;
-  }
-}
-
 export class VerifyUrlExpandingError extends Throwable {
   constructor(message: string) {
     super("Error while expand verify URL.");
