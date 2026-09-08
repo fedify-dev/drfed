@@ -17,7 +17,7 @@
 import { Button } from "@kobalte/core/button";
 import { A, action, useAction, useSubmission } from "@solidjs/router";
 import { commitMutation, graphql } from "relay-runtime";
-import { Show, Suspense } from "solid-js";
+import { ErrorBoundary, Show, Suspense, createSignal } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
 
 import { createRelayEnvironment } from "~/RelayEnvironment.ts";
@@ -91,6 +91,7 @@ const signOutAction = action(async () => {
 export function HeaderAccountButton() {
   const signOut = useAction(signOutAction);
   const submission = useSubmission(signOutAction);
+  const [result, setResult] = createSignal<revokeSessionResult>();
   const query = createLazyLoadQuery<HeaderAccountButtonQuery>(
     graphql`
       query HeaderAccountButtonQuery {
@@ -103,35 +104,52 @@ export function HeaderAccountButton() {
   );
 
   async function handleSignOut() {
-    const result = await signOut();
-    if (result.status === "success") {
-      globalThis.location.replace("/");
+    try {
+      const signOutResult = await signOut();
+      setResult(signOutResult);
+
+      if (signOutResult.status === "success") {
+        globalThis.location.replace("/");
+      }
+    } catch (error) {
+      setResult({
+        message: error instanceof Error ? error.message : "Unable to sign out.",
+        status: "error",
+      });
     }
   }
 
   return (
-    <Suspense fallback={undefined}>
-      <Show when={query()}>
-        {(data) => (
-          <Show
-            when={data().viewer}
-            fallback={
-              <A class={styles.headerAction} href="/sign-in">
-                Sign in
-              </A>
-            }
-          >
-            <Button
-              type="button"
-              class={styles.headerAction}
-              disabled={submission.pending}
-              onClick={() => void handleSignOut()}
+    <ErrorBoundary fallback={() => <></>}>
+      <Suspense fallback={<div class={styles.headerAction}>Signing Out..</div>}>
+        <Show when={query()}>
+          {(data) => (
+            <Show
+              when={data().viewer}
+              fallback={
+                <A class={styles.headerAction} href="/sign-in">
+                  Sign in
+                </A>
+              }
             >
-              Sign out
-            </Button>
-          </Show>
-        )}
-      </Show>
-    </Suspense>
+              <Button
+                type="button"
+                class={styles.headerAction}
+                disabled={submission.pending}
+                title={
+                  result()?.status === "error" ? result()?.message : undefined
+                }
+                aria-live="polite"
+                onClick={() => void handleSignOut()}
+              >
+                {result()?.status === "error"
+                  ? "Sign out failed — retry"
+                  : "Sign out"}
+              </Button>
+            </Show>
+          )}
+        </Show>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
