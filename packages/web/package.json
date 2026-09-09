@@ -46,13 +46,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@kobalte/core": "^0.13.13",
     "@formisch/solid": "1.0.0",
+    "@kobalte/core": "^0.13.13",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^1.0.0",
     "@solidjs/start": "^2.0.0",
     "nitro": "3.0.260610-beta",
     "relay-runtime": "^21.0.1",
+    "seroval": "1.5.4",
     "solid-js": "^1.9.5",
     "solid-relay": "1.0.0-beta.29",
     "valibot": "1.4.2",
