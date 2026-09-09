@@ -381,4 +381,28 @@ describe("email authentication", () => {
       });
     });
   });
+
+  it("not sign in, and reovkes the session", async () => {
+    await withTestHarness(async ({ db, mailer: _, post }) => {
+      await db.insert(schema.accounts).values({
+        id: accountId,
+        email,
+        name: "Sign Out Test",
+      });
+
+      const revokeResponse = await post({
+        query: revokeSessionMutation,
+      });
+      equal(revokeResponse.status, okStatus);
+
+      const responseData = await revokeResponse.json();
+
+      equal(responseData.data, null);
+
+      const error = responseData.errors[0];
+
+      equal(error?.message, "Not authorized to resolve Mutation.revokeSession");
+      equal(error?.path[0], "revokeSession");
+    });
+  });
 });
