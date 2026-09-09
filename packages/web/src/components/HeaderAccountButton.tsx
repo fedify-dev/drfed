@@ -111,7 +111,9 @@ export function HeaderAccountButton() {
   }
 
   return (
+    /* A query failure does not mean the viewer is signed out. Instead, it means sever error or network error, making access to other function in this situation will make another error. */
     <ErrorBoundary fallback={() => <></>}>
+      {/* Avoid auth-state flicker while the viewer query is pending. */}
       <Suspense fallback={<></>}>
         <Show when={query()}>
           {(data) => (
