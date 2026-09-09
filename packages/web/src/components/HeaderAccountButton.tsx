@@ -17,7 +17,7 @@
 import { Button } from "@kobalte/core/button";
 import { A, action, useAction, useSubmission } from "@solidjs/router";
 import { commitMutation, graphql } from "relay-runtime";
-import { ErrorBoundary, Show, Suspense, createSignal } from "solid-js";
+import { ErrorBoundary, Show, Suspense } from "solid-js";
 import { createLazyLoadQuery } from "solid-relay";
 
 import { createRelayEnvironment } from "~/RelayEnvironment.ts";
@@ -50,7 +50,7 @@ const signOutAction = action(async () => {
     commitMutation<RevokeSession>(environment, {
       mutation: revokeSessionMutation,
       variables: {},
-      onCompleted: (response, errors) => {
+      onCompleted: (_response, errors) => {
         const graphQLErrors = errors ?? [];
 
         if (graphQLErrors.length > 0) {
@@ -65,7 +65,7 @@ const signOutAction = action(async () => {
           deleteSessionCookie();
         } catch {
           resolve({
-            message: "Unable to delete session in cookie",
+            message: "Unable to delete cookie",
             status: "error",
           });
           return;
@@ -91,7 +91,6 @@ const signOutAction = action(async () => {
 export function HeaderAccountButton() {
   const signOut = useAction(signOutAction);
   const submission = useSubmission(signOutAction);
-  const [result, setResult] = createSignal<revokeSessionResult>();
   const query = createLazyLoadQuery<HeaderAccountButtonQuery>(
     graphql`
       query HeaderAccountButtonQuery {
@@ -104,18 +103,10 @@ export function HeaderAccountButton() {
   );
 
   async function handleSignOut() {
-    try {
-      const signOutResult = await signOut();
-      setResult(signOutResult);
+    const signOutResult = await signOut();
 
-      if (signOutResult.status === "success") {
-        globalThis.location.replace("/");
-      }
-    } catch (error) {
-      setResult({
-        message: error instanceof Error ? error.message : "Unable to sign out.",
-        status: "error",
-      });
+    if (signOutResult.status === "success") {
+      globalThis.location.replace("/");
     }
   }
 
@@ -127,7 +118,11 @@ export function HeaderAccountButton() {
             <Show
               when={data().viewer}
               fallback={
-                <A class={styles.headerAction} href="/sign-in">
+                <A
+                  class={styles.headerAction}
+                  activeClass={styles.active}
+                  href="/sign-in"
+                >
                   Sign in
                 </A>
               }
@@ -137,14 +132,16 @@ export function HeaderAccountButton() {
                 class={styles.headerAction}
                 disabled={submission.pending}
                 title={
-                  result()?.status === "error" ? result()?.message : undefined
+                  submission.result?.status === "error"
+                    ? submission.result.message
+                    : "Sign Out"
                 }
                 aria-live="polite"
                 onClick={() => void handleSignOut()}
               >
-                {result()?.status === "error"
-                  ? "Sign out failed — retry"
-                  : "Sign out"}
+                {submission.result?.status === "error"
+                  ? submission.result.message
+                  : "Sign Out"}
               </Button>
             </Show>
           )}
