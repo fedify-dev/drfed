@@ -21,9 +21,9 @@
 import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
+import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
-import { v7 as uuid } from "uuid";
 
 import { withTestHarness } from "./harness.test.ts";
 import {

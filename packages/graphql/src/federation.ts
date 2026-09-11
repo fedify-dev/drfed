@@ -20,7 +20,7 @@ import type {
   Actor,
   ObjectType,
 } from "@drfed/models/schema";
-import type { Uuid } from "@drfed/models/uuid";
+import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
   type Context,
   type Federation,
@@ -46,7 +46,6 @@ import {
   Tombstone,
 } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
-import { validate as validateUuid } from "uuid";
 
 /**
  * The vocabulary object types that DrFed serves as actors.
@@ -176,7 +175,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
         }
         const rows = await db.query.objects.findMany({
           where: {
-            actorId: identifier,
+            actorId: identifier as Uuid,
             deleted: { isNull: true },
             visibility: { in: ["public", "unlisted"] },
             ...(cursor == null || cursor === "" ? {} : { id: { lt: cursor } }),

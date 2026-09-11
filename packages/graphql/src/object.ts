@@ -16,10 +16,10 @@
 
 import { schema } from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
+import { uuidV7 as uuid, validateUuid } from "@drfed/models/uuid";
 import { Object as APObject } from "@fedify/vocab";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
-import { v7 as uuid, validate as validateUuid } from "uuid";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
@@ -44,7 +44,7 @@ const ObjectRef = builder.drizzleNode("objects", {
   fields: (t) => ({
     uuid: t.expose("id", {
       type: "UUID",
-      description: "The UUID of the object.",
+      description: "The UUID of the ActivityPub Object.",
     }),
     iri: t.exposeString("iri", {
       description: "The canonical ActivityPub identifier of the object.",

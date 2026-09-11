@@ -19,11 +19,11 @@ import assert from "node:assert/strict";
 import { createYogaServer } from "@drfed/graphql";
 import createFederation, { buildFederation } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
 import { Object as APObject } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
-import { v7 as uuid } from "uuid";
 
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
@@ -97,8 +97,8 @@ const accept = { accept: "application/activity+json" };
 
 function values(id: string) {
   return {
-    id,
-    actorId: localActorId,
+    id: id as Uuid,
+    actorId: localActorId as Uuid,
     iri: `${actorIri}/${id}`,
     type: "Note" as const,
     contentHtml: "<p>Hello</p>",
