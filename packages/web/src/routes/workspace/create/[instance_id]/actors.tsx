@@ -22,6 +22,7 @@ import {
   type RouteDefinition,
   type RouteSectionProps,
   query,
+  useNavigate,
 } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
@@ -100,6 +101,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
   const [errorMessage, setErrorMessage] = createSignal<string>();
   const [commitGenerateActors, isGeneratingActors] =
     createMutation<GenerateActorsMutation>(generateActorsMutation);
+  const navigate = useNavigate();
 
   const data = createPreloadedQuery<GetHostQuery>(
     getHostQuery,
@@ -135,7 +137,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {
-            //FIXME: pop up success message
+            navigate(-1);
             return;
           }
           case "CreateActorsError": {
