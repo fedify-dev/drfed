@@ -19,12 +19,11 @@ import assert from "node:assert/strict";
 import { createYogaServer } from "@drfed/graphql";
 import createFederation, { buildFederation } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
-import { uuidV7 } from "@drfed/models/uuid";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
 import { Object as APObject } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
-import { v7 as uuid } from "uuid";
 
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
@@ -82,10 +81,10 @@ describe("createFederation()", () => {
     // `demo.drfed.test`.  Without canonicalizing the lookup key, every actor
     // on that instance answers 404 to such a request.
     await withTemporaryDatabase(async (db) => {
-      const localInstanceId = uuidV7();
-      const instanceId = uuidV7();
-      const localActorId = uuidV7();
-      const actorId = uuidV7();
+      const localInstanceId = uuid();
+      const instanceId = uuid();
+      const localActorId = uuid();
+      const actorId = uuid();
       const base = "https://demo.drfed.test";
       await db.insert(schema.localInstances).values({
         id: localInstanceId,
@@ -186,8 +185,8 @@ const accept = { accept: "application/activity+json" };
 
 function values(id: string) {
   return {
-    id,
-    actorId: localActorId,
+    id: id as Uuid,
+    actorId: localActorId as Uuid,
     iri: `${actorIri}/${id}`,
     type: "Note" as const,
     contentHtml: "<p>Hello</p>",
