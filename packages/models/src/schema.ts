@@ -302,8 +302,9 @@ export type ObjectVisibility = (typeof objectVisibilityEnum.enumValues)[number];
 export const objects = pgTable(
   "objects",
   {
-    id: uuid().primaryKey(),
+    id: uuid().$type<Uuid>().primaryKey(),
     actorId: uuid()
+      .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
     type: objectTypeEnum().notNull(),

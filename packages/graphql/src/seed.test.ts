@@ -26,8 +26,8 @@ export const ok = 200;
 export const accountId = "00000000-0000-4000-8000-000000000001";
 export const localInstanceId = "00000000-0000-4000-8000-000000000101";
 export const remoteInstanceId = "00000000-0000-4000-8000-000000000102";
-export const localActorId = "00000000-0000-4000-8000-000000000201";
-export const remoteActorId = "00000000-0000-4000-8000-000000000202";
+export const localActorId = "00000000-0000-4000-8000-000000000201" as const;
+export const remoteActorId = "00000000-0000-4000-8000-000000000202" as const;
 export const sessionId = "00000000-0000-4000-8000-000000000301";
 export const accessToken = "test-access-token";
 
