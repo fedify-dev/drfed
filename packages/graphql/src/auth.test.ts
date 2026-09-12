@@ -29,7 +29,7 @@ const okStatus = 200;
 const accountId = "00000000-0000-4000-8000-000000000001";
 const email = "noreply@drfed.org";
 const verifyUrl =
-  "https://drfed.org/transports/mock?challengeId={challengeId}&code={code}";
+  "https://drfed.test/transports/mock?challengeId={challengeId}&code={code}";
 const memberId = "00000000-0000-4000-8000-000000000002";
 const memberEmail = "member@example.com";
 const instanceId = "00000000-0000-4000-8000-000000000101";
@@ -100,7 +100,7 @@ const revokeSessionMutation = `
 `;
 
 const loginUrlPattern =
-  /https:\/\/drfed\.org\/transports\/mock\?challengeId=[0-9a-f-]+&code=[0-9a-z]+/u;
+  /https:\/\/drfed\.test\/transports\/mock\?challengeId=[0-9a-f-]+&code=[0-9a-z]+/u;
 
 /**
  * Runs the login-by-email flow far enough to obtain a challenge ID and the
@@ -219,7 +219,7 @@ describe("email authentication", () => {
         .values({ id: accountId, email, name: "Login Test" });
       const cases = [
         {
-          verifyUrl: "https://drfed.org/confirm/{challengeId}?code={code:1}",
+          verifyUrl: "https://drfed.test/confirm/{challengeId}?code={code:1}",
           message: "Verify URL template must include {code}.",
         },
         {
@@ -369,7 +369,7 @@ describe("email authentication", () => {
       ok(urlMatch);
 
       const loginUrl = new URL(urlMatch[0]);
-      equal(loginUrl.origin, "https://drfed.org");
+      equal(loginUrl.origin, "https://drfed.test");
       equal(loginUrl.pathname, "/transports/mock");
       equal(loginUrl.searchParams.get("challengeId"), challengeId);
 
