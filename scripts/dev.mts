@@ -301,6 +301,7 @@ try {
 
   const serverArgs: string[] = [
     "--watch",
+    "--env-file=.env",
     "bin/drfed-server.mjs",
     "--pglite-data-path",
     "../../.pgdata",

@@ -49,9 +49,29 @@ async function runServer(options: ServerOptions) {
       : new PostgresKvStore(credentials.client);
   const federation = await createFederation(options.drizzle.db, { kv });
   const { mailer, root } = options;
+
+  const values = process.env.DRFED_LOGIN_ORIGINS?.split(",").map((value) =>
+    value.trim(),
+  );
+
+  if (values == null || values.some((value) => value === "")) {
+    throw new TypeError("DRFED_LOGIN_ORIGINS must contain valid origins.");
+  }
+
+  const loginOrigins = new Set(
+    values.map((value) => {
+      const url = new URL(value);
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new TypeError(`Unsupported login origin
+            protocol: ${url.protocol}`);
+      }
+      return url.origin;
+    }),
+  );
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
     root,
     mailer,
+    loginOrigins,
   });
   const server = serve({
     fetch: (req) =>
