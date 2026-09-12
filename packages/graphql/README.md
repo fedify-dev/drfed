@@ -27,7 +27,9 @@ import { createYogaServer } from "@drfed/graphql";
 import createFederation from "@drfed/graphql/federation";
 
 const federation = await createFederation(db, { kv });
-const yoga = createYogaServer(db, federation);
+const yoga = createYogaServer(db, federation), {
+  loginOrigins: new Set(["https://drfed.example.com"])
+};
 serve({
   fetch: (request) =>
     federation.fetch(request, { onNotFound: yoga.fetch, contextData: undefined }),

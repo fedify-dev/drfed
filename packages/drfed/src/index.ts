@@ -40,24 +40,12 @@ import program from "./program.ts";
 import seedData from "./seed.ts";
 
 async function runServer(options: ServerOptions) {
-  const { credentials } = options.drizzle;
-  if (options.drizzle.migrate) await migrate({ credentials });
-  if (options.seed) await seedData(options.drizzle.db);
-  const kv =
-    "driver" in credentials
-      ? new PgliteKvStore(credentials.client)
-      : new PostgresKvStore(credentials.client);
-  const federation = await createFederation(options.drizzle.db, { kv });
-  const { mailer, root } = options;
-
   const values = process.env.DRFED_LOGIN_ORIGINS?.split(",").map((value) =>
     value.trim(),
   );
-
   if (values == null || values.some((value) => value === "")) {
     throw new TypeError("DRFED_LOGIN_ORIGINS must contain valid origins.");
   }
-
   const loginOrigins = new Set(
     values.map((value) => {
       const url = new URL(value);
@@ -68,6 +56,17 @@ async function runServer(options: ServerOptions) {
       return url.origin;
     }),
   );
+
+  const { credentials } = options.drizzle;
+  if (options.drizzle.migrate) await migrate({ credentials });
+  if (options.seed) await seedData(options.drizzle.db);
+  const kv =
+    "driver" in credentials
+      ? new PgliteKvStore(credentials.client)
+      : new PostgresKvStore(credentials.client);
+  const federation = await createFederation(options.drizzle.db, { kv });
+  const { mailer, root } = options;
+
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
     root,
     mailer,
