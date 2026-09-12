@@ -1,4 +1,5 @@
 .DS_Store
+.env
 *.graphql
 *.graphql.ts
 __generated__/
