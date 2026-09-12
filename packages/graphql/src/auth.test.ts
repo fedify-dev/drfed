@@ -35,7 +35,7 @@ const memberEmail = "member@example.com";
 const instanceId = "00000000-0000-4000-8000-000000000101";
 
 const loginMutation = `
-  mutation Login($email: Email!, $verifyUrl: URITemplate) {
+  mutation Login($email: Email!, $verifyUrl: URITemplate!) {
     loginByEmail(email: $email, verifyUrl: $verifyUrl) {
       ... on LoginChallenge {
         challengeId
@@ -192,29 +192,69 @@ describe("email authentication", () => {
     });
   });
 
-  it("mails the public ID and plaintext code when no URL is supplied", async () => {
+  it("requires a verify URL", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
-      await db
-        .insert(schema.accounts)
-        .values({ id: accountId, email, name: "Login Test" });
       const response = await post({
         query: loginMutation,
         variables: { email },
       });
       const body = await response.json();
-      equal(body.errors, undefined);
-      const { challengeId } = body.data.loginByEmail;
-      const row = await db.query.loginChallenges.findFirst({
-        where: { id: challengeId },
-      });
-      ok(row);
-      equal(row.code.length, schema.LOGIN_CHALLENGE_CODE_LENGTH);
-      const [message] = mailer.getSentMessages();
+      equal(body.data, undefined);
       ok(
-        message?.content.text?.includes(
-          `challenge ID: ${challengeId} and code: ${row.code}`,
+        body.errors.some((error: { message: string }) =>
+          error.message.includes(
+            'Variable "$verifyUrl" of required type "URITemplate!" was not provided.',
+          ),
         ),
       );
+      equal(mailer.getSentMessages().length, 0);
+      equal((await db.query.loginChallenges.findMany()).length, 0);
+    });
+  });
+
+  it("rejects invalid verify URLs before looking up the account", async () => {
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+      const cases = [
+        {
+          verifyUrl: "https://drfed.org/confirm/{challengeId}?code={code:1}",
+          message: "Verify URL template must include {code}.",
+        },
+        {
+          verifyUrl: "/confirm/{challengeId}?code={code}",
+          message: "Verify URL template must expand to an absolute URL.",
+        },
+        {
+          verifyUrl: "ftp://drfed.org/confirm/{challengeId}?code={code}",
+          message: "Verify URL must use HTTP or HTTPS.",
+        },
+        {
+          verifyUrl: "https://example.com/confirm/{challengeId}?code={code}",
+          message: "Verify URL origin is not allowed: https://example.com.",
+        },
+      ];
+
+      const results = await Promise.all(
+        cases.flatMap((testCase) =>
+          [email, "unknown@example.com"].map(async (loginEmail) => {
+            const response = await post({
+              query: loginMutation,
+              variables: { email: loginEmail, verifyUrl: testCase.verifyUrl },
+            });
+            return { body: await response.json(), message: testCase.message };
+          }),
+        ),
+      );
+      for (const { body, message } of results) {
+        equal(body.data, null);
+        equal(body.errors[0].message, message);
+        equal(body.errors[0].extensions.code, "BAD_USER_INPUT");
+      }
+
+      equal(mailer.getSentMessages().length, 0);
+      equal((await db.query.loginChallenges.findMany()).length, 0);
     });
   });
 

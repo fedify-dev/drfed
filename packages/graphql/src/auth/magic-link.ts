@@ -20,6 +20,7 @@ import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 
 import builder, { type UserContext } from "../builder.ts";
+import expandVerifyUrl from "./expand.ts";
 import { generateBase36Code } from "./hash.ts";
 import { logReceipt, sendMail } from "./mail.ts";
 
@@ -43,7 +44,7 @@ builder.mutationFields((t) => ({
   loginByEmail: t.field({
     type: LoginChallengeRef,
     description:
-      "Send a magic link to email. Always returns `challengeId: UUID`.",
+      "Send a magic link without revealing whether the account exists.",
     args: {
       email: t.arg({
         type: "Email",
@@ -52,15 +53,21 @@ builder.mutationFields((t) => ({
       }),
       verifyUrl: t.arg({
         type: "URITemplate",
-        required: false,
+        required: true,
         description:
           "Use {challengeId} and {code} variables. " +
-          "The URL's origin must be in the server's allowlist. " +
-          "When omitted, the email carries the challenge ID and verification code.",
+          "The URL's origin must be in the server's login allowlist.",
       }),
     },
     async resolve(_root, { email, verifyUrl }, ctx) {
       const challengeId = uuidV7();
+      const code = generateBase36Code(schema.LOGIN_CHALLENGE_CODE_LENGTH);
+      const loginUrl = expandVerifyUrl({
+        challengeId,
+        code,
+        loginOrigins: ctx.loginOrigins,
+        template: verifyUrl,
+      });
       const account = await findAccount(email, ctx);
       if (account == null) {
         // Return an ID even for an unknown account to prevent account
@@ -69,14 +76,13 @@ builder.mutationFields((t) => ({
       }
       const verifier = {
         challengeId,
-        template: verifyUrl,
-        code: generateBase36Code(schema.LOGIN_CHALLENGE_CODE_LENGTH),
+        code,
       };
 
       await insertChallenge(account.id, verifier, ctx);
       // Do not check the email was sent. Instructs users to request a resend if
       // the email does not arrive after a few minutes at the web page.
-      logReceipt(await sendMail(account.email, verifier, ctx));
+      logReceipt(await sendMail(account.email, loginUrl, ctx));
 
       return { challengeId };
     },
