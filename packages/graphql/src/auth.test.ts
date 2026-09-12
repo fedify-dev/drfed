@@ -383,7 +383,7 @@ describe("email authentication", () => {
   });
 
   it("not sign in, and reovkes the session", async () => {
-    await withTestHarness(async ({ db, mailer: _, post }) => {
+    await withTestHarness(async ({ db, post }) => {
       await db.insert(schema.accounts).values({
         id: accountId,
         email,
