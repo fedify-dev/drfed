@@ -14,34 +14,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import process from "node:process";
-
 import { solidStart } from "@solidjs/start/config";
 import { nitro } from "nitro/vite";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import { cjsInterop } from "vite-plugin-cjs-interop";
 import relay from "vite-plugin-relay-lite";
 
-export default defineConfig(({ mode, command }) => {
-  const env = loadEnv(mode, process.cwd());
-  return {
-    plugins: [
-      solidStart(),
-      nitro({
-        routeRules: {
-          "/graphql": {
-            proxy: {
-              to: `${env.VITE_BACKEND_URL}/graphql`,
-              forwardHeaders: ["accept"],
-            },
-          },
-        },
-      }),
-      relay({ codegen: command !== "build" }),
-      {
-        ...cjsInterop({ dependencies: ["relay-runtime"] }),
-        applyToEnvironment: (environment) => environment.name === "ssr",
-      },
-    ],
-  };
-});
+export default defineConfig(({ command }) => ({
+  plugins: [
+    solidStart(),
+    nitro(),
+    relay({ codegen: command !== "build" }),
+    {
+      ...cjsInterop({ dependencies: ["relay-runtime"] }),
+      applyToEnvironment: (environment) => environment.name === "ssr",
+    },
+  ],
+}));

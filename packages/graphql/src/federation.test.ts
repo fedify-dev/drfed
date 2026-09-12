@@ -73,7 +73,10 @@ describe("createFederation()", () => {
 describe("createYogaServer()", () => {
   it("does not mutate the federation instance", async () => {
     await withTestHarness(({ db, mailer, federation }) => {
-      assert.doesNotThrow(() => createYogaServer(db, federation, { mailer }));
+      const loginOrigins = new Set(["https://drfed.test"]);
+      assert.doesNotThrow(() =>
+        createYogaServer(db, federation, { mailer, loginOrigins }),
+      );
     });
   });
 });

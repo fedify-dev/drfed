@@ -44,9 +44,9 @@ export interface YogaServerOptions {
   emailFrom?: string;
 
   /**
-   * Origin list.
+   * Origin list for login.
    */
-  origins?: ReadonlySet<string>;
+  loginOrigins: ReadonlySet<string>;
 
   /**
    * Root domain.
@@ -62,21 +62,18 @@ export interface YogaServerOptions {
  *        in `@drfed/graphql/federation`); this function only stores it in
  *        the resolver context and never mutates it, so the same instance can
  *        be shared by several servers.
- * @param {YogaServerOptions} _options Options for server.
+ * @param {YogaServerOptions} rawOptions Options for server.
  * @returns A `YogaServerInstance` configured with the schema and context for
  *          handling GraphQL requests.
  */
 export function createYogaServer(
   db: Database,
   federation: Federation<unknown>,
-  _options: YogaServerOptions = {},
+  rawOptions: YogaServerOptions,
 ): YogaServerInstance<ServerContext, UserContext> {
-  const options = fillOptions(_options);
+  const options = fillOptions(rawOptions);
   return createYoga({
-    cors: {
-      origin: [...options.origins],
-      credentials: true,
-    },
+    cors: false,
     async context(ctx) {
       const anonymous = { db, federation, request: ctx.request, ...options };
       const accessToken = getAccessToken(ctx.request.headers);
@@ -109,8 +106,7 @@ const fillOptions = (
 ): Omit<ServerContext, "db" | "request" | "federation"> => ({
   mailer: opt.mailer ?? mockTransport(),
   emailFrom: opt.emailFrom ?? "noreply@drfed.org",
-  // FIXME: Properly parametrize the following allowlist:
-  origins: opt.origins ?? new Set(["https://drfed.org"]),
+  loginOrigins: opt.loginOrigins,
   root: opt.root ?? "drfed.org",
 });
 
