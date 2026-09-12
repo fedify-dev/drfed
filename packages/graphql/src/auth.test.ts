@@ -92,8 +92,8 @@ const viewerQuery = `
 `;
 
 const revokeSessionMutation = `
-  mutation RevokeSession($session: UUID!) {
-    revokeSession(session: $session) {
+  mutation RevokeSession {
+    revokeSession {
       revoke
     }
   }
@@ -298,7 +298,7 @@ describe("email authentication", () => {
     });
   });
 
-  it("logs in, authenticates the viewer, and revokes the session", async () => {
+  it("logs in, authenticates the viewer, and revoke the session", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
       await db.insert(schema.accounts).values({
         id: accountId,
@@ -363,7 +363,6 @@ describe("email authentication", () => {
       const revokeResponse = await post(
         {
           query: revokeSessionMutation,
-          variables: { session: session.id },
         },
         authorization,
       );
@@ -380,6 +379,30 @@ describe("email authentication", () => {
       deepEqual(await revokedViewerResponse.json(), {
         data: { viewer: null },
       });
+    });
+  });
+
+  it("not sign in, and reovkes the session", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await db.insert(schema.accounts).values({
+        id: accountId,
+        email,
+        name: "Sign Out Test",
+      });
+
+      const revokeResponse = await post({
+        query: revokeSessionMutation,
+      });
+      equal(revokeResponse.status, okStatus);
+
+      const responseData = await revokeResponse.json();
+
+      equal(responseData.data, null);
+
+      const error = responseData.errors[0];
+
+      equal(error?.message, "Not authorized to resolve Mutation.revokeSession");
+      equal(error?.path[0], "revokeSession");
     });
   });
 });
