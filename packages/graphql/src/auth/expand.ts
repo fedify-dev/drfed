@@ -23,14 +23,14 @@ export interface ExpandVerifyUrlParams {
   template: Template | undefined | null;
   challengeId: `${string}-${string}-${string}-${string}-${string}`;
   code: string;
-  origins: ReadonlySet<string>;
+  loginOrigins: ReadonlySet<string>;
 }
 
 export default function expandVerifyUrl({
   template,
   challengeId,
   code,
-  origins,
+  loginOrigins,
 }: ExpandVerifyUrlParams): string | null {
   // Showing the errors occurring here to the user poses a security threat,
   // so they are handled as `null` and then processed as a fallback in
@@ -40,7 +40,7 @@ export default function expandVerifyUrl({
       return null;
     }
     const url = expandUrl(template, challengeId, code);
-    assertAllow(url, origins);
+    assertAllow(url, loginOrigins);
     return url.toString();
   } catch (error) {
     // Almost of errors that can occur in this code could be
@@ -66,10 +66,10 @@ function expandUrl(template: Template, challengeId: string, code: string) {
   return url;
 }
 
-const assertAllow = (url: URL, origins: ReadonlySet<string>) =>
-  !origins.has(url.origin) &&
+const assertAllow = (url: URL, loginOrigins: ReadonlySet<string>) =>
+  !loginOrigins.has(url.origin) &&
   new VerifyUrlExpandingError(
-    `Origin not allowed for verify URL: ${url.origin}.`,
+    `LoginOrigin not allowed for verify URL: ${url.origin}.`,
   ).throw();
 
 const logger = getLogger(["drfed", "graphql", "expand"]);

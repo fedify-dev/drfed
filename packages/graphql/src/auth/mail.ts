@@ -22,7 +22,7 @@ import expandVerifyUrl, { type ExpandVerifyUrlParams } from "./expand.ts";
 
 export const sendMail = async (
   to: string,
-  verifier: Omit<ExpandVerifyUrlParams, "origins">,
+  verifier: Omit<ExpandVerifyUrlParams, "loginOrigins">,
   ctx: UserContext,
 ) =>
   await ctx.mailer.send(
@@ -31,7 +31,10 @@ export const sendMail = async (
       to,
       // FIXME: Internationalize the email subject
       subject: "Sign in to DrFed",
-      content: renderLoginEmail({ ...verifier, origins: ctx.origins }),
+      content: renderLoginEmail({
+        ...verifier,
+        loginOrigins: ctx.loginOrigins,
+      }),
     }),
   );
 
