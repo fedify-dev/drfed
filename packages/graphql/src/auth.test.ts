@@ -298,7 +298,7 @@ describe("email authentication", () => {
     });
   });
 
-  it("logs in, authenticates the viewer, and revokes the session", async () => {
+  it("logs in, authenticates the viewer, and revoke the session", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
       await db.insert(schema.accounts).values({
         id: accountId,
