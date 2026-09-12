@@ -27,9 +27,9 @@ import { createYogaServer } from "@drfed/graphql";
 import createFederation from "@drfed/graphql/federation";
 
 const federation = await createFederation(db, { kv });
-const yoga = createYogaServer(db, federation), {
-  loginOrigins: new Set(["https://drfed.example.com"])
-};
+const yoga = createYogaServer(db, federation, {
+  loginOrigins: new Set(["https://drfed.example.com"]),
+});
 serve({
   fetch: (request) =>
     federation.fetch(request, { onNotFound: yoga.fetch, contextData: undefined }),
@@ -38,6 +38,6 @@ serve({
 
 `createFederation` builds a Fedify `Federation` with every DrFed dispatcher
 registered.  `createYogaServer` accepts a Drizzle database instance, that
-federation, and optional server options, and returns a GraphQL Yoga server
+federation, and server options, and returns a GraphQL Yoga server
 ready to handle HTTP requests.  The federation is stored in the resolver
 context as is; `createYogaServer` never registers anything on it.
