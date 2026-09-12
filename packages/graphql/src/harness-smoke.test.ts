@@ -39,4 +39,16 @@ describe("withTestHarness()", () => {
       });
     });
   });
+
+  it("does not use login origins as CORS origins", async () => {
+    await withTestHarness(async ({ post }) => {
+      const response = await post(
+        { query: "{ __typename }" },
+        { headers: { origin: "https://drfed.test" } },
+      );
+
+      assert.ok(response.ok);
+      assert.equal(response.headers.get("access-control-allow-origin"), null);
+    });
+  });
 });
