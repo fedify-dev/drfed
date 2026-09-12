@@ -5,6 +5,7 @@ __generated__/
 
 .pgdata/
 
+mise.local.toml
 node_modules/
 packages/*/dist/
 

@@ -15,8 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import type { Actor } from "@drfed/models/schema";
-import type { Uuid } from "@drfed/models/uuid";
+import type {
+  ActivityPubObject,
+  Actor,
+  ObjectType,
+} from "@drfed/models/schema";
+import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
   type Context,
   type Federation,
@@ -25,18 +29,23 @@ import {
   createFederationBuilder,
 } from "@fedify/fedify";
 import {
+  Object as APObject,
   Activity,
   Application,
+  Article,
+  Create,
   Endpoints,
   Group,
   Image,
+  LanguageString,
+  Note,
   Organization,
+  PUBLIC_COLLECTION,
   Person,
   Service,
   Tombstone,
 } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
-import { validate as validateUuid } from "uuid";
 
 /**
  * The vocabulary object types that DrFed serves as actors.
@@ -130,14 +139,64 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       });
     });
 
-  builder.setOutboxDispatcher(
-    "/users/{identifier}/outbox",
-    async (ctx, identifier) =>
-      // FIXME: Return the actual activities once the data model stores them
-      (await findActiveActor(db, ctx, identifier)) == null
-        ? null
-        : { items: [] },
+  builder.setObjectDispatcher<APObject, "identifier" | "id">(
+    APObject,
+    "/users/{identifier}/{id}",
+    async (ctx, { identifier, id }) => {
+      if (!validateUuid(identifier) || !validateUuid(id)) return null;
+      const object = await db.query.objects.findFirst({
+        where: {
+          id,
+          actorId: identifier,
+          actor: {
+            localId: { isNotNull: true },
+            deleted: { isNull: true },
+            instance: { host: ctx.host },
+          },
+        },
+      });
+      if (object == null || object.visibility === "followers") return null;
+      if (object.deleted != null) {
+        return new Tombstone({
+          id: ctx.getObjectUri(APObject, { identifier, id }),
+          deleted: Temporal.Instant.from(object.deleted.toISOString()),
+        });
+      }
+      return toObject(ctx, object);
+    },
   );
+  builder
+    .setOutboxDispatcher(
+      "/users/{identifier}/outbox",
+      async (ctx, identifier, cursor) => {
+        if ((await findActiveActor(db, ctx, identifier)) == null) return null;
+        if (cursor != null && cursor !== "" && !validateUuid(cursor)) {
+          return null;
+        }
+        const rows = await db.query.objects.findMany({
+          where: {
+            actorId: identifier as Uuid,
+            deleted: { isNull: true },
+            visibility: { in: ["public", "unlisted"] },
+            ...(cursor == null || cursor === "" ? {} : { id: { lt: cursor } }),
+          },
+          orderBy: { id: "desc" },
+          limit: OUTBOX_PAGE_SIZE + 1,
+        });
+        const page = rows.slice(0, OUTBOX_PAGE_SIZE);
+        return {
+          items: page.map((object) => toCreate(ctx, object)),
+          nextCursor: rows.length > OUTBOX_PAGE_SIZE ? page.at(-1)!.id : null,
+        };
+      },
+    )
+    .setFirstCursor(async (ctx, identifier) =>
+      (await findActiveActor(db, ctx, identifier)) == null ? null : "",
+    )
+    .setCounter(
+      async (ctx, identifier) =>
+        (await findActiveActor(db, ctx, identifier))?.postsCount ?? null,
+    );
 
   builder
     .setFollowersDispatcher(
@@ -241,3 +300,60 @@ function toActorObject(
 }
 
 const logger = getLogger(["drfed", "graphql", "federation"]);
+
+const OUTBOX_PAGE_SIZE = 20;
+type ObjectProps = ConstructorParameters<typeof Note>[0];
+const objectConstructors: Record<ObjectType, (props: ObjectProps) => APObject> =
+  {
+    Article: (props) => new Article(props),
+    Note: (props) => new Note(props),
+  };
+
+function recipients(
+  ctx: Context<unknown>,
+  object: ActivityPubObject,
+): { tos: URL[]; ccs: URL[] } {
+  const followers = ctx.getFollowersUri(object.actorId);
+  switch (object.visibility) {
+    case "public":
+      return { tos: [PUBLIC_COLLECTION], ccs: [followers] };
+    case "unlisted":
+      return { tos: [followers], ccs: [PUBLIC_COLLECTION] };
+    case "followers":
+      return { tos: [followers], ccs: [] };
+    default:
+      throw new Error(
+        `Unsupported visibility: ${object.visibility satisfies never}`,
+      );
+  }
+}
+
+function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
+  return objectConstructors[object.type]({
+    id: new URL(object.iri),
+    attribution: ctx.getActorUri(object.actorId),
+    contents: [
+      object.contentHtml,
+      ...(object.language == null
+        ? []
+        : [new LanguageString(object.contentHtml, object.language)]),
+    ],
+    name: object.name,
+    summary: object.summary,
+    sensitive: object.sensitive,
+    published: Temporal.Instant.from(object.published.toISOString()),
+    updated: Temporal.Instant.from(object.updated.toISOString()),
+    url: object.url == null ? null : new URL(object.url),
+    ...recipients(ctx, object),
+  });
+}
+
+function toCreate(ctx: Context<unknown>, object: ActivityPubObject): Create {
+  return new Create({
+    id: new URL(`${object.iri}/activity`),
+    actor: ctx.getActorUri(object.actorId),
+    object: toObject(ctx, object),
+    published: Temporal.Instant.from(object.published.toISOString()),
+    ...recipients(ctx, object),
+  });
+}
