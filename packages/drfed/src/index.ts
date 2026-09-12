@@ -50,8 +50,9 @@ async function runServer(options: ServerOptions) {
     values.map((value) => {
       const url = new URL(value);
       if (url.protocol !== "https:" && url.protocol !== "http:") {
-        throw new TypeError(`Unsupported login origin
-            protocol: ${url.protocol}`);
+        throw new TypeError(
+          `Unsupported login origin protocol: ${url.protocol}`,
+        );
       }
       return url.origin;
     }),

@@ -62,7 +62,7 @@ export interface YogaServerOptions {
  *        in `@drfed/graphql/federation`); this function only stores it in
  *        the resolver context and never mutates it, so the same instance can
  *        be shared by several servers.
- * @param {YogaServerOptions} _options Options for server.
+ * @param {YogaServerOptions} rawOptions Options for server.
  * @returns A `YogaServerInstance` configured with the schema and context for
  *          handling GraphQL requests.
  */
