@@ -44,9 +44,9 @@ export interface YogaServerOptions {
   emailFrom?: string;
 
   /**
-   * Origin list.
+   * Origin list for login.
    */
-  origins?: ReadonlySet<string>;
+  loginOrigins?: ReadonlySet<string>;
 
   /**
    * Root domain.
@@ -107,7 +107,7 @@ const fillOptions = (
   mailer: opt.mailer ?? mockTransport(),
   emailFrom: opt.emailFrom ?? "noreply@drfed.org",
   // FIXME: Properly parametrize the following allowlist:
-  origins: opt.origins ?? new Set(["https://drfed.org"]),
+  loginOrigins: opt.loginOrigins ?? new Set(["https://drfed.org"]),
   root: opt.root ?? "drfed.org",
 });
 
