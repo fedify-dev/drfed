@@ -170,7 +170,8 @@ export async function withTestHarness<T>(
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
     const federation = await createFederation(db, { kv: new MemoryKvStore() });
-    const yoga = createYogaServer(db, federation, { mailer });
+    const loginOrigins = new Set(["https://drfed.test"]);
+    const yoga = createYogaServer(db, federation, { mailer, loginOrigins });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
 
     const harness: TestHarness = {

@@ -46,7 +46,7 @@ export interface YogaServerOptions {
   /**
    * Origin list for login.
    */
-  loginOrigins?: ReadonlySet<string>;
+  loginOrigins: ReadonlySet<string>;
 
   /**
    * Root domain.
@@ -69,9 +69,9 @@ export interface YogaServerOptions {
 export function createYogaServer(
   db: Database,
   federation: Federation<unknown>,
-  _options: YogaServerOptions = {},
+  rawOptions: YogaServerOptions,
 ): YogaServerInstance<ServerContext, UserContext> {
-  const options = fillOptions(_options);
+  const options = fillOptions(rawOptions);
   return createYoga({
     cors: false,
     async context(ctx) {
@@ -106,8 +106,7 @@ const fillOptions = (
 ): Omit<ServerContext, "db" | "request" | "federation"> => ({
   mailer: opt.mailer ?? mockTransport(),
   emailFrom: opt.emailFrom ?? "noreply@drfed.org",
-  // FIXME: Properly parametrize the following allowlist:
-  loginOrigins: opt.loginOrigins ?? new Set(["https://drfed.org"]),
+  loginOrigins: opt.loginOrigins,
   root: opt.root ?? "drfed.org",
 });
 
