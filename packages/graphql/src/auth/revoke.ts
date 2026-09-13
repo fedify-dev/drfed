@@ -17,8 +17,7 @@
 // oxlint-disable no-magic-numbers
 
 import { sessions } from "@drfed/models/schema";
-import type { Uuid } from "@drfed/models/uuid";
-import { and, eq } from "drizzle-orm/sql/expressions";
+import { eq } from "drizzle-orm/sql/expressions";
 
 import builder, { type UserContext } from "../builder.ts";
 
@@ -26,16 +25,13 @@ builder.mutationFields((t) => ({
   revokeSession: t.field({
     type: LogoutSuccessRef,
     description: "Revokes a session. Return always `revoke: true`.",
-    args: {
-      session: t.arg({
-        type: "UUID",
-        required: true,
-        description: "The session ID to revoke.",
-      }),
+    authScopes: {
+      authenticated: true,
     },
-    async resolve(_query, { session }, ctx) {
-      if (ctx.session != null) {
-        await deleteSession(session, ctx);
+    async resolve(_query, _, ctx) {
+      const sessionId = ctx.session?.id;
+      if (sessionId) {
+        await deleteSession(ctx);
       }
       // Return always true to prevent brute-force attack.
       return { revoke: true };
@@ -59,9 +55,5 @@ const LogoutSuccessRef = builder
     }),
   });
 
-const deleteSession = (id: Uuid, ctx: UserContext) =>
-  ctx.db
-    .delete(sessions)
-    .where(
-      and(eq(sessions.id, id), eq(sessions.accountId, ctx.session!.accountId)),
-    );
+const deleteSession = (ctx: UserContext) =>
+  ctx.db.delete(sessions).where(eq(sessions.id, ctx.session!.id));

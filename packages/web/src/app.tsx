@@ -17,12 +17,13 @@
 import { MetaProvider, Title } from "@solidjs/meta";
 import { A, Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
-import { Suspense } from "solid-js";
 
 import "./styles/drfed.css";
 import "./styles/app.css";
+import { Suspense } from "solid-js";
 import { RelayEnvironmentProvider } from "solid-relay";
 
+import { HeaderAccountButton } from "./components/HeaderAccountButton.tsx";
 import { createRelayEnvironment } from "./RelayEnvironment.ts";
 
 import styles from "./styles/app.module.css";
@@ -54,13 +55,7 @@ export default function App() {
                       About
                     </A>
                   </nav>
-                  <A
-                    class={styles.headerAction}
-                    href="/sign-in"
-                    activeClass={styles.active}
-                  >
-                    Sign in
-                  </A>
+                  <HeaderAccountButton />
                 </div>
               </header>
               <div class={styles.content}>

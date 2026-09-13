@@ -7,6 +7,7 @@
     "es2022": true
   },
   "rules": {
+    "eslint/require-await": "off",
     "solid/components-return-once": "warn",
     "solid/event-handlers": "warn",
     "solid/imports": "warn",
@@ -29,6 +30,7 @@
     "typescript/explicit-function-return-type": "off",
     "typescript/strict-void-return": "off",
     "typescript/no-non-null-assertion": "off",
+    "typescript/require-await": "off",
     "unicorn/filename-case": "off",
     "unicorn/prefer-query-selector": "off",
     "promise/avoid-new": "off"
