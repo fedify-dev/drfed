@@ -21,7 +21,7 @@ import createFederation, { buildFederation } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
-import { Object as APObject } from "@fedify/vocab";
+import { Object as APObject, Create } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
 
@@ -45,6 +45,10 @@ describe("createFederation()", () => {
       assert.equal(
         ctx.getObjectUri(APObject, { identifier: "a", id: "b" }).href,
         "https://drfed.test/users/a/b",
+      );
+      assert.equal(
+        ctx.getObjectUri(Create, { id: "b" }).href,
+        "https://drfed.test/ap/creates/b",
       );
       assert.equal(
         ctx.getActorUri("identifier").href,
@@ -96,6 +100,8 @@ describe("createYogaServer()", () => {
 });
 
 const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+const createIri = (id: string) =>
+  `https://test-instance.drfed.org/ap/creates/${id}`;
 const accept = { accept: "application/activity+json" };
 
 function values(id: string) {
@@ -234,6 +240,100 @@ describe("ActivityPub objects", () => {
   }
 });
 
+describe("ActivityPub Create activities", () => {
+  for (const visibility of ["public", "unlisted"] as const) {
+    it(`serves Create activities for ${visibility} objects`, async () => {
+      await withTestHarness(async ({ db, federation }) => {
+        await seedLocalActor(db);
+        const object = values(uuid());
+        await db.insert(schema.objects).values({ ...object, visibility });
+        const response = await federation.fetch(
+          new Request(createIri(object.id), { headers: accept }),
+          { contextData: undefined },
+        );
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.deepEqual(
+          {
+            type: body.type,
+            id: body.id,
+            actor: body.actor,
+            object: body.object,
+            to: body.to,
+            cc: body.cc,
+          },
+          {
+            type: "Create",
+            id: createIri(object.id),
+            actor: actorIri,
+            object: object.iri,
+            to: visibility === "public" ? "as:Public" : `${actorIri}/followers`,
+            cc: visibility === "public" ? `${actorIri}/followers` : "as:Public",
+          },
+        );
+        assert.ok(body.published);
+      });
+    });
+  }
+  for (const scenario of [
+    "followers",
+    "deleted",
+    "missing",
+    "malformed",
+    "remote",
+    "deletedActor",
+  ] as const) {
+    it(`rejects ${scenario} Create requests`, async () => {
+      await withTestHarness(async ({ db, federation }) => {
+        await seedLocalActor(db);
+        await seedRemoteActor(db);
+        const object = values(uuid());
+        await db.insert(schema.objects).values({
+          ...object,
+          actorId: scenario === "remote" ? remoteActorId : localActorId,
+          visibility: scenario === "followers" ? "followers" : "public",
+          deleted: scenario === "deleted" ? new Date() : null,
+        });
+        if (scenario === "deletedActor") {
+          await db
+            .update(schema.actors)
+            .set({ deleted: new Date() })
+            .where(eq(schema.actors.id, localActorId));
+        }
+        const iri =
+          scenario === "missing"
+            ? createIri(uuid())
+            : scenario === "malformed"
+              ? createIri("bad")
+              : createIri(object.id);
+        const response = await federation.fetch(
+          new Request(iri, { headers: accept }),
+          { contextData: undefined },
+        );
+        assert.equal(response.status, 404);
+      });
+    });
+  }
+  it("rejects Create requests from another host", async () => {
+    await withTestHarness(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const object = values(uuid());
+      await db.insert(schema.objects).values(object);
+      const response = await federation.fetch(
+        new Request(
+          createIri(object.id).replace(
+            "test-instance.drfed.org",
+            "wrong.example",
+          ),
+          { headers: accept },
+        ),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 404);
+    });
+  });
+});
+
 describe("ActivityPub outbox", () => {
   it("paginates Create activities while excluding followers-only and deleted objects", async () => {
     await withTestHarness(async ({ db, federation }) => {
@@ -274,22 +374,22 @@ describe("ActivityPub outbox", () => {
           type: activity.type,
           id: activity.id,
           actor: activity.actor,
-          objectId: activity.object.id,
+          object: activity.object,
           to: activity.to,
           cc: activity.cc,
         },
         {
           type: "Create",
-          id: `${values(ids[20]!).iri}/activity`,
+          id: createIri(ids[20]!),
           actor: actorIri,
-          objectId: values(ids[20]!).iri,
+          object: values(ids[20]!).iri,
           to: `${actorIri}/followers`,
           cc: "as:Public",
         },
       );
       const last = await fetchJson(page.next);
       assert.equal(last.orderedItems.length, 1);
-      assert.equal(last.orderedItems[0].object.id, values(ids[0]!).iri);
+      assert.equal(last.orderedItems[0].object, values(ids[0]!).iri);
       assert.equal(last.next, undefined);
       const bad = await federation.fetch(
         new Request(`${actorIri}/outbox?cursor=bad`, { headers: accept }),
