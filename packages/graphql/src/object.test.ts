@@ -338,3 +338,44 @@ describe("Actor.objects", () => {
     });
   });
 });
+
+describe("Query.node", () => {
+  it("hides deleted objects from node and nodes while keeping live ones", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      const liveId = uuid();
+      const deletedId = uuid();
+      await db.insert(schema.objects).values(
+        [liveId, deletedId].map((id) => ({
+          id,
+          actorId: localActorId,
+          type: "Note" as const,
+          iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
+          contentHtml: "test",
+          deleted: id === deletedId ? new Date() : null,
+        })),
+      );
+      const query = `query($live: ID!, $deleted: ID!) {
+        live: node(id: $live) { ... on Object { uuid actor { uuid } } }
+        deleted: node(id: $deleted) { ... on Object { uuid actor { uuid } } }
+        nodes(ids: [$live, $deleted]) { ... on Object { uuid } }
+      }`;
+      const body = await (
+        await post({
+          query,
+          variables: {
+            live: globalId("Object", liveId),
+            deleted: globalId("Object", deletedId),
+          },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          live: { uuid: liveId, actor: { uuid: localActorId } },
+          deleted: null,
+          nodes: [{ uuid: liveId }, null],
+        },
+      });
+    });
+  });
+});

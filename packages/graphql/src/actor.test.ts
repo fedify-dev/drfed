@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
+import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -233,6 +234,38 @@ describe("Actor", () => {
             featuredUrl: "https://remote.example.com/users/bob/featured",
             created: created.toISOString(),
           },
+        },
+      });
+    });
+  });
+
+  it("hides deleted actors from node and nodes while keeping live ones", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      await seedRemoteActor(db);
+      await db
+        .update(schema.actors)
+        .set({ deleted: new Date() })
+        .where(eq(schema.actors.id, localActorId));
+      const query = `query($live: ID!, $deleted: ID!) {
+        live: node(id: $live) { ... on Actor { uuid instance { uuid } } }
+        deleted: node(id: $deleted) { ... on Actor { uuid instance { uuid } } }
+        nodes(ids: [$live, $deleted]) { ... on Actor { uuid } }
+      }`;
+      const body = await (
+        await post({
+          query,
+          variables: {
+            live: globalId("Actor", remoteActorId),
+            deleted: globalId("Actor", localActorId),
+          },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          live: { uuid: remoteActorId, instance: { uuid: remoteInstanceId } },
+          deleted: null,
+          nodes: [{ uuid: remoteActorId }, null],
         },
       });
     });
