@@ -158,6 +158,16 @@ export const builder = new SchemaBuilder<SchemaTypes>({
   },
   plugins: [DrizzlePlugin, RelayPlugin, ErrorsPlugin, ScopeAuthPlugin],
   errors: { defaultTypes: [] },
+  relay: {
+    nodeQueryOptions: {
+      resolve: async (_, { id }, __, ___, resolveNode) =>
+        filterDeleted(await resolveNode(id)),
+    },
+    nodesQueryOptions: {
+      resolve: async (_, { ids }, __, ___, resolveNodes) =>
+        (await resolveNodes(ids)).map(filterDeleted),
+    },
+  },
   scopeAuth: {
     authorizeOnSubscribe: true,
     authScopes(context) {
@@ -174,6 +184,14 @@ export const builder = new SchemaBuilder<SchemaTypes>({
     },
   },
 });
+
+const filterDeleted = (node: unknown): unknown =>
+  node != null &&
+  typeof node === "object" &&
+  "deleted" in node &&
+  node.deleted != null
+    ? null
+    : node;
 
 /**
  * Determines whether the viewer is an accepted member of the `Instance` that
