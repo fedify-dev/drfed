@@ -167,6 +167,34 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       return toObject(ctx, object);
     },
   );
+
+  builder.setObjectDispatcher<Create, "id">(
+    Create,
+    "/ap/creates/{id}",
+    async (ctx, { id }) => {
+      if (!validateUuid(id)) return null;
+      const object = await db.query.objects.findFirst({
+        where: {
+          id,
+          actor: {
+            localId: { isNotNull: true },
+            deleted: { isNull: true },
+            instance: { host: ctx.host },
+          },
+        },
+      });
+      if (
+        object == null ||
+        object.visibility === "followers" ||
+        object.deleted != null
+      ) {
+        return null;
+      }
+
+      return toCreate(ctx, object);
+    },
+  );
+
   builder
     .setOutboxDispatcher(
       "/users/{identifier}/outbox",
@@ -343,8 +371,8 @@ function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
     name: object.name,
     summary: object.summary,
     sensitive: object.sensitive,
-    published: Temporal.Instant.from(object.published.toISOString()),
-    updated: Temporal.Instant.from(object.updated.toISOString()),
+    published: object.published.toTemporalInstant(),
+    updated: object.updated.toTemporalInstant(),
     url: object.url == null ? null : new URL(object.url),
     ...recipients(ctx, object),
   });
@@ -352,10 +380,10 @@ function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
 
 function toCreate(ctx: Context<unknown>, object: ActivityPubObject): Create {
   return new Create({
-    id: new URL(`${object.iri}/activity`),
+    id: ctx.getObjectUri(Create, { id: object.id }),
     actor: ctx.getActorUri(object.actorId),
-    object: toObject(ctx, object),
-    published: Temporal.Instant.from(object.published.toISOString()),
     ...recipients(ctx, object),
+    object: new URL(object.iri),
+    published: object.published.toTemporalInstant(),
   });
 }
