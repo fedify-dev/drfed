@@ -112,6 +112,52 @@ describe("origin()", () => {
     );
   });
 
+  it("accepts IP literals by default", () => {
+    assert.equal(parsed("http://127.0.0.1:8888"), "http://127.0.0.1:8888");
+    assert.equal(parsed("http://[::1]:8888"), "http://[::1]:8888");
+  });
+
+  it("rejects IP literals when they cannot take a subdomain", () => {
+    const options = { allowIpLiterals: false } as const;
+    // `foo.127.0.0.1` and `foo.[::1]` are not host names; prefixing a label
+    // to either of these makes a URL that does not parse at all.
+    for (const input of [
+      "http://127.0.0.1:8888",
+      "http://[::1]:8888",
+      "http://[2001:db8::1]",
+      // The URL parser canonicalizes every other IPv4 spelling into the
+      // dotted quad, so these are the same host as 127.0.0.1.
+      "http://0x7f.1",
+      "http://2130706433",
+    ]) {
+      assert.equal(parse(input, options).success, false, input);
+    }
+    assert.equal(parsed("https://drfed.net", options), "https://drfed.net");
+    // A name that merely begins with digits is still a name.
+    assert.equal(parsed("https://1.drfed.net", options), "https://1.drfed.net");
+  });
+
+  it("sees through a URL that hides its authority in its origin", () => {
+    // A `blob:` URL reports an empty `hostname` while its origin carries the
+    // authority embedded in it, so a check against the original URL would let
+    // an IP address through.
+    for (const input of [
+      "blob:http://127.0.0.1:8888/id",
+      "blob:http://[::1]/id",
+    ]) {
+      assert.equal(
+        parse(input, { allowIpLiterals: false }).success,
+        false,
+        input,
+      );
+    }
+    // Still accepted when IP literals are allowed, normalized to the origin.
+    assert.equal(
+      parsed("blob:http://127.0.0.1:8888/id"),
+      "http://127.0.0.1:8888",
+    );
+  });
+
   it("offers a placeholder that is a valid origin", () => {
     assert.equal(origin().placeholder.origin, "http://0.invalid");
     assert.equal(

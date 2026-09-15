@@ -75,7 +75,11 @@ describe("createYogaServer()", () => {
     await withTestHarness(({ db, mailer, federation }) => {
       const loginOrigins = new Set(["https://drfed.test"]);
       assert.doesNotThrow(() =>
-        createYogaServer(db, federation, { mailer, loginOrigins }),
+        createYogaServer(db, federation, {
+          mailer,
+          loginOrigins,
+          rootOrigin: new URL("https://drfed.test"),
+        }),
       );
     });
   });

@@ -20,6 +20,7 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { eq } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
+import { instanceHost } from "./origin.ts";
 
 const InstanceRef = builder.drizzleNode("instances", {
   name: "Instance",
@@ -193,8 +194,8 @@ builder.mutationFields((t) => ({
         type: "String",
         required: true,
         description:
-          "A unique instance slug, which will be a part of the instance " +
-          "domain name (e.g., `slug.drfed.net`).",
+          "A unique instance slug, which becomes the leftmost label of the " +
+          "instance's domain name, e.g. `slug` in `slug.example.com`.",
       }),
     },
     async resolve(_query, { slug }, ctx) {
@@ -220,7 +221,7 @@ builder.mutationFields((t) => ({
           if (local == null) {
             throw new Error("Failed to create local instance.");
           }
-          const host = `${slug}.${ctx.root}`;
+          const host = instanceHost(ctx.rootOrigin, slug);
           const [instance] = await tx
             .insert(schema.instances)
             .values({ id: uuid(), localId: local.id, host })

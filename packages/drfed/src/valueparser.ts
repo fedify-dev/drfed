@@ -38,7 +38,23 @@ export interface OriginOptions {
    * that yields a tuple origin is allowed.
    */
   readonly allowedProtocols?: readonly string[];
+
+  /**
+   * Whether to accept an origin whose host is an IP address rather than a
+   * domain name.  Set this to `false` when the origin has to be able to take
+   * a subdomain, since `foo.127.0.0.1` and `foo.[::1]` are not host names at
+   * all.
+   * @default `true`
+   */
+  readonly allowIpLiterals?: boolean;
 }
+
+/**
+ * A host name that the WHATWG URL parser has canonicalized into a dotted-quad
+ * IPv4 address.  Matching the canonical form is enough, because the parser
+ * turns every other spelling (`0x7f.1`, `2130706433`, …) into it.
+ */
+const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
 
 /**
  * Creates a {@link ValueParser} for web origins.
@@ -50,7 +66,9 @@ export interface OriginOptions {
  * `https://example.com`.  Only two kinds of input are rejected: strings that
  * are not absolute URLs at all, and URLs whose protocol is either outside
  * {@link OriginOptions.allowedProtocols} or has no tuple origin (`mailto:`,
- * `data:`, and friends, whose origin is the opaque `"null"`).
+ * `data:`, and friends, whose origin is the opaque `"null"`), and, when
+ * {@link OriginOptions.allowIpLiterals} is off, origins whose host is an IP
+ * address.
  * @param options Configuration options for the origin parser.
  * @returns A {@link ValueParser} that converts string input into `URL`
  *          objects that are guaranteed to equal their own origin.
@@ -78,6 +96,7 @@ export function origin(options: OriginOptions = {}): ValueParser<"sync", URL> {
       options.allowedProtocols.map((protocol) => protocol.toLowerCase()),
     );
   }
+  const allowIpLiterals = options.allowIpLiterals ?? true;
   return {
     mode: "sync",
     metavar,
@@ -113,7 +132,21 @@ export function origin(options: OriginOptions = {}): ValueParser<"sync", URL> {
           error: message`The URL ${input} has no origin.`,
         };
       }
-      return { success: true, value: new URL(url.origin) };
+      // The normalized origin, not `url` itself: a `blob:` URL reports an
+      // empty `hostname` while its origin carries the authority embedded in
+      // it, so checking the original would miss `blob:http://127.0.0.1/x`.
+      const normalized = new URL(url.origin);
+      if (
+        !allowIpLiterals &&
+        (normalized.hostname.startsWith("[") ||
+          IPV4_PATTERN.test(normalized.hostname))
+      ) {
+        return {
+          success: false,
+          error: message`${input} names an IP address rather than a domain, which cannot take a subdomain.`,
+        };
+      }
+      return { success: true, value: normalized };
     },
     format(value: URL): string {
       return value.origin;

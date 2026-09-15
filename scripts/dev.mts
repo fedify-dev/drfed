@@ -33,6 +33,22 @@ interface ShutdownOptions {
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = join(root, "packages");
+
+// The server itself is started with `--env-file`, but the root origin has to
+// be known here, to be passed as a command-line option.  Loading the same file
+// keeps the two in one place.  It is not committed, so tolerate its absence.
+const envFile = join(packagesDir, "drfed", ".env");
+try {
+  process.loadEnvFile(envFile);
+} catch {
+  // Left to `drfed-server` to complain about, since it needs
+  // `DRFED_LOGIN_ORIGINS` from the same file anyway.
+}
+
+// Any subdomain of `localhost` resolves to the loopback address without any
+// DNS or /etc/hosts setup, which is what makes per-instance subdomains usable
+// in development.
+const defaultRootOrigin = "http://drfed.localhost:8888";
 const isWindows = process.platform === "win32";
 const pnpm = isWindows ? "pnpm.cmd" : "pnpm";
 
@@ -307,7 +323,7 @@ try {
     "../../.pgdata",
     "--listen=0.0.0.0:8888",
     "--log-format=color",
-    "--root-domain=drfed.org",
+    `--root-origin=${process.env.DRFED_ROOT_ORIGIN ?? defaultRootOrigin}`,
   ];
 
   const logLevel = process.env.usage_log_level;

@@ -247,6 +247,27 @@ const createInstanceMutation = `
 `;
 
 describe("Mutation.createInstance", () => {
+  it("carries the root origin's port into the instance host", async () => {
+    // A development deployment is reached on a non-default port, and the host
+    // has to include it: that authority is what Fedify's `Context.host`
+    // reports, and the federation dispatchers look the instance up by it.
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const response = await post(
+        { query: createInstanceMutation, variables: { slug: "my-instance" } },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(
+        body.data.createInstance.host,
+        "my-instance.drfed.localhost:8888",
+      );
+    }, new URL("http://drfed.localhost:8888"));
+  });
+
   it("creates an instance and adds the viewer as a member", async () => {
     await withTestHarness(async ({ db, post }) => {
       const auth = await authenticate(db);

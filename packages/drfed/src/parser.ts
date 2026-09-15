@@ -22,7 +22,7 @@ import { message, optionNames } from "@optique/core/message";
 import { map, optional, withDefault } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { flag, option } from "@optique/core/primitives";
-import { domain, socketAddress, url } from "@optique/core/valueparser";
+import { socketAddress, url } from "@optique/core/valueparser";
 import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
 import { LogTapeTransport } from "@upyo/logtape";
@@ -30,6 +30,8 @@ import { SmtpTransport } from "@upyo/smtp";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+
+import { origin } from "./valueparser.ts";
 
 const pgliteParser = map(
   option(
@@ -107,10 +109,19 @@ const seedParser = option("--dev-seed", {
   hidden: true,
 });
 
-const rootParser = optional(
-  option("--root-domain", "-r", domain({ lowercase: true }), {
-    description: message`The root domain of host.`,
+const rootOriginParser = option(
+  "--root-origin",
+  "-r",
+  origin({
+    allowedProtocols: ["http:", "https:"],
+    // Every instance is a subdomain of this origin, and an IP address cannot
+    // have one.
+    allowIpLiterals: false,
+    metavar: "ORIGIN",
   }),
+  {
+    description: message`The origin this deployment is served from.  Every instance gets a subdomain of it, so ${"https://drfed.net"} serves the instance ${"foo-bar"} at ${"https://foo-bar.drfed.net"}.`,
+  },
 );
 
 const serverParser = object("DrFed server", {
@@ -134,7 +145,7 @@ const serverParser = object("DrFed server", {
       ),
     }),
   ),
-  root: rootParser,
+  rootOrigin: rootOriginParser,
   mailer: smtpParser,
   seed: seedParser,
 });

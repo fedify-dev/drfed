@@ -49,9 +49,13 @@ export interface YogaServerOptions {
   loginOrigins: ReadonlySet<string>;
 
   /**
-   * Root domain.
+   * The root origin of this deployment.  Every instance is served from a
+   * subdomain of it, so `https://drfed.net` puts the instance `foo-bar` at
+   * `https://foo-bar.drfed.net`.  Required: there is no sensible default for
+   * installed software, and guessing one would silently hand out subdomains
+   * of somebody else's domain.
    */
-  root?: string | undefined;
+  rootOrigin: URL;
 }
 
 /**
@@ -107,7 +111,7 @@ const fillOptions = (
   mailer: opt.mailer ?? mockTransport(),
   emailFrom: opt.emailFrom ?? "noreply@drfed.org",
   loginOrigins: opt.loginOrigins,
-  root: opt.root ?? "drfed.org",
+  rootOrigin: opt.rootOrigin,
 });
 
 const getAccessToken = (headers: Headers) =>

@@ -161,17 +161,25 @@ export async function withTemporaryDatabase<T>(
  * ```
  *
  * @param callback A function that receives the test harness.
+ * @param rootOrigin The deployment's root origin.  Defaults to
+ *                   `https://drfed.org`; pass one carrying a port to exercise
+ *                   a development-style deployment.
  * @returns The callback's resolved value.
  */
 export async function withTestHarness<T>(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks
   callback: (harness: TestHarness) => Promise<T> | T,
+  rootOrigin: URL = new URL("https://drfed.org"),
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
     const federation = await createFederation(db, { kv: new MemoryKvStore() });
     const loginOrigins = new Set(["https://drfed.test"]);
-    const yoga = createYogaServer(db, federation, { mailer, loginOrigins });
+    const yoga = createYogaServer(db, federation, {
+      mailer,
+      loginOrigins,
+      rootOrigin,
+    });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
 
     const harness: TestHarness = {

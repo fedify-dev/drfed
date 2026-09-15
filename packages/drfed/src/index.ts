@@ -66,10 +66,10 @@ async function runServer(options: ServerOptions) {
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
   const federation = await createFederation(options.drizzle.db, { kv });
-  const { mailer, root } = options;
+  const { mailer, rootOrigin } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
-    root,
+    rootOrigin,
     mailer,
     loginOrigins,
   });
