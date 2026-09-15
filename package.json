@@ -1,7 +1,11 @@
 {
   "private": true,
   "devDependencies": {
-    "skills-npm": "catalog:"
+    "skills-npm": "catalog:",
+    "@drfed/models": "workspace:*",
+    "@electric-sql/pglite": "catalog:",
+    "@logtape/logtape": "catalog:",
+    "drizzle-orm": "catalog:"
   },
   "scripts": {
     "prepare": "skills-npm --recursive --yes --force"
