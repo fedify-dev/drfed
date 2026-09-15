@@ -69,6 +69,10 @@
     "./schema": {
       "types": "./dist/schema.d.mts",
       "default": "./dist/schema.mjs"
+    },
+    "./origin": {
+      "types": "./dist/origin.d.mts",
+      "default": "./dist/origin.mjs"
     }
   },
   "files": [
@@ -83,7 +87,8 @@
       "src/builder.ts",
       "src/federation.ts",
       "src/instance.ts",
-      "src/schema.ts"
+      "src/schema.ts",
+      "src/origin.ts"
     ],
     "dts": {
       "sourcemap": true,
