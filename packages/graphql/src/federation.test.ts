@@ -101,7 +101,7 @@ describe("createFederation()", () => {
       await db.insert(schema.localInstances).values({
         id: localInstanceId,
         slug: "demo",
-        expires: new Date(Date.now() + 86_400_000),
+        expires: Temporal.Now.instant().add({ hours: 24 }),
       });
       await db.insert(schema.instances).values({
         id: instanceId,
@@ -250,7 +250,7 @@ describe("ActivityPub objects", () => {
       });
     });
   }
-  for (const deleted of [null, new Date("2026-09-06T12:00:00Z")]) {
+  for (const deleted of [null, Temporal.Instant.from("2026-09-06T12:00:00Z")]) {
     it(`does not serve followers-only objects (deleted: ${deleted != null})`, async () => {
       await withTestHarness(async ({ db, federation }) => {
         await seedLocalActor(db);
@@ -282,7 +282,7 @@ describe("ActivityPub objects", () => {
         { contextData: undefined },
       );
       assert.equal((await response.json()).type, "Article");
-      const deletedAt = new Date("2026-09-06T12:00:00.000Z");
+      const deletedAt = Temporal.Instant.from("2026-09-06T12:00:00.000Z");
       await db
         .update(schema.objects)
         .set({ deleted: deletedAt })
@@ -295,7 +295,10 @@ describe("ActivityPub objects", () => {
       assert.equal(deleted.status, 200);
       const tombstone = await deleted.json();
       assert.equal(tombstone.type, "Tombstone");
-      assert.equal(new Date(tombstone.deleted).getTime(), deletedAt.getTime());
+      assert.equal(
+        Temporal.Instant.from(tombstone.deleted).epochNanoseconds,
+        deletedAt.epochNanoseconds,
+      );
     });
   });
   for (const scenario of [
@@ -318,7 +321,7 @@ describe("ActivityPub objects", () => {
         if (scenario === "deletedActor") {
           await db
             .update(schema.actors)
-            .set({ deleted: new Date() })
+            .set({ deleted: Temporal.Now.instant() })
             .where(eq(schema.actors.id, localActorId));
         }
         const iri =
@@ -402,12 +405,12 @@ describe("ActivityPub Create activities", () => {
             scenario === "followers"
               ? { to: [`${actorIri}/followers`] }
               : { to: [PUBLIC_IRI] },
-          deleted: scenario === "deleted" ? new Date() : null,
+          deleted: scenario === "deleted" ? Temporal.Now.instant() : null,
         });
         if (scenario === "deletedActor") {
           await db
             .update(schema.actors)
-            .set({ deleted: new Date() })
+            .set({ deleted: Temporal.Now.instant() })
             .where(eq(schema.actors.id, localActorId));
         }
         const iri =
@@ -460,7 +463,7 @@ describe("ActivityPub outbox", () => {
               : index === 20
                 ? { to: [`${actorIri}/followers`], cc: [PUBLIC_IRI] }
                 : { to: [PUBLIC_IRI] },
-          deleted: index === 21 ? new Date() : null,
+          deleted: index === 21 ? Temporal.Now.instant() : null,
         })),
       );
       await db
@@ -590,8 +593,8 @@ describe("ActivityPub outbox", () => {
   });
 });
 
-const createMutation = `mutation Create($actor: ID!, $visibility: ObjectVisibility!) {
-  createObject(actor: $actor, contentHtml: "<p>Hello</p>", visibility: $visibility) {
+const createMutation = `mutation Create($actor: ID!, $addressing: AddressingInput!) {
+  createObject(actor: $actor, contentHtml: "<p>Hello</p>", addressing: $addressing) {
     ... on Object { uuid }
     ... on CreateObjectError { errorType: type message }
   }
@@ -599,8 +602,7 @@ const createMutation = `mutation Create($actor: ID!, $visibility: ObjectVisibili
 
 // Regression tests for
 // https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163252:
-// the outbox counter reads `postsCount`, which counts objects that the outbox
-// pages never return.
+// The outbox counter must match its page predicate independently of postsCount.
 describe("ActivityPub outbox totalItems", () => {
   for (const scenario of ["followers", "deleted"] as const) {
     it(`does not count ${scenario} objects that outbox pages never return`, async () => {
@@ -613,7 +615,10 @@ describe("ActivityPub outbox totalItems", () => {
               query: createMutation,
               variables: {
                 actor: globalId("Actor", localActorId),
-                visibility: scenario === "followers" ? "FOLLOWERS" : "PUBLIC",
+                addressing:
+                  scenario === "followers"
+                    ? { to: [`${actorIri}/followers`] }
+                    : { to: [PUBLIC_IRI] },
               },
             },
             auth,
@@ -624,7 +629,7 @@ describe("ActivityPub outbox totalItems", () => {
         if (scenario === "deleted") {
           await db
             .update(schema.objects)
-            .set({ deleted: new Date() })
+            .set({ deleted: Temporal.Now.instant() })
             .where(eq(schema.objects.id, body.data.createObject.uuid));
         }
         const fetchJson = async (iri: string) => {
@@ -642,4 +647,86 @@ describe("ActivityPub outbox totalItems", () => {
       });
     });
   }
+});
+
+describe("stored collection membership and independent activity addressing", () => {
+  it("serves backfilled Create IRIs and uses activity addressing for outbox and Create", async () => {
+    await withTestHarness(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const object = values(uuid());
+      await seedObjects(db, object);
+      const activity = await db.query.activities.findFirst({
+        where: { objectId: object.id },
+        with: { resource: true },
+      });
+      assert.ok(activity);
+      assert.notEqual(activity.id, object.id);
+      assert.equal(activity.resource.iri, createIri(object.id));
+      const fetch = (iri: string) =>
+        federation.fetch(new Request(iri, { headers: accept }), {
+          contextData: undefined,
+        });
+      assert.equal((await fetch(createIri(object.id))).status, 200);
+      await db
+        .delete(schema.addressing)
+        .where(eq(schema.addressing.sourceId, activity.id));
+      assert.equal((await fetch(createIri(object.id))).status, 404);
+      assert.equal((await fetch(object.iri)).status, 200);
+      assert.equal(
+        (await (await fetch(`${actorIri}/outbox`)).json()).totalItems,
+        0,
+      );
+      assert.deepEqual(
+        (await (await fetch(`${actorIri}/outbox?cursor=`)).json())
+          .orderedItems ?? [],
+        [],
+      );
+      const rows = await db.query.addressing.findMany({
+        where: { sourceId: object.id },
+      });
+      assert.ok(rows.length > 0);
+    });
+  });
+  it("reads collection_items for followers, following, featured and GraphQL items", async () => {
+    await withTestHarness(async ({ db, federation, post }) => {
+      await seedLocalActor(db);
+      await seedRemoteActor(db);
+      const fetch = (iri: string) =>
+        federation.fetch(new Request(iri, { headers: accept }), {
+          contextData: undefined,
+        });
+      for (const role of ["followers", "following", "featured"] as const) {
+        const collection = await db.query.collections.findFirst({
+          where: { ownerActorId: localActorId, role },
+        });
+        assert.ok(collection);
+        await db.insert(schema.collectionItems).values({
+          collectionId: collection.id,
+          itemId: remoteActorId,
+          position: 0,
+        });
+        const response = await fetch(`${actorIri}/${role}`);
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        const item = body.orderedItems?.[0] ?? body.items?.[0];
+        assert.equal(
+          typeof item === "string" ? item : item?.id,
+          "https://remote.example.com/users/bob",
+        );
+      }
+      const body = await (
+        await post({
+          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { kind role totalCount items(first: 1) { edges { cursor node { kind iri ... on Actor { username } } } pageInfo { hasNextPage } } } } } }`,
+          variables: { id: globalId("Actor", localActorId) },
+        })
+      ).json();
+      assert.equal(body.errors, undefined);
+      assert.equal(body.data.node.followers.totalCount, 1);
+      assert.deepEqual(body.data.node.followers.items.edges[0].node, {
+        kind: "actor",
+        iri: "https://remote.example.com/users/bob",
+        username: "bob",
+      });
+    });
+  });
 });

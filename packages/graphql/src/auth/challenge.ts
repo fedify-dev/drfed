@@ -65,7 +65,7 @@ builder.mutationFields((t) => ({
     },
     async resolve(query, _root, { challengeId, code }, ctx) {
       try {
-        const now = new Date();
+        const now = Temporal.Now.instant();
         const row = await findLoginChallenge(ctx.db, challengeId, now);
         const id = crypto.randomUUID();
         const accessToken = generateAccessToken();

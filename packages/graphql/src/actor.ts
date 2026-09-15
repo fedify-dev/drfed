@@ -25,7 +25,7 @@ import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
-import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
+import { and, eq, gt, isNotNull, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
@@ -161,6 +161,10 @@ export const Actor: DrFedObjectRef = ActorRef;
 
 const LocalActorRef = builder.drizzleNode("localActors", {
   name: "LocalActor",
+  select: {
+    columns: { id: true },
+    with: { actor: { columns: { deleted: true } } },
+  },
   description: "Represents the local details of an `Actor`.",
   id: {
     column: ({ id }) => id,
@@ -300,7 +304,7 @@ builder.mutationFields((t) => ({
           .where(
             and(
               eq(schema.instanceMembers.accountId, account.id),
-              gt(schema.localInstances.expires, new Date()),
+              gt(schema.localInstances.expires, Temporal.Now.instant()),
               eq(schema.instances.id, targetInstanceId),
               isNotNull(schema.instanceMembers.accepted),
             ),
@@ -407,7 +411,7 @@ function generateActor(
 }
 
 const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
-  query: { orderBy: { created: "desc" } },
+  query: { orderBy: { created: "desc", id: "desc" } },
 });
 
 builder.drizzleObjectField("instances", "actors", (t) =>
@@ -428,7 +432,10 @@ builder.drizzleObjectField("instances", "actors", (t) =>
           totalCount() {
             return ctx.db.$count(
               schema.actors,
-              eq(schema.actors.instanceId, instance.id),
+              and(
+                eq(schema.actors.instanceId, instance.id),
+                isNull(schema.actors.deleted),
+              ),
             );
           },
         };

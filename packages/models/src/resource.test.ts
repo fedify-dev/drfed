@@ -193,7 +193,10 @@ it("backfills resources, actor collections, addressing and independent Create ac
         activity.resource.iri,
         `https://old.example/ap/creates/${id}`,
       );
-      assert.equal(activity.published.getTime(), object.published.getTime());
+      assert.equal(
+        activity.published.epochNanoseconds,
+        object.published.epochNanoseconds,
+      );
       const targets = (rows: typeof object.addressing) =>
         rows.map((r) => [r.property, r.position, r.targetId]);
       assert.deepEqual(

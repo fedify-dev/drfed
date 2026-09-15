@@ -90,15 +90,12 @@ const accountInstancesConnection = drizzleConnectionHelpers(
   "instanceMembers",
   {
     query: {
-      orderBy: { created: "desc" },
+      orderBy: { created: "desc", instanceId: "desc" },
     },
     select(nestedSelection) {
       return {
         with: {
           instance: nestedSelection(),
-        },
-        where: {
-          accepted: { isNotNull: true },
         },
       };
     },
@@ -211,15 +208,12 @@ const instanceMembersConnection = drizzleConnectionHelpers(
   "instanceMembers",
   {
     query: {
-      orderBy: { created: "desc" },
+      orderBy: { created: "desc", accountId: "desc" },
     },
     select(nestedSelection) {
       return {
         with: {
           account: nestedSelection(),
-        },
-        where: {
-          accepted: { isNotNull: true },
         },
       };
     },

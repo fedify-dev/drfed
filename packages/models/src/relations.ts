@@ -72,7 +72,11 @@ export const relations = defineRelations(schema, (r) => ({
         accepted: { isNotNull: true },
       },
     }),
-    actors: r.many.actors({ from: r.instances.id, to: r.actors.instanceId }),
+    actors: r.many.actors({
+      from: r.instances.id,
+      to: r.actors.instanceId,
+      where: { deleted: { isNull: true } },
+    }),
     localInstance: r.one.localInstances({
       from: r.instances.localId,
       to: r.localInstances.id,
@@ -157,6 +161,7 @@ export const relations = defineRelations(schema, (r) => ({
     ownerActor: r.one.actors({
       from: r.collections.ownerActorId,
       to: r.actors.id,
+      where: { deleted: { isNull: true } },
     }),
     items: r.many.collectionItems({
       from: r.collections.id,
@@ -235,7 +240,11 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.actors.id,
       to: r.activities.actorId,
     }),
-    objects: r.many.objects({ from: r.actors.id, to: r.objects.actorId }),
+    objects: r.many.objects({
+      from: r.actors.id,
+      to: r.objects.actorId,
+      where: { deleted: { isNull: true } },
+    }),
     instance: r.one.instances({
       from: r.actors.instanceId,
       to: r.instances.id,

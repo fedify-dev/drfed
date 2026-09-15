@@ -57,15 +57,15 @@ export class LoginChallengeNotFoundError extends LoginChallengeError {
 export async function findLoginChallenge(
   db: Database | Transaction,
   id: Uuid,
-  now?: Date | SQL<Date>,
+  now?: Temporal.Instant | SQL,
 ): Promise<LoginChallenge> {
   // oxlint-disable-next-line no-param-reassign
-  now ??= sql<Date>`CURRENT_TIMESTAMP`;
+  now ??= sql`CURRENT_TIMESTAMP`;
   const result = await db.query.loginChallenges.findFirst({
     where: {
       id,
       consumed: { isNull: true },
-      ...(now instanceof Date
+      ...(now instanceof Temporal.Instant
         ? { expires: { gt: now } }
         : { RAW: (t) => sql`${t.expires} > ${now}` }),
     },
@@ -98,10 +98,10 @@ export class LoginChallengeConsumptionError extends LoginChallengeError {
 export async function consumeLoginChallenge(
   db: Database | Transaction,
   id: Uuid,
-  now?: Date | SQL<Date>,
+  now?: Temporal.Instant | SQL,
 ): Promise<void> {
   // oxlint-disable-next-line no-param-reassign
-  now ??= sql<Date>`CURRENT_TIMESTAMP`;
+  now ??= sql`CURRENT_TIMESTAMP`;
   const result = await db
     .update(loginChallenges)
     .set({ consumed: now })

@@ -20,6 +20,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   index,
   integer,
   json,
@@ -28,7 +29,6 @@ import {
   pgTable,
   primaryKey,
   text,
-  timestamp,
   unique,
   uniqueIndex,
   uuid,
@@ -36,6 +36,20 @@ import {
 } from "drizzle-orm/pg-core";
 
 import type { Uuid } from "./uuid.ts";
+
+/** A timestamptz column preserving PostgreSQL's microsecond precision. */
+const instant = customType<{ data: Temporal.Instant; driverData: string }>({
+  dataType: () => "timestamp with time zone",
+  fromDriver: (value) => Temporal.Instant.from(value),
+  toDriver(value: Temporal.Instant | string) {
+    // Pothos composite cursors decode timestamps as strings.
+    if (typeof value === "string") return value;
+    if (value instanceof Temporal.Instant) return value.toString();
+    throw new TypeError(
+      "Expected a Temporal.Instant or a cursor timestamp string.",
+    );
+  },
+});
 
 const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 
@@ -50,9 +64,7 @@ export const accounts = pgTable(
     name: varchar({ length: 100 }).notNull(),
     maxInstances: integer("max_instances").notNull().default(10),
     admin: boolean().notNull().default(false),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    created: instant().notNull().default(currentTimestamp),
   },
   (table) => [
     check(
@@ -77,9 +89,7 @@ export const instances = pgTable("instances", {
     .references(() => localInstances.id, {
       onDelete: "cascade",
     }),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
+  created: instant().notNull().default(currentTimestamp),
   // The authority an instance is federated under, which is what Fedify's
   // `Context.host` reports and therefore what dispatchers look instances up
   // by.  That is a DNS name, at most 253 octets, plus a `:port` suffix of up
@@ -100,7 +110,7 @@ export const localInstances = pgTable(
   {
     id: uuid().$type<Uuid>().primaryKey(),
     slug: varchar({ length: 63 }).notNull().unique(),
-    expires: timestamp({ withTimezone: true }).notNull(),
+    expires: instant().notNull(),
     maxActors: integer().notNull().default(10),
   },
   (table) => [
@@ -138,10 +148,8 @@ export const instanceMembers = pgTable(
       .notNull()
       .references(() => instances.id),
     admin: boolean().notNull().default(false),
-    accepted: timestamp({ withTimezone: true }),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    accepted: instant(),
+    created: instant().notNull().default(currentTimestamp),
   },
   (table) => [
     primaryKey({ columns: [table.instanceId, table.accountId] }),
@@ -171,13 +179,11 @@ export const loginChallenges = pgTable("login_challenges", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   code: char({ length: LOGIN_CHALLENGE_CODE_LENGTH }).notNull(),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
-  expires: timestamp({ withTimezone: true })
+  created: instant().notNull().default(currentTimestamp),
+  expires: instant()
     .notNull()
     .default(sql`CURRENT_TIMESTAMP + INTERVAL '15 minutes'`),
-  consumed: timestamp({ withTimezone: true }),
+  consumed: instant(),
 });
 
 export type LoginChallenge = typeof loginChallenges.$inferSelect;
@@ -194,10 +200,8 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   tokenHash: varchar({ length: 64 }).notNull().unique(),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
-  expires: timestamp({ withTimezone: true })
+  created: instant().notNull().default(currentTimestamp),
+  expires: instant()
     .notNull()
     .default(sql`CURRENT_TIMESTAMP + INTERVAL '1 month'`),
 });
@@ -232,9 +236,7 @@ export const resources = pgTable("resources", {
   id: uuid().$type<Uuid>().primaryKey(),
   iri: text().notNull().unique(),
   kind: resourceKindEnum().notNull(),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
+  created: instant().notNull().default(currentTimestamp),
 });
 export type Resource = typeof resources.$inferSelect;
 
@@ -275,9 +277,9 @@ export const actors = pgTable(
     //   block for remote actors: suspended set, suspendedUntil IS NULL
     // Whether a sanction is *currently* active is always determined by
     // comparing against the current time (lazy expiry; no cron):
-    // suspended <= now AND (suspendedUntil IS NULL OR suspendedUntil > now).
-    suspended: timestamp({ withTimezone: true }),
-    suspendedUntil: timestamp({ withTimezone: true }),
+    // Temporal.Instant.compare(suspended, now) <= 0 AND (suspendedUntil IS NULL OR Temporal.Instant.compare(suspendedUntil, now) > 0).
+    suspended: instant(),
+    suspendedUntil: instant(),
     successorId: uuid()
       .$type<Uuid>()
       .references((): AnyPgColumn => actors.id, {
@@ -290,15 +292,17 @@ export const actors = pgTable(
     followingCount: integer().notNull().default(0),
     followersCount: integer().notNull().default(0),
     postsCount: integer().notNull().default(0),
-    updated: timestamp({ withTimezone: true })
+    updated: instant()
       .notNull()
       .default(currentTimestamp)
       .$onUpdate(() => currentTimestamp),
-    published: timestamp({ withTimezone: true }),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
-    deleted: timestamp({ withTimezone: true }),
+    published: instant(),
+    created: instant().notNull().default(currentTimestamp),
+    // When implementing actor deletion, add activities.deleted and set it
+    // together with objects.deleted in the same transaction.
+    // FIXME: Let instance administrators choose deletion, anonymization or
+    // preservation of authored objects. For now, delete them with the actor.
+    deleted: instant(),
   },
   (t) => [
     unique("username_key").on(t.username, t.instanceId),
@@ -350,17 +354,13 @@ export const objects = pgTable(
     contentHtml: text().notNull(),
     language: varchar({ length: 35 }),
     sensitive: boolean().notNull().default(false),
-    published: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
-    updated: timestamp({ withTimezone: true })
+    published: instant().notNull().default(currentTimestamp),
+    updated: instant()
       .notNull()
       .default(currentTimestamp)
       .$onUpdate(() => currentTimestamp),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
-    deleted: timestamp({ withTimezone: true }),
+    created: instant().notNull().default(currentTimestamp),
+    deleted: instant(),
   },
   (t) => [
     check(
@@ -402,7 +402,7 @@ export const collections = pgTable(
     role: collectionRoleEnum(),
     totalItems: integer(),
     document: json(),
-    updated: timestamp({ withTimezone: true })
+    updated: instant()
       .notNull()
       .default(currentTimestamp)
       .$onUpdate(() => currentTimestamp),
@@ -447,9 +447,7 @@ export const collectionItems = pgTable(
       .notNull()
       .references(() => resources.id, { onDelete: "cascade" }),
     position: integer(),
-    observed: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    observed: instant().notNull().default(currentTimestamp),
   },
   (t) => [
     primaryKey({ columns: [t.collectionId, t.itemId] }),
@@ -473,11 +471,9 @@ export const activities = pgTable(
     objectId: uuid()
       .$type<Uuid>()
       .references(() => resources.id, { onDelete: "cascade" }),
-    published: timestamp({ withTimezone: true }).notNull(),
+    published: instant().notNull(),
     document: json(),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    created: instant().notNull().default(currentTimestamp),
   },
   (t) => [
     index("activity_actor_published_index").on(

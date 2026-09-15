@@ -46,7 +46,7 @@ const logger = getLogger(["drfed", "create-account"]);
 async function main(): Promise<void> {
   const email = normalizeEmail(process.env.email ?? "");
   const name = (process.env.name ?? "").trim();
-  const created = new Date();
+  const created = Temporal.Now.instant();
   const accountId = uuidV7();
 
   if (email.length > 255 || !/^[^@]+@[^@]+\.[^@]+$/u.test(email)) {
