@@ -24,7 +24,7 @@ import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -388,6 +388,104 @@ describe("Query.node", () => {
           live: { uuid: liveId, actor: { uuid: localActorId } },
           deleted: null,
           nodes: [{ uuid: liveId }, null],
+        },
+      });
+    });
+  });
+});
+
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163244:
+// Drizzle maps timestamptz to `Date`, so the cursor carries `.123Z` while the
+// database holds `.123456`, and the `published = cursor AND id < cursor.id`
+// tie-breaker never matches the remaining rows.
+describe("Actor.objects cursor precision", () => {
+  it("returns every object whose published time carries microseconds", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      const ids = Array.from({ length: 3 }, () => uuid());
+      // `Date` cannot express microseconds, so the value goes through SQL.
+      await db.insert(schema.objects).values(
+        ids.map((id) => ({
+          id,
+          actorId: localActorId,
+          type: "Note" as const,
+          iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
+          contentHtml: "test",
+          published: sql`'2026-09-14T12:00:00.123456Z'::timestamptz`,
+        })),
+      );
+      const query = `query($actor: ID!, $after: String) { node(id: $actor) { ... on Actor { objects(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`;
+      const seen: string[] = [];
+      let after: string | null = null;
+      let hasNextPage = true;
+      for (let page = 0; hasNextPage && page <= ids.length; page += 1) {
+        const body = await (
+          await post({
+            query,
+            variables: { actor: globalId("Actor", localActorId), after },
+          })
+        ).json();
+        assert.equal(body.errors, undefined);
+        const connection = body.data.node.objects;
+        if (connection.edges.length === 0) break;
+        seen.push(
+          ...connection.edges.map(
+            (edge: { node: { uuid: string } }) => edge.node.uuid,
+          ),
+        );
+        ({ hasNextPage } = connection.pageInfo);
+        ({ cursor: after } = connection.edges.at(-1));
+      }
+      assert.deepEqual(seen, [...ids].sort().reverse());
+      assert.equal(hasNextPage, false);
+    });
+  });
+});
+
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163257:
+// `filterDeleted` only inspects the node's own `deleted` column, so objects of
+// a soft-deleted actor still resolve and `Object.actor` returns that actor.
+describe("Query.node with a deleted actor", () => {
+  it("hides the objects of a deleted actor from node, nodes, and Object.actor", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      await seedRemoteActor(db);
+      const hiddenId = uuid();
+      const liveId = uuid();
+      await db.insert(schema.objects).values(
+        [hiddenId, liveId].map((id) => ({
+          id,
+          actorId: id === hiddenId ? localActorId : remoteActorId,
+          type: "Note" as const,
+          iri: `https://test.example/${id}`,
+          contentHtml: "test",
+        })),
+      );
+      await db
+        .update(schema.actors)
+        .set({ deleted: new Date() })
+        .where(eq(schema.actors.id, localActorId));
+      const query = `query($hidden: ID!, $live: ID!) {
+        hidden: node(id: $hidden) { ... on Object { uuid actor { uuid } } }
+        live: node(id: $live) { ... on Object { uuid actor { uuid } } }
+        nodes(ids: [$hidden, $live]) { ... on Object { uuid } }
+      }`;
+      const body = await (
+        await post({
+          query,
+          variables: {
+            hidden: globalId("Object", hiddenId),
+            live: globalId("Object", liveId),
+          },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          hidden: null,
+          live: { uuid: liveId, actor: { uuid: remoteActorId } },
+          nodes: [null, { uuid: liveId }],
         },
       });
     });

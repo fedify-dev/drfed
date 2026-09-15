@@ -31,9 +31,11 @@ import { eq, sql } from "drizzle-orm";
 
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
+  globalId,
   localActorId,
   remoteActorId,
   seedActors,
+  seedAuthenticatedLocalInstance,
   seedLocalActor,
   seedObjects,
   seedRemoteActor,
@@ -586,4 +588,58 @@ describe("ActivityPub outbox", () => {
       assert.equal(body.next, undefined);
     });
   });
+});
+
+const createMutation = `mutation Create($actor: ID!, $visibility: ObjectVisibility!) {
+  createObject(actor: $actor, contentHtml: "<p>Hello</p>", visibility: $visibility) {
+    ... on Object { uuid }
+    ... on CreateObjectError { errorType: type message }
+  }
+}`;
+
+// Regression tests for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163252:
+// the outbox counter reads `postsCount`, which counts objects that the outbox
+// pages never return.
+describe("ActivityPub outbox totalItems", () => {
+  for (const scenario of ["followers", "deleted"] as const) {
+    it(`does not count ${scenario} objects that outbox pages never return`, async () => {
+      await withTestHarness(async ({ db, federation, post }) => {
+        const auth = await seedAuthenticatedLocalInstance(db);
+        await seedLocalActor(db);
+        const body = await (
+          await post(
+            {
+              query: createMutation,
+              variables: {
+                actor: globalId("Actor", localActorId),
+                visibility: scenario === "followers" ? "FOLLOWERS" : "PUBLIC",
+              },
+            },
+            auth,
+          )
+        ).json();
+        assert.equal(body.errors, undefined);
+        assert.equal(body.data.createObject.errorType, undefined);
+        if (scenario === "deleted") {
+          await db
+            .update(schema.objects)
+            .set({ deleted: new Date() })
+            .where(eq(schema.objects.id, body.data.createObject.uuid));
+        }
+        const fetchJson = async (iri: string) => {
+          const response = await federation.fetch(
+            new Request(iri, { headers: accept }),
+            { contextData: undefined },
+          );
+          assert.equal(response.status, 200);
+          return await response.json();
+        };
+        const page = await fetchJson(`${actorIri}/outbox?cursor=`);
+        assert.deepEqual(page.orderedItems ?? [], []);
+        const collection = await fetchJson(`${actorIri}/outbox`);
+        assert.equal(collection.totalItems, 0);
+      });
+    });
+  }
 });
