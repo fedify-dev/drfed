@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { schema } from "@drfed/models";
+import { isValidSlug } from "@drfed/models/slug";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { DrizzleQueryError } from "drizzle-orm";
 import { eq } from "drizzle-orm/sql/expressions";
@@ -36,6 +37,21 @@ const InstanceRef = builder.drizzleNode("instances", {
       type: "UUID",
     }),
     host: t.exposeString("host"),
+    url: t.string({
+      description:
+        "The absolute origin the `Instance` is served at, e.g. " +
+        "`https://foo-bar.drfed.net`.  Local instances follow this " +
+        "deployment's root origin, so a development deployment yields an " +
+        "`http:` URL carrying its port; remote instances are always `https:`.",
+      resolve(instance, _args, ctx) {
+        // Built by concatenation rather than through `URL`, so that a host
+        // which is not a parseable authority yields a useless string instead
+        // of throwing in the middle of a query.
+        const scheme =
+          instance.localId == null ? "https:" : ctx.rootOrigin.protocol;
+        return `${scheme}//${instance.host}`;
+      },
+    }),
     created: t.expose("created", {
       type: "DateTime",
       description: "The creation date/time of the `Instance`.",
@@ -145,7 +161,7 @@ builder.queryFields((t) => ({
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",
   {
-    values: ["SlugAlreadyTaken", "TooManyInstances"] as const,
+    values: ["InvalidSlug", "SlugAlreadyTaken", "TooManyInstances"] as const,
   },
 );
 
@@ -205,6 +221,19 @@ builder.mutationFields((t) => ({
         throw new Error("You must be authenticated to create an instance.");
       }
       const { account } = ctx;
+      // Checked here rather than left to the database constraint, which
+      // surfaces as an unhandled query error, and which cannot tell a
+      // decodable A-label from a malformed one in any case.
+      if (!isValidSlug(slug)) {
+        return {
+          type: "InvalidSlug" as const,
+          message:
+            `The slug ${JSON.stringify(slug)} is not usable as a ` +
+            "domain name label.  It must be 4 to 63 characters of lowercase " +
+            "letters, digits and hyphens, start and end with a letter or a " +
+            "digit, and if it begins with `xn--` it must be valid Punycode.",
+        };
+      }
       let tooManyInstances = false;
       try {
         return await ctx.db.transaction(async (tx) => {

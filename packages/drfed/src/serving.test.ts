@@ -118,9 +118,9 @@ describe("createFetchHandler()", () => {
   });
 
   it("refuses a request whose URL disagrees with its Host header", async () => {
-    // srvx substitutes the literal `_invalid_` for a `Host` it cannot parse,
-    // which would otherwise classify as the control surface and answer
-    // GraphQL to a request that named a tenant.
+    // The srvx adapter substitutes the literal `_invalid_` for a `Host` it
+    // cannot parse, which would otherwise classify as the control surface and
+    // answer GraphQL to a request that named a tenant.
     const { fetch, federationCalls, controlCalls } = handler();
     const response = await fetch("http://_invalid_/graphql", {
       headers: { host: "foo-bar.drfed.net." },

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { domainToASCII } from "node:url";
+
 /**
  * The shape of a syntactically valid slug: 4 to 63 characters drawn from
  * lowercase letters, digits and hyphens, and starting and ending with a letter
@@ -58,5 +60,13 @@ const A_LABEL_PREFIX = "xn--";
  */
 export function isValidSlug(slug: string): boolean {
   if (!SLUG_PATTERN.test(slug)) return false;
-  return !RESERVED_LDH_PATTERN.test(slug) || slug.startsWith(A_LABEL_PREFIX);
+  if (!RESERVED_LDH_PATTERN.test(slug)) return true;
+  if (!slug.startsWith(A_LABEL_PREFIX)) return false;
+  // Carrying the prefix is not enough: the label has to be Punycode that
+  // actually decodes.  `xn--a` does not, and a host name built from it is not
+  // a URL at all, which strands the instance the moment anything tries to
+  // address it.  This check has no counterpart in the database constraint,
+  // which cannot decode Punycode; the constraint guards the shape, and this
+  // guards the meaning.
+  return domainToASCII(slug) === slug;
 }

@@ -63,6 +63,21 @@ const remoteInstanceQuery = `
   }
 `;
 
+const remoteInstanceUrlQuery = `
+  query RemoteInstanceUrl($uuid: UUID!) {
+    accountByUuid(uuid: $uuid) {
+      instances {
+        edges {
+          node {
+            host
+            url
+          }
+        }
+      }
+    }
+  }
+`;
+
 const localInstanceQuery = `
   query LocalInstance($uuid: UUID!) {
     accountByUuid(uuid: $uuid) {
@@ -237,6 +252,7 @@ const createInstanceMutation = `
       ... on Instance {
         uuid
         host
+        url
       }
       ... on CreateInstanceError {
         type
@@ -247,6 +263,44 @@ const createInstanceMutation = `
 `;
 
 describe("Mutation.createInstance", () => {
+  it("exposes the instance's absolute origin", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const response = await post(
+        { query: createInstanceMutation, variables: { slug: "my-instance" } },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(
+        body.data.createInstance.url,
+        "https://my-instance.drfed.org",
+      );
+    });
+  });
+
+  it("gives a development instance an http URL carrying its port", async () => {
+    // The frontend links to an instance's endpoints from this field, so it
+    // has to name somewhere that actually answers.
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const response = await post(
+        { query: createInstanceMutation, variables: { slug: "my-instance" } },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(
+        body.data.createInstance.url,
+        "http://my-instance.drfed.localhost:8888",
+      );
+    }, new URL("http://drfed.localhost:8888"));
+  });
+
   it("carries the root origin's port into the instance host", async () => {
     // A development deployment is reached on a non-default port, and the host
     // has to include it: that authority is what Fedify's `Context.host`
@@ -266,6 +320,62 @@ describe("Mutation.createInstance", () => {
         "my-instance.drfed.localhost:8888",
       );
     }, new URL("http://drfed.localhost:8888"));
+  });
+
+  it("rejects a slug that is not a usable domain name label", async () => {
+    // The database constraint would reject most of these too, but as an
+    // unhandled query error; and it cannot tell a decodable A-label from a
+    // malformed one at all.
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const slugs = [
+        "-foo",
+        "foo-",
+        "abc",
+        "Foo-bar",
+        "ab--cd",
+        // Carries the A-label prefix but is not decodable Punycode.
+        "xn--a",
+      ];
+      const results = await Promise.all(
+        slugs.map(async (slug) => {
+          const response = await post(
+            { query: createInstanceMutation, variables: { slug } },
+            auth,
+          );
+          return { slug, status: response.status, body: await response.json() };
+        }),
+      );
+      for (const { slug, status, body } of results) {
+        assert.equal(status, ok, slug);
+        assert.equal(body.errors, undefined, slug);
+        assert.equal(
+          body.data.createInstance.__typename,
+          "CreateInstanceError",
+          slug,
+        );
+        assert.equal(body.data.createInstance.type, "InvalidSlug", slug);
+      }
+      // Nothing was created along the way.
+      assert.equal((await db.select().from(schema.instances)).length, 0);
+    });
+  });
+
+  it("accepts a decodable xn-- slug", async () => {
+    // `xn--3e0b707e` is the Punycode encoding of `한국`; DrFed exists to debug
+    // federation, and IDN host names are one of the things that break it.
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const response = await post(
+        { query: createInstanceMutation, variables: { slug: "xn--3e0b707e" } },
+        auth,
+      );
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(body.data.createInstance.__typename, "Instance");
+      assert.equal(body.data.createInstance.host, "xn--3e0b707e.drfed.org");
+    });
   });
 
   it("creates an instance and adds the viewer as a member", async () => {
@@ -831,6 +941,26 @@ describe("LocalInstance authorization", () => {
 });
 
 describe("Remote instance", () => {
+  it("gives a remote instance an https URL", async () => {
+    // A remote host is reached over HTTPS whatever scheme this deployment
+    // happens to serve itself on, so the root origin must not leak into it.
+    await withTestHarness(async ({ db, post }) => {
+      await seedRemoteInstance(db);
+      const auth = await createSession(db);
+
+      const response = await post(
+        { query: remoteInstanceUrlQuery, variables: { uuid: accountId } },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      const [edge] = body.data.accountByUuid.instances.edges;
+      assert.equal(edge.node.url, "https://remote.example.com");
+    }, new URL("http://drfed.localhost:8888"));
+  });
+
   it("returns a created remote instance", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedRemoteInstance(db);
