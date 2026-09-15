@@ -22,8 +22,6 @@ import {
   type RouteDefinition,
   type RouteSectionProps,
   query,
-  revalidate,
-  useNavigate,
 } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { Show, createSignal } from "solid-js";
@@ -35,7 +33,7 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
-import { showSuccessToast } from "~/components/Toast.tsx";
+import { navigateWithSuccessToast } from "~/components/Toast.tsx";
 
 import type { GenerateActorsMutation } from "./__generated__/GenerateActorsMutation.graphql.ts";
 import type { GetHostQuery } from "./__generated__/GetHostQuery.graphql.ts";
@@ -107,7 +105,6 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
   const [errorMessage, setErrorMessage] = createSignal<string>();
   const [commitGenerateActors, isGeneratingActors] =
     createMutation<GenerateActorsMutation>(generateActorsMutation);
-  const navigate = useNavigate();
 
   const data = createPreloadedQuery<GetHostQuery>(
     getHostQuery,
@@ -132,11 +129,6 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
     setErrorMessage(undefined);
     commitGenerateActors({
       variables: { instance, size },
-      updater: (store, response) => {
-        if (response?.generateActors.resultType === "CreateActorsSuccess") {
-          store.get(instance)?.invalidateRecord();
-        }
-      },
       onCompleted: (response, errors) => {
         const graphQLErrors = errors ?? [];
         if (graphQLErrors.length > 0) {
@@ -150,9 +142,10 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {
-            void revalidate("InstanceDetailQuery");
-            navigate(`/instance/${encodeURIComponent(slug)}`);
-            showSuccessToast(`Successfully created actors on ${host}.`);
+            navigateWithSuccessToast(
+              `/instance/${encodeURIComponent(slug)}`,
+              `Successfully created actors on ${host}.`,
+            );
             return;
           }
           case "CreateActorsError": {
@@ -212,9 +205,11 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
               <NumberField
                 class={styles.field}
                 name={field.props.name}
-                rawValue={field.input ?? Number.NaN}
+                value={Number.isNaN(field.input) ? "" : (field.input ?? "")}
                 minValue={1}
-                onRawValueChange={field.onInput}
+                onRawValueChange={(value) => {
+                  field.onInput(Number.isNaN(value) ? undefined : value);
+                }}
               >
                 <NumberField.Label class={styles.field}>Size</NumberField.Label>
                 <NumberField.Input

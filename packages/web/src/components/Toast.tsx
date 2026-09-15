@@ -15,11 +15,25 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Toast, toaster } from "@kobalte/core/toast";
+import { onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import styles from "~/styles/toast.module.css";
 
+const pendingToastKey = "drfed:success-toast:";
+
 export function ToastRegion() {
+  onMount(() => {
+    const key = pendingToastKey + globalThis.location.pathname;
+    try {
+      const message = sessionStorage.getItem(key);
+      sessionStorage.removeItem(key);
+      if (message !== null && message !== "") showSuccessToast(message);
+    } catch {
+      // Navigation still works when browser storage is unavailable.
+    }
+  });
+
   return (
     <Portal>
       <Toast.Region class={styles.region} duration={5000}>
@@ -38,4 +52,14 @@ export function showSuccessToast(message: string): number {
       </Toast.CloseButton>
     </Toast>
   ));
+}
+
+/** Load a fresh page and show a one-time success notification there. */
+export function navigateWithSuccessToast(path: string, message: string): void {
+  try {
+    sessionStorage.setItem(pendingToastKey + path, message);
+  } catch {
+    // A blocked storage API must not prevent successful navigation.
+  }
+  globalThis.location.assign(path);
 }
