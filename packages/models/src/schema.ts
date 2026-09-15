@@ -78,7 +78,13 @@ export const instances = pgTable("instances", {
   created: timestamp({ withTimezone: true })
     .notNull()
     .default(currentTimestamp),
-  host: varchar({ length: 100 }).notNull().unique(),
+  // The authority an instance is federated under, which is what Fedify's
+  // `Context.host` reports and therefore what dispatchers look instances up
+  // by.  That is a DNS name, at most 253 octets, plus a `:port` suffix of up
+  // to 6 more characters when the deployment is not on the scheme's default
+  // port.  Both locally composed `<slug>.<root domain>` names and remote
+  // hosts discovered from the fediverse live here.
+  host: varchar({ length: 259 }).notNull().unique(),
   nodeInfoUrl: text(),
   software: text(),
   softwareVersion: text(),
