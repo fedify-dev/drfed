@@ -133,6 +133,74 @@ async function requestLoginCode(
 }
 
 describe("email authentication", () => {
+  it("sends login mail from the deployment's own domain", async () => {
+    // A From address at drfed.org would fail the SPF and DMARC checks of every
+    // deployment but the project's own, so the default has to follow the root
+    // origin rather than the project.
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+
+      await requestLoginCode(post, mailer);
+
+      const [message] = mailer.getSentMessages();
+      ok(message);
+      equal(message.sender.address, "noreply@drfed.example");
+    }, new URL("https://drfed.example"));
+  });
+
+  it("keeps the port out of the derived sender", async () => {
+    // The address is derived from the host name, not the authority: a
+    // development deployment on a non-default port must not send from
+    // `noreply@drfed.localhost:8888`.
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+
+      await requestLoginCode(post, mailer);
+
+      const [message] = mailer.getSentMessages();
+      ok(message);
+      equal(message.sender.address, "noreply@drfed.localhost");
+    }, new URL("http://drfed.localhost:8888"));
+  });
+
+  it("keeps the root zone's dot out of the derived sender", async () => {
+    // A trailing dot is not valid in an email address, so a root origin
+    // written with one must not leak it into the From header.
+    await withTestHarness(async ({ db, mailer, post }) => {
+      await db
+        .insert(schema.accounts)
+        .values({ id: accountId, email, name: "Login Test" });
+
+      await requestLoginCode(post, mailer);
+
+      const [message] = mailer.getSentMessages();
+      ok(message);
+      equal(message.sender.address, "noreply@drfed.example");
+    }, new URL("https://drfed.example."));
+  });
+
+  it("sends login mail from an explicitly configured address", async () => {
+    await withTestHarness(
+      async ({ db, mailer, post }) => {
+        await db
+          .insert(schema.accounts)
+          .values({ id: accountId, email, name: "Login Test" });
+
+        await requestLoginCode(post, mailer);
+
+        const [message] = mailer.getSentMessages();
+        ok(message);
+        equal(message.sender.address, "postmaster@mail.example");
+      },
+      new URL("https://drfed.example"),
+      "postmaster@mail.example",
+    );
+  });
+
   it("does not let the login grant reach another account's email", async () => {
     await withTestHarness(async ({ db, mailer, post }) => {
       await db.insert(schema.accounts).values([

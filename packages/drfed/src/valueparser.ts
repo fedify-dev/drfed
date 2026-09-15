@@ -57,6 +57,11 @@ export interface OriginOptions {
 const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
 
 /**
+ * The greatest length a domain name may have, in octets.
+ */
+const MAX_HOSTNAME_LENGTH = 253;
+
+/**
  * Creates a {@link ValueParser} for web origins.
  *
  * The parser accepts any absolute URL and *normalizes* it down to its origin
@@ -136,6 +141,23 @@ export function origin(options: OriginOptions = {}): ValueParser<"sync", URL> {
       // empty `hostname` while its origin carries the authority embedded in
       // it, so checking the original would miss `blob:http://127.0.0.1/x`.
       const normalized = new URL(url.origin);
+      // `example.com.` and `example.com` name the same host, but the URL
+      // parser keeps the root zone's dot and almost nothing downstream expects
+      // it -- it is not valid in an email address, for one.
+      if (normalized.hostname.endsWith(".")) {
+        normalized.hostname = normalized.hostname.slice(0, -1);
+      }
+      // The URL parser runs domain-to-ASCII leniently and so accepts host
+      // names DNS never could.  Rejecting them here turns what would
+      // otherwise be a runtime failure far from its cause -- Upyo refuses to
+      // build a message whose sender domain is this long -- into a startup
+      // error naming the option at fault.
+      if (normalized.hostname.length > MAX_HOSTNAME_LENGTH) {
+        return {
+          success: false,
+          error: message`The host name of ${input} is longer than the ${String(MAX_HOSTNAME_LENGTH)} characters a domain name may have.`,
+        };
+      }
       if (
         !allowIpLiterals &&
         (normalized.hostname.startsWith("[") ||

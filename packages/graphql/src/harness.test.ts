@@ -164,12 +164,15 @@ export async function withTemporaryDatabase<T>(
  * @param rootOrigin The deployment's root origin.  Defaults to
  *                   `https://drfed.org`; pass one carrying a port to exercise
  *                   a development-style deployment.
+ * @param emailFrom The address login mail is sent from.  Left unset by
+ *                  default, so that the derived one is exercised.
  * @returns The callback's resolved value.
  */
 export async function withTestHarness<T>(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks
   callback: (harness: TestHarness) => Promise<T> | T,
   rootOrigin: URL = new URL("https://drfed.org"),
+  emailFrom?: string,
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
@@ -179,6 +182,7 @@ export async function withTestHarness<T>(
       mailer,
       loginOrigins,
       rootOrigin,
+      emailFrom,
     });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
 

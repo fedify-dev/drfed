@@ -101,7 +101,7 @@ export function classifyHost(url: URL, rootOrigin: URL): HostKind {
  * @param url The URL to read the host name from.
  * @returns The host name without its root-zone dot.
  */
-function canonicalHostname(url: URL): string {
+export function canonicalHostname(url: URL): string {
   const { hostname } = url;
   return hostname.endsWith(".") ? hostname.slice(0, -1) : hostname;
 }

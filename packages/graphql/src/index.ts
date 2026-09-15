@@ -28,6 +28,7 @@ import {
 
 import { hashSecret } from "./auth/hash.ts";
 import type { ServerContext, UserContext } from "./builder.ts";
+import { canonicalHostname } from "./origin.ts";
 import { schema } from "./schema.ts";
 /**
  * Options for Yoga server.
@@ -39,9 +40,10 @@ export interface YogaServerOptions {
   mailer?: Transport | undefined;
 
   /**
-   * Email address to send.
+   * The address login mail is sent from.  Defaults to `noreply@` at the root
+   * origin's host name.
    */
-  emailFrom?: string;
+  emailFrom?: string | undefined;
 
   /**
    * Origin list for login.
@@ -109,7 +111,11 @@ const fillOptions = (
   opt: YogaServerOptions,
 ): Omit<ServerContext, "db" | "request" | "federation"> => ({
   mailer: opt.mailer ?? mockTransport(),
-  emailFrom: opt.emailFrom ?? "noreply@drfed.org",
+  // Derived from the deployment's own domain rather than the project's, so
+  // that the operator's mail server is authorized to send it.  A From address
+  // at drfed.org would fail the SPF and DMARC checks of every deployment but
+  // the project's own, and the login mail would be rejected or junked.
+  emailFrom: opt.emailFrom ?? `noreply@${canonicalHostname(opt.rootOrigin)}`,
   loginOrigins: opt.loginOrigins,
   rootOrigin: opt.rootOrigin,
 });

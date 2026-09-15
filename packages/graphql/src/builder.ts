@@ -56,7 +56,7 @@ export interface ServerContext {
   readonly mailer: Transport;
 
   /**
-   * Email address to send.
+   * The address login mail is sent from.
    */
   readonly emailFrom: string;
 

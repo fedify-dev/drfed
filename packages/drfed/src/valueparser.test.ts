@@ -137,6 +137,29 @@ describe("origin()", () => {
     assert.equal(parsed("https://1.drfed.net", options), "https://1.drfed.net");
   });
 
+  it("normalizes the root zone's trailing dot away", () => {
+    // `drfed.example.` and `drfed.example` name the same host, but the dot is
+    // not valid in an email address and confuses host comparisons downstream.
+    assert.equal(parsed("https://drfed.example."), "https://drfed.example");
+    assert.equal(
+      parsed("http://drfed.localhost.:8888"),
+      "http://drfed.localhost:8888",
+    );
+  });
+
+  it("rejects a host name longer than a domain name may be", () => {
+    // 253 octets is the limit, and the mail library refuses to build a message
+    // whose sender domain exceeds it, so accepting one here would only defer
+    // the failure to every login attempt.
+    const label = "a".repeat(63);
+    const longest = [label, label, label, "a".repeat(61)].join(".");
+    assert.equal(longest.length, 253);
+    assert.equal(parsed(`https://${longest}`), `https://${longest}`);
+    assert.equal(parse(`https://${longest}a`).success, false);
+    // The root zone's dot is stripped before the length is measured.
+    assert.equal(parsed(`https://${longest}.`), `https://${longest}`);
+  });
+
   it("sees through a URL that hides its authority in its origin", () => {
     // A `blob:` URL reports an empty `hostname` while its origin carries the
     // authority embedded in it, so a check against the original URL would let

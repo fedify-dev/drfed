@@ -115,6 +115,33 @@ describe("drfed-server", () => {
     assert.match(stderr, /IP address/u);
   });
 
+  it("accepts --email-from and rejects a malformed address", async () => {
+    const dataPath = await mkdtemp(join(tmpdir(), "drfed-parser-test-"));
+    try {
+      // Valid: parsing gets past the option and stops only on the missing
+      // login origins, which is the next thing the server reads.
+      const accepted = await run([
+        "--data-path",
+        dataPath,
+        "--root-origin=https://drfed.net",
+        "--email-from=postmaster@mail.example",
+      ]);
+      assert.notEqual(accepted.code, 0);
+      assert.match(accepted.stderr, /DRFED_LOGIN_ORIGINS/u);
+
+      const rejected = await run([
+        "--data-path",
+        dataPath,
+        "--root-origin=https://drfed.net",
+        "--email-from=not-an-address",
+      ]);
+      assert.notEqual(rejected.code, 0);
+      assert.doesNotMatch(rejected.stderr, /DRFED_LOGIN_ORIGINS/u);
+    } finally {
+      await rm(dataPath, { force: true, recursive: true });
+    }
+  });
+
   it("generates the GraphQL schema without a root origin", async () => {
     // Schema generation is the other branch of the parser and must stay
     // usable without any deployment configuration; `mise run build` calls it.

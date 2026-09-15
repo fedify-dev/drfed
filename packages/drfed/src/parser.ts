@@ -22,7 +22,7 @@ import { message, optionNames } from "@optique/core/message";
 import { map, optional, withDefault } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { flag, option } from "@optique/core/primitives";
-import { socketAddress, url } from "@optique/core/valueparser";
+import { email, socketAddress, url } from "@optique/core/valueparser";
 import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
 import { LogTapeTransport } from "@upyo/logtape";
@@ -124,6 +124,12 @@ const rootOriginParser = option(
   },
 );
 
+const emailFromParser = optional(
+  option("--email-from", "-f", email({ lowercase: true }), {
+    description: message`The address login mail is sent from.  Defaults to ${"noreply@"} at the root origin's host name.`,
+  }),
+);
+
 const serverParser = object("DrFed server", {
   address: withDefault(
     option("--listen", "-l", socketAddress({ requirePort: true }), {
@@ -146,6 +152,7 @@ const serverParser = object("DrFed server", {
     }),
   ),
   rootOrigin: rootOriginParser,
+  emailFrom: emailFromParser,
   mailer: smtpParser,
   seed: seedParser,
 });

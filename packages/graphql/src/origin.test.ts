@@ -17,6 +17,7 @@
 import assert from "node:assert/strict";
 
 import {
+  canonicalHostname,
   classifyHost,
   instanceHost,
   instanceOrigin,
@@ -54,6 +55,18 @@ describe("instanceHost()", () => {
       instanceHost(new URL("http://drfed.localhost.:8888"), "foo-bar"),
       "foo-bar.drfed.localhost:8888",
     );
+  });
+});
+
+describe("canonicalHostname()", () => {
+  it("strips the root zone's trailing dot", () => {
+    assert.equal(canonicalHostname(new URL("https://drfed.net.")), "drfed.net");
+    assert.equal(canonicalHostname(new URL("https://drfed.net")), "drfed.net");
+    assert.equal(
+      canonicalHostname(new URL("http://drfed.localhost.:8888")),
+      "drfed.localhost",
+    );
+    assert.equal(canonicalHostname(new URL("http://[::1]:8888")), "[::1]");
   });
 });
 
