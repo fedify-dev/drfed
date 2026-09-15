@@ -14,7 +14,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { type Database, schema } from "@drfed/models";
+// Keep dependent database writes and observations sequential.
+// oxlint-disable no-await-in-loop
+
+import {
+  type Database,
+  promoteResource,
+  schema,
+  storeAddressing,
+} from "@drfed/models";
+import { type AddressingInput, PUBLIC_IRI } from "@drfed/models/resource";
+import { type Uuid, uuidV7 } from "@drfed/models/uuid";
+import type { PgInsertValue } from "drizzle-orm/pg-core";
 
 import { hashSecret } from "./auth/hash.ts";
 
@@ -32,7 +43,7 @@ export const sessionId = "00000000-0000-4000-8000-000000000301";
 export const accessToken = "test-access-token";
 
 export function globalId(
-  type: "Actor" | "Instance" | "Object",
+  type: "Actor" | "Instance" | "Object" | "Activity" | "Collection",
   id: string,
 ): string {
   return Buffer.from(`${type}:${id}`).toString("base64");
@@ -70,7 +81,7 @@ export async function seedLocalActor(db: Database): Promise<void> {
     avatar: "avatar.png",
     header: "header.png",
   });
-  await db.insert(schema.actors).values({
+  await seedActors(db, {
     id: localActorId,
     localId: localActorId,
     instanceId: localInstanceId,
@@ -78,13 +89,9 @@ export async function seedLocalActor(db: Database): Promise<void> {
     username: "alice",
     iri: `https://test-instance.drfed.org/users/${localActorId}`,
     inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-    outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
     avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-    followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-    followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
     headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
     profileUrl: "https://test-instance.drfed.org/@alice",
-    featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
     created,
   });
 }
@@ -115,20 +122,119 @@ export async function seedRemoteActor(db: Database): Promise<void> {
     created,
     host: "remote.example.com",
   });
-  await db.insert(schema.actors).values({
+  await seedActors(db, {
     id: remoteActorId,
     instanceId: remoteInstanceId,
     type: "Service",
     username: "bob",
     iri: "https://remote.example.com/users/bob",
     inboxUrl: "https://remote.example.com/users/bob/inbox",
-    outboxUrl: "https://remote.example.com/users/bob/outbox",
     avatarUrl: "https://remote.example.com/users/bob/avatar.png",
-    followersUrl: "https://remote.example.com/users/bob/followers",
-    followingUrl: "https://remote.example.com/users/bob/following",
     headerUrl: "https://remote.example.com/users/bob/header.png",
     profileUrl: "https://remote.example.com/@bob",
-    featuredUrl: "https://remote.example.com/users/bob/featured",
     created,
   });
+}
+
+type ActorSeed = PgInsertValue<typeof schema.actors> & {
+  id: Uuid;
+  iri: string;
+};
+export async function seedActors(
+  db: Database,
+  values: ActorSeed | ActorSeed[],
+): Promise<void> {
+  for (const { iri, ...actor } of Array.isArray(values) ? values : [values]) {
+    await promoteResource(
+      db,
+      iri,
+      "actor",
+      async (tx, resource) => {
+        await tx.insert(schema.actors).values({ ...actor, id: resource.id });
+        for (const role of [
+          "followers",
+          "following",
+          "featured",
+          "outbox",
+        ] as const) {
+          await promoteResource(
+            tx,
+            `${iri}/${role}`,
+            "collection",
+            async (inner, collection) => {
+              await inner.insert(schema.collections).values({
+                id: collection.id,
+                type: "OrderedCollection",
+                ownerActorId: resource.id,
+                role,
+              });
+              await inner.insert(schema.actorCollectionReferences).values({
+                actorId: resource.id,
+                role,
+                collectionId: collection.id,
+              });
+            },
+          );
+        }
+      },
+      actor.id,
+    );
+  }
+}
+type ObjectSeed = PgInsertValue<typeof schema.objects> & {
+  id: Uuid;
+  iri: string;
+  addressing?: AddressingInput;
+  activityId?: Uuid;
+};
+/** Seeds independent Create rows using the legacy IRI layout for migration coverage. */
+export async function seedObjects(
+  db: Database,
+  values: ObjectSeed | ObjectSeed[],
+): Promise<void> {
+  for (const {
+    iri,
+    activityId = uuidV7(),
+    addressing = {
+      to: [PUBLIC_IRI],
+      cc: [`https://test-instance.drfed.org/users/${localActorId}/followers`],
+    },
+    ...object
+  } of Array.isArray(values) ? values : [values]) {
+    await promoteResource(
+      db,
+      iri,
+      "object",
+      async (tx, resource) => {
+        const [row] = await tx
+          .insert(schema.objects)
+          .values({ ...object, id: resource.id })
+          .returning();
+        if (row == null) throw new Error("Missing seeded object.");
+        await storeAddressing(tx, resource.id, addressing);
+        const actor = await tx.query.actors.findFirst({
+          where: { id: row.actorId },
+          with: { instance: true },
+        });
+        if (actor == null) throw new Error("Missing seeded actor.");
+        await promoteResource(
+          tx,
+          `https://${actor.instance.host}/ap/creates/${row.id}`,
+          "activity",
+          async (inner, activity) => {
+            await inner.insert(schema.activities).values({
+              id: activity.id,
+              type: "Create",
+              actorId: row.actorId,
+              objectId: row.id,
+              published: row.published,
+            });
+            await storeAddressing(inner, activity.id, addressing);
+          },
+          activityId,
+        );
+      },
+      object.id,
+    );
+  }
 }

@@ -73,6 +73,10 @@
     "./object": {
       "types": "./dist/object.d.mts",
       "default": "./dist/object.mjs"
+    },
+    "./classification": {
+      "types": "./dist/classification.d.mts",
+      "default": "./dist/classification.mjs"
     }
   },
   "files": [
@@ -88,7 +92,8 @@
       "src/federation.ts",
       "src/instance.ts",
       "src/schema.ts",
-      "src/object.ts"
+      "src/object.ts",
+      "src/classification.ts"
     ],
     "dts": {
       "sourcemap": true,

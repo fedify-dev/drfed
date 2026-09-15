@@ -32,7 +32,13 @@ import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
-import { DateTimeResolver, URLResolver, UUIDResolver } from "graphql-scalars";
+import { GraphQLScalarType, Kind } from "graphql";
+import {
+  DateTimeResolver,
+  JSONResolver,
+  URLResolver,
+  UUIDResolver,
+} from "graphql-scalars";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -95,6 +101,7 @@ export interface UserContext extends ServerContext {
 export interface SchemaTypes {
   Context: UserContext;
   Scalars: {
+    JSON: { Input: unknown; Output: unknown };
     DateTime: {
       Input: Date;
       Output: Date;
@@ -112,7 +119,7 @@ export interface SchemaTypes {
       Output: Template;
     };
     URL: {
-      Input: URL;
+      Input: string;
       Output: string;
     };
   };
@@ -225,7 +232,29 @@ async function isLocalInstanceMember(
 }
 
 builder.addScalarType("DateTime", DateTimeResolver);
-builder.addScalarType("URL", URLResolver);
+builder.addScalarType(
+  "URL",
+  new GraphQLScalarType({
+    ...URLResolver.toConfig(),
+    serialize(value) {
+      URLResolver.serialize(value);
+      return String(value);
+    },
+    // Validate URLs while preserving the caller's exact spelling.
+    parseValue(value) {
+      URLResolver.parseValue(value);
+      return String(value);
+    },
+    parseLiteral(node, variables) {
+      URLResolver.parseLiteral(node, variables);
+      if (node.kind !== Kind.STRING) {
+        throw new TypeError("Expected a URL string.");
+      }
+      return node.value;
+    },
+  }),
+);
+builder.addScalarType("JSON", JSONResolver);
 
 builder.scalarType("Email", {
   parseValue: (v) => normalizeEmail(String(v)),

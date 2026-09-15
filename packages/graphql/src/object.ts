@@ -14,28 +14,59 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { schema } from "@drfed/models";
+import { promoteResource, schema, storeAddressing } from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
 import { uuidV7 as uuid, validateUuid } from "@drfed/models/uuid";
-import { Object as APObject } from "@fedify/vocab";
+import { Object as APObject, Create } from "@fedify/vocab";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
+import {
+  type AddressingRows,
+  classifyMastodon,
+  classifyMisskey,
+} from "./classification.ts";
+import {
+  activitySelection,
+  objectSelection,
+  toCreate,
+  toObject,
+} from "./federation.ts";
+import { Resource, registerAddressingFields } from "./resource.ts";
 
 const ObjectType = builder.enumType("ObjectType", {
   values: objectTypeEnum.enumValues,
 });
-const ObjectVisibility = builder.enumType("ObjectVisibility", {
-  values: {
-    PUBLIC: { value: "public" },
-    UNLISTED: { value: "unlisted" },
-    FOLLOWERS: { value: "followers" },
-  } as const,
+const AddressingInput = builder.inputType("AddressingInput", {
+  fields: (t) => ({
+    to: t.field({ type: ["URL"], required: true, defaultValue: [] }),
+    cc: t.field({ type: ["URL"], required: true, defaultValue: [] }),
+    bto: t.field({ type: ["URL"], required: true, defaultValue: [] }),
+    bcc: t.field({ type: ["URL"], required: true, defaultValue: [] }),
+    audience: t.field({ type: ["URL"], required: true, defaultValue: [] }),
+  }),
+});
+const Implementation = builder.enumType("Implementation", {
+  values: ["MASTODON", "MISSKEY"] as const,
+});
+const ExpectedClassification = builder.objectRef<
+  ReturnType<typeof classifyMastodon>
+>("ExpectedClassification");
+ExpectedClassification.implement({
+  description:
+    "Expected classification; actual access depends on receiver state and policy.",
+  fields: (t) => ({
+    implementation: t.expose("implementation", { type: Implementation }),
+    version: t.exposeString("version"),
+    classification: t.exposeString("classification"),
+    reason: t.exposeString("reason"),
+  }),
 });
 const ObjectRef = builder.drizzleNode("objects", {
   name: "Object",
+  interfaces: [Resource],
   description: "Represents an ActivityPub object authored by an `Actor`.",
   id: {
     column: ({ id }) => id,
@@ -45,9 +76,6 @@ const ObjectRef = builder.drizzleNode("objects", {
     uuid: t.expose("id", {
       type: "UUID",
       description: "The UUID of the ActivityPub Object.",
-    }),
-    iri: t.exposeString("iri", {
-      description: "The canonical ActivityPub identifier of the object.",
     }),
     url: t.expose("url", {
       type: "URL",
@@ -61,10 +89,45 @@ const ObjectRef = builder.drizzleNode("objects", {
     actor: t.relation("actor", {
       description: "The actor that authored the object.",
     }),
-    visibility: t.expose("visibility", {
-      type: ObjectVisibility,
-      description:
-        "ActivityPub addressing policy. FOLLOWERS objects are not served over ActivityPub; GraphQL reads remain public.",
+    document: t.expose("document", { type: "JSON", nullable: true }),
+    createActivity: t.relation("createActivity", { nullable: true }),
+    expectedClassifications: t.field({
+      type: [ExpectedClassification],
+      select: { columns: { id: true } },
+      resolve: async (object, _, ctx) => {
+        const row = await ctx.db.query.objects.findFirst({
+          where: { id: object.id },
+          with: {
+            ...objectSelection,
+            actor: {
+              with: {
+                resource: true,
+                collectionReferences: {
+                  with: { collection: { with: { resource: true } } },
+                },
+              },
+            },
+            createActivity: { with: activitySelection },
+          },
+        });
+        if (row == null) throw new Error("Missing object.");
+        const author = {
+          iri: row.actor.resource.iri,
+          followersIri:
+            row.actor.collectionReferences.find(
+              (collection) => collection.role === "followers",
+            )?.collection.resource.iri ?? null,
+        };
+        const addressing = classificationInput(row);
+        const activity =
+          row.createActivity == null
+            ? null
+            : classificationInput(row.createActivity);
+        return [
+          classifyMastodon(addressing, activity, author),
+          classifyMisskey(addressing, activity, author),
+        ];
+      },
     }),
     name: t.exposeString("name", {
       nullable: true,
@@ -102,6 +165,7 @@ const ObjectRef = builder.drizzleNode("objects", {
   }),
 });
 export const ActivityPubObject: DrFedObjectRef = ObjectRef;
+registerAddressingFields("objects");
 
 const objectsConnection = drizzleConnectionHelpers(builder, "objects", {
   query: {
@@ -114,7 +178,7 @@ builder.drizzleObjectField("actors", "objects", (t) =>
     {
       type: ActivityPubObject,
       description:
-        "Non-deleted objects, newest publication first. All visibilities are publicly readable through GraphQL.",
+        "Non-deleted objects, newest publication first. All addressing is publicly readable through GraphQL.",
       select(args, ctx, nestedSelection) {
         return {
           with: {
@@ -142,7 +206,7 @@ builder.drizzleObjectField("actors", "objects", (t) =>
       fields: (fb) => ({
         totalCount: fb.int({
           description:
-            "The number of non-deleted objects authored by this actor, across all visibilities.",
+            "The number of non-deleted objects authored by this actor, regardless of addressing.",
           resolve: (connection) => connection.totalCount(),
         }),
       }),
@@ -226,17 +290,16 @@ builder.mutationFields((t) => ({
         defaultValue: false,
         description: "Whether to mark the content as sensitive.",
       }),
-      visibility: t.arg({
-        type: ObjectVisibility,
+      addressing: t.arg({
+        type: AddressingInput,
         required: true,
-        defaultValue: "public",
         description:
-          "ActivityPub addressing policy; this does not restrict GraphQL reads.",
+          "Explicit addressing preserved in order, including duplicates. Empty lists are allowed.",
       }),
     },
     async resolve(
       _parent,
-      { actor: { id: actorId }, language, ...input },
+      { actor: { id: actorId }, language, addressing, ...input },
       ctx,
     ) {
       if (input.contentHtml.trim() === "") {
@@ -304,26 +367,81 @@ builder.mutationFields((t) => ({
           identifier: actorId,
           id,
         }).href;
-        const [object] = await tx
-          .insert(schema.objects)
-          .values({
-            ...input,
-            name: normalizeOptionalText(input.name),
-            summary: normalizeOptionalText(input.summary),
-            id,
-            actorId,
-            iri,
-            language: canonicalLanguage,
+        const object = await promoteResource(
+          tx,
+          iri,
+          "object",
+          async (inner, resource) => {
+            const [row] = await inner
+              .insert(schema.objects)
+              .values({
+                ...input,
+                name: normalizeOptionalText(input.name),
+                summary: normalizeOptionalText(input.summary),
+                id: resource.id,
+                actorId,
+                language: canonicalLanguage,
+              })
+              .returning();
+            if (row == null) {
+              throw new Error("Object insertion returned no row.");
+            }
+            return row;
+          },
+          id,
+        );
+        await storeAddressing(tx, object.id, addressing);
+        const activityId = uuid();
+        await promoteResource(
+          tx,
+          fedCtx.getObjectUri(Create, { id: activityId }).href,
+          "activity",
+          async (inner, resource) => {
+            await inner.insert(schema.activities).values({
+              id: resource.id,
+              type: "Create",
+              actorId,
+              objectId: object.id,
+              published: object.published,
+            });
+            await storeAddressing(inner, resource.id, addressing);
+          },
+          activityId,
+        );
+        const storedObject = await tx.query.objects.findFirst({
+          where: { id: object.id },
+          with: objectSelection,
+        });
+        const storedActivity = await tx.query.activities.findFirst({
+          where: { id: activityId },
+          with: activitySelection,
+        });
+        if (storedObject == null || storedActivity == null) {
+          throw new Error("Missing newly created resource.");
+        }
+        // Preserve blind recipients in the local snapshot; serving strips them.
+        const snapshot = {
+          ...asDocument(await toObject(fedCtx, storedObject).toJsonLd()),
+          ...addressing,
+        };
+        await tx
+          .update(schema.objects)
+          .set({ document: snapshot, updated: object.updated })
+          .where(eq(schema.objects.id, object.id));
+        await tx
+          .update(schema.activities)
+          .set({
+            document: {
+              ...asDocument(await toCreate(fedCtx, storedActivity).toJsonLd()),
+              ...addressing,
+            },
           })
-          .returning();
+          .where(eq(schema.activities.id, activityId));
         await tx
           .update(schema.actors)
           .set({ postsCount: sql`${schema.actors.postsCount} + 1` })
           .where(eq(schema.actors.id, actorId));
-        if (object == null) {
-          throw new Error("Object insertion returned no row.");
-        }
-        return object;
+        return { ...object, document: snapshot };
       });
     },
   }),
@@ -333,4 +451,35 @@ function normalizeOptionalText(
   value: string | null | undefined,
 ): string | null {
   return value == null || value.trim() === "" ? null : value;
+}
+
+function classificationInput(row: {
+  document: unknown;
+  addressing: readonly {
+    property: string;
+    position: number;
+    targetResource: { iri: string };
+  }[];
+}): AddressingRows {
+  const property = (name: "to" | "cc"): readonly string[] | undefined => {
+    const rows = row.addressing
+      .filter((entry) => entry.property === name)
+      .toSorted((left, right) => left.position - right.position);
+    if (rows.length > 0) return rows.map((entry) => entry.targetResource.iri);
+    const { document } = row;
+    return document != null &&
+      typeof document === "object" &&
+      name in document &&
+      document[name as keyof typeof document] != null
+      ? []
+      : undefined;
+  };
+  return { to: property("to"), cc: property("cc") };
+}
+
+function asDocument(value: unknown): Record<string, unknown> {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("Expected a JSON-LD object.");
+  }
+  return value as Record<string, unknown>;
 }

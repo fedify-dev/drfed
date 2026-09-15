@@ -22,6 +22,7 @@ import {
   check,
   index,
   integer,
+  json,
   jsonb,
   pgEnum,
   pgTable,
@@ -29,6 +30,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -198,10 +200,36 @@ export const actorTypeEnum = pgEnum("actor_type", [
 
 export type ActorType = (typeof actorTypeEnum.enumValues)[number];
 
+export const resourceKindEnum = pgEnum("resource_kind", [
+  "actor",
+  "object",
+  "activity",
+  "collection",
+  "unknown",
+]);
+
+/**
+ * Canonical IRI registry. Physical deletion of an actor, object, activity or
+ * collection must also delete its source addressing and resource in the same
+ * transaction. References from other resources intentionally restrict deletion.
+ */
+export const resources = pgTable("resources", {
+  id: uuid().$type<Uuid>().primaryKey(),
+  iri: text().notNull().unique(),
+  kind: resourceKindEnum().notNull(),
+  created: timestamp({ withTimezone: true })
+    .notNull()
+    .default(currentTimestamp),
+});
+export type Resource = typeof resources.$inferSelect;
+
 export const actors = pgTable(
   "actors",
   {
-    id: uuid().$type<Uuid>().primaryKey(),
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
     localId: uuid()
       .$type<Uuid>()
       .unique()
@@ -212,12 +240,8 @@ export const actors = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
-    iri: text().notNull().unique(),
+    document: json(),
     inboxUrl: text().notNull(),
-    outboxUrl: text().notNull(),
-    followersUrl: text(),
-    followingUrl: text(),
-    featuredUrl: text(),
     profileUrl: text(),
     avatarUrl: text(),
     headerUrl: text(),
@@ -291,26 +315,21 @@ export type NewLocalActor = typeof localActors.$inferInsert;
 
 export const objectTypeEnum = pgEnum("object_type", ["Article", "Note"]);
 export type ObjectType = (typeof objectTypeEnum.enumValues)[number];
-export const objectVisibilityEnum = pgEnum("object_visibility", [
-  "public",
-  "unlisted",
-  "followers",
-]);
-export type ObjectVisibility = (typeof objectVisibilityEnum.enumValues)[number];
-
 /** ActivityPub objects authored by actors. */
 export const objects = pgTable(
   "objects",
   {
-    id: uuid().$type<Uuid>().primaryKey(),
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
     actorId: uuid()
       .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
     type: objectTypeEnum().notNull(),
-    iri: text().notNull().unique(),
+    document: json(),
     url: text(),
-    visibility: objectVisibilityEnum().notNull().default("public"),
     name: text(),
     summary: text(),
     contentHtml: text().notNull(),
@@ -342,3 +361,151 @@ export const objects = pgTable(
 );
 export type ActivityPubObject = typeof objects.$inferSelect;
 export type NewActivityPubObject = typeof objects.$inferInsert;
+
+export const collectionTypeEnum = pgEnum("collection_type", [
+  "Collection",
+  "OrderedCollection",
+]);
+export const collectionRoleEnum = pgEnum("collection_role", [
+  "followers",
+  "following",
+  "featured",
+  "outbox",
+  "public",
+]);
+export const collections = pgTable(
+  "collections",
+  {
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    type: collectionTypeEnum().notNull(),
+    ownerActorId: uuid()
+      .$type<Uuid>()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    role: collectionRoleEnum(),
+    totalItems: integer(),
+    document: json(),
+    updated: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp)
+      .$onUpdate(() => currentTimestamp),
+  },
+  (t) => [
+    uniqueIndex("collection_owner_role_key")
+      .on(t.ownerActorId, t.role)
+      .where(sql`${t.role} IS NOT NULL`),
+  ],
+);
+export type Collection = typeof collections.$inferSelect;
+
+/** Actor-declared collection roles; a collection may be shared across roles or actors. */
+export const actorCollectionReferences = pgTable(
+  "actor_collection_references",
+  {
+    actorId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    role: collectionRoleEnum().notNull(),
+    collectionId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorId, t.role] }),
+    index("actor_collection_reference_collection_index").on(t.collectionId),
+  ],
+);
+
+export const collectionItems = pgTable(
+  "collection_items",
+  {
+    collectionId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    itemId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    position: integer(),
+    observed: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.itemId] }),
+    index("collection_item_position_index").on(t.collectionId, t.position),
+  ],
+);
+
+export const activityTypeEnum = pgEnum("activity_type", ["Create"]);
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    type: activityTypeEnum().notNull(),
+    actorId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    objectId: uuid()
+      .$type<Uuid>()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    published: timestamp({ withTimezone: true }).notNull(),
+    document: json(),
+    created: timestamp({ withTimezone: true })
+      .notNull()
+      .default(currentTimestamp),
+  },
+  (t) => [
+    index("activity_actor_published_index").on(
+      t.actorId,
+      desc(t.published),
+      desc(t.id),
+    ),
+  ],
+);
+export type StoredActivity = typeof activities.$inferSelect;
+
+export const addressingPropertyEnum = pgEnum("addressing_property", [
+  "to",
+  "cc",
+  "bto",
+  "bcc",
+  "audience",
+]);
+export type AddressingProperty =
+  (typeof addressingPropertyEnum.enumValues)[number];
+export const addressing = pgTable(
+  "addressing",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    sourceId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    property: addressingPropertyEnum().notNull(),
+    position: integer().notNull(),
+    targetId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "restrict" }),
+    target: json(),
+  },
+  (t) => [
+    unique("addressing_source_property_position_key").on(
+      t.sourceId,
+      t.property,
+      t.position,
+    ),
+    index("addressing_target_property_index").on(t.targetId, t.property),
+  ],
+);
+export type Addressing = typeof addressing.$inferSelect;

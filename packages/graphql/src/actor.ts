@@ -16,7 +16,10 @@
 
 // oxlint-disable max-lines-per-function eslint/max-lines
 
-import { schema } from "@drfed/models";
+// Keep dependent database writes and observations sequential.
+// oxlint-disable no-await-in-loop
+
+import { promoteResource, schema } from "@drfed/models";
 import { actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
@@ -26,6 +29,7 @@ import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
+import { Collection, Resource } from "./resource.ts";
 
 const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
@@ -37,6 +41,7 @@ const ACTOR_TYPES_DOC = actorTypeEnum.enumValues
 
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
+  interfaces: [Resource],
   description: "Represents an `Actor` in the DrFed platform.",
   id: {
     column: ({ id }) => id,
@@ -46,9 +51,6 @@ const ActorRef = builder.drizzleNode("actors", {
     uuid: t.expose("id", {
       type: "UUID",
       description: "The UUID of the `Actor`.",
-    }),
-    iri: t.exposeString("iri", {
-      description: "The Internationalized Resource Identifier of the `Actor`",
     }),
     handle: t.field({
       type: "String",
@@ -77,24 +79,52 @@ const ActorRef = builder.drizzleNode("actors", {
       type: "URL",
       description: "The inbox URL of the `Actor`.",
     }),
-    outboxUrl: t.expose("outboxUrl", {
-      type: "URL",
-      description: "The outbox URL of the `Actor`.",
+    outbox: t.field({
+      type: Collection,
+      nullable: true,
+      select: { columns: { id: true } },
+      resolve: async (actor, _, ctx) => {
+        const reference =
+          await ctx.db.query.actorCollectionReferences.findFirst({
+            where: { actorId: actor.id, role: "outbox" },
+            with: { collection: true },
+          });
+        const collection = reference?.collection;
+        return collection ?? null;
+      },
     }),
     avatarUrl: t.expose("avatarUrl", {
       type: "URL",
       description: "The avatar URL of the `Actor`.",
       nullable: true,
     }),
-    followersUrl: t.expose("followersUrl", {
-      type: "URL",
-      description: "The followers URL of the `Actor`.",
+    followers: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: async (actor, _, ctx) => {
+        const reference =
+          await ctx.db.query.actorCollectionReferences.findFirst({
+            where: { actorId: actor.id, role: "followers" },
+            with: { collection: true },
+          });
+        const collection = reference?.collection;
+        return collection ?? null;
+      },
     }),
-    followingUrl: t.expose("followingUrl", {
-      type: "URL",
-      description: "The following URL of the `Actor`.",
+    following: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: async (actor, _, ctx) => {
+        const reference =
+          await ctx.db.query.actorCollectionReferences.findFirst({
+            where: { actorId: actor.id, role: "following" },
+            with: { collection: true },
+          });
+        const collection = reference?.collection;
+        return collection ?? null;
+      },
     }),
     headerUrl: t.expose("headerUrl", {
       type: "URL",
@@ -106,10 +136,19 @@ const ActorRef = builder.drizzleNode("actors", {
       description: "The profile URL of the `Actor`.",
       nullable: true,
     }),
-    featuredUrl: t.expose("featuredUrl", {
-      type: "URL",
-      description: "The featured URL of the `Actor`.",
+    featured: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: async (actor, _, ctx) => {
+        const reference =
+          await ctx.db.query.actorCollectionReferences.findFirst({
+            where: { actorId: actor.id, role: "featured" },
+            with: { collection: true },
+          });
+        const collection = reference?.collection;
+        return collection ?? null;
+      },
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -297,12 +336,51 @@ builder.mutationFields((t) => ({
         );
         const ids = Array.from({ length: size }, () => ({ id: uuid() }));
         await tx.insert(schema.localActors).values(ids);
-        const createdActors = await tx
-          .insert(schema.actors)
-          .values(
-            ids.map(({ id }) => generateActor(id, targetInstanceId, fedCtx)),
-          )
-          .returning();
+        const createdActors = [];
+        for (const { id } of ids) {
+          const actor = await promoteResource(
+            tx,
+            fedCtx.getActorUri(id).href,
+            "actor",
+            async (inner, resource) => {
+              const [createdActor] = await inner
+                .insert(schema.actors)
+                .values(generateActor(resource.id, targetInstanceId, fedCtx))
+                .returning();
+              if (createdActor == null) {
+                throw new Error("Actor insertion returned no row.");
+              }
+              return createdActor;
+            },
+            id,
+          );
+          for (const [role, iri] of [
+            ["followers", fedCtx.getFollowersUri(id).href],
+            ["following", fedCtx.getFollowingUri(id).href],
+            ["featured", fedCtx.getFeaturedUri(id).href],
+            ["outbox", fedCtx.getOutboxUri(id).href],
+          ] as const) {
+            await promoteResource(
+              tx,
+              iri,
+              "collection",
+              async (inner, resource) => {
+                await inner.insert(schema.collections).values({
+                  id: resource.id,
+                  type: "OrderedCollection",
+                  ownerActorId: actor.id,
+                  role,
+                });
+                await inner.insert(schema.actorCollectionReferences).values({
+                  actorId: actor.id,
+                  role,
+                  collectionId: resource.id,
+                });
+              },
+            );
+          }
+          createdActors.push(actor);
+        }
         return { actors: createdActors };
       });
     },
@@ -321,12 +399,7 @@ function generateActor(
     username: id,
     instanceId,
     type: "Person",
-    iri: fedCtx.getActorUri(id).href,
     inboxUrl: fedCtx.getInboxUri(id).href,
-    outboxUrl: fedCtx.getOutboxUri(id).href,
-    followersUrl: fedCtx.getFollowersUri(id).href,
-    followingUrl: fedCtx.getFollowingUri(id).href,
-    featuredUrl: fedCtx.getFeaturedUri(id).href,
     profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
   };
 }

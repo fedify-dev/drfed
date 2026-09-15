@@ -5,6 +5,7 @@ experimental = true
 
 [tools]
 "aqua:dahlia/hongdown" = "0.4.3"
+claude-code = "latest"
 "github:nushell/nushell" = "0.114.1"
 node = "26"
 "npm:@fedify/cli" = { version = "2.4.0-dev.1758", allow_low_downloads = true }

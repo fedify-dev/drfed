@@ -129,6 +129,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
     setErrorMessage(undefined);
     commitGenerateActors({
       variables: { instance, size },
+      // oxlint-disable-next-line max-statements
       onCompleted: (response, errors) => {
         const graphQLErrors = errors ?? [];
         if (graphQLErrors.length > 0) {
