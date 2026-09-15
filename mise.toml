@@ -10,7 +10,7 @@ node = "26"
 "npm:@fedify/cli" = { version = "2.4.0-dev.1758", allow_low_downloads = true }
 "npm:oxlint" = "1.75.0"
 "npm:oxlint-tsgolint" = "7.0.2001"
-"npm:pglite-cli" = "0.0.1"
+"npm:pglite-cli" = { version = "0.0.1", allow_low_downloads = true }
 oxfmt = "0.55.0"
 pnpm = "11"
 

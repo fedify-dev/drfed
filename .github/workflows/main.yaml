@@ -6,9 +6,6 @@ on:
     branches: ["**"]
     tags: ["*.*.*"]
 
-env:
-  AUBE_ALLOWED_UNPOPULAR_PACKAGES: pglite-cli
-
 jobs:
   check:
     runs-on: ubuntu-latest
