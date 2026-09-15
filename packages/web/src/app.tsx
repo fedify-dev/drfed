@@ -24,6 +24,7 @@ import { Suspense } from "solid-js";
 import { RelayEnvironmentProvider } from "solid-relay";
 
 import { HeaderAccountButton } from "./components/HeaderAccountButton.tsx";
+import { ToastRegion } from "./components/Toast.tsx";
 import { createRelayEnvironment } from "./RelayEnvironment.ts";
 
 import styles from "./styles/app.module.css";
@@ -37,6 +38,7 @@ export default function App() {
         root={(props) => (
           <MetaProvider>
             <Title>DrFed</Title>
+            <ToastRegion />
             <div class={styles.shell}>
               <header class={styles.header}>
                 <div class={styles.headerInner}>
