@@ -136,7 +136,9 @@ describe("createFetchHandler()", () => {
     // still reach the handler.  Parsing one used to throw, and with no rejection handler
     // anywhere above, a single unauthenticated request ended the process.
     const { handle, federationCalls, controlCalls } = handler();
-    const hosts = ["1.2.3.4.5", "999.1.1.1", "xn--a.drfed.net"];
+    // Both fail the WHATWG IPv4 host parser, which is spec-defined rather
+    // than a property of whichever ICU the runtime was built with.
+    const hosts = ["1.2.3.4.5", "999.1.1.1"];
     const results = await Promise.all(
       hosts.map(async (host) => {
         assert.equal(URL.canParse(`http://${host}/`), false, host);
@@ -188,24 +190,25 @@ describe("findStrandedInstances()", () => {
       const db = drizzle({ client, relations, schema });
       const rows = [
         // Reachable under the configured root origin.
-        { host: "here.drfed.net", local: true },
+        { host: "here.drfed.net", slug: "here", local: true },
         // Left behind by a root origin change.
-        { host: "there.drfed.org", local: true },
+        { host: "there.drfed.org", slug: "there", local: true },
         // Also stranded: an instance occupies exactly one label.
-        { host: "deep.nested.drfed.net", local: true },
+        { host: "deep.nested.drfed.net", slug: "deep", local: true },
         // Remote instances are nobody's business here.
-        { host: "remote.example.com", local: false },
-        // `xn--a` passes the slug constraint but is not decodable Punycode,
-        // so this host is not a URL at all.  Reporting it must not throw:
-        // startup waits on this scan, and one bad row would otherwise keep
-        // the whole deployment from coming back up.
-        { host: "xn--a.drfed.net", local: true },
+        { host: "remote.example.com", slug: "remote", local: false },
+        // Not a URL at all: the WHATWG IPv4 parser rejects it.  Reporting
+        // such a row must not throw, because startup waits on this scan and
+        // one bad row would otherwise keep the deployment from coming back
+        // up.  The slug and the host disagree here, which is the point: only
+        // the stored host is consulted.
+        { host: "999.1.1.1", slug: "unparseable", local: true },
       ];
       const expires = new Date(Date.now() + dayInMilliseconds);
-      const seeded = rows.map(({ host, local }) => ({
+      const seeded = rows.map(({ host, slug, local }) => ({
         host,
         localId: local ? uuidV7() : null,
-        slug: host.split(".")[0]!,
+        slug,
       }));
       await db
         .insert(schema.localInstances)
@@ -222,9 +225,9 @@ describe("findStrandedInstances()", () => {
 
       const stranded = await findStrandedInstances(db, rootOrigin);
       assert.deepEqual([...stranded].sort(), [
+        "999.1.1.1",
         "deep.nested.drfed.net",
         "there.drfed.org",
-        "xn--a.drfed.net",
       ]);
       assert.ok(!stranded.includes("here.drfed.net"));
       // It only reports; nothing is rewritten.

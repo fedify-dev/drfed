@@ -222,16 +222,35 @@ builder.mutationFields((t) => ({
       }
       const { account } = ctx;
       // Checked here rather than left to the database constraint, which
-      // surfaces as an unhandled query error, and which cannot tell a
-      // decodable A-label from a malformed one in any case.
+      // surfaces as an unhandled query error.  The second half catches what
+      // the shape rules cannot: an `xn--` label that is not decodable
+      // Punycode composes a host this runtime refuses to parse, and an
+      // instance nothing can address is worse than a rejected slug.  Whether
+      // a label decodes is answered by the runtime's own ICU, so it is asked
+      // of the composed host here rather than baked into `isValidSlug()`,
+      // which every deployment has to agree on.
+      // Composed as a string, not through `instanceOrigin()`, which builds a
+      // `URL` and would throw here rather than answer.
+      const host = instanceHost(ctx.rootOrigin, slug);
       if (!isValidSlug(slug)) {
         return {
           type: "InvalidSlug" as const,
           message:
             `The slug ${JSON.stringify(slug)} is not usable as a ` +
             "domain name label.  It must be 4 to 63 characters of lowercase " +
-            "letters, digits and hyphens, start and end with a letter or a " +
-            "digit, and if it begins with `xn--` it must be valid Punycode.",
+            "letters, digits and hyphens, and start and end with a letter " +
+            "or a digit.",
+        };
+      }
+      if (!URL.canParse(`${ctx.rootOrigin.protocol}//${host}`)) {
+        // Reached by a slug that satisfies every rule above, so it needs its
+        // own message: the shape text would name conditions this slug meets.
+        return {
+          type: "InvalidSlug" as const,
+          message:
+            `The slug ${JSON.stringify(slug)} composes the host name ` +
+            `${JSON.stringify(host)}, which this server cannot parse.  A ` +
+            "slug beginning with `xn--` has to be decodable Punycode.",
         };
       }
       let tooManyInstances = false;
@@ -250,7 +269,6 @@ builder.mutationFields((t) => ({
           if (local == null) {
             throw new Error("Failed to create local instance.");
           }
-          const host = instanceHost(ctx.rootOrigin, slug);
           const [instance] = await tx
             .insert(schema.instances)
             .values({ id: uuid(), localId: local.id, host })

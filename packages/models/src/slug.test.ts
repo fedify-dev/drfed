@@ -54,14 +54,6 @@ describe("isValidSlug()", () => {
     }
   });
 
-  it("rejects an xn-- label that is not decodable Punycode", () => {
-    // The prefix alone is not enough.  A host name built from such a label
-    // is not a URL at all, so an instance carrying it could never be reached.
-    for (const slug of ["xn--a", "xn--aa", "xn--zzzz-"]) {
-      assert.equal(isValidSlug(slug), false, slug);
-    }
-  });
-
   it("rejects a bare xn-- prefix", () => {
     // It ends with a hyphen, so it is not a valid label on its own.
     assert.equal(isValidSlug("xn--"), false);

@@ -156,10 +156,10 @@ export async function findStrandedInstances(
   return instances
     .map(({ host }) => host)
     .filter((host) => {
-      // A stored host need not be a parseable authority at all.  An instance
-      // whose slug is a malformed A-label, such as `xn--a`, composes one that
-      // `URL` refuses outright, and a startup check is the last place that
-      // should throw over it.
+      // A stored host need not be a parseable authority at all: an older,
+      // laxer rule may have let one through, and whether a given host parses
+      // can even move with the runtime's ICU.  A startup check is the last
+      // place that should throw over it.
       const url = `${rootOrigin.protocol}//${host}`;
       if (!URL.canParse(url)) return true;
       return classifyHost(new URL(url), rootOrigin) !== "instance";

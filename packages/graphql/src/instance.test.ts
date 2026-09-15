@@ -323,20 +323,11 @@ describe("Mutation.createInstance", () => {
   });
 
   it("rejects a slug that is not a usable domain name label", async () => {
-    // The database constraint would reject most of these too, but as an
-    // unhandled query error; and it cannot tell a decodable A-label from a
-    // malformed one at all.
+    // The database constraint would reject these too, but as an unhandled
+    // query error rather than one of the results the mutation declares.
     await withTestHarness(async ({ db, post }) => {
       const auth = await authenticate(db);
-      const slugs = [
-        "-foo",
-        "foo-",
-        "abc",
-        "Foo-bar",
-        "ab--cd",
-        // Carries the A-label prefix but is not decodable Punycode.
-        "xn--a",
-      ];
+      const slugs = ["-foo", "foo-", "abc", "Foo-bar", "ab--cd"];
       const results = await Promise.all(
         slugs.map(async (slug) => {
           const response = await post(
@@ -357,6 +348,37 @@ describe("Mutation.createInstance", () => {
         assert.equal(body.data.createInstance.type, "InvalidSlug", slug);
       }
       // Nothing was created along the way.
+      assert.equal((await db.select().from(schema.instances)).length, 0);
+    });
+  });
+
+  it("refuses a slug whose composed host this runtime cannot parse", async () => {
+    // `xn--a` carries the A-label prefix without being decodable Punycode.
+    // Whether that composes a parseable host is answered by the runtime's own
+    // ICU, so the expectation is taken from the same source the guard reads
+    // rather than hardcoded; the point is that the two agree.
+    const slug = "xn--a";
+    const parses = URL.canParse(`https://${slug}.drfed.org`);
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await authenticate(db);
+      const response = await post(
+        { query: createInstanceMutation, variables: { slug } },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      if (parses) {
+        assert.equal(body.data.createInstance.__typename, "Instance");
+        assert.equal(body.data.createInstance.host, `${slug}.drfed.org`);
+        return;
+      }
+      assert.equal(body.data.createInstance.__typename, "CreateInstanceError");
+      assert.equal(body.data.createInstance.type, "InvalidSlug");
+      // The message has to describe the condition that actually failed, not
+      // the shape rules this slug satisfies.
+      assert.match(body.data.createInstance.message, /cannot parse/u);
       assert.equal((await db.select().from(schema.instances)).length, 0);
     });
   });

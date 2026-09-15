@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { domainToASCII } from "node:url";
-
 /**
  * The shape of a syntactically valid slug: 4 to 63 characters drawn from
  * lowercase letters, digits and hyphens, and starting and ending with a letter
@@ -53,6 +51,13 @@ const A_LABEL_PREFIX = "xn--";
  * that instances can carry internationalized domain names.  DrFed is a tool for
  * debugging federation, and IDN host names are one of the things that break it.
  *
+ * Whether such a label is decodable Punycode is deliberately not checked here.
+ * Node answers that out of its bundled ICU, so the answer moves with the
+ * runtime, and a rule that accepts a slug on one deployment while rejecting it
+ * on another is worse than no rule at all.  `createInstance` instead refuses a
+ * slug whose composed host the local runtime cannot parse, which is the thing
+ * that actually matters.
+ *
  * This duplicates the `local_instances_slug_check` constraint in
  * {@link file://./schema.ts}; the two must be kept in agreement.
  * @param slug The slug to check.
@@ -60,13 +65,5 @@ const A_LABEL_PREFIX = "xn--";
  */
 export function isValidSlug(slug: string): boolean {
   if (!SLUG_PATTERN.test(slug)) return false;
-  if (!RESERVED_LDH_PATTERN.test(slug)) return true;
-  if (!slug.startsWith(A_LABEL_PREFIX)) return false;
-  // Carrying the prefix is not enough: the label has to be Punycode that
-  // actually decodes.  `xn--a` does not, and a host name built from it is not
-  // a URL at all, which strands the instance the moment anything tries to
-  // address it.  This check has no counterpart in the database constraint,
-  // which cannot decode Punycode; the constraint guards the shape, and this
-  // guards the meaning.
-  return domainToASCII(slug) === slug;
+  return !RESERVED_LDH_PATTERN.test(slug) || slug.startsWith(A_LABEL_PREFIX);
 }
