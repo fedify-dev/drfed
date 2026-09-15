@@ -124,6 +124,20 @@ run = """
 node scripts/bump-versions.mts $env.usage_version
 """
 
+[tasks."generate:account"]
+description = "Create an account in the development PGlite database"
+depends = ["build:server"]
+usage = '''
+arg "<email>" help="Account email address"
+arg "<name>" help="Account display name"
+'''
+run = '''
+#!/usr/bin/env nu
+$env.email = $env.usage_email
+$env.name = $env.usage_name
+node scripts/create-account.mts
+'''
+
 [tasks."generate:migrate"]
 description = "Generate database migration files"
 usage = """
