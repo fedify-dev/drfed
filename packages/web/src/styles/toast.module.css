@@ -41,9 +41,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--line-strong);
-  border-left: 4px solid var(--success);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
+}
+
+.toast.success {
+  border-left: 4px solid var(--success);
+}
+
+.toast.fail {
+  border-left: 4px solid var(--danger);
 }
 
 .title {

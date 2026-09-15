@@ -17,20 +17,36 @@
 import { Toast, toaster } from "@kobalte/core/toast";
 import { onMount } from "solid-js";
 import { Portal } from "solid-js/web";
+import * as v from "valibot";
 
 import styles from "~/styles/toast.module.css";
 
-const pendingToastKey = "drfed:success-toast:";
+const pendingToastKey = "drfed:toast:";
+
+const toastMessage = v.pipe(v.string(), v.nonEmpty());
+const storedToastSchema = v.pipe(
+  v.string(),
+  v.parseJson(),
+  v.object({
+    message: toastMessage,
+    status: v.picklist(["success", "fail"]),
+  }),
+);
+
+type ToastStatus = "success" | "fail";
 
 export function ToastRegion() {
   onMount(() => {
     const key = pendingToastKey + globalThis.location.pathname;
     try {
-      const message = sessionStorage.getItem(key);
+      const stored = sessionStorage.getItem(key);
       sessionStorage.removeItem(key);
-      if (message !== null && message !== "") showSuccessToast(message);
+      const result = v.safeParse(storedToastSchema, stored);
+      if (result.success) {
+        showToast(result.output.message, result.output.status);
+      }
     } catch {
-      // Navigation still works when browser storage is unavailable.
+      // Browser storage is unavailable.
     }
   });
 
@@ -43,9 +59,9 @@ export function ToastRegion() {
   );
 }
 
-export function showSuccessToast(message: string): number {
+export function showToast(message: string, status: ToastStatus): number {
   return toaster.show((props) => (
-    <Toast toastId={props.toastId} class={styles.toast}>
+    <Toast toastId={props.toastId} class={`${styles.toast} ${styles[status]}`}>
       <Toast.Title class={styles.title}>{message}</Toast.Title>
       <Toast.CloseButton class={styles.close} aria-label="Dismiss notification">
         <span aria-hidden="true">×</span>
@@ -54,10 +70,17 @@ export function showSuccessToast(message: string): number {
   ));
 }
 
-/** Load a fresh page and show a one-time success notification there. */
-export function navigateWithSuccessToast(path: string, message: string): void {
+/** Load a fresh page and show a one-time notification there. */
+export function navigateWithToast(
+  path: string,
+  message: string,
+  status: ToastStatus,
+): void {
   try {
-    sessionStorage.setItem(pendingToastKey + path, message);
+    sessionStorage.setItem(
+      pendingToastKey + path,
+      JSON.stringify({ message, status }),
+    );
   } catch {
     // A blocked storage API must not prevent successful navigation.
   }

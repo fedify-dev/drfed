@@ -33,7 +33,7 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
-import { navigateWithSuccessToast } from "~/components/Toast.tsx";
+import { navigateWithToast } from "~/components/Toast.tsx";
 
 import type { GenerateActorsMutation } from "./__generated__/GenerateActorsMutation.graphql.ts";
 import type { GetHostQuery } from "./__generated__/GetHostQuery.graphql.ts";
@@ -142,9 +142,10 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {
-            navigateWithSuccessToast(
+            navigateWithToast(
               `/instance/${encodeURIComponent(slug)}`,
               `Successfully created actors on ${host}.`,
+              "success",
             );
             return;
           }
