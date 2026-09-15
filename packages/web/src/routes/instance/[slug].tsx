@@ -42,6 +42,7 @@ const instanceDetailQuery = graphql`
       instance {
         id
         host
+        url
         actors(first: 100) {
           totalCount
           edges {
@@ -54,6 +55,23 @@ const instanceDetailQuery = graphql`
     }
   }
 `;
+
+/**
+ * The federation endpoints worth linking to from an instance's page.
+ *
+ * Built from the origin the server reports rather than from the host name
+ * alone, so that a development instance links to the port it is actually
+ * served on instead of an `https:` URL that answers nowhere.
+ * @param origin The instance's absolute origin.
+ * @returns The endpoints, in the order they are shown.
+ */
+function endpoints(origin: string): { label: string; url: string }[] {
+  return [
+    { label: "NodeInfo", url: `${origin}/nodeinfo/2.1` },
+    { label: "WebFinger", url: `${origin}/.well-known/webfinger` },
+    { label: "Shared inbox", url: `${origin}/inbox` },
+  ];
+}
 
 const loadInstanceDetailQuery = query(
   (slug: string) =>
@@ -124,30 +142,16 @@ export default function InstanceDetailPage(
               <h2 id="connection-title">Federation endpoints</h2>
             </div>
             <dl class={styles.endpointList}>
-              <div>
-                <dt>NodeInfo</dt>
-                <dd>
-                  <a href={`https://${instance().host}/nodeinfo/2.1`}>
-                    {`https://${instance().host}/nodeinfo/2.1`}
-                  </a>
-                </dd>
-              </div>
-              <div>
-                <dt>WebFinger</dt>
-                <dd>
-                  <a href={`https://${instance().host}/.well-known/webfinger`}>
-                    {`https://${instance().host}/.well-known/webfinger`}
-                  </a>
-                </dd>
-              </div>
-              <div>
-                <dt>Shared inbox</dt>
-                <dd>
-                  <a
-                    href={`https://${instance().host}/inbox`}
-                  >{`https://${instance().host}/inbox`}</a>
-                </dd>
-              </div>
+              <For each={endpoints(instance().url)}>
+                {({ label, url }) => (
+                  <div>
+                    <dt>{label}</dt>
+                    <dd>
+                      <a href={url}>{url}</a>
+                    </dd>
+                  </div>
+                )}
+              </For>
             </dl>
           </section>
 
