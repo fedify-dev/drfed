@@ -41,6 +41,16 @@
   "type": "module",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./valueparser": {
+      "types": "./dist/valueparser.d.mts",
+      "default": "./dist/valueparser.mjs"
+    }
+  },
   "files": [
     "bin/",
     "dist/",
@@ -50,6 +60,10 @@
     "drfed-server": "bin/drfed-server.mjs"
   },
   "tsdown": {
+    "entry": [
+      "src/index.ts",
+      "src/valueparser.ts"
+    ],
     "dts": {
       "sourcemap": true,
       "tsconfig": "../../tsconfig.drfed.json"
@@ -57,7 +71,8 @@
     "sourcemap": true
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown",
+    "test": "node --test"
   },
   "devDependencies": {
     "@logtape/testing-node": "catalog:",
