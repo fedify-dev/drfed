@@ -58,6 +58,10 @@
       "types": "./dist/builder.d.mts",
       "default": "./dist/builder.mjs"
     },
+    "./classification": {
+      "types": "./dist/classification.d.mts",
+      "default": "./dist/classification.mjs"
+    },
     "./federation": {
       "types": "./dist/federation.d.mts",
       "default": "./dist/federation.mjs"
@@ -89,6 +93,7 @@
       "src/account.ts",
       "src/actor.ts",
       "src/builder.ts",
+      "src/classification.ts",
       "src/federation.ts",
       "src/instance.ts",
       "src/schema.ts",

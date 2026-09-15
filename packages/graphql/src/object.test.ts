@@ -21,6 +21,7 @@
 import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
+import { PUBLIC_IRI } from "@drfed/models/resource";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
@@ -32,12 +33,13 @@ import {
   remoteActorId,
   seedAuthenticatedLocalInstance,
   seedLocalActor,
+  seedObjects,
   seedRemoteActor,
 } from "./seed.test.ts";
 
-const fields = `id uuid iri url type actor { uuid } visibility name summary contentHtml language sensitive published updated created`;
-const mutation = `mutation Create($actor: ID!, $contentHtml: String!, $language: String, $type: ObjectType! = Note, $visibility: ObjectVisibility! = PUBLIC) {
-  createObject(actor: $actor, contentHtml: $contentHtml, language: $language, type: $type, visibility: $visibility) {
+const fields = `id uuid iri url type actor { uuid } to { target { iri kind } } cc { target { iri } } name summary contentHtml language sensitive published updated created`;
+const mutation = `mutation Create($actor: ID!, $contentHtml: String!, $language: String, $type: ObjectType! = Note, $addressing: AddressingInput!) {
+  createObject(actor: $actor, contentHtml: $contentHtml, language: $language, type: $type, addressing: $addressing) {
     resultType: __typename
     ... on Object { ${fields} }
     ... on CreateObjectError { errorType: type message }
@@ -46,6 +48,7 @@ const mutation = `mutation Create($actor: ID!, $contentHtml: String!, $language:
 const variables = {
   actor: globalId("Actor", localActorId),
   contentHtml: "<p>Hello</p>",
+  addressing: { to: [PUBLIC_IRI] },
 };
 
 describe("Mutation.createObject", () => {
@@ -66,7 +69,9 @@ describe("Mutation.createObject", () => {
       const object = body.data.createObject;
       assert.equal(object.resultType, "Object");
       assert.equal(object.type, "Note");
-      assert.equal(object.visibility, "PUBLIC");
+      assert.deepEqual(object.to, [
+        { target: { iri: PUBLIC_IRI, kind: "collection" } },
+      ]);
       assert.equal(object.language, "ko-KR");
       assert.equal(object.contentHtml, contentHtml);
       assert.equal(
@@ -194,7 +199,7 @@ describe("Mutation.createObject", () => {
       assert.ok(body.errors?.length);
     });
   });
-  it("creates Articles with optional fields and all visibilities on a suspended actor", async () => {
+  it("creates Articles with optional fields and varied addressing on a suspended actor", async () => {
     await withTestHarness(async ({ db, post }) => {
       const auth = await seedAuthenticatedLocalInstance(db);
       await seedLocalActor(db);
@@ -202,20 +207,24 @@ describe("Mutation.createObject", () => {
         .update(schema.actors)
         .set({ suspended: new Date(0) })
         .where(eq(schema.actors.id, localActorId));
-      for (const visibility of ["PUBLIC", "UNLISTED", "FOLLOWERS"]) {
+      for (const addressing of [
+        { to: [PUBLIC_IRI] },
+        { cc: [PUBLIC_IRI] },
+        {},
+      ]) {
         const query = mutation.replace(
           "type: $type,",
           'name: "Title", summary: "CW", sensitive: true, type: $type,',
         );
         const body = await (
           await post(
-            { query, variables: { ...variables, type: "Article", visibility } },
+            { query, variables: { ...variables, type: "Article", addressing } },
             auth,
           )
         ).json();
         assert.equal(body.errors, undefined);
         assert.equal(body.data.createObject.type, "Article");
-        assert.equal(body.data.createObject.visibility, visibility);
+
         assert.equal(body.data.createObject.name, "Title");
         assert.equal(body.data.createObject.summary, "CW");
         assert.equal(body.data.createObject.sensitive, true);
@@ -234,16 +243,20 @@ describe("Actor.objects", () => {
     await withTestHarness(async ({ db, post }) => {
       await seedLocalActor(db);
       const id = uuid();
-      await db.insert(schema.objects).values({
+      await seedObjects(db, {
         id,
         actorId: localActorId,
         type: "Note",
-        visibility: "followers",
+        addressing: {
+          to: [
+            `https://test-instance.drfed.org/users/${localActorId}/followers`,
+          ],
+        },
         iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
         contentHtml: "GraphQL debugging content",
       });
       const query = `query($object: ID!, $actor: ID!) {
-        node(id: $object) { ... on Object { uuid visibility contentHtml } }
+        node(id: $object) { ... on Object { uuid contentHtml } }
         nodes(ids: [$object]) { ... on Object { uuid } }
         actor: node(id: $actor) { ... on Actor { objects(first: 1) { totalCount edges { node { uuid } } } } }
       }`;
@@ -260,7 +273,6 @@ describe("Actor.objects", () => {
         data: {
           node: {
             uuid: id,
-            visibility: "FOLLOWERS",
             contentHtml: "GraphQL debugging content",
           },
           nodes: [{ uuid: id }],
@@ -277,7 +289,8 @@ describe("Actor.objects", () => {
       await seedLocalActor(db);
       await seedRemoteActor(db);
       const ids = Array.from({ length: 5 }, () => uuid());
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         ids.map((id, index) => ({
           id,
           actorId: index === 4 ? remoteActorId : localActorId,
@@ -345,7 +358,8 @@ describe("Query.node", () => {
       await seedLocalActor(db);
       const liveId = uuid();
       const deletedId = uuid();
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         [liveId, deletedId].map((id) => ({
           id,
           actorId: localActorId,

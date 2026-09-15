@@ -14,11 +14,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import type { Database } from "@drfed/models";
+import { type Database, schema } from "@drfed/models";
+import { PUBLIC_RESOURCE_ID } from "@drfed/models/resource";
 import type {
   ActivityPubObject,
   Actor,
+  Addressing,
   ObjectType,
+  Resource,
+  StoredActivity,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
@@ -40,12 +44,12 @@ import {
   LanguageString,
   Note,
   Organization,
-  PUBLIC_COLLECTION,
   Person,
   Service,
   Tombstone,
 } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
+import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
 import { canonicalizeAuthority } from "./origin.ts";
 
@@ -71,13 +75,19 @@ async function findLocalActor(
   db: Database,
   ctx: Context<unknown>,
   identifier: string,
-): Promise<Actor | null> {
+): Promise<StoredActor | null> {
   if (!validateUuid(identifier)) return null;
   const actor = await db.query.actors.findFirst({
     where: {
       id: identifier as Uuid,
       localId: { isNotNull: true },
       instance: { host: canonicalizeAuthority(ctx.host) },
+    },
+    with: {
+      resource: true,
+      collectionReferences: {
+        with: { collection: { with: { resource: true } } },
+      },
     },
   });
   return actor ?? null;
@@ -87,7 +97,7 @@ async function findActiveActor(
   db: Database,
   ctx: Context<unknown>,
   identifier: string,
-): Promise<Actor | null> {
+): Promise<StoredActor | null> {
   const actor = await findLocalActor(db, ctx, identifier);
   return actor == null || actor.deleted != null ? null : actor;
 }
@@ -129,9 +139,9 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
 
   builder
     .setInboxListeners("/users/{identifier}/inbox", "/inbox")
-    // FIXME: Record incoming activities once the data model can store them;
-    // until then the catch-all below only surfaces them in the logs so that
-    // deliveries are not silently discarded.
+    // FIXME: Validate and persist incoming activities. The local createObject
+    // mutation already stores Create activities; incoming activities are
+    // currently only logged.
     .on(Activity, (_ctx, activity) => {
       logger.debug("Received an activity: {activity}", { activity });
     })
@@ -143,6 +153,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
 
   builder.setObjectDispatcher<APObject, "identifier" | "id">(
     APObject,
+    // Keep migration backfill IRI formats in sync when changing these paths.
     "/users/{identifier}/{id}",
     async (ctx, { identifier, id }) => {
       if (!validateUuid(identifier) || !validateUuid(id)) return null;
@@ -150,14 +161,16 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
         where: {
           id,
           actorId: identifier,
+          RAW: (table) => publicAddressing(table.id),
           actor: {
             localId: { isNotNull: true },
             deleted: { isNull: true },
             instance: { host: ctx.host },
           },
         },
+        with: objectSelection,
       });
-      if (object == null || object.visibility === "followers") return null;
+      if (object == null) return null;
       if (object.deleted != null) {
         return new Tombstone({
           id: ctx.getObjectUri(APObject, { identifier, id }),
@@ -173,25 +186,19 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
     "/ap/creates/{id}",
     async (ctx, { id }) => {
       if (!validateUuid(id)) return null;
-      const object = await db.query.objects.findFirst({
+      const activity = await db.query.activities.findFirst({
         where: {
-          id,
+          resource: { iri: ctx.getObjectUri(Create, { id }).href },
           actor: {
             localId: { isNotNull: true },
             deleted: { isNull: true },
             instance: { host: ctx.host },
           },
+          RAW: (table) => servedActivity(table),
         },
+        with: activitySelection,
       });
-      if (
-        object == null ||
-        object.visibility === "followers" ||
-        object.deleted != null
-      ) {
-        return null;
-      }
-
-      return toCreate(ctx, object);
+      return activity == null ? null : toCreate(ctx, activity);
     },
   );
 
@@ -200,72 +207,114 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       "/users/{identifier}/outbox",
       async (ctx, identifier, cursor) => {
         if ((await findActiveActor(db, ctx, identifier)) == null) return null;
-        if (cursor != null && cursor !== "" && !validateUuid(cursor)) {
-          return null;
-        }
-        const rows = await db.query.objects.findMany({
+        const boundary = parseOutboxCursor(cursor);
+        if (boundary === false) return null;
+        const rows = await db.query.activities.findMany({
           where: {
             actorId: identifier as Uuid,
-            deleted: { isNull: true },
-            visibility: { in: ["public", "unlisted"] },
-            ...(cursor == null || cursor === "" ? {} : { id: { lt: cursor } }),
+            RAW: (table) =>
+              and(
+                servedActivity(table),
+                boundary == null
+                  ? undefined
+                  : sql`(${table.published}, ${table.id}) <
+                      (${boundary.published}::timestamptz, ${boundary.id}::uuid)`,
+              )!,
           },
-          orderBy: { id: "desc" },
+          // Backfilled activity IDs are UUIDv4, so only publication time
+          // determines chronology. Keep full database precision in cursors.
+          extras: {
+            cursorPublished: (table) =>
+              sql<string>`to_char(${table.published} AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+          },
+          orderBy: { published: "desc", id: "desc" },
           limit: OUTBOX_PAGE_SIZE + 1,
+          with: activitySelection,
         });
         const page = rows.slice(0, OUTBOX_PAGE_SIZE);
         return {
           items: page.map((object) => toCreate(ctx, object)),
-          nextCursor: rows.length > OUTBOX_PAGE_SIZE ? page.at(-1)!.id : null,
+          nextCursor:
+            rows.length > OUTBOX_PAGE_SIZE
+              ? `${page.at(-1)!.cursorPublished}|${page.at(-1)!.id}`
+              : null,
         };
       },
     )
     .setFirstCursor(async (ctx, identifier) =>
       (await findActiveActor(db, ctx, identifier)) == null ? null : "",
     )
-    .setCounter(
-      async (ctx, identifier) =>
-        (await findActiveActor(db, ctx, identifier))?.postsCount ?? null,
-    );
+    .setCounter(async (ctx, identifier) => {
+      const actor = await findActiveActor(db, ctx, identifier);
+      return actor == null
+        ? null
+        : db.$count(
+            schema.activities,
+            and(
+              eq(schema.activities.actorId, actor.id),
+              servedActivity(schema.activities),
+            ),
+          );
+    });
 
   builder
     .setFollowersDispatcher(
       "/users/{identifier}/followers",
-      async (ctx, identifier) =>
-        // FIXME: Return the actual followers once the data model stores
-        // follows
-        (await findActiveActor(db, ctx, identifier)) == null
-          ? null
-          : { items: [] },
+      async (ctx, identifier) => {
+        const collection = await actorCollection(
+          db,
+          ctx,
+          identifier,
+          "followers",
+        );
+        if (collection == null) return null;
+        // FollowersDispatcher requires actor inboxes for future delivery fan-out.
+        return {
+          items: collection.items.map(({ item }) => ({
+            id: new URL(item.iri),
+            inboxId: item.actor == null ? null : new URL(item.actor.inboxUrl),
+          })),
+        };
+      },
     )
     .setCounter(
       async (ctx, identifier) =>
-        (await findActiveActor(db, ctx, identifier))?.followersCount ?? null,
+        (await actorCollection(db, ctx, identifier, "followers"))?.items
+          .length ?? null,
     );
-
   builder
     .setFollowingDispatcher(
       "/users/{identifier}/following",
-      async (ctx, identifier) =>
-        // FIXME: Return the actual following once the data model stores
-        // follows
-        (await findActiveActor(db, ctx, identifier)) == null
+      async (ctx, identifier) => {
+        const collection = await actorCollection(
+          db,
+          ctx,
+          identifier,
+          "following",
+        );
+        return collection == null
           ? null
-          : { items: [] },
+          : { items: collection.items.map(({ item }) => new URL(item.iri)) };
+      },
     )
     .setCounter(
       async (ctx, identifier) =>
-        (await findActiveActor(db, ctx, identifier))?.followingCount ?? null,
+        (await actorCollection(db, ctx, identifier, "following"))?.items
+          .length ?? null,
     );
-
   builder.setFeaturedDispatcher(
     "/users/{identifier}/featured",
-    async (ctx, identifier) =>
-      // FIXME: Return the actual pinned objects once the data model stores
-      // them
-      (await findActiveActor(db, ctx, identifier)) == null
+    async (ctx, identifier) => {
+      const collection = await actorCollection(db, ctx, identifier, "featured");
+      return collection == null
         ? null
-        : { items: [] },
+        : {
+            items: collection.items.map(
+              ({ item }) => new APObject({ id: new URL(item.iri) }),
+            ),
+          };
+    },
   );
   return builder;
 }
@@ -300,10 +349,10 @@ function isSuspended({ suspended, suspendedUntil }: Actor): boolean {
 function toActorObject(
   ctx: Context<unknown>,
   identifier: string,
-  actor: Actor,
+  actor: StoredActor,
 ): ActorObject {
   return actorConstructors[actor.type]({
-    id: ctx.getActorUri(identifier),
+    id: new URL(actor.resource.iri),
     preferredUsername: actor.username,
     name: actor.name,
     summary: actor.bioHtml,
@@ -320,16 +369,43 @@ function toActorObject(
     sensitive: actor.sensitive,
     suspended: isSuspended(actor),
     aliases: actor.aliases.map((alias) => new URL(alias)),
-    inbox: ctx.getInboxUri(identifier),
-    outbox: ctx.getOutboxUri(identifier),
-    followers: ctx.getFollowersUri(identifier),
-    following: ctx.getFollowingUri(identifier),
-    featured: ctx.getFeaturedUri(identifier),
+    inbox: new URL(actor.inboxUrl),
+    outbox: collectionIri(actor, "outbox"),
+    followers: collectionIri(actor, "followers"),
+    following: collectionIri(actor, "following"),
+    featured: collectionIri(actor, "featured"),
     endpoints: new Endpoints({ sharedInbox: ctx.getInboxUri() }),
   });
 }
 
 const logger = getLogger(["drfed", "graphql", "federation"]);
+
+/**
+ * Parse an opaque boundary without rounding database microseconds.
+ * @returns The boundary, null for the first page, or false for invalid input.
+ */
+function parseOutboxCursor(
+  cursor: string | null,
+): { published: string; id: string } | null | false {
+  if (cursor == null || cursor === "") return null;
+  const [published, id, extra] = cursor.split("|");
+  if (
+    published == null ||
+    published.startsWith("0000-") ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/u.test(published) ||
+    id == null ||
+    !validateUuid(id) ||
+    extra != null
+  ) {
+    return false;
+  }
+  try {
+    Temporal.Instant.from(published);
+    return { published, id };
+  } catch {
+    return false;
+  }
+}
 
 const OUTBOX_PAGE_SIZE = 20;
 type ObjectProps = ConstructorParameters<typeof Note>[0];
@@ -339,29 +415,108 @@ const objectConstructors: Record<ObjectType, (props: ObjectProps) => APObject> =
     Note: (props) => new Note(props),
   };
 
-function recipients(
-  ctx: Context<unknown>,
-  object: ActivityPubObject,
-): { tos: URL[]; ccs: URL[] } {
-  const followers = ctx.getFollowersUri(object.actorId);
-  switch (object.visibility) {
-    case "public":
-      return { tos: [PUBLIC_COLLECTION], ccs: [followers] };
-    case "unlisted":
-      return { tos: [followers], ccs: [PUBLIC_COLLECTION] };
-    case "followers":
-      return { tos: [followers], ccs: [] };
-    default:
-      throw new Error(
-        `Unsupported visibility: ${object.visibility satisfies never}`,
-      );
-  }
+type StoredAddressing = Addressing & { targetResource: Resource };
+type StoredActor = Actor & {
+  resource: Resource;
+  collectionReferences: (typeof schema.actorCollectionReferences.$inferSelect & {
+    collection: typeof schema.collections.$inferSelect & { resource: Resource };
+  })[];
+};
+export const objectSelection = {
+  resource: true,
+  actor: { with: { resource: true } },
+  addressing: { with: { targetResource: true }, orderBy: { position: "asc" } },
+} as const;
+export const activitySelection = {
+  resource: true,
+  actor: { with: { resource: true } },
+  object: true,
+  addressing: { with: { targetResource: true }, orderBy: { position: "asc" } },
+} as const;
+type StoredObject = ActivityPubObject & {
+  resource: Resource;
+  actor: Actor & { resource: Resource };
+  addressing: StoredAddressing[];
+};
+type StoredCreate = StoredActivity & {
+  resource: Resource;
+  actor: Actor & { resource: Resource };
+  object: Resource | null;
+  addressing: StoredAddressing[];
+};
+
+function recipients(rows: readonly StoredAddressing[]): {
+  tos: URL[];
+  ccs: URL[];
+  audiences: URL[];
+} {
+  const values = (property: string): URL[] =>
+    rows
+      .filter((entry) => entry.property === property)
+      .toSorted((left, right) => left.position - right.position)
+      .map((entry) => new URL(entry.targetResource.iri));
+  return {
+    tos: values("to"),
+    ccs: values("cc"),
+    audiences: values("audience"),
+  };
 }
 
-function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
+/**
+ * Shared Public predicate for object, activity, outbox page and counter.
+ * @returns An EXISTS predicate matching explicit Public addressing.
+ */
+function publicAddressing(sourceId: SQLWrapper): SQL {
+  return sql`exists (select 1 from ${schema.addressing} where ${schema.addressing.sourceId} = ${sourceId} and ${schema.addressing.targetId} = ${PUBLIC_RESOURCE_ID} and ${schema.addressing.property} in ('to', 'cc'))`;
+}
+function servedActivity(table: {
+  id: SQLWrapper;
+  objectId: SQLWrapper;
+  type: SQLWrapper;
+}): SQL {
+  return sql`${table.type} = 'Create' and ${publicAddressing(table.id)} and exists (select 1 from ${schema.objects} where ${schema.objects.id} = ${table.objectId} and ${schema.objects.deleted} is null)`;
+}
+function collectionIri(actor: StoredActor, role: string): URL | null {
+  const reference = actor.collectionReferences.find(
+    (entry) => entry.role === role,
+  );
+  return reference == null ? null : new URL(reference.collection.resource.iri);
+}
+async function actorCollection(
+  db: Database,
+  ctx: Context<unknown>,
+  identifier: string,
+  role: "followers" | "following" | "featured",
+) {
+  const actor = await findActiveActor(db, ctx, identifier);
+  if (actor == null) return null;
+  const reference = await db.query.actorCollectionReferences.findFirst({
+    where: { actorId: actor.id, role },
+    with: {
+      collection: {
+        with: {
+          items: {
+            orderBy: { position: "asc", itemId: "asc" },
+            with: { item: { with: { actor: true } } },
+          },
+        },
+      },
+    },
+  });
+  return reference?.collection ?? { items: [] };
+}
+
+/**
+ * Serializes stored object addressing; blind recipients stay in the database.
+ * @returns The vocabulary object without blind recipients.
+ */
+export function toObject(
+  _ctx: Context<unknown>,
+  object: StoredObject,
+): APObject {
   return objectConstructors[object.type]({
-    id: new URL(object.iri),
-    attribution: ctx.getActorUri(object.actorId),
+    id: new URL(object.resource.iri),
+    attribution: new URL(object.actor.resource.iri),
     contents: [
       object.contentHtml,
       ...(object.language == null
@@ -374,16 +529,23 @@ function toObject(ctx: Context<unknown>, object: ActivityPubObject): APObject {
     published: object.published.toTemporalInstant(),
     updated: object.updated.toTemporalInstant(),
     url: object.url == null ? null : new URL(object.url),
-    ...recipients(ctx, object),
+    ...recipients(object.addressing),
   });
 }
 
-function toCreate(ctx: Context<unknown>, object: ActivityPubObject): Create {
+/**
+ * Serializes a persisted Create activity, retaining its own IRI and addressing.
+ * @returns The vocabulary activity without blind recipients.
+ */
+export function toCreate(
+  _ctx: Context<unknown>,
+  activity: StoredCreate,
+): Create {
   return new Create({
-    id: ctx.getObjectUri(Create, { id: object.id }),
-    actor: ctx.getActorUri(object.actorId),
-    ...recipients(ctx, object),
-    object: new URL(object.iri),
-    published: object.published.toTemporalInstant(),
+    id: new URL(activity.resource.iri),
+    actor: new URL(activity.actor.resource.iri),
+    ...recipients(activity.addressing),
+    object: activity.object == null ? null : new URL(activity.object.iri),
+    published: activity.published.toTemporalInstant(),
   });
 }

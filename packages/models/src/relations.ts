@@ -98,7 +98,119 @@ export const relations = defineRelations(schema, (r) => ({
       optional: false,
     }),
   },
+  resources: {
+    actor: r.one.actors({
+      from: r.resources.id,
+      to: r.actors.id,
+      optional: true,
+    }),
+    object: r.one.objects({
+      from: r.resources.id,
+      to: r.objects.id,
+      optional: true,
+    }),
+    activity: r.one.activities({
+      from: r.resources.id,
+      to: r.activities.id,
+      optional: true,
+    }),
+    collection: r.one.collections({
+      from: r.resources.id,
+      to: r.collections.id,
+      optional: true,
+    }),
+    addressedBy: r.many.addressing({
+      from: r.resources.id,
+      to: r.addressing.targetId,
+    }),
+  },
+  addressing: {
+    source: r.one.resources({
+      from: r.addressing.sourceId,
+      to: r.resources.id,
+      optional: false,
+    }),
+    targetResource: r.one.resources({
+      from: r.addressing.targetId,
+      to: r.resources.id,
+      optional: false,
+    }),
+  },
+  actorCollectionReferences: {
+    actor: r.one.actors({
+      from: r.actorCollectionReferences.actorId,
+      to: r.actors.id,
+      optional: false,
+    }),
+    collection: r.one.collections({
+      from: r.actorCollectionReferences.collectionId,
+      to: r.collections.id,
+      optional: false,
+    }),
+  },
+  collections: {
+    resource: r.one.resources({
+      from: r.collections.id,
+      to: r.resources.id,
+      optional: false,
+    }),
+    ownerActor: r.one.actors({
+      from: r.collections.ownerActorId,
+      to: r.actors.id,
+    }),
+    items: r.many.collectionItems({
+      from: r.collections.id,
+      to: r.collectionItems.collectionId,
+    }),
+  },
+  collectionItems: {
+    collection: r.one.collections({
+      from: r.collectionItems.collectionId,
+      to: r.collections.id,
+      optional: false,
+    }),
+    item: r.one.resources({
+      from: r.collectionItems.itemId,
+      to: r.resources.id,
+      optional: false,
+    }),
+  },
+  activities: {
+    resource: r.one.resources({
+      from: r.activities.id,
+      to: r.resources.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activities.actorId,
+      to: r.actors.id,
+      optional: false,
+    }),
+    object: r.one.resources({
+      from: r.activities.objectId,
+      to: r.resources.id,
+    }),
+    addressing: r.many.addressing({
+      from: r.activities.id,
+      to: r.addressing.sourceId,
+    }),
+  },
   objects: {
+    resource: r.one.resources({
+      from: r.objects.id,
+      to: r.resources.id,
+      optional: false,
+    }),
+    addressing: r.many.addressing({
+      from: r.objects.id,
+      to: r.addressing.sourceId,
+    }),
+    createActivity: r.one.activities({
+      from: r.objects.id,
+      to: r.activities.objectId,
+      optional: true,
+      where: { type: "Create" },
+    }),
     actor: r.one.actors({
       from: r.objects.actorId,
       to: r.actors.id,
@@ -106,6 +218,23 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
+    collectionReferences: r.many.actorCollectionReferences({
+      from: r.actors.id,
+      to: r.actorCollectionReferences.actorId,
+    }),
+    resource: r.one.resources({
+      from: r.actors.id,
+      to: r.resources.id,
+      optional: false,
+    }),
+    collections: r.many.collections({
+      from: r.actors.id,
+      to: r.collections.ownerActorId,
+    }),
+    activities: r.many.activities({
+      from: r.actors.id,
+      to: r.activities.actorId,
+    }),
     objects: r.many.objects({ from: r.actors.id, to: r.objects.actorId }),
     instance: r.one.instances({
       from: r.actors.instanceId,

@@ -77,13 +77,13 @@ const actorQuery = `
           header
         }
         inboxUrl
-        outboxUrl
+        outbox { iri }
         avatarUrl
-        followersUrl
-        followingUrl
+        followers { iri }
+        following { iri }
         headerUrl
         profileUrl
-        featuredUrl
+        featured { iri }
         created
       }
     }
@@ -192,15 +192,7 @@ describe("Mutation.generateActors", () => {
 
       const [actor] = await db.select().from(schema.actors);
       assert.ok(actor != null);
-      for (const url of [
-        actor.iri,
-        actor.inboxUrl,
-        actor.outboxUrl,
-        actor.followersUrl,
-        actor.followingUrl,
-        actor.featuredUrl,
-        actor.profileUrl,
-      ]) {
+      for (const url of [actor.inboxUrl, actor.profileUrl]) {
         assert.ok(url != null);
         assert.equal(
           new URL(url).origin,
@@ -241,13 +233,21 @@ describe("Actor", () => {
               header: "header.png",
             },
             inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-            outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+            outbox: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+            },
             avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-            followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-            followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
+            followers: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/followers`,
+            },
+            following: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/following`,
+            },
             headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
             profileUrl: "https://test-instance.drfed.org/@alice",
-            featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
+            featured: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/featured`,
+            },
             created: created.toISOString(),
           },
         },
@@ -280,13 +280,17 @@ describe("Actor", () => {
             },
             local: null,
             inboxUrl: "https://remote.example.com/users/bob/inbox",
-            outboxUrl: "https://remote.example.com/users/bob/outbox",
+            outbox: { iri: "https://remote.example.com/users/bob/outbox" },
             avatarUrl: "https://remote.example.com/users/bob/avatar.png",
-            followersUrl: "https://remote.example.com/users/bob/followers",
-            followingUrl: "https://remote.example.com/users/bob/following",
+            followers: {
+              iri: "https://remote.example.com/users/bob/followers",
+            },
+            following: {
+              iri: "https://remote.example.com/users/bob/following",
+            },
             headerUrl: "https://remote.example.com/users/bob/header.png",
             profileUrl: "https://remote.example.com/@bob",
-            featuredUrl: "https://remote.example.com/users/bob/featured",
+            featured: { iri: "https://remote.example.com/users/bob/featured" },
             created: created.toISOString(),
           },
         },

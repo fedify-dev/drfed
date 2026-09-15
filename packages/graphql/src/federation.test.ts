@@ -14,22 +14,28 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// Keep dependent database writes and observations sequential.
+// oxlint-disable no-await-in-loop
+
 import assert from "node:assert/strict";
 
 import { createYogaServer } from "@drfed/graphql";
 import createFederation, { buildFederation } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
+import { PUBLIC_IRI } from "@drfed/models/resource";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
 import { Object as APObject, Create } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
   localActorId,
   remoteActorId,
+  seedActors,
   seedLocalActor,
+  seedObjects,
   seedRemoteActor,
 } from "./seed.test.ts";
 
@@ -87,7 +93,7 @@ describe("createFederation()", () => {
     await withTemporaryDatabase(async (db) => {
       const localInstanceId = uuid();
       const instanceId = uuid();
-      const localActorId = uuid();
+      const localId = uuid();
       const actorId = uuid();
       const base = "https://demo.drfed.test";
       await db.insert(schema.localInstances).values({
@@ -100,16 +106,15 @@ describe("createFederation()", () => {
         localId: localInstanceId,
         host: "demo.drfed.test",
       });
-      await db.insert(schema.localActors).values({ id: localActorId });
-      await db.insert(schema.actors).values({
+      await db.insert(schema.localActors).values({ id: localId });
+      await seedActors(db, {
         id: actorId,
-        localId: localActorId,
+        localId,
         type: "Person",
         username: "alice",
         instanceId,
         iri: `${base}/users/${actorId}`,
         inboxUrl: `${base}/users/${actorId}/inbox`,
-        outboxUrl: `${base}/users/${actorId}/outbox`,
       });
 
       const federation = await createFederation(db, {
@@ -200,14 +205,17 @@ function values(id: string) {
 }
 
 describe("ActivityPub objects", () => {
-  for (const visibility of ["public", "unlisted"] as const) {
-    it(`serves ${visibility} objects with contentMap and recipients`, async () => {
+  for (const publicProperty of ["to", "cc"] as const) {
+    it(`serves ${publicProperty} Public objects with contentMap and recipients`, async () => {
       await withTestHarness(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
-        await db.insert(schema.objects).values({
+        await seedObjects(db, {
           ...object,
-          visibility,
+          addressing: {
+            [publicProperty]: [PUBLIC_IRI],
+            [publicProperty === "to" ? "cc" : "to"]: [`${actorIri}/followers`],
+          },
           language: "ko-KR",
           name: "Title",
           summary: "CW",
@@ -231,11 +239,11 @@ describe("ActivityPub objects", () => {
         assert.ok(body.updated);
         assert.equal(
           body.to,
-          visibility === "public" ? "as:Public" : `${actorIri}/followers`,
+          publicProperty === "to" ? "as:Public" : `${actorIri}/followers`,
         );
         assert.equal(
           body.cc,
-          visibility === "public" ? `${actorIri}/followers` : "as:Public",
+          publicProperty === "to" ? `${actorIri}/followers` : "as:Public",
         );
       });
     });
@@ -245,9 +253,15 @@ describe("ActivityPub objects", () => {
       await withTestHarness(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
-        await db
-          .insert(schema.objects)
-          .values({ ...object, visibility: "followers", deleted });
+        await seedObjects(db, {
+          ...object,
+          addressing: {
+            to: [
+              `https://test-instance.drfed.org/users/${localActorId}/followers`,
+            ],
+          },
+          deleted,
+        });
         const response = await federation.fetch(
           new Request(object.iri, { headers: accept }),
           { contextData: undefined },
@@ -260,7 +274,7 @@ describe("ActivityPub objects", () => {
     await withTestHarness(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
-      await db.insert(schema.objects).values({ ...object, type: "Article" });
+      await seedObjects(db, { ...object, type: "Article" });
       const response = await federation.fetch(
         new Request(object.iri, { headers: accept }),
         { contextData: undefined },
@@ -295,7 +309,7 @@ describe("ActivityPub objects", () => {
         await seedLocalActor(db);
         await seedRemoteActor(db);
         const object = values(uuid());
-        await db.insert(schema.objects).values({
+        await seedObjects(db, {
           ...object,
           actorId: scenario === "remote" ? remoteActorId : localActorId,
         });
@@ -326,12 +340,18 @@ describe("ActivityPub objects", () => {
 });
 
 describe("ActivityPub Create activities", () => {
-  for (const visibility of ["public", "unlisted"] as const) {
-    it(`serves Create activities for ${visibility} objects`, async () => {
+  for (const publicProperty of ["to", "cc"] as const) {
+    it(`serves Create activities for ${publicProperty} Public objects`, async () => {
       await withTestHarness(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
-        await db.insert(schema.objects).values({ ...object, visibility });
+        await seedObjects(db, {
+          ...object,
+          addressing: {
+            [publicProperty]: [PUBLIC_IRI],
+            [publicProperty === "to" ? "cc" : "to"]: [`${actorIri}/followers`],
+          },
+        });
         const response = await federation.fetch(
           new Request(createIri(object.id), { headers: accept }),
           { contextData: undefined },
@@ -352,8 +372,8 @@ describe("ActivityPub Create activities", () => {
             id: createIri(object.id),
             actor: actorIri,
             object: object.iri,
-            to: visibility === "public" ? "as:Public" : `${actorIri}/followers`,
-            cc: visibility === "public" ? `${actorIri}/followers` : "as:Public",
+            to: publicProperty === "to" ? "as:Public" : `${actorIri}/followers`,
+            cc: publicProperty === "to" ? `${actorIri}/followers` : "as:Public",
           },
         );
         assert.ok(body.published);
@@ -373,10 +393,13 @@ describe("ActivityPub Create activities", () => {
         await seedLocalActor(db);
         await seedRemoteActor(db);
         const object = values(uuid());
-        await db.insert(schema.objects).values({
+        await seedObjects(db, {
           ...object,
           actorId: scenario === "remote" ? remoteActorId : localActorId,
-          visibility: scenario === "followers" ? "followers" : "public",
+          addressing:
+            scenario === "followers"
+              ? { to: [`${actorIri}/followers`] }
+              : { to: [PUBLIC_IRI] },
           deleted: scenario === "deleted" ? new Date() : null,
         });
         if (scenario === "deletedActor") {
@@ -403,7 +426,7 @@ describe("ActivityPub Create activities", () => {
     await withTestHarness(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
-      await db.insert(schema.objects).values(object);
+      await seedObjects(db, object);
       const response = await federation.fetch(
         new Request(
           createIri(object.id).replace(
@@ -421,18 +444,20 @@ describe("ActivityPub Create activities", () => {
 
 describe("ActivityPub outbox", () => {
   it("paginates Create activities while excluding followers-only and deleted objects", async () => {
+    // oxlint-disable-next-line max-statements
     await withTestHarness(async ({ db, federation }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 23 }, () => uuid());
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         ids.map((id, index) => ({
           ...values(id),
-          visibility:
+          addressing:
             index === 22
-              ? ("followers" as const)
+              ? { to: [`${actorIri}/followers`] }
               : index === 20
-                ? ("unlisted" as const)
-                : ("public" as const),
+                ? { to: [`${actorIri}/followers`], cc: [PUBLIC_IRI] }
+                : { to: [PUBLIC_IRI] },
           deleted: index === 21 ? new Date() : null,
         })),
       );
@@ -450,7 +475,7 @@ describe("ActivityPub outbox", () => {
       };
       const collection = await fetchJson(`${actorIri}/outbox`);
       assert.equal(collection.type, "OrderedCollection");
-      assert.equal(collection.totalItems, 23);
+      assert.equal(collection.totalItems, 21);
       const page = await fetchJson(`${actorIri}/outbox?cursor=`);
       assert.equal(page.orderedItems.length, 20);
       const activity = page.orderedItems[0];
@@ -481,6 +506,70 @@ describe("ActivityPub outbox", () => {
         { contextData: undefined },
       );
       assert.equal(bad.status, 404);
+      for (const published of [
+        "0000-01-01T00:00:00.000000Z",
+        "2026-02-30T00:00:00.000000Z",
+      ]) {
+        const cursor = encodeURIComponent(`${published}|${uuid()}`);
+        const invalid = await federation.fetch(
+          new Request(`${actorIri}/outbox?cursor=${cursor}`, {
+            headers: accept,
+          }),
+          { contextData: undefined },
+        );
+        assert.equal(invalid.status, 404);
+      }
+    });
+  });
+  it("orders UUIDv4 backfills by publication and retains microseconds across pages", async () => {
+    await withTestHarness(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const objects = Array.from({ length: 24 }, () => uuid());
+      for (const [index, id] of objects.entries()) {
+        // Old migrated activities have random UUIDv4 IDs larger than UUIDv7.
+        // Reverse IDs deliberately oppose publication order within a page.
+        const activityId =
+          index === 23
+            ? uuid()
+            : (`ffffffff-ffff-4fff-8fff-${String(24 - index).padStart(12, "0")}` as Uuid);
+        await seedObjects(db, { ...values(id), activityId });
+        const published = `2026-09-15T00:00:00.${String(Math.floor(index / 2)).padStart(6, "0")}Z`;
+        await db
+          .update(schema.activities)
+          .set({ published: sql`${published}::timestamptz` })
+          .where(eq(schema.activities.id, activityId));
+      }
+      const fetchJson = async (iri: string) => {
+        const response = await federation.fetch(
+          new Request(iri, { headers: accept }),
+          { contextData: undefined },
+        );
+        assert.equal(response.status, 200);
+        return await response.json();
+      };
+      const first = await fetchJson(`${actorIri}/outbox?cursor=`);
+      assert.equal(first.orderedItems.length, 20);
+      // Equal publication times use descending IDs as a stable tie-breaker.
+      const expected = Array.from({ length: 12 }, (_, index) => 22 - 2 * index)
+        .flatMap((index) => [objects[index], objects[index + 1]])
+        .map((id) => values(id!).iri);
+      assert.deepEqual(
+        first.orderedItems.map((item: { object: string }) => item.object),
+        expected.slice(0, 20),
+      );
+      // A cursor remains valid even if its activity has since been deleted.
+      const boundary = new URL(first.next).searchParams
+        .get("cursor")!
+        .split("|")[1]!;
+      await db
+        .delete(schema.resources)
+        .where(eq(schema.resources.id, boundary as Uuid));
+      const last = await fetchJson(first.next);
+      assert.deepEqual(
+        last.orderedItems.map((item: { object: string }) => item.object),
+        expected.slice(20),
+      );
+      assert.equal(last.next, undefined);
     });
   });
   it("serves an empty outbox", async () => {
