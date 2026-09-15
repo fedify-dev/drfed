@@ -96,7 +96,16 @@ export const localInstances = pgTable(
     maxActors: integer().notNull().default(10),
   },
   (table) => [
-    check("instances_slug_check", sql`${table.slug} ~ '^[a-z0-9-]{4,63}$'`),
+    // Keep this in agreement with `isValidSlug()` in ./slug.ts.  A slug
+    // becomes the leftmost label of the instance's host name, so it has to be
+    // a valid DNS label: no leading or trailing hyphen, and none of RFC 5891's
+    // reserved LDH labels except the `xn--` prefix of an A-label, which stays
+    // allowed so that instances can carry internationalized domain names.
+    check(
+      "local_instances_slug_check",
+      sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{2,61}[a-z0-9]$'
+        AND (${table.slug} !~ '^..--' OR ${table.slug} ~ '^xn--')`,
+    ),
     check("instances_max_actors_check", sql`${table.maxActors} > 0`),
   ],
 );
