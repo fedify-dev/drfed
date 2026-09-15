@@ -38,6 +38,8 @@ import {
 import { getLogger } from "@logtape/logtape";
 import { validate as validateUuid } from "uuid";
 
+import { canonicalizeAuthority } from "./origin.ts";
+
 /**
  * The vocabulary object types that DrFed serves as actors.
  */
@@ -66,7 +68,7 @@ async function findLocalActor(
     where: {
       id: identifier as Uuid,
       localId: { isNotNull: true },
-      instance: { host: ctx.host },
+      instance: { host: canonicalizeAuthority(ctx.host) },
     },
   });
   return actor ?? null;
@@ -107,7 +109,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
         where: {
           username,
           localId: { isNotNull: true },
-          instance: { host: ctx.host },
+          instance: { host: canonicalizeAuthority(ctx.host) },
           deleted: { isNull: true },
         },
       });

@@ -133,5 +133,23 @@ function canonicalPort(url: URL): string {
  */
 function canonicalAuthority(url: URL): string {
   const hostname = canonicalHostname(url);
-  return url.port === "" ? hostname : `${hostname}:${url.port}`;
+  const port = canonicalPort(url);
+  return port === "" ? hostname : `${hostname}:${port}`;
+}
+
+/**
+ * Canonicalizes an authority that arrived as a bare string, the way
+ * {@link instanceHost} composes one.
+ *
+ * Fedify reports `Context.host` verbatim from the request, so it may carry
+ * spellings that name the instance without matching the stored `host`: a
+ * root-zone dot, or a default port a client wrote out.  Normalizing both sides
+ * is what lets such a request reach its instance instead of a 404.
+ * @param authority The authority to canonicalize.
+ * @returns The canonical spelling, or the input unchanged if it is not an
+ *          authority at all.
+ */
+export function canonicalizeAuthority(authority: string): string {
+  const url = `https://${authority}`;
+  return URL.canParse(url) ? canonicalAuthority(new URL(url)) : authority;
 }

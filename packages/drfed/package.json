@@ -49,6 +49,10 @@
     "./valueparser": {
       "types": "./dist/valueparser.d.mts",
       "default": "./dist/valueparser.mjs"
+    },
+    "./serving": {
+      "types": "./dist/serving.d.mts",
+      "default": "./dist/serving.mjs"
     }
   },
   "files": [
@@ -62,7 +66,8 @@
   "tsdown": {
     "entry": [
       "src/index.ts",
-      "src/valueparser.ts"
+      "src/valueparser.ts",
+      "src/serving.ts"
     ],
     "dts": {
       "sourcemap": true,

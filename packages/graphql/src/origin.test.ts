@@ -18,6 +18,7 @@ import assert from "node:assert/strict";
 
 import {
   canonicalHostname,
+  canonicalizeAuthority,
   classifyHost,
   instanceHost,
   instanceOrigin,
@@ -67,6 +68,50 @@ describe("canonicalHostname()", () => {
       "drfed.localhost",
     );
     assert.equal(canonicalHostname(new URL("http://[::1]:8888")), "[::1]");
+  });
+});
+
+describe("canonicalizeAuthority()", () => {
+  it("leaves a canonical authority alone", () => {
+    assert.equal(canonicalizeAuthority("demo.drfed.net"), "demo.drfed.net");
+    assert.equal(
+      canonicalizeAuthority("demo.drfed.localhost:8888"),
+      "demo.drfed.localhost:8888",
+    );
+  });
+
+  it("drops either of the web's default ports", () => {
+    // A reverse proxy may forward a `Host` naming the default port verbatim.
+    assert.equal(canonicalizeAuthority("demo.drfed.net:443"), "demo.drfed.net");
+    assert.equal(canonicalizeAuthority("demo.drfed.net:80"), "demo.drfed.net");
+  });
+
+  it("drops the root zone's dot", () => {
+    assert.equal(canonicalizeAuthority("demo.drfed.net."), "demo.drfed.net");
+  });
+
+  it("keeps any other port", () => {
+    assert.equal(
+      canonicalizeAuthority("demo.drfed.net:8443"),
+      "demo.drfed.net:8443",
+    );
+  });
+
+  it("agrees with what instanceHost() composes", () => {
+    for (const root of [
+      production,
+      development,
+      new URL("https://drfed.net."),
+      new URL("https://drfed.net:443"),
+    ]) {
+      const host = instanceHost(root, "demo");
+      assert.equal(canonicalizeAuthority(host), host);
+    }
+  });
+
+  it("returns anything it cannot parse unchanged", () => {
+    assert.equal(canonicalizeAuthority("_invalid_"), "_invalid_");
+    assert.equal(canonicalizeAuthority(""), "");
   });
 });
 
