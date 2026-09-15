@@ -25,9 +25,9 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
 
-const accepted = new Date("2026-06-24T00:00:00.000Z");
-const created = new Date("2026-06-24T00:00:00.000Z");
-const expires = new Date("2026-07-24T00:00:00.000Z");
+const accepted = Temporal.Instant.from("2026-06-24T00:00:00.000Z");
+const created = Temporal.Instant.from("2026-06-24T00:00:00.000Z");
+const expires = Temporal.Instant.from("2026-07-24T00:00:00.000Z");
 const ok = 200;
 const defaultMaxActors = 10;
 
@@ -176,23 +176,23 @@ const instanceMembersResponse = {
                 totalCount: 2,
                 edges: [
                   {
-                    created: "2026-06-24T00:00:00.000Z",
-                    accepted: "2026-06-24T00:00:00.000Z",
-                    admin: true,
-                    node: {
-                      uuid: accountId,
-                      email: "owner@example.com",
-                      name: "Owner",
-                    },
-                  },
-                  {
-                    created: "2026-06-24T00:00:00.000Z",
-                    accepted: "2026-06-24T00:00:00.000Z",
+                    created: created.toString(),
+                    accepted: accepted.toString(),
                     admin: false,
                     node: {
                       uuid: memberId,
                       email: null,
                       name: "Member",
+                    },
+                  },
+                  {
+                    created: created.toString(),
+                    accepted: accepted.toString(),
+                    admin: true,
+                    node: {
+                      uuid: accountId,
+                      email: "owner@example.com",
+                      name: "Owner",
                     },
                   },
                 ],
@@ -276,7 +276,7 @@ describe("Mutation.createInstance", () => {
       assert.equal(members.length, 1);
       assert.equal(members[0]?.accountId, accountId);
       assert.equal(members[0]?.instanceId, instances[0]?.id);
-      assert.ok(members[0]?.accepted instanceof Date);
+      assert.ok(members[0]?.accepted instanceof Temporal.Instant);
     });
   });
 
@@ -369,7 +369,7 @@ describe("Instance.localInstance", () => {
                     localInstance: {
                       uuid: localInstanceId,
                       slug: "test-instance",
-                      expires: expires.toISOString(),
+                      expires: expires.toString(),
                       maxActors: defaultMaxActors,
                     },
                   },
@@ -433,7 +433,7 @@ describe("Query.localInstanceBySlug", () => {
           localInstanceBySlug: {
             uuid: localInstanceId,
             slug: "test-instance",
-            expires: expires.toISOString(),
+            expires: expires.toString(),
             maxActors: defaultMaxActors,
             instance: {
               uuid: instanceId,

@@ -143,8 +143,8 @@ describe("email authentication", () => {
         .insert(schema.instances)
         .values({ id: instanceId, host: "shared.example.com" });
       await db.insert(schema.instanceMembers).values([
-        { accountId, instanceId, accepted: new Date() },
-        { accountId: memberId, instanceId, accepted: new Date() },
+        { accountId, instanceId, accepted: Temporal.Now.instant() },
+        { accountId: memberId, instanceId, accepted: Temporal.Now.instant() },
       ]);
 
       const { challengeId, code } = await requestLoginCode(post, mailer);
@@ -292,7 +292,7 @@ describe("email authentication", () => {
       );
       await db
         .update(schema.loginChallenges)
-        .set({ expires: new Date(0) })
+        .set({ expires: Temporal.Instant.fromEpochMilliseconds(0) })
         .where(eq(schema.loginChallenges.id, challengeId));
       const expired = await (
         await post({

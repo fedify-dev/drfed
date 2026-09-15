@@ -118,7 +118,7 @@ const findSession = async (accessToken: string, db: Database) =>
   await db.query.sessions.findFirst({
     where: {
       tokenHash: await hashSecret(accessToken),
-      expires: { gt: new Date() },
+      expires: { gt: Temporal.Now.instant() },
     },
     with: { account: true },
   });

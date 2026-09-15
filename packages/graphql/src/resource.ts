@@ -18,9 +18,9 @@ import { type Database, schema } from "@drfed/models";
 import type { Resource as ResourceRow } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import { resolveOffsetConnection } from "@pothos/plugin-relay";
-import { eq } from "drizzle-orm";
+import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
-import builder from "./builder.ts";
+import builder, { type DrFedObjectRef } from "./builder.ts";
 
 export const ResourceKind = builder.enumType("ResourceKind", {
   values: schema.resourceKindEnum.enumValues,
@@ -61,12 +61,17 @@ Resource.implement({
 
 /**
  * Loads the typed record so interface fragments see the complete entity.
- * @returns The entity represented by this resource, or the unknown resource itself.
+ * @returns The typed entity, or null when it or its author is deleted.
  */
 export async function resolveResource(
   db: Database,
   row: ResourceRow,
-): Promise<{ id: Uuid }> {
+): Promise<{ id: Uuid } | null> {
+  const visible = await db.query.resources.findFirst({
+    where: { id: row.id, RAW: (table) => visibleResource(table.id) },
+    columns: { id: true },
+  });
+  if (visible == null) return null;
   if (row.kind === "unknown") return row;
   const where = { id: row.id };
   const result =
@@ -96,6 +101,9 @@ AddressingTarget.implement({
   fields: (t) => ({
     target: t.field({
       type: Resource,
+      nullable: true,
+      description:
+        "The target resource, or null if it or its author is deleted.",
       resolve: (row, _, ctx) => resolveResource(ctx.db, row.targetResource),
     }),
     raw: t.expose("target", {
@@ -132,7 +140,7 @@ const CollectionType = builder.enumType("CollectionType", {
 const CollectionRole = builder.enumType("CollectionRole", {
   values: schema.collectionRoleEnum.enumValues,
 });
-export const Collection = builder.drizzleNode("collections", {
+const CollectionRef = builder.drizzleNode("collections", {
   name: "Collection",
   interfaces: [Resource],
   id: { column: (row) => row.id },
@@ -146,7 +154,10 @@ export const Collection = builder.drizzleNode("collections", {
         row.totalItems ??
         ctx.db.$count(
           schema.collectionItems,
-          eq(schema.collectionItems.collectionId, row.id),
+          and(
+            eq(schema.collectionItems.collectionId, row.id),
+            visibleResource(schema.collectionItems.itemId),
+          ),
         ),
     }),
     items: t.connection({
@@ -155,7 +166,10 @@ export const Collection = builder.drizzleNode("collections", {
       resolve: (row, args, ctx) =>
         resolveOffsetConnection({ args }, async ({ offset, limit }) => {
           const items = await ctx.db.query.collectionItems.findMany({
-            where: { collectionId: row.id },
+            where: {
+              collectionId: row.id,
+              RAW: (table) => visibleResource(table.itemId),
+            },
             orderBy: { position: "asc", itemId: "asc" },
             offset,
             limit,
@@ -168,11 +182,17 @@ export const Collection = builder.drizzleNode("collections", {
     }),
   }),
 });
+export const Collection: DrFedObjectRef = CollectionRef;
+
 const ActivityType = builder.enumType("ActivityType", {
   values: schema.activityTypeEnum.enumValues,
 });
-export const Activity = builder.drizzleNode("activities", {
+const ActivityRef = builder.drizzleNode("activities", {
   name: "Activity",
+  select: {
+    columns: { id: true },
+    with: { actor: { columns: { deleted: true } } },
+  },
   interfaces: [Resource],
   id: { column: (row) => row.id },
   fields: (t) => ({
@@ -189,4 +209,25 @@ export const Activity = builder.drizzleNode("activities", {
     document: t.expose("document", { type: "JSON", nullable: true }),
   }),
 });
+export const Activity: DrFedObjectRef = ActivityRef;
 registerAddressingFields("activities");
+
+/**
+ * Excludes deleted actors and objects, including resources authored by deleted actors.
+ * @returns A predicate for a resource ID in an outer query.
+ */
+function visibleResource(id: SQLWrapper): SQL {
+  return sql`not exists (
+    select 1 from ${schema.actors}
+    where ${schema.actors.id} = ${id} and ${schema.actors.deleted} is not null
+  ) and not exists (
+    select 1 from ${schema.objects}
+    join ${schema.actors} on ${schema.actors.id} = ${schema.objects.actorId}
+    where ${schema.objects.id} = ${id}
+      and (${schema.objects.deleted} is not null or ${schema.actors.deleted} is not null)
+  ) and not exists (
+    select 1 from ${schema.activities}
+    join ${schema.actors} on ${schema.actors.id} = ${schema.activities.actorId}
+    where ${schema.activities.id} = ${id} and ${schema.actors.deleted} is not null
+  )`;
+}

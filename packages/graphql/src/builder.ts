@@ -33,12 +33,7 @@ import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
 import { GraphQLScalarType, Kind } from "graphql";
-import {
-  DateTimeResolver,
-  JSONResolver,
-  URLResolver,
-  UUIDResolver,
-} from "graphql-scalars";
+import { JSONResolver, URLResolver, UUIDResolver } from "graphql-scalars";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -103,8 +98,8 @@ export interface SchemaTypes {
   Scalars: {
     JSON: { Input: unknown; Output: unknown };
     DateTime: {
-      Input: Date;
-      Output: Date;
+      Input: Temporal.Instant;
+      Output: Temporal.Instant;
     };
     Email: {
       Input: string;
@@ -190,11 +185,18 @@ export const builder = new SchemaBuilder<SchemaTypes>({
   },
 });
 
-const filterDeleted = (node: unknown): unknown =>
+const isDeleted = (node: unknown): boolean =>
   node != null &&
   typeof node === "object" &&
   "deleted" in node &&
-  node.deleted != null
+  node.deleted != null;
+
+const filterDeleted = (node: unknown): unknown =>
+  isDeleted(node) ||
+  (node != null &&
+    typeof node === "object" &&
+    "actor" in node &&
+    isDeleted(node.actor))
     ? null
     : node;
 
@@ -231,7 +233,27 @@ async function isLocalInstanceMember(
   return rows.length > 0;
 }
 
-builder.addScalarType("DateTime", DateTimeResolver);
+builder.scalarType("DateTime", {
+  description: "An ISO 8601 instant preserving sub-millisecond precision.",
+  serialize(value) {
+    if (!(value instanceof Temporal.Instant)) {
+      throw new TypeError("Expected a Temporal.Instant.");
+    }
+    return value.toString();
+  },
+  parseValue(value) {
+    if (typeof value !== "string") {
+      throw new TypeError("Expected an instant string.");
+    }
+    return Temporal.Instant.from(value);
+  },
+  parseLiteral(node) {
+    if (node.kind !== Kind.STRING) {
+      throw new TypeError("Expected an instant string.");
+    }
+    return Temporal.Instant.from(node.value);
+  },
+});
 builder.addScalarType(
   "URL",
   new GraphQLScalarType({

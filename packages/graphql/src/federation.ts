@@ -172,7 +172,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       if (object.deleted != null) {
         return new Tombstone({
           id: ctx.getObjectUri(APObject, { identifier, id }),
-          deleted: Temporal.Instant.from(object.deleted.toISOString()),
+          deleted: object.deleted,
         });
       }
       return toObject(ctx, object);
@@ -336,11 +336,12 @@ export default async function createFederation(
 // Whether a sanction is *currently* active is always determined by comparing
 // against the current time (lazy expiry; no cron); see the actors table.
 function isSuspended({ suspended, suspendedUntil }: Actor): boolean {
-  const now = new Date();
+  const now = Temporal.Now.instant();
   return (
     suspended != null &&
-    suspended <= now &&
-    (suspendedUntil == null || suspendedUntil > now)
+    Temporal.Instant.compare(suspended, now) <= 0 &&
+    (suspendedUntil == null ||
+      Temporal.Instant.compare(suspendedUntil, now) > 0)
   );
 }
 
@@ -524,8 +525,8 @@ export function toObject(
     name: object.name,
     summary: object.summary,
     sensitive: object.sensitive,
-    published: object.published.toTemporalInstant(),
-    updated: object.updated.toTemporalInstant(),
+    published: object.published,
+    updated: object.updated,
     url: object.url == null ? null : new URL(object.url),
     ...recipients(object.addressing),
   });
@@ -544,6 +545,6 @@ export function toCreate(
     actor: new URL(activity.actor.resource.iri),
     ...recipients(activity.addressing),
     object: activity.object == null ? null : new URL(activity.object.iri),
-    published: activity.published.toTemporalInstant(),
+    published: activity.published,
   });
 }

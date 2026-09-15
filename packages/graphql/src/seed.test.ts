@@ -29,9 +29,9 @@ import type { PgInsertValue } from "drizzle-orm/pg-core";
 
 import { hashSecret } from "./auth/hash.ts";
 
-export const accepted = new Date("2026-08-04T00:00:00.000Z");
-export const created = new Date("2026-08-04T00:00:00.000Z");
-export const expires = new Date("2030-08-04T00:00:00.000Z");
+export const accepted = Temporal.Instant.from("2026-08-04T00:00:00.000Z");
+export const created = Temporal.Instant.from("2026-08-04T00:00:00.000Z");
+export const expires = Temporal.Instant.from("2030-08-04T00:00:00.000Z");
 export const ok = 200;
 
 export const accountId = "00000000-0000-4000-8000-000000000001";
@@ -43,7 +43,13 @@ export const sessionId = "00000000-0000-4000-8000-000000000301";
 export const accessToken = "test-access-token";
 
 export function globalId(
-  type: "Actor" | "Instance" | "Object" | "Activity" | "Collection",
+  type:
+    | "Actor"
+    | "LocalActor"
+    | "Instance"
+    | "Object"
+    | "Activity"
+    | "Collection",
   id: string,
 ): string {
   return Buffer.from(`${type}:${id}`).toString("base64");

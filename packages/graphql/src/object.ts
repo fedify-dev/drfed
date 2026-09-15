@@ -66,6 +66,10 @@ ExpectedClassification.implement({
 });
 const ObjectRef = builder.drizzleNode("objects", {
   name: "Object",
+  select: {
+    columns: { id: true, deleted: true },
+    with: { actor: { columns: { deleted: true } } },
+  },
   interfaces: [Resource],
   description: "Represents an ActivityPub object authored by an `Actor`.",
   id: {
@@ -90,7 +94,10 @@ const ObjectRef = builder.drizzleNode("objects", {
       description: "The actor that authored the object.",
     }),
     document: t.expose("document", { type: "JSON", nullable: true }),
-    createActivity: t.relation("createActivity", { nullable: true }),
+    createActivity: t.relation("createActivity", {
+      nullable: true,
+      query: { where: { actor: { deleted: { isNull: true } } } },
+    }),
     expectedClassifications: t.field({
       type: [ExpectedClassification],
       select: { columns: { id: true } },
@@ -169,7 +176,6 @@ registerAddressingFields("objects");
 
 const objectsConnection = drizzleConnectionHelpers(builder, "objects", {
   query: {
-    where: { deleted: { isNull: true } },
     orderBy: { published: "desc", id: "desc" },
   },
 });
@@ -351,7 +357,7 @@ builder.mutationFields((t) => ({
               eq(schema.actors.id, actorId),
               isNotNull(schema.actors.localId),
               isNull(schema.actors.deleted),
-              gt(schema.localInstances.expires, new Date()),
+              gt(schema.localInstances.expires, Temporal.Now.instant()),
               eq(schema.instanceMembers.accountId, account.id),
               isNotNull(schema.instanceMembers.accepted),
             ),
@@ -441,7 +447,7 @@ builder.mutationFields((t) => ({
           .update(schema.actors)
           .set({ postsCount: sql`${schema.actors.postsCount} + 1` })
           .where(eq(schema.actors.id, actorId));
-        return { ...object, document: snapshot };
+        return { ...object, actor: storedObject.actor, document: snapshot };
       });
     },
   }),

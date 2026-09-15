@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -34,9 +34,11 @@ import {
   ok,
   remoteActorId,
   remoteInstanceId,
+  seedActors,
   seedAuthenticatedLocalInstance,
   seedLocalActor,
   seedLocalInstance,
+  seedObjects,
   seedRemoteActor,
 } from "./seed.test.ts";
 
@@ -205,7 +207,7 @@ describe("Actor", () => {
             featured: {
               iri: `https://test-instance.drfed.org/users/${localActorId}/featured`,
             },
-            created: created.toISOString(),
+            created: created.toString(),
           },
         },
       });
@@ -248,7 +250,7 @@ describe("Actor", () => {
             headerUrl: "https://remote.example.com/users/bob/header.png",
             profileUrl: "https://remote.example.com/@bob",
             featured: { iri: "https://remote.example.com/users/bob/featured" },
-            created: created.toISOString(),
+            created: created.toString(),
           },
         },
       });
@@ -261,7 +263,7 @@ describe("Actor", () => {
       await seedRemoteActor(db);
       await db
         .update(schema.actors)
-        .set({ deleted: new Date() })
+        .set({ deleted: Temporal.Now.instant() })
         .where(eq(schema.actors.id, localActorId));
       const query = `query($live: ID!, $deleted: ID!) {
         live: node(id: $live) { ... on Actor { uuid instance { uuid } } }
@@ -309,7 +311,6 @@ function localActorValues(id: Uuid, username: string) {
     username,
     iri,
     inboxUrl: `${iri}/inbox`,
-    outboxUrl: `${iri}/outbox`,
   };
 }
 
@@ -324,10 +325,11 @@ describe("Instance.actors with a deleted actor", () => {
       await seedLocalActor(db);
       const carolId = "00000000-0000-4000-8000-000000000203" as const;
       await db.insert(schema.localActors).values({ id: carolId });
-      await db.insert(schema.actors).values(localActorValues(carolId, "carol"));
+      await seedActors(db, localActorValues(carolId, "carol"));
       const hiddenObjectId = uuid();
       const liveObjectId = uuid();
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         [hiddenObjectId, liveObjectId].map((id) => ({
           id,
           actorId: id === hiddenObjectId ? localActorId : carolId,
@@ -338,7 +340,7 @@ describe("Instance.actors with a deleted actor", () => {
       );
       await db
         .update(schema.actors)
-        .set({ deleted: new Date() })
+        .set({ deleted: Temporal.Now.instant() })
         .where(eq(schema.actors.id, localActorId));
       const body = await (
         await post({
@@ -372,19 +374,18 @@ describe("Instance.actors with a deleted actor", () => {
 
 // Regression test for
 // https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163244:
-// the `created` cursor is truncated to milliseconds by the `Date` mapping, so
-// rows that differ only in microseconds are skipped on the next page.
+// Preserve microseconds and distinguish equal timestamps using the actor ID.
 describe("Instance.actors cursor precision", () => {
   it("returns every actor whose created time carries microseconds", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedLocalInstance(db);
       const ids = Array.from({ length: 3 }, () => uuid());
-      // `Date` cannot express microseconds, so the values go through SQL.
-      await db.insert(schema.actors).values(
-        ids.map((id, index) => ({
+      await seedActors(
+        db,
+        ids.map((id) => ({
           ...localActorValues(id, id),
           localId: null,
-          created: sql`${`2026-09-14T12:00:00.12345${index}Z`}::timestamptz`,
+          created: Temporal.Instant.from("2026-09-14T12:00:00.123456Z"),
         })),
       );
       const query = `query($instance: ID!, $after: String) { node(id: $instance) { ... on Instance { actors(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`;
@@ -412,8 +413,65 @@ describe("Instance.actors cursor precision", () => {
         ({ hasNextPage } = connection.pageInfo);
         ({ cursor: after } = connection.edges.at(-1));
       }
-      assert.deepEqual(seen, [...ids].reverse());
+      assert.deepEqual(seen, [...ids].sort().reverse());
       assert.equal(hasNextPage, false);
+    });
+  });
+});
+
+it("resolves multiple actor roles referencing a shared collection", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const outbox = await db.query.collections.findFirst({
+      where: { ownerActorId: localActorId, role: "outbox" },
+      with: { resource: true },
+    });
+    assert.ok(outbox);
+    await db
+      .update(schema.actorCollectionReferences)
+      .set({ collectionId: outbox.id })
+      .where(eq(schema.actorCollectionReferences.role, "featured"));
+    const response = await (
+      await post({
+        query: `query($local: ID!, $remote: ID!) { local: node(id: $local) { ... on Actor { outbox { id iri } featured { id iri } } } remote: node(id: $remote) { ... on Actor { featured { id iri } } } }`,
+        variables: {
+          local: globalId("Actor", localActorId),
+          remote: globalId("Actor", remoteActorId),
+        },
+      })
+    ).json();
+    assert.equal(response.errors, undefined);
+    assert.deepEqual(response.data.local.featured, response.data.local.outbox);
+    assert.deepEqual(response.data.remote.featured, response.data.local.outbox);
+  });
+});
+
+it("hides deleted local actor details from node and nodes", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await db
+      .update(schema.localActors)
+      .set({ avatar: "avatar.png", header: "header.png" });
+    const query = `query($id: ID!) {
+      node(id: $id) { ... on LocalActor { uuid avatar header } }
+      nodes(ids: [$id]) { ... on LocalActor { uuid avatar header } }
+    }`;
+    const variables = { id: globalId("LocalActor", localActorId) };
+    const live = {
+      uuid: localActorId,
+      avatar: "avatar.png",
+      header: "header.png",
+    };
+    assert.deepEqual(await (await post({ query, variables })).json(), {
+      data: { node: live, nodes: [live] },
+    });
+    await db
+      .update(schema.actors)
+      .set({ deleted: Temporal.Now.instant() })
+      .where(eq(schema.actors.id, localActorId));
+    assert.deepEqual(await (await post({ query, variables })).json(), {
+      data: { node: null, nodes: [null] },
     });
   });
 });

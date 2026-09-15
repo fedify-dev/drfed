@@ -139,7 +139,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
           return;
         }
 
-        // TODO: Replace current codes to dictionary looking up
+        // FIXME: Replace current codes to dictionary looking up
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {

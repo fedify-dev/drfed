@@ -24,7 +24,7 @@ import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -142,12 +142,14 @@ describe("Mutation.createObject", () => {
           await db.update(schema.instanceMembers).set({ accepted: null });
         }
         if (scenario === "expired") {
-          await db.update(schema.localInstances).set({ expires: new Date(0) });
+          await db
+            .update(schema.localInstances)
+            .set({ expires: Temporal.Instant.fromEpochMilliseconds(0) });
         }
         if (scenario === "deleted") {
           await db
             .update(schema.actors)
-            .set({ deleted: new Date() })
+            .set({ deleted: Temporal.Now.instant() })
             .where(eq(schema.actors.id, localActorId));
         }
         const actorId =
@@ -205,7 +207,7 @@ describe("Mutation.createObject", () => {
       await seedLocalActor(db);
       await db
         .update(schema.actors)
-        .set({ suspended: new Date(0) })
+        .set({ suspended: Temporal.Instant.fromEpochMilliseconds(0) })
         .where(eq(schema.actors.id, localActorId));
       for (const addressing of [
         { to: [PUBLIC_IRI] },
@@ -297,8 +299,10 @@ describe("Actor.objects", () => {
           type: "Note" as const,
           iri: `https://test.example/${id}`,
           contentHtml: "test",
-          published: new Date(index === 0 ? "2027-01-01" : "2026-01-01"),
-          deleted: index === 3 ? new Date() : null,
+          published: Temporal.Instant.from(
+            index === 0 ? "2027-01-01T00:00:00Z" : "2026-01-01T00:00:00Z",
+          ),
+          deleted: index === 3 ? Temporal.Now.instant() : null,
         })),
       );
       const query = `query($actor: ID!, $after: String, $before: String, $first: Int, $last: Int) { node(id: $actor) { ... on Actor { objects(first: $first, after: $after, last: $last, before: $before) { totalCount edges { cursor node { uuid } } pageInfo { hasNextPage hasPreviousPage } } } } }`;
@@ -366,7 +370,7 @@ describe("Query.node", () => {
           type: "Note" as const,
           iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
           contentHtml: "test",
-          deleted: id === deletedId ? new Date() : null,
+          deleted: id === deletedId ? Temporal.Now.instant() : null,
         })),
       );
       const query = `query($live: ID!, $deleted: ID!) {
@@ -396,26 +400,24 @@ describe("Query.node", () => {
 
 // Regression test for
 // https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163244:
-// Drizzle maps timestamptz to `Date`, so the cursor carries `.123Z` while the
-// database holds `.123456`, and the `published = cursor AND id < cursor.id`
-// tie-breaker never matches the remaining rows.
+// Preserve microseconds through the database, GraphQL scalar and cursor.
 describe("Actor.objects cursor precision", () => {
   it("returns every object whose published time carries microseconds", async () => {
     await withTestHarness(async ({ db, post }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 3 }, () => uuid());
-      // `Date` cannot express microseconds, so the value goes through SQL.
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         ids.map((id) => ({
           id,
           actorId: localActorId,
           type: "Note" as const,
           iri: `https://test-instance.drfed.org/users/${localActorId}/${id}`,
           contentHtml: "test",
-          published: sql`'2026-09-14T12:00:00.123456Z'::timestamptz`,
+          published: Temporal.Instant.from("2026-09-14T12:00:00.123456Z"),
         })),
       );
-      const query = `query($actor: ID!, $after: String) { node(id: $actor) { ... on Actor { objects(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`;
+      const query = `query($actor: ID!, $after: String) { node(id: $actor) { ... on Actor { objects(first: 1, after: $after) { edges { cursor node { uuid published } } pageInfo { hasNextPage } } } } }`;
       const seen: string[] = [];
       let after: string | null = null;
       let hasNextPage = true;
@@ -428,7 +430,11 @@ describe("Actor.objects cursor precision", () => {
         ).json();
         assert.equal(body.errors, undefined);
         const connection = body.data.node.objects;
-        if (connection.edges.length === 0) break;
+        assert.equal(connection.edges.length, 1);
+        assert.equal(
+          connection.edges[0].node.published,
+          "2026-09-14T12:00:00.123456Z",
+        );
         seen.push(
           ...connection.edges.map(
             (edge: { node: { uuid: string } }) => edge.node.uuid,
@@ -454,7 +460,8 @@ describe("Query.node with a deleted actor", () => {
       await seedRemoteActor(db);
       const hiddenId = uuid();
       const liveId = uuid();
-      await db.insert(schema.objects).values(
+      await seedObjects(
+        db,
         [hiddenId, liveId].map((id) => ({
           id,
           actorId: id === hiddenId ? localActorId : remoteActorId,
@@ -465,7 +472,7 @@ describe("Query.node with a deleted actor", () => {
       );
       await db
         .update(schema.actors)
-        .set({ deleted: new Date() })
+        .set({ deleted: Temporal.Now.instant() })
         .where(eq(schema.actors.id, localActorId));
       const query = `query($hidden: ID!, $live: ID!) {
         hidden: node(id: $hidden) { ... on Object { uuid actor { uuid } } }
@@ -488,6 +495,170 @@ describe("Query.node with a deleted actor", () => {
           nodes: [null, { uuid: liveId }],
         },
       });
+    });
+  });
+});
+
+describe("explicit addressing and persisted activities", () => {
+  it("preserves exact IRI order, duplicates, all properties and JSON-LD snapshots", async () => {
+    await withTestHarness(async ({ db, post, federation }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const unknown = "https://REMOTE.example:443/a/../target";
+      const blind = "https://remote.example/blind";
+      const addressing = {
+        to: [unknown, PUBLIC_IRI, unknown],
+        cc: [unknown],
+        bto: [blind],
+        bcc: [blind],
+        audience: [unknown, unknown],
+      };
+      const query = mutation.replace(
+        "... on Object {",
+        "... on Object { document bto { target { iri } } bcc { target { iri } } audience { target { iri } } createActivity { id iri document type actor { uuid } object { iri kind ... on Object { contentHtml } } to { target { iri } } bto { target { iri } } }",
+      );
+      const create = async () => {
+        const body = await (
+          await post({ query, variables: { ...variables, addressing } }, auth)
+        ).json();
+        assert.equal(body.errors, undefined);
+        return body.data.createObject;
+      };
+      const object = await create();
+      await create();
+      assert.deepEqual(
+        object.to.map((r: { target: { iri: string } }) => r.target.iri),
+        addressing.to,
+      );
+      assert.equal(object.to[0].target.kind, "unknown");
+      assert.deepEqual(
+        object.audience.map((r: { target: { iri: string } }) => r.target.iri),
+        addressing.audience,
+      );
+      assert.deepEqual(object.bto, [{ target: { iri: blind } }]);
+      assert.deepEqual(object.bcc, object.bto);
+      assert.equal(object.createActivity.type, "Create");
+      assert.equal(object.createActivity.object.iri, object.iri);
+      assert.equal(object.createActivity.object.kind, "object");
+      assert.equal(
+        object.createActivity.object.contentHtml,
+        variables.contentHtml,
+      );
+      assert.deepEqual(object.createActivity.actor, { uuid: localActorId });
+      for (const document of [
+        object.document,
+        object.createActivity.document,
+      ]) {
+        for (const [property, values] of Object.entries(addressing)) {
+          assert.deepEqual(document[property], values);
+        }
+      }
+      assert.equal(
+        await db.$count(schema.resources, eq(schema.resources.iri, unknown)),
+        1,
+      );
+      const activity = await db.query.activities.findFirst({
+        where: { objectId: object.uuid },
+        with: { resource: true },
+      });
+      assert.ok(activity);
+      assert.notEqual(activity.id, object.uuid);
+      assert.ok(activity.resource.iri.endsWith(`/ap/creates/${activity.id}`));
+      const stored = await db.query.objects.findFirst({
+        where: { id: object.uuid },
+      });
+      assert.deepEqual(stored?.document, object.document);
+      assert.deepEqual(activity.document, object.createActivity.document);
+      for (const iri of [object.iri, activity.resource.iri]) {
+        const response = await federation.fetch(
+          new Request(iri, {
+            headers: { accept: "application/activity+json" },
+          }),
+          { contextData: undefined },
+        );
+        assert.equal(response.status, 200);
+        const document = await response.json();
+        assert.equal(document.bto, undefined);
+        assert.equal(document.bcc, undefined);
+        assert.equal(document.id, iri);
+      }
+    });
+  });
+  it("accepts empty addressing but requires the input argument", async () => {
+    await withTestHarness(async ({ db, post, federation }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const missing = await (
+        await post(
+          {
+            query: mutation,
+            variables: {
+              actor: variables.actor,
+              contentHtml: variables.contentHtml,
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.ok(missing.errors?.length);
+      const body = await (
+        await post(
+          { query: mutation, variables: { ...variables, addressing: {} } },
+          auth,
+        )
+      ).json();
+      assert.equal(body.errors, undefined);
+      assert.deepEqual(body.data.createObject.to, []);
+      assert.equal(await db.$count(schema.addressing), 0);
+      assert.equal(await db.$count(schema.activities), 1);
+      const response = await federation.fetch(
+        new Request(body.data.createObject.iri, {
+          headers: { accept: "application/activity+json" },
+        }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 404);
+    });
+  });
+  it("computes different expected classifications for followers only in cc", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const body = await (
+        await post(
+          {
+            query: mutation.replace(
+              "... on Object {",
+              "... on Object { expectedClassifications { implementation version classification reason }",
+            ),
+            variables: {
+              ...variables,
+              addressing: {
+                cc: [
+                  `https://test-instance.drfed.org/users/${localActorId}/followers`,
+                ],
+              },
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.equal(body.errors, undefined);
+      const results = body.data.createObject.expectedClassifications;
+      assert.deepEqual(
+        results.map((r: { implementation: string; classification: string }) => [
+          r.implementation,
+          r.classification,
+        ]),
+        [
+          ["MASTODON", "direct"],
+          ["MISSKEY", "followers"],
+        ],
+      );
+      for (const result of results) {
+        assert.match(result.version, /^[0-9a-f]{40}$/u);
+        assert.match(result.reason, /Expected/u);
+      }
     });
   });
 });
