@@ -18,11 +18,10 @@ import { getLogger } from "@logtape/logtape";
 import { type MessageContent, type Receipt, createMessage } from "@upyo/core";
 
 import type { UserContext } from "../builder.ts";
-import expandVerifyUrl, { type ExpandVerifyUrlParams } from "./expand.ts";
 
 export const sendMail = async (
   to: string,
-  verifier: Omit<ExpandVerifyUrlParams, "origins">,
+  loginUrl: string,
   ctx: UserContext,
 ) =>
   await ctx.mailer.send(
@@ -31,26 +30,18 @@ export const sendMail = async (
       to,
       // FIXME: Internationalize the email subject
       subject: "Sign in to DrFed",
-      content: renderLoginEmail({ ...verifier, origins: ctx.origins }),
+      content: renderLoginEmail(loginUrl),
     }),
   );
 
-const renderLoginEmail = (verifier: ExpandVerifyUrlParams): MessageContent => ({
+const renderLoginEmail = (loginUrl: string): MessageContent => ({
   // FIXME: Internationalize the email content
   text: `Hello, Welcome to DrFed! If you request to login to DrFed, please visit:
 
-${linkOrRaw(expandVerifyUrl(verifier), verifier)}
+open ${loginUrl}
 
 Otherwise, please just ignore this mail.`,
 });
-
-const linkOrRaw = (
-  link: string | null,
-  { challengeId, code }: ExpandVerifyUrlParams,
-) =>
-  link == null
-    ? `use challenge ID: ${challengeId} and code: ${code}`
-    : `open ${link}`;
 
 export function logReceipt(receipt: Receipt<string>): void {
   if (receipt.successful) {

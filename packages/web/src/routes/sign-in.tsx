@@ -29,7 +29,7 @@ import type { SignInMutation } from "./__generated__/SignInMutation.graphql.ts";
 import styles from "~/styles/form.module.css";
 
 const signInMutation = graphql`
-  mutation SignInMutation($email: Email!, $verifyUrl: URITemplate) {
+  mutation SignInMutation($email: Email!, $verifyUrl: URITemplate!) {
     loginByEmail(email: $email, verifyUrl: $verifyUrl) {
       challengeId
     }

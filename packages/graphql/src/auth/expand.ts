@@ -15,61 +15,54 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { Template } from "@fedify/uri-template";
-import { getLogger } from "@logtape/logtape";
-
-import { VerifyUrlExpandingError } from "./errors.ts";
+import { GraphQLError } from "graphql";
 
 export interface ExpandVerifyUrlParams {
-  template: Template | undefined | null;
+  template: Template;
   challengeId: `${string}-${string}-${string}-${string}-${string}`;
   code: string;
-  origins: ReadonlySet<string>;
+  loginOrigins: ReadonlySet<string>;
 }
 
 export default function expandVerifyUrl({
   template,
   challengeId,
   code,
-  origins,
-}: ExpandVerifyUrlParams): string | null {
-  // Showing the errors occurring here to the user poses a security threat,
-  // so they are handled as `null` and then processed as a fallback in
-  // `expandVerifyUrl`.
-  try {
-    if (template == null) {
-      return null;
-    }
-    const url = expandUrl(template, challengeId, code);
-    assertAllow(url, origins);
-    return url.toString();
-  } catch (error) {
-    // Almost of errors that can occur in this code could be
-    logger.warn(`Error while expand verify URL: {error}`, { error });
-    return null;
-  }
-}
+  loginOrigins,
+}: ExpandVerifyUrlParams): string {
+  assertVariable(template, "challengeId");
+  assertVariable(template, "code");
 
-function expandUrl(template: Template, challengeId: string, code: string) {
-  const expanded = template.expand({ challengeId, code });
-  if (!(expanded.includes(challengeId) && expanded.includes(code))) {
-    throw new VerifyUrlExpandingError(
-      // oxlint-disable-next-line prefer-template
-      "`template` doesn't seem have `challengeId` or `code` variables. `template:`" +
-        template,
+  let url: URL;
+  try {
+    url = new URL(template.expand({ challengeId, code }));
+  } catch {
+    throw invalidVerifyUrl(
+      "Verify URL template must expand to an absolute URL.",
     );
   }
-  const url = URL.canParse(expanded)
-    ? new URL(expanded)
-    : new VerifyUrlExpandingError(
-        `Unsupported verify URL scheme: ${template}.`,
-      ).throw();
-  return url;
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw invalidVerifyUrl("Verify URL must use HTTP or HTTPS.");
+  }
+  if (!loginOrigins.has(url.origin)) {
+    throw invalidVerifyUrl(`Verify URL origin is not allowed: ${url.origin}.`);
+  }
+  return url.href;
 }
 
-const assertAllow = (url: URL, origins: ReadonlySet<string>) =>
-  !origins.has(url.origin) &&
-  new VerifyUrlExpandingError(
-    `Origin not allowed for verify URL: ${url.origin}.`,
-  ).throw();
+function assertVariable(template: Template, name: string): void {
+  const found = template.tokens.some(
+    (token) =>
+      token.kind === "expression" &&
+      token.vars.some(
+        (variable) => variable.name === name && variable.prefix == null,
+      ),
+  );
+  if (!found) {
+    throw invalidVerifyUrl(`Verify URL template must include {${name}}.`);
+  }
+}
 
-const logger = getLogger(["drfed", "graphql", "expand"]);
+const invalidVerifyUrl = (message: string) =>
+  new GraphQLError(message, { extensions: { code: "BAD_USER_INPUT" } });

@@ -61,9 +61,9 @@ export interface ServerContext {
   readonly emailFrom: string;
 
   /**
-   * Origin list.
+   * Origin list for login.
    */
-  readonly origins: ReadonlySet<string>;
+  readonly loginOrigins: ReadonlySet<string>;
 
   /**
    * Root domain.

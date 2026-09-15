@@ -21,6 +21,25 @@ to override.  Automatic database migrations run on startup unless `--no-migrate`
 is given.
 
 
+Environment
+-----------
+
+`DRFED_LOGIN_ORIGINS` is required and accepts a comma-separated list of HTTP
+or HTTPS origins allowed in email login links:
+
+~~~~ sh
+DRFED_LOGIN_ORIGINS=https://drfed.example.com,http://localhost:3000 \
+  drfed-server --data-path .pgdata
+~~~~
+
+For repository development, create the environment file loaded by
+`mise run dev`:
+
+~~~~ sh
+cp packages/drfed/.env.example packages/drfed/.env
+~~~~
+
+
 Options
 -------
 
