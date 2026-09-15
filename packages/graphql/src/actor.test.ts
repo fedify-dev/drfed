@@ -15,12 +15,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // oxlint-disable max-lines
+// Cursor pagination tests walk pages sequentially.
+// oxlint-disable no-await-in-loop
 
 import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -33,6 +36,7 @@ import {
   remoteInstanceId,
   seedAuthenticatedLocalInstance,
   seedLocalActor,
+  seedLocalInstance,
   seedRemoteActor,
 } from "./seed.test.ts";
 
@@ -280,6 +284,136 @@ describe("Actor", () => {
           nodes: [{ uuid: remoteActorId }, null],
         },
       });
+    });
+  });
+});
+
+const instanceActorsQuery = `query($instance: ID!) {
+  node(id: $instance) {
+    ... on Instance {
+      actors {
+        totalCount
+        edges { node { uuid objects { totalCount edges { node { uuid } } } } }
+      }
+    }
+  }
+}`;
+
+function localActorValues(id: Uuid, username: string) {
+  const iri = `https://test-instance.drfed.org/users/${id}`;
+  return {
+    id,
+    localId: id,
+    instanceId: localInstanceId as Uuid,
+    type: "Person" as const,
+    username,
+    iri,
+    inboxUrl: `${iri}/inbox`,
+    outboxUrl: `${iri}/outbox`,
+  };
+}
+
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163257:
+// `filterDeleted` only applies to `node`/`nodes`, so a soft-deleted actor is
+// still reachable through `Instance.actors` and its `objects` connection
+// still returns content.
+describe("Instance.actors with a deleted actor", () => {
+  it("hides the deleted actor and its objects while keeping live ones", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      const carolId = "00000000-0000-4000-8000-000000000203" as const;
+      await db.insert(schema.localActors).values({ id: carolId });
+      await db.insert(schema.actors).values(localActorValues(carolId, "carol"));
+      const hiddenObjectId = uuid();
+      const liveObjectId = uuid();
+      await db.insert(schema.objects).values(
+        [hiddenObjectId, liveObjectId].map((id) => ({
+          id,
+          actorId: id === hiddenObjectId ? localActorId : carolId,
+          type: "Note" as const,
+          iri: `https://test-instance.drfed.org/objects/${id}`,
+          contentHtml: "test",
+        })),
+      );
+      await db
+        .update(schema.actors)
+        .set({ deleted: new Date() })
+        .where(eq(schema.actors.id, localActorId));
+      const body = await (
+        await post({
+          query: instanceActorsQuery,
+          variables: { instance: globalId("Instance", localInstanceId) },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          node: {
+            actors: {
+              totalCount: 1,
+              edges: [
+                {
+                  node: {
+                    uuid: carolId,
+                    objects: {
+                      totalCount: 1,
+                      edges: [{ node: { uuid: liveObjectId } }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+  });
+});
+
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163244:
+// the `created` cursor is truncated to milliseconds by the `Date` mapping, so
+// rows that differ only in microseconds are skipped on the next page.
+describe("Instance.actors cursor precision", () => {
+  it("returns every actor whose created time carries microseconds", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalInstance(db);
+      const ids = Array.from({ length: 3 }, () => uuid());
+      // `Date` cannot express microseconds, so the values go through SQL.
+      await db.insert(schema.actors).values(
+        ids.map((id, index) => ({
+          ...localActorValues(id, id),
+          localId: null,
+          created: sql`${`2026-09-14T12:00:00.12345${index}Z`}::timestamptz`,
+        })),
+      );
+      const query = `query($instance: ID!, $after: String) { node(id: $instance) { ... on Instance { actors(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`;
+      const seen: string[] = [];
+      let after: string | null = null;
+      let hasNextPage = true;
+      for (let page = 0; hasNextPage && page <= ids.length; page += 1) {
+        const body = await (
+          await post({
+            query,
+            variables: {
+              instance: globalId("Instance", localInstanceId),
+              after,
+            },
+          })
+        ).json();
+        assert.equal(body.errors, undefined);
+        const connection = body.data.node.actors;
+        if (connection.edges.length === 0) break;
+        seen.push(
+          ...connection.edges.map(
+            (edge: { node: { uuid: string } }) => edge.node.uuid,
+          ),
+        );
+        ({ hasNextPage } = connection.pageInfo);
+        ({ cursor: after } = connection.edges.at(-1));
+      }
+      assert.deepEqual(seen, [...ids].reverse());
+      assert.equal(hasNextPage, false);
     });
   });
 });
