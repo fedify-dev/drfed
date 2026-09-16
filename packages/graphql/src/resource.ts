@@ -106,11 +106,6 @@ AddressingTarget.implement({
         "The target resource, or null if it or its author is deleted.",
       resolve: (row, _, ctx) => resolveResource(ctx.db, row.targetResource),
     }),
-    raw: t.expose("target", {
-      type: "JSON",
-      nullable: true,
-      description: "The original inline object or Link, if present.",
-    }),
   }),
 });
 
@@ -142,12 +137,19 @@ const CollectionRole = builder.enumType("CollectionRole", {
 });
 const CollectionRef = builder.drizzleNode("collections", {
   name: "Collection",
+  select: {
+    columns: { id: true },
+    with: { ownerActor: { columns: { deleted: true } } },
+  },
   interfaces: [Resource],
   id: { column: (row) => row.id },
   fields: (t) => ({
     type: t.expose("type", { type: CollectionType }),
     role: t.expose("role", { type: CollectionRole, nullable: true }),
-    owner: t.relation("ownerActor", { nullable: true }),
+    owner: t.relation("ownerActor", {
+      nullable: true,
+      query: { where: { deleted: { isNull: true } } },
+    }),
     totalCount: t.int({
       select: { columns: { id: true, totalItems: true } },
       resolve: (row, _, ctx) =>
@@ -213,7 +215,8 @@ export const Activity: DrFedObjectRef = ActivityRef;
 registerAddressingFields("activities");
 
 /**
- * Excludes deleted actors and objects, including resources authored by deleted actors.
+ * Excludes deleted actors and objects, including resources authored or
+ * owned by deleted actors.
  * @returns A predicate for a resource ID in an outer query.
  */
 function visibleResource(id: SQLWrapper): SQL {
@@ -229,5 +232,9 @@ function visibleResource(id: SQLWrapper): SQL {
     select 1 from ${schema.activities}
     join ${schema.actors} on ${schema.actors.id} = ${schema.activities.actorId}
     where ${schema.activities.id} = ${id} and ${schema.actors.deleted} is not null
+  ) and not exists (
+    select 1 from ${schema.collections}
+    join ${schema.actors} on ${schema.actors.id} = ${schema.collections.ownerActorId}
+    where ${schema.collections.id} = ${id} and ${schema.actors.deleted} is not null
   )`;
 }

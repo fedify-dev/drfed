@@ -19,6 +19,7 @@
 
 import {
   type Database,
+  addActorCollectionItem,
   promoteResource,
   schema,
   storeAddressing,
@@ -236,6 +237,12 @@ export async function seedObjects(
               published: row.published,
             });
             await storeAddressing(inner, activity.id, addressing);
+            await addActorCollectionItem(
+              inner,
+              row.actorId,
+              "outbox",
+              activity.id,
+            );
           },
           activityId,
         );

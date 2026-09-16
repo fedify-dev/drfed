@@ -27,7 +27,6 @@ CREATE TABLE "addressing" (
 	"property" "addressing_property" NOT NULL,
 	"position" integer NOT NULL,
 	"targetId" uuid NOT NULL,
-	"target" json,
 	CONSTRAINT "addressing_source_property_position_key" UNIQUE("sourceId","property","position")
 );
 --> statement-breakpoint
@@ -84,6 +83,8 @@ ALTER TABLE "actors" DROP COLUMN "outboxUrl";--> statement-breakpoint
 ALTER TABLE "actors" DROP COLUMN "followersUrl";--> statement-breakpoint
 ALTER TABLE "actors" DROP COLUMN "followingUrl";--> statement-breakpoint
 ALTER TABLE "actors" DROP COLUMN "featuredUrl";--> statement-breakpoint
+-- Object counts are derived from objects.deleted instead of a stored counter.
+ALTER TABLE "actors" DROP COLUMN "postsCount";--> statement-breakpoint
 CREATE INDEX "activity_actor_published_index" ON "activities" ("actorId","published" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "actor_collection_reference_collection_index" ON "actor_collection_references" ("collectionId");--> statement-breakpoint
 CREATE INDEX "addressing_target_property_index" ON "addressing" ("targetId","property");--> statement-breakpoint

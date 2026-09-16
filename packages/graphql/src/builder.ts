@@ -191,12 +191,17 @@ const isDeleted = (node: unknown): boolean =>
   "deleted" in node &&
   node.deleted != null;
 
+// Relations whose deletion hides the node: an object's or activity's
+// author, or a collection's owner.
+const OWNER_RELATIONS = ["actor", "ownerActor"] as const;
+
 const filterDeleted = (node: unknown): unknown =>
   isDeleted(node) ||
   (node != null &&
     typeof node === "object" &&
-    "actor" in node &&
-    isDeleted(node.actor))
+    OWNER_RELATIONS.some((key) =>
+      isDeleted((node as Record<string, unknown>)[key]),
+    ))
     ? null
     : node;
 

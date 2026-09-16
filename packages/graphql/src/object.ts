@@ -14,12 +14,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { promoteResource, schema, storeAddressing } from "@drfed/models";
+import {
+  addActorCollectionItem,
+  promoteResource,
+  schema,
+  storeAddressing,
+} from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
 import { uuidV7 as uuid, validateUuid } from "@drfed/models/uuid";
 import { Object as APObject, Create } from "@fedify/vocab";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
-import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
@@ -411,6 +416,7 @@ builder.mutationFields((t) => ({
               published: object.published,
             });
             await storeAddressing(inner, resource.id, addressing);
+            await addActorCollectionItem(inner, actorId, "outbox", resource.id);
           },
           activityId,
         );
@@ -443,10 +449,6 @@ builder.mutationFields((t) => ({
             },
           })
           .where(eq(schema.activities.id, activityId));
-        await tx
-          .update(schema.actors)
-          .set({ postsCount: sql`${schema.actors.postsCount} + 1` })
-          .where(eq(schema.actors.id, actorId));
         return { ...object, actor: storedObject.actor, document: snapshot };
       });
     },

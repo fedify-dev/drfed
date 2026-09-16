@@ -43,6 +43,7 @@ for (const deleted of ["actor", "object"] as const) {
       const liveId = uuid();
       const hiddenIri = `https://test.example/${hiddenId}`;
       const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+      const followersIri = `${actorIri}/followers`;
       await seedObjects(db, [
         {
           id: hiddenId,
@@ -57,7 +58,7 @@ for (const deleted of ["actor", "object"] as const) {
           type: "Note",
           iri: `https://test.example/${liveId}`,
           contentHtml: "live",
-          addressing: { to: [actorIri, hiddenIri, PUBLIC_IRI] },
+          addressing: { to: [actorIri, hiddenIri, PUBLIC_IRI, followersIri] },
         },
       ]);
       const activity = await db.query.activities.findFirst({
@@ -66,8 +67,16 @@ for (const deleted of ["actor", "object"] as const) {
       const collection = await db.query.collections.findFirst({
         where: { ownerActorId: localActorId, role: "featured" },
       });
+      const remoteCollection = await db.query.collections.findFirst({
+        where: { ownerActorId: remoteActorId, role: "featured" },
+      });
+      const followers = await db.query.resources.findFirst({
+        where: { iri: followersIri },
+      });
       assert.ok(activity);
       assert.ok(collection);
+      assert.ok(remoteCollection);
+      assert.ok(followers);
       await db.insert(schema.collectionItems).values(
         [localActorId, hiddenId, liveId, activity.id].map(
           (itemId, position) => ({
@@ -77,6 +86,13 @@ for (const deleted of ["actor", "object"] as const) {
           }),
         ),
       );
+      // The live remote actor's collection lists the local actor's followers
+      // collection, which must disappear along with the local actor.
+      await db.insert(schema.collectionItems).values({
+        collectionId: remoteCollection.id,
+        itemId: followers.id,
+        position: 0,
+      });
       if (deleted === "actor") {
         await db
           .update(schema.actors)
@@ -90,20 +106,23 @@ for (const deleted of ["actor", "object"] as const) {
       }
       const body = await (
         await post({
-          query: `query($live: ID!, $activity: ID!, $collection: ID!) {
+          query: `query($live: ID!, $activity: ID!, $collection: ID!, $remote: ID!) {
           live: node(id: $live) { ... on Object { to { target { iri ... on Actor { objects { totalCount } } } } } }
           activity: node(id: $activity) { ... on Activity { actor { uuid } object { iri } } }
           collection: node(id: $collection) { ... on Collection { owner { uuid } totalCount } }
+          collections: nodes(ids: [$collection]) { ... on Collection { totalCount } }
+          remote: node(id: $remote) { ... on Collection { totalCount items { edges { node { iri } } } } }
         }`,
           variables: {
             live: globalId("Object", liveId),
             activity: globalId("Activity", activity.id),
             collection: globalId("Collection", collection.id),
+            remote: globalId("Collection", remoteCollection.id),
           },
         })
       ).json();
       assert.equal(body.errors, undefined);
-      assert.equal(body.data.live.to.length, 3);
+      assert.equal(body.data.live.to.length, 4);
       assert.equal(body.data.live.to[1].target, null);
       assert.equal(body.data.live.to[2].target.iri, PUBLIC_IRI);
       assert.deepEqual(
@@ -112,11 +131,35 @@ for (const deleted of ["actor", "object"] as const) {
           ? null
           : { actor: { uuid: localActorId }, object: null },
       );
-      assert.deepEqual(body.data.collection, {
-        owner: deleted === "actor" ? null : { uuid: localActorId },
-        totalCount: deleted === "actor" ? 1 : 3,
-      });
-      if (deleted === "actor") assert.equal(body.data.live.to[0].target, null);
+      // A deleted actor hides its collections everywhere, like the actor
+      // node itself: node, nodes, and addressing targets.
+      assert.deepEqual(
+        body.data.collection,
+        deleted === "actor"
+          ? null
+          : { owner: { uuid: localActorId }, totalCount: 3 },
+      );
+      assert.deepEqual(
+        body.data.collections,
+        deleted === "actor" ? [null] : [{ totalCount: 3 }],
+      );
+      assert.deepEqual(
+        body.data.live.to[3].target,
+        deleted === "actor" ? null : { iri: followersIri },
+      );
+      assert.deepEqual(
+        body.data.remote,
+        deleted === "actor"
+          ? { totalCount: 0, items: { edges: [] } }
+          : {
+              totalCount: 1,
+              items: { edges: [{ node: { iri: followersIri } }] },
+            },
+      );
+      if (deleted === "actor") {
+        assert.equal(body.data.live.to[0].target, null);
+        return;
+      }
       const seen: string[] = [];
       let after: string | null = null;
       for (let page = 0; page < 4; page += 1) {
@@ -145,7 +188,7 @@ for (const deleted of ["actor", "object"] as const) {
         if (!connection.pageInfo.hasNextPage) break;
         after = edge.cursor;
       }
-      assert.equal(seen.length, deleted === "actor" ? 1 : 3);
+      assert.equal(seen.length, 3);
       assert.ok(!seen.includes(hiddenIri));
     });
   });
