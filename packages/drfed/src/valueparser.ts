@@ -14,40 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { message, values } from "@optique/core/message";
+import { message } from "@optique/core/message";
 import {
   type NonEmptyString,
   type ValueParser,
+  type ValueParserResult,
   ensureNonEmptyString,
+  origin,
 } from "@optique/core/valueparser";
-
-/**
- * Options for the {@link origin} value parser.
- */
-export interface OriginOptions {
-  /**
-   * The metavariable name for this parser.  This is used in help messages to
-   * indicate what kind of value this parser expects.
-   * @default `"ORIGIN"`
-   */
-  readonly metavar?: NonEmptyString;
-
-  /**
-   * List of allowed URL protocols (e.g., `["http:", "https:"]`).  Protocol
-   * names must include the trailing colon.  If not specified, any protocol
-   * that yields a tuple origin is allowed.
-   */
-  readonly allowedProtocols?: readonly string[];
-
-  /**
-   * Whether to accept an origin whose host is an IP address rather than a
-   * domain name.  Set this to `false` when the origin has to be able to take
-   * a subdomain, since `foo.127.0.0.1` and `foo.[::1]` are not host names at
-   * all.
-   * @default `true`
-   */
-  readonly allowIpLiterals?: boolean;
-}
 
 /**
  * A host name that the WHATWG URL parser has canonicalized into a dotted-quad
@@ -62,119 +36,103 @@ const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
 const MAX_HOSTNAME_LENGTH = 253;
 
 /**
- * Creates a {@link ValueParser} for web origins.
- *
- * The parser accepts any absolute URL and *normalizes* it down to its origin
- * rather than rejecting the extra components, so every one of
- * `HTTPS://Example.COM`, `https://example.com/`, and
- * `https://user:pw@example.com/path?query#fragment` parses to the same
- * `https://example.com`.  Only two kinds of input are rejected: strings that
- * are not absolute URLs at all, and URLs whose protocol is either outside
- * {@link OriginOptions.allowedProtocols} or has no tuple origin (`mailto:`,
- * `data:`, and friends, whose origin is the opaque `"null"`), and, when
- * {@link OriginOptions.allowIpLiterals} is off, origins whose host is an IP
- * address.
- * @param options Configuration options for the origin parser.
- * @returns A {@link ValueParser} that converts string input into `URL`
- *          objects that are guaranteed to equal their own origin.
+ * Options for the {@link rootOrigin} value parser.
  */
-export function origin(options: OriginOptions = {}): ValueParser<"sync", URL> {
+export interface RootOriginOptions {
+  /**
+   * The metavariable name for this parser.  This is used in help messages to
+   * indicate what kind of value this parser expects.
+   * @default `"ORIGIN"`
+   */
+  readonly metavar?: NonEmptyString;
+}
+
+/**
+ * Applies the two rules that are DrFed's own to an origin the wrapped parser
+ * has already accepted, so that `parse()` and `validate()` cannot come to
+ * different conclusions about the same value.
+ * @param result The inner parser's successful result.
+ * @param input What to name in an error message.
+ * @returns The result unchanged, or a failure explaining which rule it broke.
+ */
+function check(
+  result: { readonly success: true; readonly value: URL },
+  input: string,
+): ValueParserResult<URL> {
+  const { hostname } = result.value;
+  if (hostname.startsWith("[") || IPV4_PATTERN.test(hostname)) {
+    return {
+      success: false,
+      error: message`${input} names an IP address rather than a domain, which cannot take a subdomain.`,
+    };
+  }
+  if (hostname.length > MAX_HOSTNAME_LENGTH) {
+    return {
+      success: false,
+      error: message`The host name of ${input} is longer than the ${String(MAX_HOSTNAME_LENGTH)} characters a domain name may have.`,
+    };
+  }
+  return result;
+}
+
+/**
+ * Creates a {@link ValueParser} for the origin a DrFed deployment is served
+ * from.
+ *
+ * Parsing and normalization are Optique's `origin()`: the input is canonical-
+ * ized rather than rejected, so `HTTPS://DrFed.NET/` and
+ * `https://drfed.net:443/path` both come out as `https://drfed.net`, and the
+ * root zone's trailing dot is stripped.  Only HTTP and HTTPS are accepted.
+ *
+ * Two further constraints are DrFed's own, because this origin is not just any
+ * origin.  Every instance is a subdomain of it, and `foo.127.0.0.1` is not a
+ * host name at all, so an IP address is refused.  Login mail is sent from
+ * `noreply@` at its host name, and the mail library will not build a message
+ * whose domain runs past the 253 octets DNS allows, so a longer host is
+ * refused too.  Both are caught here, at the boundary, rather than surfacing
+ * later as an instance nobody can address or a login that never arrives.
+ * @param options Configuration options for the parser.
+ * @returns A {@link ValueParser} producing the deployment's root origin.
+ */
+export function rootOrigin(
+  options: RootOriginOptions = {},
+): ValueParser<"sync", URL> {
   const metavar = options.metavar ?? "ORIGIN";
   ensureNonEmptyString(metavar);
-  let allowedProtocols: readonly string[] | undefined;
-  if (options.allowedProtocols != null) {
-    if (options.allowedProtocols.length < 1) {
-      throw new TypeError("allowedProtocols must not be empty.");
-    }
-    for (const protocol of options.allowedProtocols) {
-      // Without the trailing colon an entry can never match `URL.protocol`,
-      // so the parser would reject every input while reporting the rejected
-      // protocol as an allowed one.  Fail loudly at construction instead.
-      if (!/^[a-z][a-z0-9+\-.]*:$/iu.test(protocol)) {
-        throw new TypeError(
-          "Each allowed protocol must be a valid protocol ending with " +
-            `a colon (e.g., "https:"), got: ${JSON.stringify(protocol)}.`,
-        );
-      }
-    }
-    allowedProtocols = Object.freeze(
-      options.allowedProtocols.map((protocol) => protocol.toLowerCase()),
-    );
-  }
-  const allowIpLiterals = options.allowIpLiterals ?? true;
+  const inner = origin({
+    allowedProtocols: ["http:", "https:"],
+    metavar,
+  });
   return {
     mode: "sync",
     metavar,
-    // A getter, so that every access yields a fresh `URL` that callers may
-    // mutate without corrupting the parser.  `.invalid` is reserved by
-    // RFC 2606 and can never resolve.
+    // Delegated one member at a time rather than spread: `placeholder` is a
+    // getter on the parser being wrapped, and spreading would call it once and
+    // hand every caller the same mutable `URL`.
     get placeholder(): URL {
-      return new URL(`${allowedProtocols?.[0] ?? "http:"}//0.invalid`);
+      return inner.placeholder;
     },
     parse(input: string) {
-      if (!URL.canParse(input)) {
-        return {
-          success: false,
-          error: message`Invalid origin: ${input}.`,
-        };
-      }
-      const url = new URL(input);
-      if (
-        allowedProtocols != null &&
-        !allowedProtocols.includes(url.protocol)
-      ) {
-        return {
-          success: false,
-          error: message`URL protocol ${url.protocol} is not allowed.  Allowed protocols: ${values([...allowedProtocols])}.`,
-        };
-      }
-      // `URL.origin` is the string `"null"` for schemes without a tuple
-      // origin, which `new URL()` cannot parse back.  Such URLs can never
-      // name a host, so they are not origins in any useful sense.
-      if (url.origin === "null") {
-        return {
-          success: false,
-          error: message`The URL ${input} has no origin.`,
-        };
-      }
-      // The normalized origin, not `url` itself: a `blob:` URL reports an
-      // empty `hostname` while its origin carries the authority embedded in
-      // it, so checking the original would miss `blob:http://127.0.0.1/x`.
-      const normalized = new URL(url.origin);
-      // `example.com.` and `example.com` name the same host, but the URL
-      // parser keeps the root zone's dot and almost nothing downstream expects
-      // it -- it is not valid in an email address, for one.
-      if (normalized.hostname.endsWith(".")) {
-        normalized.hostname = normalized.hostname.slice(0, -1);
-      }
-      // The URL parser runs domain-to-ASCII leniently and so accepts host
-      // names DNS never could.  Rejecting them here turns what would
-      // otherwise be a runtime failure far from its cause -- Upyo refuses to
-      // build a message whose sender domain is this long -- into a startup
-      // error naming the option at fault.
-      if (normalized.hostname.length > MAX_HOSTNAME_LENGTH) {
-        return {
-          success: false,
-          error: message`The host name of ${input} is longer than the ${String(MAX_HOSTNAME_LENGTH)} characters a domain name may have.`,
-        };
-      }
-      if (
-        !allowIpLiterals &&
-        (normalized.hostname.startsWith("[") ||
-          IPV4_PATTERN.test(normalized.hostname))
-      ) {
-        return {
-          success: false,
-          error: message`${input} names an IP address rather than a domain, which cannot take a subdomain.`,
-        };
-      }
-      return { success: true, value: normalized };
+      const result = inner.parse(input);
+      return result.success ? check(result, input) : result;
+    },
+    // Optique validates a fallback value, such as one from an environment
+    // variable, through this rather than through `parse()`.  Without it the
+    // check degrades to `format()` followed by `parse()`, and since `format()`
+    // emits only the origin, a value carrying credentials would be laundered
+    // into an accepted one.
+    validate(value: URL) {
+      const result = inner.validate?.(value) ?? { success: true, value };
+      return result.success ? check(result, value.href) : result;
     },
     format(value: URL): string {
-      return value.origin;
+      return inner.format(value);
     },
     normalize(value: URL): URL {
-      return value.origin === "null" ? value : new URL(value.origin);
+      return inner.normalize?.(value) ?? value;
+    },
+    suggest(prefix: string) {
+      return inner.suggest?.(prefix) ?? [];
     },
   };
 }

@@ -31,7 +31,7 @@ import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-import { origin } from "./valueparser.ts";
+import { rootOrigin } from "./valueparser.ts";
 
 const pgliteParser = map(
   option(
@@ -112,13 +112,7 @@ const seedParser = option("--dev-seed", {
 const rootOriginParser = option(
   "--root-origin",
   "-r",
-  origin({
-    allowedProtocols: ["http:", "https:"],
-    // Every instance is a subdomain of this origin, and an IP address cannot
-    // have one.
-    allowIpLiterals: false,
-    metavar: "ORIGIN",
-  }),
+  rootOrigin({ metavar: "ORIGIN" }),
   {
     description: message`The origin this deployment is served from.  Every instance gets a subdomain of it, so ${"https://drfed.net"} serves the instance ${"foo-bar"} at ${"https://foo-bar.drfed.net"}.`,
   },

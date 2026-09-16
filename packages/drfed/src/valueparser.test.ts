@@ -16,31 +16,34 @@
 
 import assert from "node:assert/strict";
 
-import { origin } from "@drfed/drfed/valueparser";
+import { rootOrigin } from "@drfed/drfed/valueparser";
 import { describe, it } from "@logtape/testing-node/autoload";
 
-function parse(input: string, options?: Parameters<typeof origin>[0]) {
-  return origin(options).parse(input);
+const parser = rootOrigin();
+
+function parse(input: string) {
+  return parser.parse(input);
 }
 
-function parsed(input: string, options?: Parameters<typeof origin>[0]): string {
-  const result = parse(input, options);
+function parsed(input: string): string {
+  const result = parse(input);
   assert.ok(result.success, `expected ${input} to parse`);
   return result.value.origin;
 }
 
-describe("origin()", () => {
-  it("normalizes anything that reduces to the same origin", () => {
+describe("rootOrigin()", () => {
+  // Normalization is Optique's; these cases pin the behaviour this deployment
+  // option depends on rather than re-testing the library.
+  it("normalizes spellings of the same origin", () => {
     for (const input of [
-      "https://example.com",
-      "https://example.com/",
-      "HTTPS://Example.COM",
-      "https://example.com/path/to/thing",
-      "https://example.com/?query=1#fragment",
-      "https://user:pw@example.com/",
-      "https://example.com:443/",
+      "https://drfed.net",
+      "https://drfed.net/",
+      "HTTPS://DrFed.NET",
+      "https://drfed.net/path?query=1#fragment",
+      "https://drfed.net:443/",
+      "https://drfed.net.",
     ]) {
-      assert.equal(parsed(input), "https://example.com");
+      assert.equal(parsed(input), "https://drfed.net", input);
     }
   });
 
@@ -49,102 +52,43 @@ describe("origin()", () => {
       parsed("http://drfed.localhost:8888"),
       "http://drfed.localhost:8888",
     );
-    assert.equal(parsed("http://example.com:80/"), "http://example.com");
+    assert.equal(parsed("http://drfed.net:80/"), "http://drfed.net");
   });
 
-  it("returns a URL that is its own origin", () => {
-    const result = parse("https://example.com/path");
-    assert.ok(result.success);
-    assert.equal(result.value.href, "https://example.com/");
-    assert.equal(result.value.pathname, "/");
-    assert.equal(result.value.search, "");
-    assert.equal(result.value.username, "");
+  it("accepts only HTTP and HTTPS", () => {
+    assert.equal(parsed("http://drfed.net"), "http://drfed.net");
+    assert.equal(parse("ftp://drfed.net").success, false);
+    assert.equal(parse("mailto:someone@drfed.net").success, false);
   });
 
   it("rejects input that is not an absolute URL", () => {
-    for (const input of ["", "example.com", "/path", "https://"]) {
+    for (const input of ["", "drfed.net", "/path", "https://"]) {
       assert.equal(parse(input).success, false, input);
     }
   });
 
-  it("rejects protocols outside the allow list", () => {
-    const options = { allowedProtocols: ["http:", "https:"] } as const;
-    assert.equal(parsed("https://example.com", options), "https://example.com");
-    assert.equal(parsed("http://example.com", options), "http://example.com");
-    assert.equal(parse("ftp://example.com", options).success, false);
+  it("rejects credentials rather than stripping them", () => {
+    // Asserted on the parse path as well as the validate one, because the two
+    // reach the wrapped parser by different routes and only the DrFed rules
+    // are shared between them.
+    assert.equal(parse("https://user:pw@drfed.net/").success, false);
   });
 
-  it("matches allowed protocols case-insensitively", () => {
-    assert.equal(
-      parsed("https://example.com", { allowedProtocols: ["HTTPS:"] }),
-      "https://example.com",
-    );
-  });
-
-  it("rejects URLs without a tuple origin", () => {
-    for (const input of ["mailto:someone@example.com", "data:,hello"]) {
-      assert.equal(parse(input).success, false, input);
-    }
-  });
-
-  it("rejects a malformed allow list at construction time", () => {
-    assert.throws(() => origin({ allowedProtocols: [] }), TypeError);
-    // Missing the trailing colon would otherwise construct fine and then
-    // reject every input, reporting the rejected protocol as an allowed one.
-    assert.throws(() => origin({ allowedProtocols: ["https"] }), TypeError);
-    assert.throws(
-      () => origin({ allowedProtocols: ["https:", "ftp"] }),
-      TypeError,
-    );
-  });
-
-  it("round-trips through format() and normalize()", () => {
-    const parser = origin();
-    const result = parser.parse("https://example.com/path");
-    assert.ok(result.success);
-    assert.equal(parser.format(result.value), "https://example.com");
-    const reparsed = parser.parse(parser.format(result.value));
-    assert.ok(reparsed.success);
-    assert.equal(reparsed.value.href, result.value.href);
-    assert.equal(
-      parser.normalize?.(new URL("https://example.com/path")).href,
-      "https://example.com/",
-    );
-  });
-
-  it("accepts IP literals by default", () => {
-    assert.equal(parsed("http://127.0.0.1:8888"), "http://127.0.0.1:8888");
-    assert.equal(parsed("http://[::1]:8888"), "http://[::1]:8888");
-  });
-
-  it("rejects IP literals when they cannot take a subdomain", () => {
-    const options = { allowIpLiterals: false } as const;
-    // `foo.127.0.0.1` and `foo.[::1]` are not host names; prefixing a label
-    // to either of these makes a URL that does not parse at all.
+  // The two rules below are DrFed's own, not Optique's.
+  it("rejects an IP address, which cannot take a subdomain", () => {
     for (const input of [
       "http://127.0.0.1:8888",
       "http://[::1]:8888",
       "http://[2001:db8::1]",
       // The URL parser canonicalizes every other IPv4 spelling into the
-      // dotted quad, so these are the same host as 127.0.0.1.
+      // dotted quad, so these name the same host as 127.0.0.1.
       "http://0x7f.1",
       "http://2130706433",
     ]) {
-      assert.equal(parse(input, options).success, false, input);
+      assert.equal(parse(input).success, false, input);
     }
-    assert.equal(parsed("https://drfed.net", options), "https://drfed.net");
     // A name that merely begins with digits is still a name.
-    assert.equal(parsed("https://1.drfed.net", options), "https://1.drfed.net");
-  });
-
-  it("normalizes the root zone's trailing dot away", () => {
-    // `drfed.example.` and `drfed.example` name the same host, but the dot is
-    // not valid in an email address and confuses host comparisons downstream.
-    assert.equal(parsed("https://drfed.example."), "https://drfed.example");
-    assert.equal(
-      parsed("http://drfed.localhost.:8888"),
-      "http://drfed.localhost:8888",
-    );
+    assert.equal(parsed("https://1.drfed.net"), "https://1.drfed.net");
   });
 
   it("rejects a host name longer than a domain name may be", () => {
@@ -160,37 +104,50 @@ describe("origin()", () => {
     assert.equal(parsed(`https://${longest}.`), `https://${longest}`);
   });
 
-  it("sees through a URL that hides its authority in its origin", () => {
-    // A `blob:` URL reports an empty `hostname` while its origin carries the
-    // authority embedded in it, so a check against the original URL would let
-    // an IP address through.
-    for (const input of [
-      "blob:http://127.0.0.1:8888/id",
-      "blob:http://[::1]/id",
-    ]) {
-      assert.equal(
-        parse(input, { allowIpLiterals: false }).success,
-        false,
-        input,
-      );
-    }
-    // Still accepted when IP literals are allowed, normalized to the origin.
-    assert.equal(
-      parsed("blob:http://127.0.0.1:8888/id"),
-      "http://127.0.0.1:8888",
-    );
+  it("offers a placeholder that is a fresh value each time", () => {
+    // Spreading the wrapped parser would have frozen one shared `URL` here.
+    const first = parser.placeholder;
+    const second = parser.placeholder;
+    assert.notEqual(first, second);
+    assert.equal(first.href, second.href);
   });
 
-  it("offers a placeholder that is a valid origin", () => {
-    assert.equal(origin().placeholder.origin, "http://0.invalid");
+  it("validates a fallback value as strictly as it parses one", () => {
+    // Optique checks a value that came from somewhere other than the command
+    // line, such as an environment variable, through `validate()`.  Without
+    // it the check falls back to `format()` then `parse()`, and `format()`
+    // emits only the origin, so a value carrying credentials would be
+    // laundered into an accepted one.
+    assert.ok(parser.validate);
+    for (const [input, valid] of [
+      ["https://drfed.net/", true],
+      ["http://drfed.localhost:8888/", true],
+      // Rejected by the wrapped parser.
+      ["https://u:p@drfed.net/", false],
+      ["ftp://drfed.net/", false],
+      // Rejected by the two rules this wrapper adds.
+      ["http://127.0.0.1:8888/", false],
+      [
+        `https://${"a".repeat(63)}.${"a".repeat(63)}.${"a".repeat(63)}.${"a".repeat(62)}/`,
+        false,
+      ],
+    ] as const) {
+      assert.equal(parser.validate(new URL(input)).success, valid, input);
+    }
+  });
+
+  it("round-trips through format() and normalize()", () => {
+    const result = parse("https://drfed.net/path");
+    assert.ok(result.success);
+    assert.equal(parser.format(result.value), "https://drfed.net");
     assert.equal(
-      origin({ allowedProtocols: ["https:"] }).placeholder.origin,
-      "https://0.invalid",
+      parser.normalize?.(new URL("https://drfed.net/path")).href,
+      "https://drfed.net/",
     );
   });
 
   it("uses ORIGIN as the default metavar", () => {
-    assert.equal(origin().metavar, "ORIGIN");
-    assert.equal(origin({ metavar: "ROOT" }).metavar, "ROOT");
+    assert.equal(rootOrigin().metavar, "ORIGIN");
+    assert.equal(rootOrigin({ metavar: "ROOT" }).metavar, "ROOT");
   });
 });

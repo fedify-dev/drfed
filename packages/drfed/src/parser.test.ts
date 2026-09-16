@@ -99,7 +99,9 @@ describe("drfed-server", () => {
         "--root-domain=drfed.net",
       ]);
       assert.notEqual(code, 0);
-      assert.match(stderr, /No matching option or argument found/u);
+      // The message names the offending token, so this cannot pass for some
+      // other reason.
+      assert.match(stderr, /Unexpected option or argument: "--root-domain/u);
     } finally {
       await rm(dataPath, { force: true, recursive: true });
     }

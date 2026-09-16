@@ -373,9 +373,12 @@ The server currently supports:
 
 Keep CLI options explicit and documented through Optique descriptions, because
 those descriptions feed the generated help output.  Options that name a web
-origin should use the `origin()` value parser in
-*packages/drfed/src/valueparser.ts* rather than Optique's `url()`, so that
-every spelling of the same origin is normalized the same way.
+origin should use Optique's `origin()` value parser rather than `url()`, so
+that every spelling of the same origin is normalized the same way.
+*packages/drfed/src/valueparser.ts* wraps it as `rootOrigin()` to add the two
+rules that are DrFed's own: the root origin may not name an IP address, since
+every instance is a subdomain of it, and its host name may not run past the 253
+octets DNS allows, since login mail is sent from that domain.
 
 Requests are routed by the authority they arrive on, in
 *packages/drfed/src/serving.ts*.  A subdomain one label below the root origin
