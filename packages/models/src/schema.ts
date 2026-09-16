@@ -30,7 +30,6 @@ import {
   primaryKey,
   text,
   unique,
-  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -385,34 +384,29 @@ export const collectionRoleEnum = pgEnum("collection_role", [
   "following",
   "featured",
   "outbox",
-  "public",
 ]);
 export type CollectionRole = (typeof collectionRoleEnum.enumValues)[number];
-export const collections = pgTable(
-  "collections",
-  {
-    id: uuid()
-      .$type<Uuid>()
-      .primaryKey()
-      .references(() => resources.id, { onDelete: "cascade" }),
-    type: collectionTypeEnum().notNull(),
-    ownerActorId: uuid()
-      .$type<Uuid>()
-      .references(() => actors.id, { onDelete: "cascade" }),
-    role: collectionRoleEnum(),
-    totalItems: integer(),
-    document: json(),
-    updated: instant()
-      .notNull()
-      .default(currentTimestamp)
-      .$onUpdate(() => currentTimestamp),
-  },
-  (t) => [
-    uniqueIndex("collection_owner_role_key")
-      .on(t.ownerActorId, t.role)
-      .where(sql`${t.role} IS NOT NULL`),
-  ],
-);
+export const collections = pgTable("collections", {
+  id: uuid()
+    .$type<Uuid>()
+    .primaryKey()
+    .references(() => resources.id, { onDelete: "cascade" }),
+  type: collectionTypeEnum().notNull(),
+  /**
+   * Lifecycle owner of a locally managed collection. Physical deletion of
+   * the owner cascades to the collection and all references. Soft deletion
+   * hides the collection and every actor's reference to it from GraphQL.
+   */
+  ownerActorId: uuid()
+    .$type<Uuid>()
+    .references(() => actors.id, { onDelete: "cascade" }),
+  totalItems: integer(),
+  document: json(),
+  updated: instant()
+    .notNull()
+    .default(currentTimestamp)
+    .$onUpdate(() => currentTimestamp),
+});
 export type Collection = typeof collections.$inferSelect;
 
 /** Actor-declared collection roles; a collection may be shared across roles or actors. */

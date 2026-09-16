@@ -173,7 +173,6 @@ export async function seedActors(
                 id: collection.id,
                 type: "OrderedCollection",
                 ownerActorId: resource.id,
-                role,
               });
               await inner.insert(schema.actorCollectionReferences).values({
                 actorId: resource.id,

@@ -33,6 +33,38 @@ import {
   seedRemoteActor,
 } from "./seed.test.ts";
 
+it("separates a collection's declared total from its visible member count", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const collectionReference =
+      await db.query.actorCollectionReferences.findFirst({
+        where: { actorId: remoteActorId, role: "featured" },
+        with: { collection: true },
+      });
+    assert.ok(collectionReference);
+    const { collection } = collectionReference;
+    await db
+      .update(schema.collections)
+      .set({ totalItems: 42 })
+      .where(eq(schema.collections.id, collection.id));
+    await db.insert(schema.collectionItems).values({
+      collectionId: collection.id,
+      itemId: localActorId,
+      position: 0,
+    });
+    const body = await (
+      await post({
+        query: `query($id: ID!) { node(id: $id) { ... on Collection { declaredTotalItems totalCount } } }`,
+        variables: { id: globalId("Collection", collection.id) },
+      })
+    ).json();
+    assert.deepEqual(body, {
+      data: { node: { declaredTotalItems: 42, totalCount: 1 } },
+    });
+  });
+});
+
 for (const deleted of ["actor", "object"] as const) {
   it(`hides a deleted ${deleted} through resource targets, collections and activities`, async () => {
     // oxlint-disable-next-line max-statements
@@ -64,18 +96,24 @@ for (const deleted of ["actor", "object"] as const) {
       const activity = await db.query.activities.findFirst({
         where: { objectId: hiddenId },
       });
-      const collection = await db.query.collections.findFirst({
-        where: { ownerActorId: localActorId, role: "featured" },
-      });
-      const remoteCollection = await db.query.collections.findFirst({
-        where: { ownerActorId: remoteActorId, role: "featured" },
-      });
+      const collectionReference =
+        await db.query.actorCollectionReferences.findFirst({
+          where: { actorId: localActorId, role: "featured" },
+          with: { collection: true },
+        });
+      const remoteCollectionReference =
+        await db.query.actorCollectionReferences.findFirst({
+          where: { actorId: remoteActorId, role: "featured" },
+          with: { collection: true },
+        });
+      assert.ok(collectionReference);
+      assert.ok(remoteCollectionReference);
+      const { collection } = collectionReference;
+      const { collection: remoteCollection } = remoteCollectionReference;
       const followers = await db.query.resources.findFirst({
         where: { iri: followersIri },
       });
       assert.ok(activity);
-      assert.ok(collection);
-      assert.ok(remoteCollection);
       assert.ok(followers);
       await db.insert(schema.collectionItems).values(
         [localActorId, hiddenId, liveId, activity.id].map(
@@ -107,7 +145,7 @@ for (const deleted of ["actor", "object"] as const) {
       const body = await (
         await post({
           query: `query($live: ID!, $activity: ID!, $collection: ID!, $remote: ID!) {
-          live: node(id: $live) { ... on Object { to { target { iri ... on Actor { objects { totalCount } } } } } }
+          live: node(id: $live) { ... on Object { to { iri target { iri ... on Actor { objects { totalCount } } } } } }
           activity: node(id: $activity) { ... on Activity { actor { uuid } object { iri } } }
           collection: node(id: $collection) { ... on Collection { owner { uuid } totalCount } }
           collections: nodes(ids: [$collection]) { ... on Collection { totalCount } }
@@ -123,6 +161,7 @@ for (const deleted of ["actor", "object"] as const) {
       ).json();
       assert.equal(body.errors, undefined);
       assert.equal(body.data.live.to.length, 4);
+      assert.equal(body.data.live.to[1].iri, hiddenIri);
       assert.equal(body.data.live.to[1].target, null);
       assert.equal(body.data.live.to[2].target.iri, PUBLIC_IRI);
       assert.deepEqual(

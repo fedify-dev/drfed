@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
@@ -466,15 +466,56 @@ describe("Instance.actors cursor precision", () => {
   });
 });
 
+it("hides references to collections whose owner is deleted", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const outboxReference = await db.query.actorCollectionReferences.findFirst({
+      where: { actorId: localActorId, role: "outbox" },
+    });
+    assert.ok(outboxReference);
+    await db
+      .update(schema.actorCollectionReferences)
+      .set({ collectionId: outboxReference.collectionId })
+      .where(
+        and(
+          eq(schema.actorCollectionReferences.actorId, remoteActorId),
+          eq(schema.actorCollectionReferences.role, "featured"),
+        ),
+      );
+    await db
+      .update(schema.actors)
+      .set({ deleted: Temporal.Now.instant() })
+      .where(eq(schema.actors.id, localActorId));
+    const response = await (
+      await post({
+        query: `query($remote: ID!) { remote: node(id: $remote) { ... on Actor { featured { iri } followers { iri } } } }`,
+        variables: { remote: globalId("Actor", remoteActorId) },
+      })
+    ).json();
+    assert.deepEqual(response, {
+      data: {
+        remote: {
+          featured: null,
+          followers: {
+            iri: "https://remote.example.com/users/bob/followers",
+          },
+        },
+      },
+    });
+  });
+});
+
 it("resolves multiple actor roles referencing a shared collection", async () => {
   await withTestHarness(async ({ db, post }) => {
     await seedLocalActor(db);
     await seedRemoteActor(db);
-    const outbox = await db.query.collections.findFirst({
-      where: { ownerActorId: localActorId, role: "outbox" },
-      with: { resource: true },
+    const outboxReference = await db.query.actorCollectionReferences.findFirst({
+      where: { actorId: localActorId, role: "outbox" },
+      with: { collection: { with: { resource: true } } },
     });
-    assert.ok(outbox);
+    assert.ok(outboxReference);
+    const outbox = outboxReference.collection;
     await db
       .update(schema.actorCollectionReferences)
       .set({ collectionId: outbox.id })

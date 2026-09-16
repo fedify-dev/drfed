@@ -156,7 +156,6 @@ it("records idempotent collection membership only for declared roles", async () 
           id: row.id,
           type: "OrderedCollection",
           ownerActorId: actor.id,
-          role: "outbox",
         });
         await tx.insert(schema.actorCollectionReferences).values({
           actorId: actor.id,

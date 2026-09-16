@@ -23,7 +23,7 @@
       "schema": "public"
     },
     {
-      "values": ["followers", "following", "featured", "outbox", "public"],
+      "values": ["followers", "following", "featured", "outbox"],
       "name": "collection_role",
       "entityType": "enums",
       "schema": "public"
@@ -852,19 +852,6 @@
       "table": "collections"
     },
     {
-      "type": "collection_role",
-      "typeSchema": "public",
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "role",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "collections"
-    },
-    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -1659,34 +1646,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "collection_items"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "ownerActorId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "role",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"role\" IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "collection_owner_role_key",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "collections"
     },
     {
       "nameExplicit": false,

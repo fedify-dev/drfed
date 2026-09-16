@@ -19,8 +19,8 @@
 // Keep dependent database writes and observations sequential.
 // oxlint-disable no-await-in-loop
 
-import { promoteResource, schema } from "@drfed/models";
-import { actorTypeEnum } from "@drfed/models/schema";
+import { type Database, promoteResource, schema } from "@drfed/models";
+import { type CollectionRole, actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
@@ -38,6 +38,23 @@ const ActorType = builder.enumType("ActorType", {
 const ACTOR_TYPES_DOC = actorTypeEnum.enumValues
   .map((t) => `\`${t}\``)
   .join(" | ");
+
+async function resolveActorCollection(
+  db: Database,
+  actorId: Uuid,
+  role: CollectionRole,
+) {
+  const reference = await db.query.actorCollectionReferences.findFirst({
+    where: { actorId, role },
+    with: {
+      collection: {
+        with: { ownerActor: { columns: { deleted: true } } },
+      },
+    },
+  });
+  const collection = reference?.collection;
+  return collection?.ownerActor?.deleted == null ? (collection ?? null) : null;
+}
 
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
@@ -82,16 +99,11 @@ const ActorRef = builder.drizzleNode("actors", {
     outbox: t.field({
       type: Collection,
       nullable: true,
+      description:
+        "The stored outbox collection. For local actors, it contains every stored `Create` activity regardless of addressing and retains activities whose objects are deleted so their recorded history remains inspectable. The ActivityPub outbox serves only activities with Public addressing whose objects are not deleted.",
       select: { columns: { id: true } },
-      resolve: async (actor, _, ctx) => {
-        const reference =
-          await ctx.db.query.actorCollectionReferences.findFirst({
-            where: { actorId: actor.id, role: "outbox" },
-            with: { collection: true },
-          });
-        const collection = reference?.collection;
-        return collection ?? null;
-      },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "outbox"),
     }),
     avatarUrl: t.expose("avatarUrl", {
       type: "URL",
@@ -102,29 +114,15 @@ const ActorRef = builder.drizzleNode("actors", {
       type: Collection,
       nullable: true,
       select: { columns: { id: true } },
-      resolve: async (actor, _, ctx) => {
-        const reference =
-          await ctx.db.query.actorCollectionReferences.findFirst({
-            where: { actorId: actor.id, role: "followers" },
-            with: { collection: true },
-          });
-        const collection = reference?.collection;
-        return collection ?? null;
-      },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "followers"),
     }),
     following: t.field({
       type: Collection,
       nullable: true,
       select: { columns: { id: true } },
-      resolve: async (actor, _, ctx) => {
-        const reference =
-          await ctx.db.query.actorCollectionReferences.findFirst({
-            where: { actorId: actor.id, role: "following" },
-            with: { collection: true },
-          });
-        const collection = reference?.collection;
-        return collection ?? null;
-      },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "following"),
     }),
     headerUrl: t.expose("headerUrl", {
       type: "URL",
@@ -140,15 +138,8 @@ const ActorRef = builder.drizzleNode("actors", {
       type: Collection,
       nullable: true,
       select: { columns: { id: true } },
-      resolve: async (actor, _, ctx) => {
-        const reference =
-          await ctx.db.query.actorCollectionReferences.findFirst({
-            where: { actorId: actor.id, role: "featured" },
-            with: { collection: true },
-          });
-        const collection = reference?.collection;
-        return collection ?? null;
-      },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "featured"),
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -375,7 +366,6 @@ builder.mutationFields((t) => ({
                   id: resource.id,
                   type: "OrderedCollection",
                   ownerActorId: actor.id,
-                  role,
                 });
                 await inner.insert(schema.actorCollectionReferences).values({
                   actorId: actor.id,

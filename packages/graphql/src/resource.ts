@@ -99,6 +99,12 @@ const AddressingTarget = builder.objectRef<
 >("AddressingTarget");
 AddressingTarget.implement({
   fields: (t) => ({
+    iri: t.field({
+      type: "URL",
+      description:
+        "The stored IRI, even when `target` is null because it or its author is deleted.",
+      resolve: (row) => row.targetResource.iri,
+    }),
     target: t.field({
       type: Resource,
       nullable: true,
@@ -132,9 +138,6 @@ export function registerAddressingFields(
 const CollectionType = builder.enumType("CollectionType", {
   values: schema.collectionTypeEnum.enumValues,
 });
-const CollectionRole = builder.enumType("CollectionRole", {
-  values: schema.collectionRoleEnum.enumValues,
-});
 const CollectionRef = builder.drizzleNode("collections", {
   name: "Collection",
   select: {
@@ -145,15 +148,20 @@ const CollectionRef = builder.drizzleNode("collections", {
   id: { column: (row) => row.id },
   fields: (t) => ({
     type: t.expose("type", { type: CollectionType }),
-    role: t.expose("role", { type: CollectionRole, nullable: true }),
     owner: t.relation("ownerActor", {
       nullable: true,
       query: { where: { deleted: { isNull: true } } },
     }),
+    declaredTotalItems: t.exposeInt("totalItems", {
+      nullable: true,
+      description:
+        "The `totalItems` reported by the collection document. It can differ from the locally observed count and is null for local collections. Unlike `totalCount` and `items`, this value is not recalculated when deleted actors, deleted objects, or resources authored by deleted actors are excluded.",
+    }),
     totalCount: t.int({
-      select: { columns: { id: true, totalItems: true } },
+      description:
+        "The number of locally stored, visible members. It can differ from `declaredTotalItems`. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this count and `items`.",
+      select: { columns: { id: true } },
       resolve: (row, _, ctx) =>
-        row.totalItems ??
         ctx.db.$count(
           schema.collectionItems,
           and(
@@ -164,6 +172,8 @@ const CollectionRef = builder.drizzleNode("collections", {
     }),
     items: t.connection({
       type: Resource,
+      description:
+        "The locally stored, visible members. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this connection and `totalCount`.",
       select: { columns: { id: true } },
       resolve: (row, args, ctx) =>
         resolveOffsetConnection({ args }, async ({ offset, limit }) => {

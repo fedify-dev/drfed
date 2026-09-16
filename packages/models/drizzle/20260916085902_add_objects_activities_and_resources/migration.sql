@@ -1,6 +1,6 @@
 CREATE TYPE "activity_type" AS ENUM('Create');--> statement-breakpoint
 CREATE TYPE "addressing_property" AS ENUM('to', 'cc', 'bto', 'bcc', 'audience');--> statement-breakpoint
-CREATE TYPE "collection_role" AS ENUM('followers', 'following', 'featured', 'outbox', 'public');--> statement-breakpoint
+CREATE TYPE "collection_role" AS ENUM('followers', 'following', 'featured', 'outbox');--> statement-breakpoint
 CREATE TYPE "collection_type" AS ENUM('Collection', 'OrderedCollection');--> statement-breakpoint
 CREATE TYPE "object_type" AS ENUM('Article', 'Note');--> statement-breakpoint
 CREATE TYPE "resource_kind" AS ENUM('actor', 'object', 'activity', 'collection', 'unknown');--> statement-breakpoint
@@ -42,7 +42,6 @@ CREATE TABLE "collections" (
 	"id" uuid PRIMARY KEY,
 	"type" "collection_type" NOT NULL,
 	"ownerActorId" uuid,
-	"role" "collection_role",
 	"totalItems" integer,
 	"document" json,
 	"updated" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -89,7 +88,6 @@ CREATE INDEX "activity_actor_published_index" ON "activities" ("actorId","publis
 CREATE INDEX "actor_collection_reference_collection_index" ON "actor_collection_references" ("collectionId");--> statement-breakpoint
 CREATE INDEX "addressing_target_property_index" ON "addressing" ("targetId","property");--> statement-breakpoint
 CREATE INDEX "collection_item_position_index" ON "collection_items" ("collectionId","position");--> statement-breakpoint
-CREATE UNIQUE INDEX "collection_owner_role_key" ON "collections" ("ownerActorId","role") WHERE "role" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "object_actor_published_index" ON "objects" ("actorId","published" desc,"id" desc);--> statement-breakpoint
 ALTER TABLE "activities" ADD CONSTRAINT "activities_id_resources_id_fkey" FOREIGN KEY ("id") REFERENCES "resources"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "activities" ADD CONSTRAINT "activities_actorId_actors_id_fkey" FOREIGN KEY ("actorId") REFERENCES "actors"("id") ON DELETE CASCADE;--> statement-breakpoint
@@ -109,4 +107,4 @@ ALTER TABLE "objects" ADD CONSTRAINT "objects_actorId_actors_id_fkey" FOREIGN KE
 -- The public addressing collection has a fixed identifier (PUBLIC_RESOURCE_ID).
 INSERT INTO resources (id, iri, kind) VALUES ('00000000-0000-4000-8000-000000000000', 'https://www.w3.org/ns/activitystreams#Public', 'collection');
 --> statement-breakpoint
-INSERT INTO collections (id, type, role) VALUES ('00000000-0000-4000-8000-000000000000', 'Collection', 'public');
+INSERT INTO collections (id, type) VALUES ('00000000-0000-4000-8000-000000000000', 'Collection');

@@ -692,10 +692,12 @@ describe("stored collection membership and independent activity addressing", () 
           contextData: undefined,
         });
       for (const role of ["followers", "following", "featured"] as const) {
-        const collection = await db.query.collections.findFirst({
-          where: { ownerActorId: localActorId, role },
+        const reference = await db.query.actorCollectionReferences.findFirst({
+          where: { actorId: localActorId, role },
+          with: { collection: true },
         });
-        assert.ok(collection);
+        assert.ok(reference);
+        const { collection } = reference;
         await db.insert(schema.collectionItems).values({
           collectionId: collection.id,
           itemId: remoteActorId,
@@ -712,7 +714,7 @@ describe("stored collection membership and independent activity addressing", () 
       }
       const body = await (
         await post({
-          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { kind role totalCount items(first: 1) { edges { cursor node { kind iri ... on Actor { username } } } pageInfo { hasNextPage } } } } } }`,
+          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { kind totalCount items(first: 1) { edges { cursor node { kind iri ... on Actor { username } } } pageInfo { hasNextPage } } } } } }`,
           variables: { id: globalId("Actor", localActorId) },
         })
       ).json();

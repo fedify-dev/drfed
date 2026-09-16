@@ -37,7 +37,7 @@ import {
   seedRemoteActor,
 } from "./seed.test.ts";
 
-const fields = `id uuid iri url type actor { uuid } to { target { iri kind } } cc { target { iri } } name summary contentHtml language sensitive published updated created`;
+const fields = `id uuid iri url type actor { uuid } to { iri target { iri kind } } cc { target { iri } } name summary contentHtml language sensitive published updated created`;
 const mutation = `mutation Create($actor: ID!, $contentHtml: String!, $language: String, $type: ObjectType! = Note, $addressing: AddressingInput!) {
   createObject(actor: $actor, contentHtml: $contentHtml, language: $language, type: $type, addressing: $addressing) {
     resultType: __typename
@@ -54,6 +54,7 @@ const outboxQuery = `query($actor: ID!) {
   node(id: $actor) {
     ... on Actor {
       outbox {
+        declaredTotalItems
         totalCount
         items { edges { node { ... on Activity { type object { ... on Object { uuid } } } } } }
       }
@@ -81,7 +82,7 @@ describe("Mutation.createObject", () => {
       assert.equal(object.resultType, "Object");
       assert.equal(object.type, "Note");
       assert.deepEqual(object.to, [
-        { target: { iri: PUBLIC_IRI, kind: "collection" } },
+        { iri: PUBLIC_IRI, target: { iri: PUBLIC_IRI, kind: "collection" } },
       ]);
       assert.equal(object.language, "ko-KR");
       assert.equal(object.contentHtml, contentHtml);
@@ -109,6 +110,7 @@ describe("Mutation.createObject", () => {
         data: {
           node: {
             outbox: {
+              declaredTotalItems: null,
               totalCount: 1,
               items: {
                 edges: [
@@ -133,6 +135,50 @@ describe("Mutation.createObject", () => {
         variables: { id: object.id },
       });
       assert.deepEqual(await node.json(), { data: { node: object } });
+    });
+  });
+  it("keeps deleted-object activity history in GraphQL but not ActivityPub outboxes", async () => {
+    await withTestHarness(async ({ db, post, federation }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const created = await (
+        await post({ query: mutation, variables }, auth)
+      ).json();
+      assert.equal(created.errors, undefined);
+      const objectId = created.data.createObject.uuid;
+      await db
+        .update(schema.objects)
+        .set({ deleted: Temporal.Now.instant() })
+        .where(eq(schema.objects.id, objectId));
+
+      // Keep the stored activity inspectable for debugging even after its
+      // object is deleted; the public protocol view applies a stricter policy.
+      const outbox = await (
+        await post({
+          query: outboxQuery,
+          variables: { actor: variables.actor },
+        })
+      ).json();
+      assert.deepEqual(outbox, {
+        data: {
+          node: {
+            outbox: {
+              declaredTotalItems: null,
+              totalCount: 1,
+              items: { edges: [{ node: { type: "Create", object: null } }] },
+            },
+          },
+        },
+      });
+      const served = await federation.fetch(
+        new Request(
+          `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+          { headers: accept },
+        ),
+        { contextData: undefined },
+      );
+      assert.equal(served.status, 200);
+      assert.equal((await served.json()).totalItems, 0);
     });
   });
   for (const [input, error] of [
@@ -277,6 +323,7 @@ describe("Mutation.createObject", () => {
         })
       ).json();
       assert.equal(outbox.errors, undefined);
+      assert.equal(outbox.data.node.outbox.declaredTotalItems, null);
       assert.equal(outbox.data.node.outbox.totalCount, 3);
       assert.equal(outbox.data.node.outbox.items.edges.length, 3);
     });
