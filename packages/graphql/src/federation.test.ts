@@ -466,10 +466,6 @@ describe("ActivityPub outbox", () => {
           deleted: index === 21 ? Temporal.Now.instant() : null,
         })),
       );
-      await db
-        .update(schema.actors)
-        .set({ postsCount: 23 })
-        .where(eq(schema.actors.id, localActorId));
       const fetchJson = async (iri: string) => {
         const response = await federation.fetch(
           new Request(iri, { headers: accept }),
@@ -602,7 +598,7 @@ const createMutation = `mutation Create($actor: ID!, $addressing: AddressingInpu
 
 // Regression tests for
 // https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163252:
-// The outbox counter must match its page predicate independently of postsCount.
+// The outbox counter must match its page predicate rather than a stored count.
 describe("ActivityPub outbox totalItems", () => {
   for (const scenario of ["followers", "deleted"] as const) {
     it(`does not count ${scenario} objects that outbox pages never return`, async () => {

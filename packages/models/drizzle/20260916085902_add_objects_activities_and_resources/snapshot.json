@@ -644,19 +644,6 @@
       "table": "actors"
     },
     {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "postsCount",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "actors"
-    },
-    {
       "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
@@ -769,19 +756,6 @@
       "generated": null,
       "identity": null,
       "name": "targetId",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "addressing"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "target",
       "entityType": "columns",
       "schema": "public",
       "table": "addressing"

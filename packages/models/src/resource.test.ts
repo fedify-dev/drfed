@@ -23,6 +23,7 @@ import { migrate, relations, schema } from "@drfed/models";
 import {
   PUBLIC_IRI,
   PUBLIC_RESOURCE_ID,
+  addActorCollectionItem,
   ensureResource,
   promoteResource,
   storeAddressing,
@@ -115,6 +116,70 @@ it("reuses existing addressing targets without updating or locking their resourc
       await storeAddressing(tx, source.id, { to: [PUBLIC_IRI, PUBLIC_IRI] });
     });
     assert.equal(await db.$count(schema.addressing), 2);
+  } finally {
+    await client.close();
+  }
+});
+
+it("records idempotent collection membership only for declared roles", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const db = drizzle({ client, schema, relations });
+    const instanceId = "00000000-0000-4000-8000-000000000101";
+    await db.insert(schema.instances).values({
+      id: instanceId,
+      host: "test-instance.drfed.org",
+    });
+    const actorIri = "https://test-instance.drfed.org/users/alice";
+    const actor = await promoteResource(
+      db,
+      actorIri,
+      "actor",
+      async (tx, row) => {
+        await tx.insert(schema.actors).values({
+          id: row.id,
+          instanceId,
+          type: "Person",
+          username: "alice",
+          inboxUrl: `${actorIri}/inbox`,
+        });
+        return row;
+      },
+    );
+    const outbox = await promoteResource(
+      db,
+      `${actorIri}/outbox`,
+      "collection",
+      async (tx, row) => {
+        await tx.insert(schema.collections).values({
+          id: row.id,
+          type: "OrderedCollection",
+          ownerActorId: actor.id,
+          role: "outbox",
+        });
+        await tx.insert(schema.actorCollectionReferences).values({
+          actorId: actor.id,
+          role: "outbox",
+          collectionId: row.id,
+        });
+        return row;
+      },
+    );
+    const item = await ensureResource(db, "https://remote.example/activity");
+    await addActorCollectionItem(db, actor.id, "outbox", item.id);
+    await addActorCollectionItem(db, actor.id, "outbox", item.id);
+    assert.deepEqual(
+      await db.query.collectionItems.findMany({
+        columns: { collectionId: true, itemId: true },
+      }),
+      [{ collectionId: outbox.id, itemId: item.id }],
+    );
+    await assert.rejects(
+      addActorCollectionItem(db, actor.id, "featured", item.id),
+      /declares no featured collection/u,
+    );
+    assert.equal(await db.$count(schema.collectionItems), 1);
   } finally {
     await client.close();
   }

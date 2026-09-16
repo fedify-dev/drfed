@@ -291,7 +291,6 @@ export const actors = pgTable(
       .default(sql`(ARRAY[]::text[])`),
     followingCount: integer().notNull().default(0),
     followersCount: integer().notNull().default(0),
-    postsCount: integer().notNull().default(0),
     updated: instant()
       .notNull()
       .default(currentTimestamp)
@@ -388,6 +387,7 @@ export const collectionRoleEnum = pgEnum("collection_role", [
   "outbox",
   "public",
 ]);
+export type CollectionRole = (typeof collectionRoleEnum.enumValues)[number];
 export const collections = pgTable(
   "collections",
   {
@@ -508,7 +508,6 @@ export const addressing = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => resources.id, { onDelete: "restrict" }),
-    target: json(),
   },
   (t) => [
     unique("addressing_source_property_position_key").on(

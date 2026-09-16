@@ -50,10 +50,21 @@ const variables = {
   contentHtml: "<p>Hello</p>",
   addressing: { to: [PUBLIC_IRI] },
 };
+const outboxQuery = `query($actor: ID!) {
+  node(id: $actor) {
+    ... on Actor {
+      outbox {
+        totalCount
+        items { edges { node { ... on Activity { type object { ... on Object { uuid } } } } } }
+      }
+    }
+  }
+}`;
+const accept = { accept: "application/activity+json" };
 
 describe("Mutation.createObject", () => {
   it("creates verbatim HTML, canonicalizes language and resolves every node field", async () => {
-    await withTestHarness(async ({ db, post }) => {
+    await withTestHarness(async ({ db, post, federation }) => {
       const auth = await seedAuthenticatedLocalInstance(db);
       await seedLocalActor(db);
       const contentHtml = '<p onclick="debug()">Hello</p>';
@@ -86,11 +97,37 @@ describe("Mutation.createObject", () => {
       });
       assert.equal(row?.contentHtml, contentHtml);
       assert.equal(row?.language, "ko-KR");
-      assert.equal(
-        (await db.query.actors.findFirst({ where: { id: localActorId } }))
-          ?.postsCount,
-        1,
+      // The GraphQL outbox collection and the ActivityPub outbox must agree
+      // on a public Create activity.
+      const outbox = await (
+        await post({
+          query: outboxQuery,
+          variables: { actor: variables.actor },
+        })
+      ).json();
+      assert.deepEqual(outbox, {
+        data: {
+          node: {
+            outbox: {
+              totalCount: 1,
+              items: {
+                edges: [
+                  { node: { type: "Create", object: { uuid: object.uuid } } },
+                ],
+              },
+            },
+          },
+        },
+      });
+      const served = await federation.fetch(
+        new Request(
+          `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+          { headers: accept },
+        ),
+        { contextData: undefined },
       );
+      assert.equal(served.status, 200);
+      assert.equal((await served.json()).totalItems, 1);
       const node = await post({
         query: `query($id: ID!) { node(id: $id) { resultType: __typename ... on Object { ${fields} } } }`,
         variables: { id: object.id },
@@ -231,11 +268,17 @@ describe("Mutation.createObject", () => {
         assert.equal(body.data.createObject.summary, "CW");
         assert.equal(body.data.createObject.sensitive, true);
       }
-      assert.equal(
-        (await db.query.actors.findFirst({ where: { id: localActorId } }))
-          ?.postsCount,
-        3,
-      );
+      // Every stored Create activity is an outbox member regardless of
+      // addressing; only the ActivityPub outbox restricts itself to Public.
+      const outbox = await (
+        await post({
+          query: outboxQuery,
+          variables: { actor: variables.actor },
+        })
+      ).json();
+      assert.equal(outbox.errors, undefined);
+      assert.equal(outbox.data.node.outbox.totalCount, 3);
+      assert.equal(outbox.data.node.outbox.items.edges.length, 3);
     });
   });
 });

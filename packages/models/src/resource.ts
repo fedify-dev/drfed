@@ -17,14 +17,17 @@
 // Keep dependent database writes and observations sequential.
 // oxlint-disable no-await-in-loop
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import {
   type AddressingProperty,
+  type CollectionRole,
   type Resource,
+  actorCollectionReferences,
   addressing,
   addressingPropertyEnum,
+  collectionItems,
   resources,
 } from "./schema.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
@@ -131,4 +134,34 @@ export async function storeAddressing(
       });
     }
   }
+}
+
+/**
+ * Records a resource as a member of the collection an actor declares for
+ * `role`, such as its outbox. Membership is idempotent per collection.
+ * @throws {Error} If the actor declares no collection for `role`.
+ */
+export async function addActorCollectionItem(
+  tx: Database | Transaction,
+  actorId: Uuid,
+  role: CollectionRole,
+  itemId: Uuid,
+): Promise<void> {
+  const [reference] = await tx
+    .select({ collectionId: actorCollectionReferences.collectionId })
+    .from(actorCollectionReferences)
+    .where(
+      and(
+        eq(actorCollectionReferences.actorId, actorId),
+        eq(actorCollectionReferences.role, role),
+      ),
+    )
+    .limit(1);
+  if (reference == null) {
+    throw new Error(`Actor ${actorId} declares no ${role} collection.`);
+  }
+  await tx
+    .insert(collectionItems)
+    .values({ collectionId: reference.collectionId, itemId })
+    .onConflictDoNothing();
 }

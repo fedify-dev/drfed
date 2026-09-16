@@ -161,7 +161,6 @@ export const relations = defineRelations(schema, (r) => ({
     ownerActor: r.one.actors({
       from: r.collections.ownerActorId,
       to: r.actors.id,
-      where: { deleted: { isNull: true } },
     }),
     items: r.many.collectionItems({
       from: r.collections.id,
