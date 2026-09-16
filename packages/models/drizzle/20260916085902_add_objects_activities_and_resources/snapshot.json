@@ -1,11 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bb2c4a8b-5c07-4f2e-abeb-c9710239aeef",
-  "prevIds": [
-    "3d7bb672-489b-4d1e-8efb-e602d21f6e98",
-    "97f2c698-2361-4eae-b5c0-969ee1d2f8e7"
-  ],
+  "id": "a9c7a317-96db-4a3a-80fa-db8cee5609fe",
+  "prevIds": ["3d7bb672-489b-4d1e-8efb-e602d21f6e98"],
   "ddl": [
     {
       "values": ["Create"],
@@ -58,6 +55,12 @@
     {
       "isRlsEnabled": false,
       "name": "activities",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "actor_collection_references",
       "entityType": "tables",
       "schema": "public"
     },
@@ -301,6 +304,45 @@
       "entityType": "columns",
       "schema": "public",
       "table": "activities"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "actorId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actor_collection_references"
+    },
+    {
+      "type": "collection_role",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "role",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actor_collection_references"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "collectionId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "actor_collection_references"
     },
     {
       "type": "uuid",
@@ -1550,6 +1592,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "collectionId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "actor_collection_reference_collection_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "actor_collection_references"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "instanceId",
           "isExpression": false,
           "asc": true,
@@ -1766,6 +1829,32 @@
       "entityType": "fks",
       "schema": "public",
       "table": "activities"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["actorId"],
+      "schemaTo": "public",
+      "tableTo": "actors",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "actor_collection_references_actorId_actors_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "actor_collection_references"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["collectionId"],
+      "schemaTo": "public",
+      "tableTo": "collections",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "actor_collection_references_collectionId_collections_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "actor_collection_references"
     },
     {
       "nameExplicit": false,
@@ -1987,6 +2076,14 @@
       "entityType": "fks",
       "schema": "public",
       "table": "sessions"
+    },
+    {
+      "columns": ["actorId", "role"],
+      "nameExplicit": false,
+      "name": "actor_collection_references_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "actor_collection_references"
     },
     {
       "columns": ["collectionId", "itemId"],

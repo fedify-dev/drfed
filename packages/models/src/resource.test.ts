@@ -14,16 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-statements -- Keep upgrade before/after assertions together.
-// Keep dependent database writes and observations sequential.
-// oxlint-disable no-await-in-loop
+// oxlint-disable max-statements -- Keep resource before/after assertions together.
 
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
 import { it } from "node:test";
-import { fileURLToPath } from "node:url";
 
 import { migrate, relations, schema } from "@drfed/models";
 import {
@@ -33,11 +27,9 @@ import {
   promoteResource,
   storeAddressing,
 } from "@drfed/models/resource";
-import { uuidV7 } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { migrate as migrateBaseline } from "drizzle-orm/pglite/migrator";
 
 it("reuses exact IRIs and promotes unknown resources atomically", async () => {
   const client = new PGlite();
@@ -106,125 +98,6 @@ it("reuses exact IRIs and promotes unknown resources atomically", async () => {
   }
 });
 
-const migrationName = "20260915095905_add_resources_addressing_and_activities";
-const migrations = join(
-  dirname(fileURLToPath(import.meta.resolve("@drfed/models/migrate"))),
-  "..",
-  "drizzle",
-);
-
-it("backfills resources, actor collections, addressing and independent Create activities", async () => {
-  const baseline = await mkdtemp(join(tmpdir(), "drfed-addressing-migration-"));
-  const client = new PGlite();
-  try {
-    const entries = await readdir(migrations, { withFileTypes: true });
-    await Promise.all(
-      entries
-        .filter((e) => e.isDirectory() && e.name < migrationName)
-        .map((e) =>
-          cp(join(migrations, e.name), join(baseline, e.name), {
-            recursive: true,
-          }),
-        ),
-    );
-    await migrateBaseline(drizzle({ client }), { migrationsFolder: baseline });
-    const instanceId = uuidV7();
-    const actorId = uuidV7();
-    const iri = `https://old.example/users/${actorId}`;
-    await client.query("INSERT INTO instances (id, host) VALUES ($1, $2)", [
-      instanceId,
-      "old.example",
-    ]);
-    await client.query(
-      'INSERT INTO actors (id, "instanceId", type, username, iri, "inboxUrl", "outboxUrl", "followersUrl", "followingUrl", "featuredUrl") VALUES ($1, $2, \'Person\', \'old\', $3, $4, $5, $6, $7, $8)',
-      [
-        actorId,
-        instanceId,
-        iri,
-        `${iri}/inbox`,
-        `${iri}/outbox`,
-        `${iri}/followers`,
-        `${iri}/following`,
-        `${iri}/featured`,
-      ],
-    );
-    const ids = [uuidV7(), uuidV7(), uuidV7()];
-    for (const [index, label] of [
-      "public",
-      "unlisted",
-      "followers",
-    ].entries()) {
-      // Historical column names are restricted to the upgrade fixture.
-      await client.query(
-        "INSERT INTO objects (id, \"actorId\", type, iri, visibility, \"contentHtml\") VALUES ($1, $2, 'Note', $3, $4, 'old content')",
-        [ids[index], actorId, `${iri}/${ids[index]}`, label],
-      );
-    }
-    await migrate({ credentials: { driver: "pglite", client } });
-    const db = drizzle({ client, schema, relations });
-    assert.equal(await db.$count(schema.resources), 12);
-    assert.equal(await db.$count(schema.collections), 5);
-    assert.equal(await db.$count(schema.activities), 3);
-    assert.equal(await db.$count(schema.addressing), 10);
-    const followers = await db.query.collections.findFirst({
-      where: { ownerActorId: actorId, role: "followers" },
-      with: { resource: true },
-    });
-    assert.equal(followers?.resource.iri, `${iri}/followers`);
-    for (const [index, id] of ids.entries()) {
-      const object = await db.query.objects.findFirst({
-        where: { id },
-        with: {
-          resource: true,
-          addressing: { orderBy: { property: "asc", position: "asc" } },
-          createActivity: {
-            with: {
-              resource: true,
-              addressing: { orderBy: { property: "asc", position: "asc" } },
-            },
-          },
-        },
-      });
-      assert.ok(object?.createActivity);
-      assert.equal(object.resource.iri, `${iri}/${id}`);
-      const activity = object.createActivity;
-      assert.notEqual(activity.id, id);
-      assert.equal(
-        activity.resource.iri,
-        `https://old.example/ap/creates/${id}`,
-      );
-      assert.equal(
-        activity.published.epochNanoseconds,
-        object.published.epochNanoseconds,
-      );
-      const targets = (rows: typeof object.addressing) =>
-        rows.map((r) => [r.property, r.position, r.targetId]);
-      assert.deepEqual(
-        targets(activity.addressing),
-        targets(object.addressing),
-      );
-      const expected: unknown =
-        index === 0
-          ? [
-              ["to", 0, PUBLIC_RESOURCE_ID],
-              ["cc", 0, followers?.id],
-            ]
-          : index === 1
-            ? [
-                ["to", 0, followers?.id],
-                ["cc", 0, PUBLIC_RESOURCE_ID],
-              ]
-            : [["to", 0, followers?.id]];
-      assert.deepEqual(targets(object.addressing), expected);
-    }
-    await migrate({ credentials: { driver: "pglite", client } });
-    assert.equal(await db.$count(schema.activities), 3);
-  } finally {
-    await client.close();
-    await rm(baseline, { recursive: true, force: true });
-  }
-});
-
 it("reuses existing addressing targets without updating or locking their resource rows", async () => {
   const client = new PGlite();
   try {
@@ -244,112 +117,5 @@ it("reuses existing addressing targets without updating or locking their resourc
     assert.equal(await db.$count(schema.addressing), 2);
   } finally {
     await client.close();
-  }
-});
-
-it("upgrades shared collection IRIs without dropping actor roles or addressing", async () => {
-  const baseline = await mkdtemp(join(tmpdir(), "drfed-shared-collections-"));
-  const client = new PGlite();
-  try {
-    const entries = await readdir(migrations, { withFileTypes: true });
-    await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory() && entry.name < migrationName)
-        .map((entry) =>
-          cp(join(migrations, entry.name), join(baseline, entry.name), {
-            recursive: true,
-          }),
-        ),
-    );
-    await migrateBaseline(drizzle({ client }), { migrationsFolder: baseline });
-    const instanceId = uuidV7();
-    const alice = uuidV7();
-    const bob = uuidV7();
-    const shared = "https://old.example/shared";
-    await client.query(
-      "INSERT INTO instances (id, host) VALUES ($1, 'old.example')",
-      [instanceId],
-    );
-    for (const [id, username, followers, featured] of [
-      [alice, "alice", shared, shared],
-      [bob, "bob", PUBLIC_IRI, null],
-    ] as const) {
-      await client.query(
-        'INSERT INTO actors (id, "instanceId", type, username, iri, "inboxUrl", "outboxUrl", "followersUrl", "featuredUrl") VALUES ($1,$2,\'Person\',$3,$4,$5,$6,$7,$8)',
-        [
-          id,
-          instanceId,
-          username,
-          `https://old.example/${username}`,
-          `https://old.example/${username}/inbox`,
-          shared,
-          followers,
-          featured,
-        ],
-      );
-      await client.query(
-        "INSERT INTO objects (id, \"actorId\", type, iri, visibility, \"contentHtml\") VALUES ($1,$2,'Note',$3,'followers','hello')",
-        [uuidV7(), id, `https://old.example/${username}/note`],
-      );
-    }
-    await migrate({ credentials: { driver: "pglite", client } });
-    const db = drizzle({ client, schema, relations });
-    assert.equal(await db.$count(schema.collections), 2);
-    const collection = await db.query.collections.findFirst({
-      where: { resource: { iri: shared } },
-    });
-    assert.ok(collection);
-    assert.equal(collection.ownerActorId, null);
-    assert.equal(collection.role, null);
-    const refs = await db.query.actorCollectionReferences.findMany({
-      with: { collection: { with: { resource: true } } },
-      orderBy: { actorId: "asc", role: "asc" },
-    });
-    assert.equal(refs.length, 5);
-    for (const [actorId, role, iri] of [
-      [alice, "outbox", shared],
-      [alice, "featured", shared],
-      [alice, "followers", shared],
-      [bob, "outbox", shared],
-      [bob, "followers", PUBLIC_IRI],
-    ] as const) {
-      assert.equal(
-        refs.find((ref) => ref.actorId === actorId && ref.role === role)
-          ?.collection.resource.iri,
-        iri,
-      );
-    }
-    for (const [actorId, iri] of [
-      [alice, shared],
-      [bob, PUBLIC_IRI],
-    ] as const) {
-      const object = await db.query.objects.findFirst({
-        where: { actorId },
-        with: {
-          addressing: { with: { targetResource: true } },
-          createActivity: {
-            with: { addressing: { with: { targetResource: true } } },
-          },
-        },
-      });
-      assert.ok(object?.createActivity);
-      assert.deepEqual(
-        object.addressing.map((entry) => [
-          entry.property,
-          entry.targetResource.iri,
-        ]),
-        [["to", iri]],
-      );
-      assert.deepEqual(
-        object.createActivity.addressing.map((entry) => [
-          entry.property,
-          entry.targetResource.iri,
-        ]),
-        [["to", iri]],
-      );
-    }
-  } finally {
-    await client.close();
-    await rm(baseline, { recursive: true, force: true });
   }
 });
