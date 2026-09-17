@@ -397,7 +397,7 @@ function generateActor(
   return {
     id,
     localId: id,
-    // FIXME: Generate handle using Faker.js or something
+    // FIXME: https://github.com/fedify-dev/drfed/issues/85
     username: id,
     instanceId,
     type: "Person",

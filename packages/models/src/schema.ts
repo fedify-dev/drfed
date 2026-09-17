@@ -298,8 +298,7 @@ export const actors = pgTable(
     created: instant().notNull().default(currentTimestamp),
     // When implementing actor deletion, add activities.deleted and set it
     // together with objects.deleted in the same transaction.
-    // FIXME: Let instance administrators choose deletion, anonymization or
-    // preservation of authored objects. For now, delete them with the actor.
+    // FIXME: https://github.com/fedify-dev/drfed/issues/89
     deleted: instant(),
   },
   (t) => [

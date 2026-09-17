@@ -139,7 +139,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
           return;
         }
 
-        // FIXME: Replace current codes to dictionary looking up
+        // FIXME: https://github.com/fedify-dev/drfed/issues/86
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {

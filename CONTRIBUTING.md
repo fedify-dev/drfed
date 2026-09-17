@@ -237,6 +237,16 @@ Use existing dependencies and patterns before adding new ones.  In particular:
 Formatting is handled by [Oxfmt] and [Hongdown].  Do not hand-align code in a
 way that fights those tools.
 
+When you leave a `FIXME` comment, open a GitHub issue that describes the
+problem and the intended change, and put only the issue URL in the comment:
+
+~~~~ ts
+// FIXME: https://github.com/fedify-dev/drfed/issues/35
+~~~~
+
+Keep the details in the issue rather than in the comment, and update the issue
+when the plan changes.
+
 [Optique]: https://optique.dev/
 [srvx]: https://srvx.h3.dev/
 [Drizzle ORM]: https://orm.drizzle.team/

@@ -134,14 +134,11 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       });
       return actor?.id ?? null;
     });
-  // FIXME: Provide actor key pairs via setKeyPairsDispatcher() once the
-  // data model stores signing keys.
+  // FIXME: https://github.com/fedify-dev/drfed/issues/87
 
   builder
     .setInboxListeners("/users/{identifier}/inbox", "/inbox")
-    // FIXME: Validate and persist incoming activities. The local createObject
-    // mutation already stores Create activities; incoming activities are
-    // currently only logged.
+    // FIXME: https://github.com/fedify-dev/drfed/issues/88
     .on(Activity, (_ctx, activity) => {
       logger.debug("Received an activity: {activity}", { activity });
     })
