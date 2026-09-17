@@ -714,7 +714,7 @@ describe("stored collection membership and independent activity addressing", () 
       }
       const body = await (
         await post({
-          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { kind totalCount items(first: 1) { edges { cursor node { kind iri ... on Actor { username } } } pageInfo { hasNextPage } } } } } }`,
+          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { resource { kind } totalCount items(first: 1) { edges { cursor node { kind iri detail { ... on Actor { username } } } } pageInfo { hasNextPage } } } } } }`,
           variables: { id: globalId("Actor", localActorId) },
         })
       ).json();
@@ -723,7 +723,7 @@ describe("stored collection membership and independent activity addressing", () 
       assert.deepEqual(body.data.node.followers.items.edges[0].node, {
         kind: "actor",
         iri: "https://remote.example.com/users/bob",
-        username: "bob",
+        detail: { username: "bob" },
       });
     });
   });

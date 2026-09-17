@@ -170,15 +170,27 @@ it("records idempotent collection membership only for declared roles", async () 
     await addActorCollectionItem(db, actor.id, "outbox", item.id);
     assert.deepEqual(
       await db.query.collectionItems.findMany({
-        columns: { collectionId: true, itemId: true },
+        columns: { collectionId: true, itemId: true, position: true },
       }),
-      [{ collectionId: outbox.id, itemId: item.id }],
+      [{ collectionId: outbox.id, itemId: item.id, position: -1 }],
+    );
+    const newer = await ensureResource(db, "https://remote.example/newer");
+    await addActorCollectionItem(db, actor.id, "outbox", newer.id);
+    assert.deepEqual(
+      await db.query.collectionItems.findMany({
+        columns: { itemId: true, position: true },
+        orderBy: { position: "asc" },
+      }),
+      [
+        { itemId: newer.id, position: -2 },
+        { itemId: item.id, position: -1 },
+      ],
     );
     await assert.rejects(
       addActorCollectionItem(db, actor.id, "featured", item.id),
       /declares no featured collection/u,
     );
-    assert.equal(await db.$count(schema.collectionItems), 1);
+    assert.equal(await db.$count(schema.collectionItems), 2);
   } finally {
     await client.close();
   }

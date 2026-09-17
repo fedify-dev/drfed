@@ -209,11 +209,9 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.objects.id,
       to: r.addressing.sourceId,
     }),
-    createActivity: r.one.activities({
+    activities: r.many.activities({
       from: r.objects.id,
       to: r.activities.objectId,
-      optional: true,
-      where: { type: "Create" },
     }),
     actor: r.one.actors({
       from: r.objects.actorId,

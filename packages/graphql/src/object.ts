@@ -16,6 +16,7 @@
 
 import {
   addActorCollectionItem,
+  lockActorCollection,
   promoteResource,
   schema,
   storeAddressing,
@@ -29,17 +30,17 @@ import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import {
-  type AddressingRows,
-  classifyMastodon,
-  classifyMisskey,
-} from "./classification.ts";
-import {
   activitySelection,
   objectSelection,
   toCreate,
   toObject,
 } from "./federation.ts";
-import { Resource, registerAddressingFields } from "./resource.ts";
+import {
+  Activity,
+  ActivityType,
+  ResourceDetail,
+  registerAddressingFields,
+} from "./resource.ts";
 
 const ObjectType = builder.enumType("ObjectType", {
   values: objectTypeEnum.enumValues,
@@ -53,35 +54,24 @@ const AddressingInput = builder.inputType("AddressingInput", {
     audience: t.field({ type: ["URL"], required: true, defaultValue: [] }),
   }),
 });
-const Implementation = builder.enumType("Implementation", {
-  values: ["MASTODON", "MISSKEY"] as const,
-});
-const ExpectedClassification = builder.objectRef<
-  ReturnType<typeof classifyMastodon>
->("ExpectedClassification");
-ExpectedClassification.implement({
-  description:
-    "Expected classification; actual access depends on receiver state and policy.",
-  fields: (t) => ({
-    implementation: t.expose("implementation", { type: Implementation }),
-    version: t.exposeString("version"),
-    classification: t.exposeString("classification"),
-    reason: t.exposeString("reason"),
-  }),
-});
 const ObjectRef = builder.drizzleNode("objects", {
   name: "Object",
   select: {
     columns: { id: true, deleted: true },
     with: { actor: { columns: { deleted: true } } },
   },
-  interfaces: [Resource],
   description: "Represents an ActivityPub object authored by an `Actor`.",
   id: {
     column: ({ id }) => id,
     description: "The Relay global ID of the object.",
   },
   fields: (t) => ({
+    resource: t.relation("resource"),
+    iri: t.field({
+      type: "URL",
+      select: { with: { resource: true } },
+      resolve: (row) => row.resource.iri,
+    }),
     uuid: t.expose("id", {
       type: "UUID",
       description: "The UUID of the ActivityPub Object.",
@@ -99,48 +89,6 @@ const ObjectRef = builder.drizzleNode("objects", {
       description: "The actor that authored the object.",
     }),
     document: t.expose("document", { type: "JSON", nullable: true }),
-    createActivity: t.relation("createActivity", {
-      nullable: true,
-      query: { where: { actor: { deleted: { isNull: true } } } },
-    }),
-    expectedClassifications: t.field({
-      type: [ExpectedClassification],
-      select: { columns: { id: true } },
-      resolve: async (object, _, ctx) => {
-        const row = await ctx.db.query.objects.findFirst({
-          where: { id: object.id },
-          with: {
-            ...objectSelection,
-            actor: {
-              with: {
-                resource: true,
-                collectionReferences: {
-                  with: { collection: { with: { resource: true } } },
-                },
-              },
-            },
-            createActivity: { with: activitySelection },
-          },
-        });
-        if (row == null) throw new Error("Missing object.");
-        const author = {
-          iri: row.actor.resource.iri,
-          followersIri:
-            row.actor.collectionReferences.find(
-              (collection) => collection.role === "followers",
-            )?.collection.resource.iri ?? null,
-        };
-        const addressing = classificationInput(row);
-        const activity =
-          row.createActivity == null
-            ? null
-            : classificationInput(row.createActivity);
-        return [
-          classifyMastodon(addressing, activity, author),
-          classifyMisskey(addressing, activity, author),
-        ];
-      },
-    }),
     name: t.exposeString("name", {
       nullable: true,
       description: "The optional title of the object.",
@@ -177,7 +125,37 @@ const ObjectRef = builder.drizzleNode("objects", {
   }),
 });
 export const ActivityPubObject: DrFedObjectRef = ObjectRef;
+ResourceDetail.addTypes([ActivityPubObject]);
 registerAddressingFields("objects");
+
+const activitiesConnection = drizzleConnectionHelpers(builder, "activities", {
+  query: (args: {
+    type?: typeof schema.activities.$inferSelect.type | null;
+  }) => ({
+    where: {
+      actor: { deleted: { isNull: true } },
+      ...(args.type == null ? {} : { type: args.type }),
+    },
+    orderBy: { published: "asc", id: "asc" },
+  }),
+});
+builder.drizzleObjectField("objects", "activities", (t) =>
+  t.connection({
+    type: Activity,
+    args: { type: t.arg({ type: ActivityType }) },
+    description:
+      "Activities referencing this object, optionally filtered by type. Excludes deleted authors; ordered by published ASC, id ASC.",
+    select(args, ctx, nestedSelection) {
+      return {
+        with: {
+          activities: activitiesConnection.getQuery(args, ctx, nestedSelection),
+        },
+      };
+    },
+    resolve: (object, args, ctx) =>
+      activitiesConnection.resolve(object.activities, args, ctx, object),
+  }),
+);
 
 const objectsConnection = drizzleConnectionHelpers(builder, "objects", {
   query: {
@@ -369,6 +347,8 @@ builder.mutationFields((t) => ({
           )
           .limit(1);
         if (actor == null) return actorNotFound;
+        await lockActorCollection(tx, actorId, "outbox");
+        const published = Temporal.Now.instant();
         const id = uuid();
         const fedCtx = ctx.federation.createContext(
           new URL(`https://${actor.host}`),
@@ -392,6 +372,7 @@ builder.mutationFields((t) => ({
                 id: resource.id,
                 actorId,
                 language: canonicalLanguage,
+                published,
               })
               .returning();
             if (row == null) {
@@ -459,30 +440,6 @@ function normalizeOptionalText(
   value: string | null | undefined,
 ): string | null {
   return value == null || value.trim() === "" ? null : value;
-}
-
-function classificationInput(row: {
-  document: unknown;
-  addressing: readonly {
-    property: string;
-    position: number;
-    targetResource: { iri: string };
-  }[];
-}): AddressingRows {
-  const property = (name: "to" | "cc"): readonly string[] | undefined => {
-    const rows = row.addressing
-      .filter((entry) => entry.property === name)
-      .toSorted((left, right) => left.position - right.position);
-    if (rows.length > 0) return rows.map((entry) => entry.targetResource.iri);
-    const { document } = row;
-    return document != null &&
-      typeof document === "object" &&
-      name in document &&
-      document[name as keyof typeof document] != null
-      ? []
-      : undefined;
-  };
-  return { to: property("to"), cc: property("cc") };
 }
 
 function asDocument(value: unknown): Record<string, unknown> {

@@ -17,7 +17,7 @@
 // Keep dependent database writes and observations sequential.
 // oxlint-disable no-await-in-loop
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, min } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import {
@@ -28,6 +28,7 @@ import {
   addressing,
   addressingPropertyEnum,
   collectionItems,
+  collections,
   resources,
 } from "./schema.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
@@ -137,31 +138,56 @@ export async function storeAddressing(
 }
 
 /**
- * Records a resource as a member of the collection an actor declares for
- * `role`, such as its outbox. Membership is idempotent per collection.
- * @throws {Error} If the actor declares no collection for `role`.
+ * Locks an actor's declared collection until the transaction ends.
+ * @returns The locked collection ID.
  */
-export async function addActorCollectionItem(
-  tx: Database | Transaction,
+export async function lockActorCollection(
+  tx: Transaction,
   actorId: Uuid,
   role: CollectionRole,
-  itemId: Uuid,
-): Promise<void> {
+): Promise<Uuid> {
   const [reference] = await tx
-    .select({ collectionId: actorCollectionReferences.collectionId })
-    .from(actorCollectionReferences)
+    .select({ collectionId: collections.id })
+    .from(collections)
+    .innerJoin(
+      actorCollectionReferences,
+      eq(collections.id, actorCollectionReferences.collectionId),
+    )
     .where(
       and(
         eq(actorCollectionReferences.actorId, actorId),
         eq(actorCollectionReferences.role, role),
       ),
     )
+    .for("update", { of: collections })
     .limit(1);
   if (reference == null) {
     throw new Error(`Actor ${actorId} declares no ${role} collection.`);
   }
-  await tx
-    .insert(collectionItems)
-    .values({ collectionId: reference.collectionId, itemId })
-    .onConflictDoNothing();
+  return reference.collectionId;
+}
+
+/**
+ * Records a resource in an actor's declared collection, idempotently.
+ * Position ASC is presentation order. Outboxes are reverse chronological,
+ * so the newest item receives the smallest position.
+ * @throws {Error} If the actor declares no collection for the role.
+ */
+export async function addActorCollectionItem(
+  db: Database | Transaction,
+  actorId: Uuid,
+  role: CollectionRole,
+  itemId: Uuid,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const collectionId = await lockActorCollection(tx, actorId, role);
+    const [row] = await tx
+      .select({ position: min(collectionItems.position) })
+      .from(collectionItems)
+      .where(eq(collectionItems.collectionId, collectionId));
+    await tx
+      .insert(collectionItems)
+      .values({ collectionId, itemId, position: (row?.position ?? 0) - 1 })
+      .onConflictDoNothing();
+  });
 }

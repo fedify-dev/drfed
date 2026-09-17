@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import { schema } from "@drfed/models";
+import { promoteResource, schema, storeAddressing } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { eq } from "drizzle-orm";
@@ -145,8 +145,8 @@ for (const deleted of ["actor", "object"] as const) {
       const body = await (
         await post({
           query: `query($live: ID!, $activity: ID!, $collection: ID!, $remote: ID!) {
-          live: node(id: $live) { ... on Object { to { iri target { iri ... on Actor { objects { totalCount } } } } } }
-          activity: node(id: $activity) { ... on Activity { actor { uuid } object { iri } } }
+          live: node(id: $live) { ... on Object { to { iri detail { ... on Actor { iri objects { totalCount } } ... on Collection { iri } } } } }
+          activity: node(id: $activity) { ... on Activity { actor { uuid } object { iri detail { __typename } } } }
           collection: node(id: $collection) { ... on Collection { owner { uuid } totalCount } }
           collections: nodes(ids: [$collection]) { ... on Collection { totalCount } }
           remote: node(id: $remote) { ... on Collection { totalCount items { edges { node { iri } } } } }
@@ -162,13 +162,16 @@ for (const deleted of ["actor", "object"] as const) {
       assert.equal(body.errors, undefined);
       assert.equal(body.data.live.to.length, 4);
       assert.equal(body.data.live.to[1].iri, hiddenIri);
-      assert.equal(body.data.live.to[1].target, null);
-      assert.equal(body.data.live.to[2].target.iri, PUBLIC_IRI);
+      assert.equal(body.data.live.to[1].detail, null);
+      assert.equal(body.data.live.to[2].iri, PUBLIC_IRI);
       assert.deepEqual(
         body.data.activity,
         deleted === "actor"
           ? null
-          : { actor: { uuid: localActorId }, object: null },
+          : {
+              actor: { uuid: localActorId },
+              object: { iri: hiddenIri, detail: null },
+            },
       );
       // A deleted actor hides its collections everywhere, like the actor
       // node itself: node, nodes, and addressing targets.
@@ -183,7 +186,7 @@ for (const deleted of ["actor", "object"] as const) {
         deleted === "actor" ? [null] : [{ totalCount: 3 }],
       );
       assert.deepEqual(
-        body.data.live.to[3].target,
+        body.data.live.to[3].detail,
         deleted === "actor" ? null : { iri: followersIri },
       );
       assert.deepEqual(
@@ -196,7 +199,7 @@ for (const deleted of ["actor", "object"] as const) {
             },
       );
       if (deleted === "actor") {
-        assert.equal(body.data.live.to[0].target, null);
+        assert.equal(body.data.live.to[0].detail, null);
         return;
       }
       const seen: string[] = [];
@@ -252,12 +255,155 @@ it("hides Create relations authored by a deleted actor", async () => {
       .where(eq(schema.actors.id, localActorId));
     const body = await (
       await post({
-        query: `query($id: ID!) { node(id: $id) { ... on Object { uuid createActivity { actor { uuid } } } } }`,
+        query: `query($id: ID!) { node(id: $id) { ... on Object { uuid activities(type: Create) { edges { node { actor { uuid } } } } } } }`,
         variables: { id: globalId("Object", id) },
       })
     ).json();
     assert.deepEqual(body, {
-      data: { node: { uuid: id, createActivity: null } },
+      data: { node: { uuid: id, activities: { edges: [] } } },
+    });
+  });
+});
+
+it("preserves resource identity through promotion and typed-node refetch", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const id = uuid();
+    const iri = "https://remote.example/unresolved";
+    await seedObjects(db, {
+      id,
+      actorId: localActorId,
+      type: "Note",
+      iri: `https://test.example/${id}`,
+      contentHtml: "reference",
+      addressing: { to: [iri] },
+    });
+    const query = `query($id: ID!) { node(id: $id) { ... on Object { to { id iri kind detail { __typename } } } } }`;
+    const before = await (
+      await post({ query, variables: { id: globalId("Object", id) } })
+    ).json();
+    assert.equal(before.errors, undefined);
+    const resource = before.data.node.to[0];
+    assert.deepEqual(resource, {
+      id: resource.id,
+      iri,
+      kind: "unknown",
+      detail: null,
+    });
+    await promoteResource(db, iri, "collection", async (tx, row) => {
+      await tx
+        .insert(schema.collections)
+        .values({ id: row.id, type: "OrderedCollection" });
+    });
+    const refetched = await (
+      await post({
+        query: `query($id: ID!) { node(id: $id) { id ... on Resource { kind detail { ... on Collection { type resource { id } } } } } }`,
+        variables: { id: resource.id },
+      })
+    ).json();
+    assert.deepEqual(refetched, {
+      data: {
+        node: {
+          id: resource.id,
+          kind: "collection",
+          detail: { type: "OrderedCollection", resource: { id: resource.id } },
+        },
+      },
+    });
+    const after = await (
+      await post({ query, variables: { id: globalId("Object", id) } })
+    ).json();
+    assert.deepEqual(after, {
+      data: {
+        node: {
+          to: [
+            {
+              ...resource,
+              kind: "collection",
+              detail: { __typename: "Collection" },
+            },
+          ],
+        },
+      },
+    });
+  });
+});
+
+it("lists every referencing activity and classifies the explicitly selected activity", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const id = uuid();
+    const firstId = uuid();
+    const secondId = uuid();
+    const followers = `https://test-instance.drfed.org/users/${localActorId}/followers`;
+    await seedObjects(db, {
+      id,
+      activityId: firstId,
+      actorId: localActorId,
+      type: "Note",
+      iri: `https://test.example/${id}`,
+      contentHtml: "no addressing",
+      addressing: {},
+      published: Temporal.Instant.from("2026-01-01T00:00:00Z"),
+    });
+    await db.transaction(async (tx) => {
+      await storeAddressing(tx, firstId, { to: [PUBLIC_IRI] });
+    });
+    await promoteResource(
+      db,
+      `https://test.example/${secondId}`,
+      "activity",
+      async (tx, resource) => {
+        await tx.insert(schema.activities).values({
+          id: resource.id,
+          actorId: localActorId,
+          objectId: id,
+          type: "Create",
+          published: Temporal.Instant.from("2026-01-02T00:00:00Z"),
+        });
+        await storeAddressing(tx, resource.id, { to: [followers] });
+      },
+      secondId,
+    );
+    const body = await (
+      await post({
+        query: `query($id: ID!) { node(id: $id) { ... on Object { activities(type: Create) { edges { node { id expectedClassifications { implementation classification } } } } all: activities { edges { node { id } } } } } }`,
+        variables: { id: globalId("Object", id) },
+      })
+    ).json();
+    assert.deepEqual(body, {
+      data: {
+        node: {
+          activities: {
+            edges: [
+              {
+                node: {
+                  id: globalId("Activity", firstId),
+                  expectedClassifications: [
+                    { implementation: "MASTODON", classification: "public" },
+                    { implementation: "MISSKEY", classification: "specified" },
+                  ],
+                },
+              },
+              {
+                node: {
+                  id: globalId("Activity", secondId),
+                  expectedClassifications: [
+                    { implementation: "MASTODON", classification: "private" },
+                    { implementation: "MISSKEY", classification: "specified" },
+                  ],
+                },
+              },
+            ],
+          },
+          all: {
+            edges: [
+              { node: { id: globalId("Activity", firstId) } },
+              { node: { id: globalId("Activity", secondId) } },
+            ],
+          },
+        },
+      },
     });
   });
 });

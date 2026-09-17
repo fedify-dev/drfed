@@ -37,7 +37,7 @@ import {
   seedRemoteActor,
 } from "./seed.test.ts";
 
-const fields = `id uuid iri url type actor { uuid } to { iri target { iri kind } } cc { target { iri } } name summary contentHtml language sensitive published updated created`;
+const fields = `id uuid iri url type actor { uuid } to { iri kind } cc { iri } name summary contentHtml language sensitive published updated created`;
 const mutation = `mutation Create($actor: ID!, $contentHtml: String!, $language: String, $type: ObjectType! = Note, $addressing: AddressingInput!) {
   createObject(actor: $actor, contentHtml: $contentHtml, language: $language, type: $type, addressing: $addressing) {
     resultType: __typename
@@ -56,7 +56,7 @@ const outboxQuery = `query($actor: ID!) {
       outbox {
         declaredTotalItems
         totalCount
-        items { edges { node { ... on Activity { type object { ... on Object { uuid } } } } } }
+        items { edges { node { detail { ... on Activity { type object { detail { ... on Object { uuid } } } } } } } }
       }
     }
   }
@@ -81,9 +81,7 @@ describe("Mutation.createObject", () => {
       const object = body.data.createObject;
       assert.equal(object.resultType, "Object");
       assert.equal(object.type, "Note");
-      assert.deepEqual(object.to, [
-        { iri: PUBLIC_IRI, target: { iri: PUBLIC_IRI, kind: "collection" } },
-      ]);
+      assert.deepEqual(object.to, [{ iri: PUBLIC_IRI, kind: "collection" }]);
       assert.equal(object.language, "ko-KR");
       assert.equal(object.contentHtml, contentHtml);
       assert.equal(
@@ -114,7 +112,14 @@ describe("Mutation.createObject", () => {
               totalCount: 1,
               items: {
                 edges: [
-                  { node: { type: "Create", object: { uuid: object.uuid } } },
+                  {
+                    node: {
+                      detail: {
+                        type: "Create",
+                        object: { detail: { uuid: object.uuid } },
+                      },
+                    },
+                  },
                 ],
               },
             },
@@ -135,6 +140,61 @@ describe("Mutation.createObject", () => {
         variables: { id: object.id },
       });
       assert.deepEqual(await node.json(), { data: { node: object } });
+    });
+  });
+  it("presents public outbox activities newest first in GraphQL and ActivityPub", async () => {
+    await withTestHarness(async ({ db, post, federation }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const created: { uuid: string; iri: string }[] = [];
+      for (const contentHtml of ["A", "B", "C"]) {
+        const body = await (
+          await post(
+            { query: mutation, variables: { ...variables, contentHtml } },
+            auth,
+          )
+        ).json();
+        assert.equal(body.errors, undefined);
+        created.push(body.data.createObject);
+      }
+      const graphql = await (
+        await post({
+          query: outboxQuery,
+          variables: { actor: variables.actor },
+        })
+      ).json();
+      assert.equal(graphql.errors, undefined);
+      const ids = graphql.data.node.outbox.items.edges.map(
+        (edge: {
+          node: { detail: { object: { detail: { uuid: string } } } };
+        }) => edge.node.detail.object.detail.uuid,
+      );
+      const response = await federation.fetch(
+        new Request(
+          `https://test-instance.drfed.org/users/${localActorId}/outbox?cursor=`,
+          { headers: accept },
+        ),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 200);
+      const page = await response.json();
+      const objects = page.orderedItems.map(
+        (item: { object: { id: string } | string }) =>
+          typeof item.object === "string" ? item.object : item.object.id,
+      );
+      const expected = created.toReversed();
+      assert.deepEqual(
+        ids,
+        expected.map((object) => object.uuid),
+      );
+      assert.deepEqual(
+        objects,
+        expected.map((object) => object.iri),
+      );
+      assert.deepEqual(
+        objects.map((iri: string) => iri.split("/").at(-1)),
+        ids,
+      );
     });
   });
   it("keeps deleted-object activity history in GraphQL but not ActivityPub outboxes", async () => {
@@ -165,7 +225,15 @@ describe("Mutation.createObject", () => {
             outbox: {
               declaredTotalItems: null,
               totalCount: 1,
-              items: { edges: [{ node: { type: "Create", object: null } }] },
+              items: {
+                edges: [
+                  {
+                    node: {
+                      detail: { type: "Create", object: { detail: null } },
+                    },
+                  },
+                ],
+              },
             },
           },
         },
@@ -605,7 +673,7 @@ describe("explicit addressing and persisted activities", () => {
       };
       const query = mutation.replace(
         "... on Object {",
-        "... on Object { document bto { target { iri } } bcc { target { iri } } audience { target { iri } } createActivity { id iri document type actor { uuid } object { iri kind ... on Object { contentHtml } } to { target { iri } } bto { target { iri } } }",
+        "... on Object { document bto { iri } bcc { iri } audience { iri } activities(first: 1, type: Create) { edges { node { id iri document type actor { uuid } object { iri kind detail { ... on Object { contentHtml } } } to { iri } bto { iri } } } }",
       );
       const create = async () => {
         const body = await (
@@ -617,27 +685,29 @@ describe("explicit addressing and persisted activities", () => {
       const object = await create();
       await create();
       assert.deepEqual(
-        object.to.map((r: { target: { iri: string } }) => r.target.iri),
+        object.to.map((r: { iri: string }) => r.iri),
         addressing.to,
       );
-      assert.equal(object.to[0].target.kind, "unknown");
+      assert.equal(object.to[0].kind, "unknown");
       assert.deepEqual(
-        object.audience.map((r: { target: { iri: string } }) => r.target.iri),
+        object.audience.map((r: { iri: string }) => r.iri),
         addressing.audience,
       );
-      assert.deepEqual(object.bto, [{ target: { iri: blind } }]);
+      assert.deepEqual(object.bto, [{ iri: blind }]);
       assert.deepEqual(object.bcc, object.bto);
-      assert.equal(object.createActivity.type, "Create");
-      assert.equal(object.createActivity.object.iri, object.iri);
-      assert.equal(object.createActivity.object.kind, "object");
+      assert.equal(object.activities.edges[0].node.type, "Create");
+      assert.equal(object.activities.edges[0].node.object.iri, object.iri);
+      assert.equal(object.activities.edges[0].node.object.kind, "object");
       assert.equal(
-        object.createActivity.object.contentHtml,
+        object.activities.edges[0].node.object.detail.contentHtml,
         variables.contentHtml,
       );
-      assert.deepEqual(object.createActivity.actor, { uuid: localActorId });
+      assert.deepEqual(object.activities.edges[0].node.actor, {
+        uuid: localActorId,
+      });
       for (const document of [
         object.document,
-        object.createActivity.document,
+        object.activities.edges[0].node.document,
       ]) {
         for (const [property, values] of Object.entries(addressing)) {
           assert.deepEqual(document[property], values);
@@ -658,7 +728,10 @@ describe("explicit addressing and persisted activities", () => {
         where: { id: object.uuid },
       });
       assert.deepEqual(stored?.document, object.document);
-      assert.deepEqual(activity.document, object.createActivity.document);
+      assert.deepEqual(
+        activity.document,
+        object.activities.edges[0].node.document,
+      );
       for (const iri of [object.iri, activity.resource.iri]) {
         const response = await federation.fetch(
           new Request(iri, {
@@ -719,7 +792,7 @@ describe("explicit addressing and persisted activities", () => {
           {
             query: mutation.replace(
               "... on Object {",
-              "... on Object { expectedClassifications { implementation version classification reason }",
+              "... on Object { activities(first: 1, type: Create) { edges { node { expectedClassifications { implementation version classification reason } } } }",
             ),
             variables: {
               ...variables,
@@ -734,7 +807,8 @@ describe("explicit addressing and persisted activities", () => {
         )
       ).json();
       assert.equal(body.errors, undefined);
-      const results = body.data.createObject.expectedClassifications;
+      const results =
+        body.data.createObject.activities.edges[0].node.expectedClassifications;
       assert.deepEqual(
         results.map((r: { implementation: string; classification: string }) => [
           r.implementation,

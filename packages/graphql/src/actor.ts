@@ -29,7 +29,7 @@ import { and, eq, gt, isNotNull, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
-import { Collection, Resource } from "./resource.ts";
+import { Collection, ResourceDetail } from "./resource.ts";
 
 const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
@@ -58,13 +58,18 @@ async function resolveActorCollection(
 
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
-  interfaces: [Resource],
   description: "Represents an `Actor` in the DrFed platform.",
   id: {
     column: ({ id }) => id,
     description: "The unique identifier of the `Actor`.",
   },
   fields: (t) => ({
+    resource: t.relation("resource"),
+    iri: t.field({
+      type: "URL",
+      select: { with: { resource: true } },
+      resolve: (row) => row.resource.iri,
+    }),
     uuid: t.expose("id", {
       type: "UUID",
       description: "The UUID of the `Actor`.",
@@ -149,6 +154,7 @@ const ActorRef = builder.drizzleNode("actors", {
 });
 
 export const Actor: DrFedObjectRef = ActorRef;
+ResourceDetail.addTypes([Actor]);
 
 const LocalActorRef = builder.drizzleNode("localActors", {
   name: "LocalActor",

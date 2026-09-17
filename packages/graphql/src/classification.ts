@@ -97,3 +97,50 @@ export function classifyMisskey(
     reason: `Expected: ${rule}. Only object addressing is considered. Receiver state and policy can change access.`,
   };
 }
+
+/**
+ * Converts stored addressing while preserving absent properties for fallback.
+ * @returns Addressing suitable for the classification rules.
+ */
+export function classificationInput(row: {
+  document: unknown;
+  addressing: readonly {
+    property: string;
+    position: number;
+    targetResource: { iri: string };
+  }[];
+}): AddressingRows {
+  const property = (name: "to" | "cc"): readonly string[] | undefined => {
+    const rows = row.addressing
+      .filter((entry) => entry.property === name)
+      .toSorted((left, right) => left.position - right.position);
+    if (rows.length > 0) return rows.map((entry) => entry.targetResource.iri);
+    const { document } = row;
+    return document != null &&
+      typeof document === "object" &&
+      name in document &&
+      document[name as keyof typeof document] != null
+      ? []
+      : undefined;
+  };
+  return { to: property("to"), cc: property("cc") };
+}
+
+/**
+ * Extracts the object author's canonical IRI and declared followers IRI.
+ * @returns The author identifiers used by the classification rules.
+ */
+export function classificationAuthor(actor: {
+  resource: { iri: string };
+  collectionReferences: readonly {
+    role: string;
+    collection: { resource: { iri: string } };
+  }[];
+}): Author {
+  return {
+    iri: actor.resource.iri,
+    followersIri:
+      actor.collectionReferences.find((entry) => entry.role === "followers")
+        ?.collection.resource.iri ?? null,
+  };
+}

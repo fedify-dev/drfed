@@ -21,46 +21,55 @@ import { resolveOffsetConnection } from "@pothos/plugin-relay";
 import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
+import {
+  classificationAuthor,
+  classificationInput,
+  classifyMastodon,
+  classifyMisskey,
+} from "./classification.ts";
+import { activitySelection, objectSelection } from "./federation.ts";
 
 export const ResourceKind = builder.enumType("ResourceKind", {
   values: schema.resourceKindEnum.enumValues,
 });
-export const Resource = builder.interfaceRef<{ id: Uuid }>("Resource");
-Resource.implement({
-  fields: (t) => ({
-    iri: t.field({
-      type: "URL",
-      resolve: async ({ id }, _, ctx) => {
-        const row = await ctx.db.query.resources.findFirst({ where: { id } });
-        if (row == null) throw new Error("Missing resource.");
-        return row.iri;
-      },
-    }),
-    kind: t.field({
-      type: ResourceKind,
-      resolve: async ({ id }, _, ctx) => {
-        const row = await ctx.db.query.resources.findFirst({ where: { id } });
-        if (row == null) throw new Error("Missing resource.");
-        return row.kind;
-      },
-    }),
-  }),
-  resolveType: async ({ id }, ctx) => {
+export const ResourceDetail = builder.unionType("ResourceDetail", {
+  types: () => [Activity, Collection],
+  resolveType: async (value, ctx) => {
+    const { id } = value as { id: Uuid };
     const row = await ctx.db.query.resources.findFirst({ where: { id } });
+    if (row == null || row.kind === "unknown") {
+      throw new Error("Missing typed resource.");
+    }
     return (
       {
         actor: "Actor",
         object: "Object",
         activity: "Activity",
         collection: "Collection",
-        unknown: "UnknownResource",
       } as const
-    )[row?.kind ?? "unknown"];
+    )[row.kind];
   },
 });
+const ResourceRef = builder.drizzleNode("resources", {
+  name: "Resource",
+  id: { column: (row) => row.id },
+  fields: (t) => ({
+    iri: t.expose("iri", { type: "URL" }),
+    kind: t.expose("kind", { type: ResourceKind }),
+    detail: t.field({
+      type: ResourceDetail,
+      nullable: true,
+      description:
+        "Typed details, or null while unknown or when the typed row or its author/owner is deleted.",
+      select: { columns: { id: true, iri: true, kind: true } },
+      resolve: (row, _, ctx) => resolveResource(ctx.db, row),
+    }),
+  }),
+});
+export const Resource: DrFedObjectRef = ResourceRef;
 
 /**
- * Loads the typed record so interface fragments see the complete entity.
+ * Loads the typed record so union fragments see the complete entity.
  * @returns The typed entity, or null when it or its author is deleted.
  */
 export async function resolveResource(
@@ -72,7 +81,7 @@ export async function resolveResource(
     columns: { id: true },
   });
   if (visible == null) return null;
-  if (row.kind === "unknown") return row;
+  if (row.kind === "unknown") return null;
   const where = { id: row.id };
   const result =
     row.kind === "actor"
@@ -88,48 +97,23 @@ export async function resolveResource(
   return result;
 }
 
-builder.drizzleNode("resources", {
-  name: "UnknownResource",
-  interfaces: [Resource],
-  id: { column: (row) => row.id },
-  fields: () => ({}),
-});
-const AddressingTarget = builder.objectRef<
-  typeof schema.addressing.$inferSelect & { targetResource: ResourceRow }
->("AddressingTarget");
-AddressingTarget.implement({
-  fields: (t) => ({
-    iri: t.field({
-      type: "URL",
-      description:
-        "The stored IRI, even when `target` is null because it or its author is deleted.",
-      resolve: (row) => row.targetResource.iri,
-    }),
-    target: t.field({
-      type: Resource,
-      nullable: true,
-      description:
-        "The target resource, or null if it or its author is deleted.",
-      resolve: (row, _, ctx) => resolveResource(ctx.db, row.targetResource),
-    }),
-  }),
-});
-
 export function registerAddressingFields(
   table: "objects" | "activities",
 ): void {
   for (const property of schema.addressingPropertyEnum.enumValues) {
     builder.drizzleObjectField(table, property, (t) =>
       t.field({
-        type: [AddressingTarget],
+        type: [Resource],
         description: `Stored ${property} occurrences, in original order including duplicates.`,
         select: { columns: { id: true } },
-        resolve: (row, _, ctx) =>
-          ctx.db.query.addressing.findMany({
-            where: { sourceId: row.id, property },
-            orderBy: { position: "asc" },
-            with: { targetResource: true },
-          }),
+        resolve: async (row, _, ctx) =>
+          (
+            await ctx.db.query.addressing.findMany({
+              where: { sourceId: row.id, property },
+              orderBy: { position: "asc" },
+              with: { targetResource: true },
+            })
+          ).map((entry) => entry.targetResource),
       }),
     );
   }
@@ -144,9 +128,14 @@ const CollectionRef = builder.drizzleNode("collections", {
     columns: { id: true },
     with: { ownerActor: { columns: { deleted: true } } },
   },
-  interfaces: [Resource],
   id: { column: (row) => row.id },
   fields: (t) => ({
+    resource: t.relation("resource"),
+    iri: t.field({
+      type: "URL",
+      select: { with: { resource: true } },
+      resolve: (row) => row.resource.iri,
+    }),
     type: t.expose("type", { type: CollectionType }),
     owner: t.relation("ownerActor", {
       nullable: true,
@@ -187,16 +176,30 @@ const CollectionRef = builder.drizzleNode("collections", {
             limit,
             with: { item: true },
           });
-          return await Promise.all(
-            items.map((item) => resolveResource(ctx.db, item.item)),
-          );
+          return items.map((item) => item.item);
         }),
     }),
   }),
 });
 export const Collection: DrFedObjectRef = CollectionRef;
 
-const ActivityType = builder.enumType("ActivityType", {
+const Implementation = builder.enumType("Implementation", {
+  values: ["MASTODON", "MISSKEY"] as const,
+});
+const ExpectedClassification = builder.objectRef<
+  ReturnType<typeof classifyMastodon>
+>("ExpectedClassification");
+ExpectedClassification.implement({
+  description:
+    "Expected classification; actual access depends on receiver state and policy.",
+  fields: (t) => ({
+    implementation: t.expose("implementation", { type: Implementation }),
+    version: t.exposeString("version"),
+    classification: t.exposeString("classification"),
+    reason: t.exposeString("reason"),
+  }),
+});
+export const ActivityType = builder.enumType("ActivityType", {
   values: schema.activityTypeEnum.enumValues,
 });
 const ActivityRef = builder.drizzleNode("activities", {
@@ -205,17 +208,60 @@ const ActivityRef = builder.drizzleNode("activities", {
     columns: { id: true },
     with: { actor: { columns: { deleted: true } } },
   },
-  interfaces: [Resource],
   id: { column: (row) => row.id },
   fields: (t) => ({
+    resource: t.relation("resource"),
+    iri: t.field({
+      type: "URL",
+      select: { with: { resource: true } },
+      resolve: (row) => row.resource.iri,
+    }),
     type: t.expose("type", { type: ActivityType }),
     actor: t.relation("actor"),
     object: t.field({
       type: Resource,
       nullable: true,
       select: { with: { object: true } },
-      resolve: (row, _, ctx) =>
-        row.object == null ? null : resolveResource(ctx.db, row.object),
+      resolve: (row) => row.object,
+    }),
+    expectedClassifications: t.field({
+      type: [ExpectedClassification],
+      description:
+        "Expected classifications for this activity and its Object. Empty if the object is absent, hidden, or not an Object.",
+      select: { columns: { id: true } },
+      resolve: async (activity, _, ctx) => {
+        const row = await ctx.db.query.activities.findFirst({
+          where: { id: activity.id },
+          with: activitySelection,
+        });
+        if (row?.objectId == null) return [];
+        const object = await ctx.db.query.objects.findFirst({
+          where: {
+            id: row.objectId,
+            deleted: { isNull: true },
+            actor: { deleted: { isNull: true } },
+          },
+          with: {
+            ...objectSelection,
+            actor: {
+              with: {
+                resource: true,
+                collectionReferences: {
+                  with: { collection: { with: { resource: true } } },
+                },
+              },
+            },
+          },
+        });
+        if (object == null) return [];
+        const addressing = classificationInput(object);
+        const input = classificationInput(row);
+        const author = classificationAuthor(object.actor);
+        return [
+          classifyMastodon(addressing, input, author),
+          classifyMisskey(addressing, input, author),
+        ];
+      },
     }),
     published: t.expose("published", { type: "DateTime" }),
     document: t.expose("document", { type: "JSON", nullable: true }),
