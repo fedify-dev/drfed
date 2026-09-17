@@ -43,6 +43,11 @@ const createInstanceMutation = graphql`
   }
 `;
 
+// Mirrors `isValidSlug()` in `@drfed/models/slug`, which the server enforces
+// along with a matching database constraint.  Kept as a copy rather than an
+// import, because this package talks to the server only over GraphQL and
+// should not take a dependency on its packages for a check that is only here
+// to save a round trip; the server remains the authority.
 const createInstanceSchema = v.object({
   slug: v.pipe(
     v.string(),
@@ -50,8 +55,14 @@ const createInstanceSchema = v.object({
     v.minLength(4, "The slug must contain at least 4 characters."),
     v.maxLength(63, "The slug must contain at most 63 characters."),
     v.regex(
-      /^[a-z0-9-]+$/u,
-      "The slug can contain only lowercase letters, numbers, and hyphens.",
+      /^[a-z0-9][a-z0-9-]*[a-z0-9]$/u,
+      "The slug can contain only lowercase letters, numbers, and hyphens, " +
+        "and must start and end with a letter or a number.",
+    ),
+    v.check(
+      (slug) => !/^..--/u.test(slug) || slug.startsWith("xn--"),
+      "The slug cannot have two hyphens as its third and fourth characters, " +
+        "unless it begins with `xn--`.",
     ),
   ),
 });
