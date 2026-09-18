@@ -56,7 +56,7 @@ export interface ServerContext {
   readonly mailer: Transport;
 
   /**
-   * Email address to send.
+   * The address login mail is sent from.
    */
   readonly emailFrom: string;
 
@@ -66,9 +66,11 @@ export interface ServerContext {
   readonly loginOrigins: ReadonlySet<string>;
 
   /**
-   * Root domain.
+   * The root origin of this deployment, which every instance's subdomain is
+   * derived from.  It is always equal to its own origin, i.e. it carries no
+   * path, query or credentials.
    */
-  readonly root: string;
+  readonly rootOrigin: URL;
 
   /**
    * The federation instance.

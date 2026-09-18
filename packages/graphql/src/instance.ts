@@ -15,11 +15,13 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { schema } from "@drfed/models";
+import { isValidSlug } from "@drfed/models/slug";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { DrizzleQueryError } from "drizzle-orm";
 import { eq } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
+import { instanceHost } from "./origin.ts";
 
 const InstanceRef = builder.drizzleNode("instances", {
   name: "Instance",
@@ -35,6 +37,21 @@ const InstanceRef = builder.drizzleNode("instances", {
       type: "UUID",
     }),
     host: t.exposeString("host"),
+    url: t.string({
+      description:
+        "The absolute origin the `Instance` is served at, e.g. " +
+        "`https://foo-bar.drfed.net`.  Local instances follow this " +
+        "deployment's root origin, so a development deployment yields an " +
+        "`http:` URL carrying its port; remote instances are always `https:`.",
+      resolve(instance, _args, ctx) {
+        // Built by concatenation rather than through `URL`, so that a host
+        // which is not a parseable authority yields a useless string instead
+        // of throwing in the middle of a query.
+        const scheme =
+          instance.localId == null ? "https:" : ctx.rootOrigin.protocol;
+        return `${scheme}//${instance.host}`;
+      },
+    }),
     created: t.expose("created", {
       type: "DateTime",
       description: "The creation date/time of the `Instance`.",
@@ -144,7 +161,7 @@ builder.queryFields((t) => ({
 export const CreateInstanceErrorType = builder.enumType(
   "CreateInstanceErrorType",
   {
-    values: ["SlugAlreadyTaken", "TooManyInstances"] as const,
+    values: ["InvalidSlug", "SlugAlreadyTaken", "TooManyInstances"] as const,
   },
 );
 
@@ -193,8 +210,8 @@ builder.mutationFields((t) => ({
         type: "String",
         required: true,
         description:
-          "A unique instance slug, which will be a part of the instance " +
-          "domain name (e.g., `slug.drfed.net`).",
+          "A unique instance slug, which becomes the leftmost label of the " +
+          "instance's domain name, e.g. `slug` in `slug.example.com`.",
       }),
     },
     async resolve(_query, { slug }, ctx) {
@@ -204,6 +221,38 @@ builder.mutationFields((t) => ({
         throw new Error("You must be authenticated to create an instance.");
       }
       const { account } = ctx;
+      // Checked here rather than left to the database constraint, which
+      // surfaces as an unhandled query error.  The second half catches what
+      // the shape rules cannot: an `xn--` label that is not decodable
+      // Punycode composes a host this runtime refuses to parse, and an
+      // instance nothing can address is worse than a rejected slug.  Whether
+      // a label decodes is answered by the runtime's own ICU, so it is asked
+      // of the composed host here rather than baked into `isValidSlug()`,
+      // which every deployment has to agree on.
+      // Composed as a string, not through `instanceOrigin()`, which builds a
+      // `URL` and would throw here rather than answer.
+      const host = instanceHost(ctx.rootOrigin, slug);
+      if (!isValidSlug(slug)) {
+        return {
+          type: "InvalidSlug" as const,
+          message:
+            `The slug ${JSON.stringify(slug)} is not usable as a ` +
+            "domain name label.  It must be 4 to 63 characters of lowercase " +
+            "letters, digits and hyphens, and start and end with a letter " +
+            "or a digit.",
+        };
+      }
+      if (!URL.canParse(`${ctx.rootOrigin.protocol}//${host}`)) {
+        // Reached by a slug that satisfies every rule above, so it needs its
+        // own message: the shape text would name conditions this slug meets.
+        return {
+          type: "InvalidSlug" as const,
+          message:
+            `The slug ${JSON.stringify(slug)} composes the host name ` +
+            `${JSON.stringify(host)}, which this server cannot parse.  A ` +
+            "slug beginning with `xn--` has to be decodable Punycode.",
+        };
+      }
       let tooManyInstances = false;
       try {
         return await ctx.db.transaction(async (tx) => {
@@ -220,7 +269,6 @@ builder.mutationFields((t) => ({
           if (local == null) {
             throw new Error("Failed to create local instance.");
           }
-          const host = `${slug}.${ctx.root}`;
           const [instance] = await tx
             .insert(schema.instances)
             .values({ id: uuid(), localId: local.id, host })

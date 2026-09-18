@@ -73,6 +73,10 @@
     "./login": {
       "types": "./dist/login.d.mts",
       "default": "./dist/login.mjs"
+    },
+    "./slug": {
+      "types": "./dist/slug.d.mts",
+      "default": "./dist/slug.mjs"
     }
   },
   "files": [
@@ -89,7 +93,8 @@
       "src/relations.ts",
       "src/schema.ts",
       "src/uuid.ts",
-      "src/login.ts"
+      "src/login.ts",
+      "src/slug.ts"
     ],
     "dts": {
       "sourcemap": true,

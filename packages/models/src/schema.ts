@@ -78,7 +78,13 @@ export const instances = pgTable("instances", {
   created: timestamp({ withTimezone: true })
     .notNull()
     .default(currentTimestamp),
-  host: varchar({ length: 100 }).notNull().unique(),
+  // The authority an instance is federated under, which is what Fedify's
+  // `Context.host` reports and therefore what dispatchers look instances up
+  // by.  That is a DNS name, at most 253 octets, plus a `:port` suffix of up
+  // to 6 more characters when the deployment is not on the scheme's default
+  // port.  Both locally composed `<slug>.<root domain>` names and remote
+  // hosts discovered from the fediverse live here.
+  host: varchar({ length: 259 }).notNull().unique(),
   nodeInfoUrl: text(),
   software: text(),
   softwareVersion: text(),
@@ -96,7 +102,16 @@ export const localInstances = pgTable(
     maxActors: integer().notNull().default(10),
   },
   (table) => [
-    check("instances_slug_check", sql`${table.slug} ~ '^[a-z0-9-]{4,63}$'`),
+    // Keep this in agreement with `isValidSlug()` in ./slug.ts.  A slug
+    // becomes the leftmost label of the instance's host name, so it has to be
+    // a valid DNS label: no leading or trailing hyphen, and none of RFC 5891's
+    // reserved LDH labels except the `xn--` prefix of an A-label, which stays
+    // allowed so that instances can carry internationalized domain names.
+    check(
+      "local_instances_slug_check",
+      sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{2,61}[a-z0-9]$'
+        AND (${table.slug} !~ '^..--' OR ${table.slug} ~ '^xn--')`,
+    ),
     check("instances_max_actors_check", sql`${table.maxActors} > 0`),
   ],
 );

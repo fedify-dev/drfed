@@ -245,7 +245,7 @@ builder.mutationFields((t) => ({
         // Find the instance that the account is included
         const [instance] = await tx
           .select({
-            slug: schema.localInstances.slug,
+            host: schema.instances.host,
             maxActors: schema.localInstances.maxActors,
           })
           .from(schema.instanceMembers)
@@ -273,8 +273,10 @@ builder.mutationFields((t) => ({
             message: "Can't find the instance.",
           };
         }
-        const { slug, maxActors } = instance;
-        const host = `${slug}.${ctx.root}`;
+        // Read the stored authority rather than recomposing it from the
+        // slug, so that actor URIs cannot drift from the instance the rest of
+        // the fediverse already knows.
+        const { host, maxActors } = instance;
         const currActors = await tx.$count(
           schema.actors,
           eq(schema.actors.instanceId, targetInstanceId),
@@ -292,7 +294,7 @@ builder.mutationFields((t) => ({
         }
         // Create actors
         const fedCtx = ctx.federation.createContext(
-          new URL(`https://${host}`),
+          new URL(`${ctx.rootOrigin.protocol}//${host}`),
           undefined,
         );
         const ids = Array.from({ length: size }, () => ({ id: uuid() }));

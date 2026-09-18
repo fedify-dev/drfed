@@ -292,8 +292,8 @@ the `tsdown` configuration before writing tests:
 }
 ~~~~
 
-Each package with tests exposes a `test` npm script that runs Node.js's
-built-in test runner:
+Every package except `@drfed/web` exposes a `test` npm script that runs
+Node.js's built-in test runner:
 
 ~~~~ json
 "scripts": {
@@ -362,13 +362,33 @@ The CLI parser lives in *packages/drfed/src/parser.ts*, the program metadata in
 
 The server currently supports:
 
+ -  `--root-origin`/`-r` for the origin instances are subdomains of.  Required.
  -  `--listen`/`-l` for the host and port, defaulting to `localhost:8888`.
  -  `--pglite-data-path`/`--data-path`/`-d` for local PGlite storage.
  -  `--postgres-url`/`--database-url`/`-D` for PostgreSQL.
  -  `--no-migrate`/`-M` to disable automatic migrations.
+ -  `--email-from`/`-f` for the sender of login mail, defaulting to `noreply@`
+    at the root origin's host name.
+ -  `--smtp-url`/`-s` for the SMTP server to deliver mail through.
 
 Keep CLI options explicit and documented through Optique descriptions, because
-those descriptions feed the generated help output.
+those descriptions feed the generated help output.  Options that name a web
+origin should use Optique's `origin()` value parser rather than `url()`, so
+that every spelling of the same origin is normalized the same way.
+*packages/drfed/src/valueparser.ts* wraps it as `rootOrigin()` to add the two
+rules that are DrFed's own: the root origin may not name an IP address, since
+every instance is a subdomain of it, and its host name may not run past the 253
+octets DNS allows, since login mail is sent from that domain.
+
+Requests are routed by the authority they arrive on, in
+*packages/drfed/src/serving.ts*.  A subdomain one label below the root origin
+is an instance and serves ActivityPub only; the root origin and every other
+authority serve GraphQL and never answer as an instance; anything deeper under
+the root domain is answered 421, and an unusable `Host` header 400.  The
+classification itself lives in *packages/graphql/src/origin.ts* alongside the
+functions that compose an instance's authority, so that the two can never
+disagree about what an instance host looks like.  Anything that changes how a
+host is composed or compared belongs there, not in the server.
 
 
 Quality bar
@@ -377,10 +397,15 @@ Quality bar
 Before sending a pull request, run:
 
 ~~~~ sh
-mise run check
 mise run build
+mise run check
 mise run test
 ~~~~
+
+Build first.  `mise run check` type-checks each package against the *dist/* of
+the ones it depends on, so on a fresh checkout, or after adding a subpath
+export, checking before building reports missing modules that are not actually
+missing.  This is the order CI uses.
 
 Run `mise run dev` for changes that affect startup, CLI parsing, migration
 execution, the GraphQL server, or package build output.  Manually verify the

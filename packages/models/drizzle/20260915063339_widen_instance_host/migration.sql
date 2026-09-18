@@ -1,0 +1,1 @@
+ALTER TABLE "instances" ALTER COLUMN "host" SET DATA TYPE varchar(259) USING "host"::varchar(259);

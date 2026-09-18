@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 
 import { type Database, schema } from "@drfed/models";
 import { describe, it } from "@logtape/testing-node/autoload";
+import { eq } from "drizzle-orm/sql/expressions";
 
 import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
@@ -155,6 +156,61 @@ describe("Mutation.generateActors", () => {
         new Set(actors.map(({ localId }) => localId)),
       );
     });
+  });
+
+  it("builds actor URIs from the stored host and the root scheme", async () => {
+    // The stored host deliberately disagrees with what recomposing
+    // `${slug}.${root}` would produce, and the root origin is HTTP on a
+    // non-default port.  Both are visible in the generated URIs only if the
+    // resolver reads `instances.host` and takes the scheme from the root
+    // origin, rather than assembling `https://${slug}.${root}` itself.
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await db
+        .update(schema.instances)
+        .set({ host: "renamed.drfed.localhost:8888" })
+        .where(eq(schema.instances.id, localInstanceId));
+
+      const response = await post(
+        {
+          query: generateActorsMutation,
+          variables: {
+            instance: globalId("Instance", localInstanceId),
+            size: 1,
+          },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(body.data.generateActors.resultType, "CreateActorsSuccess");
+      const [generated] = body.data.generateActors.actors;
+      assert.equal(
+        generated.iri,
+        `http://renamed.drfed.localhost:8888/users/${generated.uuid}`,
+      );
+
+      const [actor] = await db.select().from(schema.actors);
+      assert.ok(actor != null);
+      for (const url of [
+        actor.iri,
+        actor.inboxUrl,
+        actor.outboxUrl,
+        actor.followersUrl,
+        actor.followingUrl,
+        actor.featuredUrl,
+        actor.profileUrl,
+      ]) {
+        assert.ok(url != null);
+        assert.equal(
+          new URL(url).origin,
+          "http://renamed.drfed.localhost:8888",
+          url,
+        );
+      }
+    }, new URL("http://drfed.localhost:8888"));
   });
 });
 

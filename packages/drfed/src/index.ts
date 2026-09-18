@@ -38,6 +38,7 @@ import type {
 } from "./parser.ts";
 import program from "./program.ts";
 import seedData from "./seed.ts";
+import { createFetchHandler, warnAboutStrandedInstances } from "./serving.ts";
 
 async function runServer(options: ServerOptions) {
   const values = process.env.DRFED_LOGIN_ORIGINS?.split(",").map((value) =>
@@ -66,20 +67,21 @@ async function runServer(options: ServerOptions) {
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
   const federation = await createFederation(options.drizzle.db, { kv });
-  const { mailer, root } = options;
+  const { emailFrom, mailer, rootOrigin } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
-    root,
+    rootOrigin,
+    emailFrom,
     mailer,
     loginOrigins,
   });
+  await warnAboutStrandedInstances(options.drizzle.db, rootOrigin);
   const server = serve({
-    fetch: (req) =>
-      federation.fetch(req, {
-        onNotFound: yogaServer.fetch,
-        onNotAcceptable: yogaServer.fetch,
-        contextData: undefined,
-      }),
+    fetch: createFetchHandler({
+      federation,
+      rootOrigin,
+      serveControlSurface: yogaServer.fetch,
+    }),
     hostname: options.address.host,
     manual: true,
     port: options.address.port,
