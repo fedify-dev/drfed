@@ -16,8 +16,9 @@
 
 import { type Database, schema } from "@drfed/models";
 import type { Resource as ResourceRow } from "@drfed/models/schema";
-import type { Uuid } from "@drfed/models/uuid";
-import { resolveOffsetConnection } from "@pothos/plugin-relay";
+import { type Uuid, validateUuid } from "@drfed/models/uuid";
+import { PothosValidationError } from "@pothos/core";
+import { resolveCursorConnection } from "@pothos/plugin-relay";
 import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
@@ -164,24 +165,139 @@ const CollectionRef = builder.drizzleNode("collections", {
       description:
         "The locally stored, visible members. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this connection and `totalCount`.",
       select: { columns: { id: true } },
-      resolve: (row, args, ctx) =>
-        resolveOffsetConnection({ args }, async ({ offset, limit }) => {
-          const items = await ctx.db.query.collectionItems.findMany({
-            where: {
-              collectionId: row.id,
-              RAW: (table) => visibleResource(table.itemId),
+      resolve: (row, args, ctx) => {
+        const positions = new Map<Uuid, number | null>();
+        return resolveCursorConnection<Promise<ResourceRow[]>>(
+          {
+            args,
+            toCursor: (item: ResourceRow) => {
+              if (!positions.has(item.id)) {
+                throw new Error("Missing collection item position.");
+              }
+              return encodeCollectionCursor({
+                position: positions.get(item.id)!,
+                itemId: item.id,
+              });
             },
-            orderBy: { position: "asc", itemId: "asc" },
-            offset,
-            limit,
-            with: { item: true },
-          });
-          return items.map((item) => item.item);
-        }),
+          },
+          async ({ before, after, limit, inverted }) => {
+            const parsedBefore =
+              before == null ? undefined : parseCollectionCursor(before);
+            const parsedAfter =
+              after == null ? undefined : parseCollectionCursor(after);
+            const items = await ctx.db.query.collectionItems.findMany({
+              where: {
+                collectionId: row.id,
+                RAW: (table) =>
+                  and(
+                    visibleResource(table.itemId),
+                    collectionCursorPredicate(
+                      table.position,
+                      table.itemId,
+                      parsedBefore,
+                      parsedAfter,
+                    ),
+                  )!,
+              },
+              orderBy: collectionItemsOrder(inverted),
+              limit,
+              with: { item: true },
+            });
+            for (const item of items) {
+              positions.set(item.itemId, item.position);
+            }
+            return items.map((item) => item.item);
+          },
+        );
+      },
     }),
   }),
 });
 export const Collection: DrFedObjectRef = CollectionRef;
+
+interface CollectionCursor {
+  position: number | null;
+  itemId: Uuid;
+}
+
+const BASE64_PATTERN =
+  /^(?:[A-Za-z\d+/]{4})*(?:[A-Za-z\d+/]{2}==|[A-Za-z\d+/]{3}=)?$/u;
+
+function encodeCollectionCursor(cursor: CollectionCursor): string {
+  return Buffer.from(JSON.stringify([cursor.position, cursor.itemId])).toString(
+    "base64",
+  );
+}
+
+function parseCollectionCursor(cursor: string): CollectionCursor {
+  if (cursor === "" || !BASE64_PATTERN.test(cursor)) {
+    throw new PothosValidationError("Invalid collection cursor.");
+  }
+  const decoded = Buffer.from(cursor, "base64");
+  if (decoded.toString("base64") !== cursor) {
+    throw new PothosValidationError("Invalid collection cursor.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(decoded.toString("utf8"));
+  } catch {
+    throw new PothosValidationError("Invalid collection cursor.");
+  }
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new PothosValidationError("Invalid collection cursor.");
+  }
+  const [position, itemId] = value;
+  if (
+    (position !== null &&
+      (!Number.isInteger(position) ||
+        position < -2_147_483_648 ||
+        position > 2_147_483_647)) ||
+    !validateUuid(itemId)
+  ) {
+    throw new PothosValidationError("Invalid collection cursor.");
+  }
+  return { position, itemId };
+}
+
+function collectionCursorPredicate(
+  positionColumn: SQLWrapper,
+  itemIdColumn: SQLWrapper,
+  before?: CollectionCursor,
+  after?: CollectionCursor,
+): SQL | undefined {
+  return and(
+    after == null
+      ? undefined
+      : after.position == null
+        ? sql`${positionColumn} is null and ${itemIdColumn} > ${after.itemId}`
+        : sql`(
+            ${positionColumn} > ${after.position}
+            or (${positionColumn} = ${after.position} and ${itemIdColumn} > ${after.itemId})
+            or ${positionColumn} is null
+          )`,
+    before == null
+      ? undefined
+      : before.position == null
+        ? sql`(
+            ${positionColumn} is not null
+            or (${positionColumn} is null and ${itemIdColumn} < ${before.itemId})
+          )`
+        : sql`(
+            ${positionColumn} < ${before.position}
+            or (${positionColumn} = ${before.position} and ${itemIdColumn} < ${before.itemId})
+          )`,
+  );
+}
+
+function collectionItemsOrder(inverted: boolean): {
+  position: "asc" | "desc";
+  itemId: "asc" | "desc";
+} {
+  // The keyset predicates rely on PostgreSQL's default ASC NULLS LAST and
+  // DESC NULLS FIRST ordering.
+  const direction = inverted ? "desc" : "asc";
+  return { position: direction, itemId: direction };
+}
 
 const Implementation = builder.enumType("Implementation", {
   values: ["MASTODON", "MISSKEY"] as const,

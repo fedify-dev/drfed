@@ -18,16 +18,22 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import { promoteResource, schema, storeAddressing } from "@drfed/models";
+import {
+  type Database,
+  promoteResource,
+  schema,
+  storeAddressing,
+} from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
-import { uuidV7 as uuid } from "@drfed/models/uuid";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { eq } from "drizzle-orm";
 
-import { withTestHarness } from "./harness.test.ts";
+import { type TestHarness, withTestHarness } from "./harness.test.ts";
 import {
   globalId,
   localActorId,
   remoteActorId,
+  seedAuthenticatedLocalInstance,
   seedLocalActor,
   seedObjects,
   seedRemoteActor,
@@ -405,5 +411,196 @@ it("lists every referencing activity and classifies the explicitly selected acti
         },
       },
     });
+  });
+});
+
+interface ItemsPage {
+  edges: { cursor: string; node: { iri: string } }[];
+  pageInfo: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor: string | null;
+  };
+}
+type Post = TestHarness["post"];
+const itemsQuery = `query($id: ID!, $first: Int, $after: String, $last: Int, $before: String) {
+  node(id: $id) {
+    ... on Collection {
+      items(first: $first, after: $after, last: $last, before: $before) {
+        edges { cursor node { iri } }
+        pageInfo { hasNextPage hasPreviousPage startCursor }
+      }
+    }
+  }
+}`;
+const createNote = `mutation($actor: ID!, $contentHtml: String!, $addressing: AddressingInput!) {
+  createObject(actor: $actor, contentHtml: $contentHtml, addressing: $addressing) {
+    ... on Object { uuid }
+  }
+}`;
+const iris = (page: ItemsPage): string[] =>
+  page.edges.map((edge) => edge.node.iri);
+const objectIri = (id: string): string => `https://test.example/${id}`;
+
+async function fetchItems(
+  post: Post,
+  collectionId: Uuid,
+  args: {
+    first?: number;
+    after?: string | undefined;
+    last?: number;
+    before?: string;
+  },
+): Promise<ItemsPage> {
+  const body = await (
+    await post({
+      query: itemsQuery,
+      variables: { id: globalId("Collection", collectionId), ...args },
+    })
+  ).json();
+  assert.equal(body.errors, undefined);
+  return body.data.node.items;
+}
+
+/**
+ * Walks `items(first: 1)` to the end, running `between` after the first page.
+ * @returns The IRIs of every returned item, in order.
+ */
+async function walkForward(
+  post: Post,
+  collectionId: Uuid,
+  between: () => Promise<void>,
+): Promise<string[]> {
+  const seen: string[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 10; page += 1) {
+    const items = await fetchItems(post, collectionId, { first: 1, after });
+    seen.push(...iris(items));
+    if (page === 0) await between();
+    if (!items.pageInfo.hasNextPage) break;
+    after = items.edges.at(-1)?.cursor;
+  }
+  return seen;
+}
+
+async function collectionIdOf(
+  db: Database,
+  role: "outbox" | "featured",
+): Promise<Uuid> {
+  const reference = await db.query.actorCollectionReferences.findFirst({
+    where: { actorId: localActorId, role },
+  });
+  assert.ok(reference);
+  return reference.collectionId;
+}
+
+/**
+ * Seeds live local objects.
+ * @returns The object ids in ascending order.
+ */
+async function seedItems(db: Database, count: number): Promise<Uuid[]> {
+  const ids = Array.from({ length: count }, () => uuid()).toSorted();
+  await seedObjects(
+    db,
+    ids.map((id) => ({
+      id,
+      actorId: localActorId,
+      type: "Note" as const,
+      iri: objectIri(id),
+      contentHtml: "item",
+    })),
+  );
+  return ids;
+}
+
+it("pages an outbox without duplicates or omissions when a post is created between requests", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await seedLocalActor(db);
+    const create = async (contentHtml: string): Promise<string> => {
+      const body = await (
+        await post(
+          {
+            query: createNote,
+            variables: {
+              actor: globalId("Actor", localActorId),
+              contentHtml,
+              addressing: { to: [PUBLIC_IRI] },
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.equal(body.errors, undefined);
+      const activity = await db.query.activities.findFirst({
+        where: { objectId: body.data.createObject.uuid },
+        with: { resource: true },
+      });
+      assert.ok(activity);
+      return activity.resource.iri;
+    };
+    const first = await create("A");
+    const second = await create("B");
+    const seen = await walkForward(
+      post,
+      await collectionIdOf(db, "outbox"),
+      async () => {
+        await create("C");
+      },
+    );
+    assert.deepEqual(seen, [second, first]);
+  });
+});
+
+it("pages past null positions when an item is prepended between requests", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const collectionId = await collectionIdOf(db, "featured");
+    const [positioned, firstNull, secondNull, prepended] = await seedItems(
+      db,
+      4,
+    );
+    assert.ok(positioned && firstNull && secondNull && prepended);
+    await db.insert(schema.collectionItems).values([
+      { collectionId, itemId: secondNull, position: null },
+      { collectionId, itemId: positioned, position: 0 },
+      { collectionId, itemId: firstNull, position: null },
+    ]);
+    const seen = await walkForward(post, collectionId, async () => {
+      await db
+        .insert(schema.collectionItems)
+        .values({ collectionId, itemId: prepended, position: -1 });
+    });
+    assert.deepEqual(seen, [positioned, firstNull, secondNull].map(objectIri));
+  });
+});
+
+it("pages a collection backward in the same edge order as forward", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const collectionId = await collectionIdOf(db, "featured");
+    const ids = await seedItems(db, 3);
+    await db.insert(schema.collectionItems).values(
+      ids.map((itemId, index) => ({
+        collectionId,
+        itemId,
+        position: index === 2 ? null : index,
+      })),
+    );
+    const expected = ids.map(objectIri);
+    assert.deepEqual(
+      iris(await fetchItems(post, collectionId, { first: 10 })),
+      expected,
+    );
+    const tail = await fetchItems(post, collectionId, { last: 2 });
+    assert.deepEqual(iris(tail), expected.slice(1));
+    assert.equal(tail.pageInfo.hasPreviousPage, true);
+    assert.ok(tail.pageInfo.startCursor);
+    const head = await fetchItems(post, collectionId, {
+      last: 2,
+      before: tail.pageInfo.startCursor,
+    });
+    assert.deepEqual(iris(head), expected.slice(0, 1));
+    assert.equal(head.pageInfo.hasPreviousPage, false);
   });
 });
