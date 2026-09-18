@@ -30,9 +30,12 @@ import { withTestHarness } from "./harness.test.ts";
 import {
   globalId,
   localActorId,
+  localInstanceId,
   remoteActorId,
+  seedActors,
   seedAuthenticatedLocalInstance,
   seedLocalActor,
+  seedLocalInstance,
   seedObjects,
   seedRemoteActor,
 } from "./seed.test.ts";
@@ -64,6 +67,64 @@ const outboxQuery = `query($actor: ID!) {
 const accept = { accept: "application/activity+json" };
 
 describe("Mutation.createObject", () => {
+  for (const rootOrigin of [
+    "http://drfed.org",
+    "http://drfed.localhost:8888",
+  ]) {
+    it(`preserves the protocol and port of ${rootOrigin} in fetchable resource IRIs`, async () => {
+      await withTestHarness(async ({ db, post, federation }) => {
+        const origin = new URL(rootOrigin);
+        const host = `test-instance.${origin.host}`;
+        const base = `${origin.protocol}//${host}`;
+        await seedLocalInstance(db, host);
+        const auth = await seedAuthenticatedLocalInstance(db);
+        await db.insert(schema.localActors).values({ id: localActorId });
+        await seedActors(db, {
+          id: localActorId,
+          localId: localActorId,
+          instanceId: localInstanceId,
+          type: "Person",
+          username: "alice",
+          iri: `${base}/users/${localActorId}`,
+          inboxUrl: `${base}/users/${localActorId}/inbox`,
+        });
+        const body = await (
+          await post({ query: mutation, variables }, auth)
+        ).json();
+        assert.equal(body.errors, undefined);
+        const object = body.data.createObject;
+        assert.equal(object.resultType, "Object");
+        const stored = await db.query.objects.findFirst({
+          where: { id: object.uuid },
+          with: { resource: true },
+        });
+        const activity = await db.query.activities.findFirst({
+          where: { objectId: object.uuid },
+          with: { resource: true },
+        });
+        assert.ok(stored);
+        assert.ok(activity);
+        assert.equal(
+          object.iri,
+          `${base}/users/${localActorId}/${object.uuid}`,
+        );
+        assert.equal(stored.resource.iri, object.iri);
+        assert.equal(
+          activity.resource.iri,
+          `${base}/ap/creates/${activity.id}`,
+        );
+        for (const iri of [stored.resource.iri, activity.resource.iri]) {
+          const response = await federation.fetch(
+            new Request(iri, { headers: accept }),
+            { contextData: undefined },
+          );
+          assert.equal(response.status, 200);
+          assert.equal((await response.json()).id, iri);
+        }
+      }, new URL(rootOrigin));
+    });
+  }
+
   it("creates verbatim HTML, canonicalizes language and resolves every node field", async () => {
     await withTestHarness(async ({ db, post, federation }) => {
       const auth = await seedAuthenticatedLocalInstance(db);

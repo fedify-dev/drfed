@@ -351,7 +351,7 @@ builder.mutationFields((t) => ({
         const published = Temporal.Now.instant();
         const id = uuid();
         const fedCtx = ctx.federation.createContext(
-          new URL(`https://${actor.host}`),
+          new URL(`${ctx.rootOrigin.protocol}//${actor.host}`),
           undefined,
         );
         const iri = fedCtx.getObjectUri(APObject, {

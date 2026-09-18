@@ -103,7 +103,10 @@ export async function seedLocalActor(db: Database): Promise<void> {
   });
 }
 
-export async function seedLocalInstance(db: Database): Promise<void> {
+export async function seedLocalInstance(
+  db: Database,
+  host = "test-instance.drfed.org",
+): Promise<void> {
   await db
     .insert(schema.localInstances)
     .values({
@@ -118,7 +121,7 @@ export async function seedLocalInstance(db: Database): Promise<void> {
       id: localInstanceId,
       localId: localInstanceId,
       created,
-      host: "test-instance.drfed.org",
+      host,
     })
     .onConflictDoNothing();
 }
@@ -193,7 +196,7 @@ type ObjectSeed = PgInsertValue<typeof schema.objects> & {
   addressing?: AddressingInput;
   activityId?: Uuid;
 };
-/** Seeds independent Create rows using the legacy IRI layout for migration coverage. */
+/** Seeds independent Create rows using the production activity ID layout. */
 export async function seedObjects(
   db: Database,
   values: ObjectSeed | ObjectSeed[],
@@ -225,7 +228,7 @@ export async function seedObjects(
         if (actor == null) throw new Error("Missing seeded actor.");
         await promoteResource(
           tx,
-          `https://${actor.instance.host}/ap/creates/${row.id}`,
+          `https://${actor.instance.host}/ap/creates/${activityId}`,
           "activity",
           async (inner, activity) => {
             await inner.insert(schema.activities).values({

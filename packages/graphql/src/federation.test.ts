@@ -199,12 +199,51 @@ const accept = { accept: "application/activity+json" };
 function values(id: string) {
   return {
     id: id as Uuid,
+    activityId: uuid(),
     actorId: localActorId as Uuid,
     iri: `${actorIri}/${id}`,
     type: "Note" as const,
     contentHtml: "<p>Hello</p>",
   };
 }
+
+describe("ActivityPub resource origin spelling", () => {
+  for (const resource of ["object", "Create", "Tombstone"] as const) {
+    for (const requestOrigin of [
+      "https://test-instance.drfed.org.",
+      "http://test-instance.drfed.org",
+    ]) {
+      it(`serves ${resource} from ${requestOrigin} with its stored canonical IRI`, async () => {
+        await withTestHarness(async ({ db, federation }) => {
+          await seedLocalActor(db);
+          const object = values(uuid());
+          const deleted =
+            resource === "Tombstone"
+              ? Temporal.Instant.from("2026-09-06T12:00:00Z")
+              : null;
+          await seedObjects(db, { ...object, deleted });
+          const iri =
+            resource === "Create" ? createIri(object.activityId) : object.iri;
+          const requestIri = new URL(new URL(iri).pathname, requestOrigin);
+          const response = await federation.fetch(
+            new Request(requestIri, { headers: accept }),
+            { contextData: undefined },
+          );
+          assert.equal(response.status, 200);
+          const body = await response.json();
+          assert.equal(body.id, iri);
+          assert.equal(body.type, resource === "object" ? "Note" : resource);
+          if (deleted != null) {
+            assert.equal(
+              Temporal.Instant.from(body.deleted).epochNanoseconds,
+              deleted.epochNanoseconds,
+            );
+          }
+        });
+      });
+    }
+  }
+});
 
 describe("ActivityPub objects", () => {
   for (const publicProperty of ["to", "cc"] as const) {
@@ -358,7 +397,7 @@ describe("ActivityPub Create activities", () => {
           },
         });
         const response = await federation.fetch(
-          new Request(createIri(object.id), { headers: accept }),
+          new Request(createIri(object.activityId), { headers: accept }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
@@ -374,7 +413,7 @@ describe("ActivityPub Create activities", () => {
           },
           {
             type: "Create",
-            id: createIri(object.id),
+            id: createIri(object.activityId),
             actor: actorIri,
             object: object.iri,
             to: publicProperty === "to" ? "as:Public" : `${actorIri}/followers`,
@@ -418,7 +457,7 @@ describe("ActivityPub Create activities", () => {
             ? createIri(uuid())
             : scenario === "malformed"
               ? createIri("bad")
-              : createIri(object.id);
+              : createIri(object.activityId);
         const response = await federation.fetch(
           new Request(iri, { headers: accept }),
           { contextData: undefined },
@@ -434,7 +473,7 @@ describe("ActivityPub Create activities", () => {
       await seedObjects(db, object);
       const response = await federation.fetch(
         new Request(
-          createIri(object.id).replace(
+          createIri(object.activityId).replace(
             "test-instance.drfed.org",
             "wrong.example",
           ),
@@ -453,10 +492,12 @@ describe("ActivityPub outbox", () => {
     await withTestHarness(async ({ db, federation }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 23 }, () => uuid());
+      const activityIds = ids.map(() => uuid());
       await seedObjects(
         db,
         ids.map((id, index) => ({
           ...values(id),
+          activityId: activityIds[index]!,
           addressing:
             index === 22
               ? { to: [`${actorIri}/followers`] }
@@ -491,7 +532,7 @@ describe("ActivityPub outbox", () => {
         },
         {
           type: "Create",
-          id: createIri(ids[20]!),
+          id: createIri(activityIds[20]!),
           actor: actorIri,
           object: values(ids[20]!).iri,
           to: `${actorIri}/followers`,
@@ -646,7 +687,7 @@ describe("ActivityPub outbox totalItems", () => {
 });
 
 describe("stored collection membership and independent activity addressing", () => {
-  it("serves backfilled Create IRIs and uses activity addressing for outbox and Create", async () => {
+  it("serves stored Create IRIs and uses activity addressing for outbox and Create", async () => {
     await withTestHarness(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
@@ -657,16 +698,16 @@ describe("stored collection membership and independent activity addressing", () 
       });
       assert.ok(activity);
       assert.notEqual(activity.id, object.id);
-      assert.equal(activity.resource.iri, createIri(object.id));
+      assert.equal(activity.resource.iri, createIri(activity.id));
       const fetch = (iri: string) =>
         federation.fetch(new Request(iri, { headers: accept }), {
           contextData: undefined,
         });
-      assert.equal((await fetch(createIri(object.id))).status, 200);
+      assert.equal((await fetch(createIri(object.activityId))).status, 200);
       await db
         .delete(schema.addressing)
         .where(eq(schema.addressing.sourceId, activity.id));
-      assert.equal((await fetch(createIri(object.id))).status, 404);
+      assert.equal((await fetch(createIri(object.activityId))).status, 404);
       assert.equal((await fetch(object.iri)).status, 200);
       assert.equal(
         (await (await fetch(`${actorIri}/outbox`)).json()).totalItems,

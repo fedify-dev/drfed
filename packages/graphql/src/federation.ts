@@ -150,7 +150,6 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
 
   builder.setObjectDispatcher<APObject, "identifier" | "id">(
     APObject,
-    // Keep migration backfill IRI formats in sync when changing these paths.
     "/users/{identifier}/{id}",
     async (ctx, { identifier, id }) => {
       if (!validateUuid(identifier) || !validateUuid(id)) return null;
@@ -162,7 +161,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
           actor: {
             localId: { isNotNull: true },
             deleted: { isNull: true },
-            instance: { host: ctx.host },
+            instance: { host: canonicalizeAuthority(ctx.host) },
           },
         },
         with: objectSelection,
@@ -170,7 +169,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       if (object == null) return null;
       if (object.deleted != null) {
         return new Tombstone({
-          id: ctx.getObjectUri(APObject, { identifier, id }),
+          id: new URL(object.resource.iri),
           deleted: object.deleted,
         });
       }
@@ -185,11 +184,11 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       if (!validateUuid(id)) return null;
       const activity = await db.query.activities.findFirst({
         where: {
-          resource: { iri: ctx.getObjectUri(Create, { id }).href },
+          id,
           actor: {
             localId: { isNotNull: true },
             deleted: { isNull: true },
-            instance: { host: ctx.host },
+            instance: { host: canonicalizeAuthority(ctx.host) },
           },
           RAW: (table) => servedActivity(table),
         },
@@ -218,7 +217,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
                       (${boundary.published}::timestamptz, ${boundary.id}::uuid)`,
               )!,
           },
-          // Backfilled activity IDs are UUIDv4, so only publication time
+          // Backfilled activity IDs are UUIDv7, so only publication time
           // determines chronology. Keep full database precision in cursors.
           extras: {
             cursorPublished: (table) =>
