@@ -195,3 +195,22 @@ it("records idempotent collection membership only for declared roles", async () 
     await client.close();
   }
 });
+
+it("indexes activities by referenced object in connection order", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const { rows } = await client.query<{ indexdef: string }>(
+      "select indexdef from pg_indexes where tablename = 'activities'",
+    );
+    const definitions = rows.map((row) => row.indexdef);
+    assert.ok(
+      definitions.some((definition) =>
+        /\("objectId", published, id\)$/u.test(definition),
+      ),
+      `No (objectId, published, id) index on activities:\n${definitions.join("\n")}`,
+    );
+  } finally {
+    await client.close();
+  }
+});

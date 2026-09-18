@@ -474,6 +474,7 @@ export const activities = pgTable(
       desc(t.published),
       desc(t.id),
     ),
+    index("activity_object_published_index").on(t.objectId, t.published, t.id),
   ],
 );
 export type StoredActivity = typeof activities.$inferSelect;
