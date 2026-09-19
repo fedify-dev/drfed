@@ -22,13 +22,12 @@ import {
   warnAboutStrandedInstances,
 } from "@drfed/drfed/serving";
 import { migrate, relations, schema } from "@drfed/models";
-import { uuidV7 } from "@drfed/models/uuid";
+import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { drizzle } from "drizzle-orm/pglite";
 
 const rootOrigin = new URL("https://drfed.net");
-const dayInMilliseconds = 86_400_000;
 
 /**
  * A stand-in for the request object a server adapter hands the handler, whose
@@ -204,10 +203,10 @@ describe("findStrandedInstances()", () => {
         // the stored host is consulted.
         { host: "999.1.1.1", slug: "unparseable", local: true },
       ];
-      const expires = new Date(Date.now() + dayInMilliseconds);
+      const expires = Temporal.Now.instant().add({ hours: 24 });
       const seeded = rows.map(({ host, slug, local }) => ({
         host,
-        localId: local ? uuidV7() : null,
+        localId: local ? uuid() : null,
         slug,
       }));
       await db
@@ -220,7 +219,7 @@ describe("findStrandedInstances()", () => {
       await db
         .insert(schema.instances)
         .values(
-          seeded.map(({ host, localId }) => ({ id: uuidV7(), localId, host })),
+          seeded.map(({ host, localId }) => ({ id: uuid(), localId, host })),
         );
 
       const stranded = await findStrandedInstances(db, rootOrigin);

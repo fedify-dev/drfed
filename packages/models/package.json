@@ -74,6 +74,10 @@
       "types": "./dist/login.d.mts",
       "default": "./dist/login.mjs"
     },
+    "./resource": {
+      "types": "./dist/resource.d.mts",
+      "default": "./dist/resource.mjs"
+    },
     "./slug": {
       "types": "./dist/slug.d.mts",
       "default": "./dist/slug.mjs"
@@ -94,6 +98,7 @@
       "src/schema.ts",
       "src/uuid.ts",
       "src/login.ts",
+      "src/resource.ts",
       "src/slug.ts"
     ],
     "dts": {

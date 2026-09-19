@@ -16,16 +16,20 @@
 
 // oxlint-disable max-lines-per-function eslint/max-lines
 
-import { schema } from "@drfed/models";
-import { actorTypeEnum } from "@drfed/models/schema";
+// Keep dependent database writes and observations sequential.
+// oxlint-disable no-await-in-loop
+
+import { type Database, promoteResource, schema } from "@drfed/models";
+import { type CollectionRole, actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
-import { and, eq, gt, isNotNull } from "drizzle-orm/sql/expressions";
+import { and, eq, gt, isNotNull, isNull } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
 import { Instance } from "./instance.ts";
+import { Collection, ResourceDetail } from "./resource.ts";
 
 const ActorType = builder.enumType("ActorType", {
   values: actorTypeEnum.enumValues,
@@ -35,6 +39,23 @@ const ACTOR_TYPES_DOC = actorTypeEnum.enumValues
   .map((t) => `\`${t}\``)
   .join(" | ");
 
+async function resolveActorCollection(
+  db: Database,
+  actorId: Uuid,
+  role: CollectionRole,
+) {
+  const reference = await db.query.actorCollectionReferences.findFirst({
+    where: { actorId, role },
+    with: {
+      collection: {
+        with: { ownerActor: { columns: { deleted: true } } },
+      },
+    },
+  });
+  const collection = reference?.collection;
+  return collection?.ownerActor?.deleted == null ? (collection ?? null) : null;
+}
+
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
   description: "Represents an `Actor` in the DrFed platform.",
@@ -43,12 +64,15 @@ const ActorRef = builder.drizzleNode("actors", {
     description: "The unique identifier of the `Actor`.",
   },
   fields: (t) => ({
+    resource: t.relation("resource"),
+    iri: t.field({
+      type: "URL",
+      select: { with: { resource: true } },
+      resolve: (row) => row.resource.iri,
+    }),
     uuid: t.expose("id", {
       type: "UUID",
       description: "The UUID of the `Actor`.",
-    }),
-    iri: t.exposeString("iri", {
-      description: "The Internationalized Resource Identifier of the `Actor`",
     }),
     handle: t.field({
       type: "String",
@@ -77,24 +101,33 @@ const ActorRef = builder.drizzleNode("actors", {
       type: "URL",
       description: "The inbox URL of the `Actor`.",
     }),
-    outboxUrl: t.expose("outboxUrl", {
-      type: "URL",
-      description: "The outbox URL of the `Actor`.",
+    outbox: t.field({
+      type: Collection,
+      nullable: true,
+      description:
+        "The stored outbox collection. For local actors, it contains every stored `Create` activity regardless of addressing and retains activities whose objects are deleted so their recorded history remains inspectable. The ActivityPub outbox serves only activities with Public addressing whose objects are not deleted.",
+      select: { columns: { id: true } },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "outbox"),
     }),
     avatarUrl: t.expose("avatarUrl", {
       type: "URL",
       description: "The avatar URL of the `Actor`.",
       nullable: true,
     }),
-    followersUrl: t.expose("followersUrl", {
-      type: "URL",
-      description: "The followers URL of the `Actor`.",
+    followers: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "followers"),
     }),
-    followingUrl: t.expose("followingUrl", {
-      type: "URL",
-      description: "The following URL of the `Actor`.",
+    following: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "following"),
     }),
     headerUrl: t.expose("headerUrl", {
       type: "URL",
@@ -106,10 +139,12 @@ const ActorRef = builder.drizzleNode("actors", {
       description: "The profile URL of the `Actor`.",
       nullable: true,
     }),
-    featuredUrl: t.expose("featuredUrl", {
-      type: "URL",
-      description: "The featured URL of the `Actor`.",
+    featured: t.field({
+      type: Collection,
       nullable: true,
+      select: { columns: { id: true } },
+      resolve: (actor, _, ctx) =>
+        resolveActorCollection(ctx.db, actor.id, "featured"),
     }),
     created: t.expose("created", {
       type: "DateTime",
@@ -119,9 +154,14 @@ const ActorRef = builder.drizzleNode("actors", {
 });
 
 export const Actor: DrFedObjectRef = ActorRef;
+ResourceDetail.addTypes([Actor]);
 
 const LocalActorRef = builder.drizzleNode("localActors", {
   name: "LocalActor",
+  select: {
+    columns: { id: true },
+    with: { actor: { columns: { deleted: true } } },
+  },
   description: "Represents the local details of an `Actor`.",
   id: {
     column: ({ id }) => id,
@@ -261,7 +301,7 @@ builder.mutationFields((t) => ({
           .where(
             and(
               eq(schema.instanceMembers.accountId, account.id),
-              gt(schema.localInstances.expires, new Date()),
+              gt(schema.localInstances.expires, Temporal.Now.instant()),
               eq(schema.instances.id, targetInstanceId),
               isNotNull(schema.instanceMembers.accepted),
             ),
@@ -299,12 +339,50 @@ builder.mutationFields((t) => ({
         );
         const ids = Array.from({ length: size }, () => ({ id: uuid() }));
         await tx.insert(schema.localActors).values(ids);
-        const createdActors = await tx
-          .insert(schema.actors)
-          .values(
-            ids.map(({ id }) => generateActor(id, targetInstanceId, fedCtx)),
-          )
-          .returning();
+        const createdActors = [];
+        for (const { id } of ids) {
+          const actor = await promoteResource(
+            tx,
+            fedCtx.getActorUri(id).href,
+            "actor",
+            async (inner, resource) => {
+              const [createdActor] = await inner
+                .insert(schema.actors)
+                .values(generateActor(resource.id, targetInstanceId, fedCtx))
+                .returning();
+              if (createdActor == null) {
+                throw new Error("Actor insertion returned no row.");
+              }
+              return createdActor;
+            },
+            id,
+          );
+          for (const [role, iri] of [
+            ["followers", fedCtx.getFollowersUri(id).href],
+            ["following", fedCtx.getFollowingUri(id).href],
+            ["featured", fedCtx.getFeaturedUri(id).href],
+            ["outbox", fedCtx.getOutboxUri(id).href],
+          ] as const) {
+            await promoteResource(
+              tx,
+              iri,
+              "collection",
+              async (inner, resource) => {
+                await inner.insert(schema.collections).values({
+                  id: resource.id,
+                  type: "OrderedCollection",
+                  ownerActorId: actor.id,
+                });
+                await inner.insert(schema.actorCollectionReferences).values({
+                  actorId: actor.id,
+                  role,
+                  collectionId: resource.id,
+                });
+              },
+            );
+          }
+          createdActors.push(actor);
+        }
         return { actors: createdActors };
       });
     },
@@ -319,22 +397,17 @@ function generateActor(
   return {
     id,
     localId: id,
-    // FIXME: Generate handle using Faker.js or something
+    // FIXME: https://github.com/fedify-dev/drfed/issues/85
     username: id,
     instanceId,
     type: "Person",
-    iri: fedCtx.getActorUri(id).href,
     inboxUrl: fedCtx.getInboxUri(id).href,
-    outboxUrl: fedCtx.getOutboxUri(id).href,
-    followersUrl: fedCtx.getFollowersUri(id).href,
-    followingUrl: fedCtx.getFollowingUri(id).href,
-    featuredUrl: fedCtx.getFeaturedUri(id).href,
     profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
   };
 }
 
 const actorsConnection = drizzleConnectionHelpers(builder, "actors", {
-  query: { orderBy: { created: "desc" } },
+  query: { orderBy: { created: "desc", id: "desc" } },
 });
 
 builder.drizzleObjectField("instances", "actors", (t) =>
@@ -355,7 +428,10 @@ builder.drizzleObjectField("instances", "actors", (t) =>
           totalCount() {
             return ctx.db.$count(
               schema.actors,
-              eq(schema.actors.instanceId, instance.id),
+              and(
+                eq(schema.actors.instanceId, instance.id),
+                isNull(schema.actors.deleted),
+              ),
             );
           },
         };

@@ -14,26 +14,41 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
   char,
   check,
+  customType,
   index,
   integer,
+  json,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
   text,
-  timestamp,
   unique,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
 import type { Uuid } from "./uuid.ts";
+
+/** A timestamptz column preserving PostgreSQL's microsecond precision. */
+const instant = customType<{ data: Temporal.Instant; driverData: string }>({
+  dataType: () => "timestamp with time zone",
+  fromDriver: (value) => Temporal.Instant.from(value),
+  toDriver(value: Temporal.Instant | string) {
+    // Pothos composite cursors decode timestamps as strings.
+    if (typeof value === "string") return value;
+    if (value instanceof Temporal.Instant) return value.toString();
+    throw new TypeError(
+      "Expected a Temporal.Instant or a cursor timestamp string.",
+    );
+  },
+});
 
 const currentTimestamp = sql`CURRENT_TIMESTAMP`;
 
@@ -48,9 +63,7 @@ export const accounts = pgTable(
     name: varchar({ length: 100 }).notNull(),
     maxInstances: integer("max_instances").notNull().default(10),
     admin: boolean().notNull().default(false),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    created: instant().notNull().default(currentTimestamp),
   },
   (table) => [
     check(
@@ -75,9 +88,7 @@ export const instances = pgTable("instances", {
     .references(() => localInstances.id, {
       onDelete: "cascade",
     }),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
+  created: instant().notNull().default(currentTimestamp),
   // The authority an instance is federated under, which is what Fedify's
   // `Context.host` reports and therefore what dispatchers look instances up
   // by.  That is a DNS name, at most 253 octets, plus a `:port` suffix of up
@@ -98,7 +109,7 @@ export const localInstances = pgTable(
   {
     id: uuid().$type<Uuid>().primaryKey(),
     slug: varchar({ length: 63 }).notNull().unique(),
-    expires: timestamp({ withTimezone: true }).notNull(),
+    expires: instant().notNull(),
     maxActors: integer().notNull().default(10),
   },
   (table) => [
@@ -136,10 +147,8 @@ export const instanceMembers = pgTable(
       .notNull()
       .references(() => instances.id),
     admin: boolean().notNull().default(false),
-    accepted: timestamp({ withTimezone: true }),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
+    accepted: instant(),
+    created: instant().notNull().default(currentTimestamp),
   },
   (table) => [
     primaryKey({ columns: [table.instanceId, table.accountId] }),
@@ -169,13 +178,11 @@ export const loginChallenges = pgTable("login_challenges", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   code: char({ length: LOGIN_CHALLENGE_CODE_LENGTH }).notNull(),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
-  expires: timestamp({ withTimezone: true })
+  created: instant().notNull().default(currentTimestamp),
+  expires: instant()
     .notNull()
     .default(sql`CURRENT_TIMESTAMP + INTERVAL '15 minutes'`),
-  consumed: timestamp({ withTimezone: true }),
+  consumed: instant(),
 });
 
 export type LoginChallenge = typeof loginChallenges.$inferSelect;
@@ -192,10 +199,8 @@ export const sessions = pgTable("sessions", {
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
   tokenHash: varchar({ length: 64 }).notNull().unique(),
-  created: timestamp({ withTimezone: true })
-    .notNull()
-    .default(currentTimestamp),
-  expires: timestamp({ withTimezone: true })
+  created: instant().notNull().default(currentTimestamp),
+  expires: instant()
     .notNull()
     .default(sql`CURRENT_TIMESTAMP + INTERVAL '1 month'`),
 });
@@ -213,10 +218,34 @@ export const actorTypeEnum = pgEnum("actor_type", [
 
 export type ActorType = (typeof actorTypeEnum.enumValues)[number];
 
+export const resourceKindEnum = pgEnum("resource_kind", [
+  "actor",
+  "object",
+  "activity",
+  "collection",
+  "unknown",
+]);
+
+/**
+ * Canonical IRI registry. Physical deletion of an actor, object, activity or
+ * collection must also delete its source addressing and resource in the same
+ * transaction. References from other resources intentionally restrict deletion.
+ */
+export const resources = pgTable("resources", {
+  id: uuid().$type<Uuid>().primaryKey(),
+  iri: text().notNull().unique(),
+  kind: resourceKindEnum().notNull(),
+  created: instant().notNull().default(currentTimestamp),
+});
+export type Resource = typeof resources.$inferSelect;
+
 export const actors = pgTable(
   "actors",
   {
-    id: uuid().$type<Uuid>().primaryKey(),
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
     localId: uuid()
       .$type<Uuid>()
       .unique()
@@ -227,12 +256,8 @@ export const actors = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
-    iri: text().notNull().unique(),
+    document: json(),
     inboxUrl: text().notNull(),
-    outboxUrl: text().notNull(),
-    followersUrl: text(),
-    followingUrl: text(),
-    featuredUrl: text(),
     profileUrl: text(),
     avatarUrl: text(),
     headerUrl: text(),
@@ -251,9 +276,9 @@ export const actors = pgTable(
     //   block for remote actors: suspended set, suspendedUntil IS NULL
     // Whether a sanction is *currently* active is always determined by
     // comparing against the current time (lazy expiry; no cron):
-    // suspended <= now AND (suspendedUntil IS NULL OR suspendedUntil > now).
-    suspended: timestamp({ withTimezone: true }),
-    suspendedUntil: timestamp({ withTimezone: true }),
+    // Temporal.Instant.compare(suspended, now) <= 0 AND (suspendedUntil IS NULL OR Temporal.Instant.compare(suspendedUntil, now) > 0).
+    suspended: instant(),
+    suspendedUntil: instant(),
     successorId: uuid()
       .$type<Uuid>()
       .references((): AnyPgColumn => actors.id, {
@@ -265,16 +290,16 @@ export const actors = pgTable(
       .default(sql`(ARRAY[]::text[])`),
     followingCount: integer().notNull().default(0),
     followersCount: integer().notNull().default(0),
-    postsCount: integer().notNull().default(0),
-    updated: timestamp({ withTimezone: true })
+    updated: instant()
       .notNull()
       .default(currentTimestamp)
       .$onUpdate(() => currentTimestamp),
-    published: timestamp({ withTimezone: true }),
-    created: timestamp({ withTimezone: true })
-      .notNull()
-      .default(currentTimestamp),
-    deleted: timestamp({ withTimezone: true }),
+    published: instant(),
+    created: instant().notNull().default(currentTimestamp),
+    // When implementing actor deletion, add activities.deleted and set it
+    // together with objects.deleted in the same transaction.
+    // FIXME: https://github.com/fedify-dev/drfed/issues/89
+    deleted: instant(),
   },
   (t) => [
     unique("username_key").on(t.username, t.instanceId),
@@ -303,3 +328,188 @@ export const localActors = pgTable("local_actors", {
 
 export type LocalActor = typeof localActors.$inferSelect;
 export type NewLocalActor = typeof localActors.$inferInsert;
+
+export const objectTypeEnum = pgEnum("object_type", ["Article", "Note"]);
+export type ObjectType = (typeof objectTypeEnum.enumValues)[number];
+/** ActivityPub objects authored by actors. */
+export const objects = pgTable(
+  "objects",
+  {
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    actorId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    type: objectTypeEnum().notNull(),
+    document: json(),
+    url: text(),
+    name: text(),
+    summary: text(),
+    contentHtml: text().notNull(),
+    language: varchar({ length: 35 }),
+    sensitive: boolean().notNull().default(false),
+    published: instant().notNull().default(currentTimestamp),
+    updated: instant()
+      .notNull()
+      .default(currentTimestamp)
+      .$onUpdate(() => currentTimestamp),
+    created: instant().notNull().default(currentTimestamp),
+    deleted: instant(),
+  },
+  (t) => [
+    check(
+      "objects_content_html_check",
+      sql`trim(both from ${t.contentHtml}) <> ''`,
+    ),
+    index("object_actor_published_index").on(
+      t.actorId,
+      desc(t.published),
+      desc(t.id),
+    ),
+  ],
+);
+export type ActivityPubObject = typeof objects.$inferSelect;
+export type NewActivityPubObject = typeof objects.$inferInsert;
+
+export const collectionTypeEnum = pgEnum("collection_type", [
+  "Collection",
+  "OrderedCollection",
+]);
+export const collectionRoleEnum = pgEnum("collection_role", [
+  "followers",
+  "following",
+  "featured",
+  "outbox",
+]);
+export type CollectionRole = (typeof collectionRoleEnum.enumValues)[number];
+export const collections = pgTable("collections", {
+  id: uuid()
+    .$type<Uuid>()
+    .primaryKey()
+    .references(() => resources.id, { onDelete: "cascade" }),
+  type: collectionTypeEnum().notNull(),
+  /**
+   * Lifecycle owner of a locally managed collection. Physical deletion of
+   * the owner cascades to the collection and all references. Soft deletion
+   * hides the collection and every actor's reference to it from GraphQL.
+   */
+  ownerActorId: uuid()
+    .$type<Uuid>()
+    .references(() => actors.id, { onDelete: "cascade" }),
+  totalItems: integer(),
+  document: json(),
+  updated: instant()
+    .notNull()
+    .default(currentTimestamp)
+    .$onUpdate(() => currentTimestamp),
+});
+export type Collection = typeof collections.$inferSelect;
+
+/** Actor-declared collection roles; a collection may be shared across roles or actors. */
+export const actorCollectionReferences = pgTable(
+  "actor_collection_references",
+  {
+    actorId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    role: collectionRoleEnum().notNull(),
+    collectionId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorId, t.role] }),
+    index("actor_collection_reference_collection_index").on(t.collectionId),
+  ],
+);
+
+export const collectionItems = pgTable(
+  "collection_items",
+  {
+    collectionId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    itemId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    position: integer(),
+    observed: instant().notNull().default(currentTimestamp),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.itemId] }),
+    index("collection_item_position_index").on(t.collectionId, t.position),
+  ],
+);
+
+export const activityTypeEnum = pgEnum("activity_type", ["Create"]);
+export const activities = pgTable(
+  "activities",
+  {
+    id: uuid()
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    type: activityTypeEnum().notNull(),
+    actorId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    objectId: uuid()
+      .$type<Uuid>()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    published: instant().notNull(),
+    document: json(),
+    created: instant().notNull().default(currentTimestamp),
+  },
+  (t) => [
+    index("activity_actor_published_index").on(
+      t.actorId,
+      desc(t.published),
+      desc(t.id),
+    ),
+    index("activity_object_published_index").on(t.objectId, t.published, t.id),
+  ],
+);
+export type StoredActivity = typeof activities.$inferSelect;
+
+export const addressingPropertyEnum = pgEnum("addressing_property", [
+  "to",
+  "cc",
+  "bto",
+  "bcc",
+  "audience",
+]);
+export type AddressingProperty =
+  (typeof addressingPropertyEnum.enumValues)[number];
+export const addressing = pgTable(
+  "addressing",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    sourceId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "cascade" }),
+    property: addressingPropertyEnum().notNull(),
+    position: integer().notNull(),
+    targetId: uuid()
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "restrict" }),
+  },
+  (t) => [
+    unique("addressing_source_property_position_key").on(
+      t.sourceId,
+      t.property,
+      t.position,
+    ),
+    index("addressing_target_property_index").on(t.targetId, t.property),
+  ],
+);
+export type Addressing = typeof addressing.$inferSelect;

@@ -102,6 +102,7 @@ Assisted-by: OpenCode:qwen3.6-plus
 Assisted-by: Claude Code:claude-sonnet-5
 Assisted-by: Antigravity:gemini-3.7-flash
 Assisted-by: Codex:gpt-5.6-sol
+Assisted-by: Codex:gpt-6-astra
 ~~~~
 
 If multiple AI tools were used, include one `Assisted-by` line per tool.

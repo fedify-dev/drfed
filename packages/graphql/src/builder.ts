@@ -32,7 +32,8 @@ import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { and, eq, isNotNull } from "drizzle-orm/sql/expressions";
-import { DateTimeResolver, URLResolver, UUIDResolver } from "graphql-scalars";
+import { GraphQLScalarType, Kind } from "graphql";
+import { JSONResolver, URLResolver, UUIDResolver } from "graphql-scalars";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -97,9 +98,10 @@ export interface UserContext extends ServerContext {
 export interface SchemaTypes {
   Context: UserContext;
   Scalars: {
+    JSON: { Input: unknown; Output: unknown };
     DateTime: {
-      Input: Date;
-      Output: Date;
+      Input: Temporal.Instant;
+      Output: Temporal.Instant;
     };
     Email: {
       Input: string;
@@ -114,7 +116,7 @@ export interface SchemaTypes {
       Output: Template;
     };
     URL: {
-      Input: URL;
+      Input: string;
       Output: string;
     };
   };
@@ -158,6 +160,16 @@ export const builder = new SchemaBuilder<SchemaTypes>({
   },
   plugins: [DrizzlePlugin, RelayPlugin, ErrorsPlugin, ScopeAuthPlugin],
   errors: { defaultTypes: [] },
+  relay: {
+    nodeQueryOptions: {
+      resolve: async (_, { id }, __, ___, resolveNode) =>
+        filterDeleted(await resolveNode(id)),
+    },
+    nodesQueryOptions: {
+      resolve: async (_, { ids }, __, ___, resolveNodes) =>
+        (await resolveNodes(ids)).map(filterDeleted),
+    },
+  },
   scopeAuth: {
     authorizeOnSubscribe: true,
     authScopes(context) {
@@ -174,6 +186,26 @@ export const builder = new SchemaBuilder<SchemaTypes>({
     },
   },
 });
+
+const isDeleted = (node: unknown): boolean =>
+  node != null &&
+  typeof node === "object" &&
+  "deleted" in node &&
+  node.deleted != null;
+
+// Relations whose deletion hides the node: an object's or activity's
+// author, or a collection's owner.
+const OWNER_RELATIONS = ["actor", "ownerActor"] as const;
+
+const filterDeleted = (node: unknown): unknown =>
+  isDeleted(node) ||
+  (node != null &&
+    typeof node === "object" &&
+    OWNER_RELATIONS.some((key) =>
+      isDeleted((node as Record<string, unknown>)[key]),
+    ))
+    ? null
+    : node;
 
 /**
  * Determines whether the viewer is an accepted member of the `Instance` that
@@ -208,8 +240,50 @@ async function isLocalInstanceMember(
   return rows.length > 0;
 }
 
-builder.addScalarType("DateTime", DateTimeResolver);
-builder.addScalarType("URL", URLResolver);
+builder.scalarType("DateTime", {
+  description: "An ISO 8601 instant preserving sub-millisecond precision.",
+  serialize(value) {
+    if (!(value instanceof Temporal.Instant)) {
+      throw new TypeError("Expected a Temporal.Instant.");
+    }
+    return value.toString();
+  },
+  parseValue(value) {
+    if (typeof value !== "string") {
+      throw new TypeError("Expected an instant string.");
+    }
+    return Temporal.Instant.from(value);
+  },
+  parseLiteral(node) {
+    if (node.kind !== Kind.STRING) {
+      throw new TypeError("Expected an instant string.");
+    }
+    return Temporal.Instant.from(node.value);
+  },
+});
+builder.addScalarType(
+  "URL",
+  new GraphQLScalarType({
+    ...URLResolver.toConfig(),
+    serialize(value) {
+      URLResolver.serialize(value);
+      return String(value);
+    },
+    // Validate URLs while preserving the caller's exact spelling.
+    parseValue(value) {
+      URLResolver.parseValue(value);
+      return String(value);
+    },
+    parseLiteral(node, variables) {
+      URLResolver.parseLiteral(node, variables);
+      if (node.kind !== Kind.STRING) {
+        throw new TypeError("Expected a URL string.");
+      }
+      return node.value;
+    },
+  }),
+);
+builder.addScalarType("JSON", JSONResolver);
 
 builder.scalarType("Email", {
   parseValue: (v) => normalizeEmail(String(v)),

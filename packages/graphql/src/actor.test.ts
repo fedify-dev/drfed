@@ -15,28 +15,32 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // oxlint-disable max-lines
+// Cursor pagination tests walk pages sequentially.
+// oxlint-disable no-await-in-loop
 
 import assert from "node:assert/strict";
 
-import { type Database, schema } from "@drfed/models";
+import { schema } from "@drfed/models";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm/sql/expressions";
+import { and, eq } from "drizzle-orm";
 
-import { hashSecret } from "./auth/hash.ts";
 import { withTestHarness } from "./harness.test.ts";
-
-const accepted = new Date("2026-08-04T00:00:00.000Z");
-const created = new Date("2026-08-04T00:00:00.000Z");
-const expires = new Date("2030-08-04T00:00:00.000Z");
-const ok = 200;
-
-const accountId = "00000000-0000-4000-8000-000000000001";
-const localInstanceId = "00000000-0000-4000-8000-000000000101";
-const remoteInstanceId = "00000000-0000-4000-8000-000000000102";
-const localActorId = "00000000-0000-4000-8000-000000000201";
-const remoteActorId = "00000000-0000-4000-8000-000000000202";
-const sessionId = "00000000-0000-4000-8000-000000000301";
-const accessToken = "test-access-token";
+import {
+  created,
+  globalId,
+  localActorId,
+  localInstanceId,
+  ok,
+  remoteActorId,
+  remoteInstanceId,
+  seedActors,
+  seedAuthenticatedLocalInstance,
+  seedLocalActor,
+  seedLocalInstance,
+  seedObjects,
+  seedRemoteActor,
+} from "./seed.test.ts";
 
 const generateActorsMutation = `
   mutation GenerateActors($instance: ID!, $size: Int!) {
@@ -79,13 +83,13 @@ const actorQuery = `
           header
         }
         inboxUrl
-        outboxUrl
+        outbox { iri }
         avatarUrl
-        followersUrl
-        followingUrl
+        followers { iri }
+        following { iri }
         headerUrl
         profileUrl
-        featuredUrl
+        featured { iri }
         created
       }
     }
@@ -194,15 +198,7 @@ describe("Mutation.generateActors", () => {
 
       const [actor] = await db.select().from(schema.actors);
       assert.ok(actor != null);
-      for (const url of [
-        actor.iri,
-        actor.inboxUrl,
-        actor.outboxUrl,
-        actor.followersUrl,
-        actor.followingUrl,
-        actor.featuredUrl,
-        actor.profileUrl,
-      ]) {
+      for (const url of [actor.inboxUrl, actor.profileUrl]) {
         assert.ok(url != null);
         assert.equal(
           new URL(url).origin,
@@ -243,14 +239,22 @@ describe("Actor", () => {
               header: "header.png",
             },
             inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-            outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+            outbox: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
+            },
             avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-            followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-            followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
+            followers: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/followers`,
+            },
+            following: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/following`,
+            },
             headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
             profileUrl: "https://test-instance.drfed.org/@alice",
-            featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
-            created: created.toISOString(),
+            featured: {
+              iri: `https://test-instance.drfed.org/users/${localActorId}/featured`,
+            },
+            created: created.toString(),
           },
         },
       });
@@ -282,14 +286,132 @@ describe("Actor", () => {
             },
             local: null,
             inboxUrl: "https://remote.example.com/users/bob/inbox",
-            outboxUrl: "https://remote.example.com/users/bob/outbox",
+            outbox: { iri: "https://remote.example.com/users/bob/outbox" },
             avatarUrl: "https://remote.example.com/users/bob/avatar.png",
-            followersUrl: "https://remote.example.com/users/bob/followers",
-            followingUrl: "https://remote.example.com/users/bob/following",
+            followers: {
+              iri: "https://remote.example.com/users/bob/followers",
+            },
+            following: {
+              iri: "https://remote.example.com/users/bob/following",
+            },
             headerUrl: "https://remote.example.com/users/bob/header.png",
             profileUrl: "https://remote.example.com/@bob",
-            featuredUrl: "https://remote.example.com/users/bob/featured",
-            created: created.toISOString(),
+            featured: { iri: "https://remote.example.com/users/bob/featured" },
+            created: created.toString(),
+          },
+        },
+      });
+    });
+  });
+
+  it("hides deleted actors from node and nodes while keeping live ones", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      await seedRemoteActor(db);
+      await db
+        .update(schema.actors)
+        .set({ deleted: Temporal.Now.instant() })
+        .where(eq(schema.actors.id, localActorId));
+      const query = `query($live: ID!, $deleted: ID!) {
+        live: node(id: $live) { ... on Actor { uuid instance { uuid } } }
+        deleted: node(id: $deleted) { ... on Actor { uuid instance { uuid } } }
+        nodes(ids: [$live, $deleted]) { ... on Actor { uuid } }
+      }`;
+      const body = await (
+        await post({
+          query,
+          variables: {
+            live: globalId("Actor", remoteActorId),
+            deleted: globalId("Actor", localActorId),
+          },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          live: { uuid: remoteActorId, instance: { uuid: remoteInstanceId } },
+          deleted: null,
+          nodes: [{ uuid: remoteActorId }, null],
+        },
+      });
+    });
+  });
+});
+
+const instanceActorsQuery = `query($instance: ID!) {
+  node(id: $instance) {
+    ... on Instance {
+      actors {
+        totalCount
+        edges { node { uuid objects { totalCount edges { node { uuid } } } } }
+      }
+    }
+  }
+}`;
+
+function localActorValues(id: Uuid, username: string) {
+  const iri = `https://test-instance.drfed.org/users/${id}`;
+  return {
+    id,
+    localId: id,
+    instanceId: localInstanceId as Uuid,
+    type: "Person" as const,
+    username,
+    iri,
+    inboxUrl: `${iri}/inbox`,
+  };
+}
+
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163257:
+// `filterDeleted` only applies to `node`/`nodes`, so a soft-deleted actor is
+// still reachable through `Instance.actors` and its `objects` connection
+// still returns content.
+describe("Instance.actors with a deleted actor", () => {
+  it("hides the deleted actor and its objects while keeping live ones", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      const carolId = "00000000-0000-4000-8000-000000000203" as const;
+      await db.insert(schema.localActors).values({ id: carolId });
+      await seedActors(db, localActorValues(carolId, "carol"));
+      const hiddenObjectId = uuid();
+      const liveObjectId = uuid();
+      await seedObjects(
+        db,
+        [hiddenObjectId, liveObjectId].map((id) => ({
+          id,
+          actorId: id === hiddenObjectId ? localActorId : carolId,
+          type: "Note" as const,
+          iri: `https://test-instance.drfed.org/objects/${id}`,
+          contentHtml: "test",
+        })),
+      );
+      await db
+        .update(schema.actors)
+        .set({ deleted: Temporal.Now.instant() })
+        .where(eq(schema.actors.id, localActorId));
+      const body = await (
+        await post({
+          query: instanceActorsQuery,
+          variables: { instance: globalId("Instance", localInstanceId) },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: {
+          node: {
+            actors: {
+              totalCount: 1,
+              edges: [
+                {
+                  node: {
+                    uuid: carolId,
+                    objects: {
+                      totalCount: 1,
+                      edges: [{ node: { uuid: liveObjectId } }],
+                    },
+                  },
+                },
+              ],
+            },
           },
         },
       });
@@ -297,95 +419,147 @@ describe("Actor", () => {
   });
 });
 
-function globalId(type: "Actor" | "Instance", id: string): string {
-  return Buffer.from(`${type}:${id}`).toString("base64");
-}
+// Regression test for
+// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163244:
+// Preserve microseconds and distinguish equal timestamps using the actor ID.
+describe("Instance.actors cursor precision", () => {
+  it("returns every actor whose created time carries microseconds", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalInstance(db);
+      const ids = Array.from({ length: 3 }, () => uuid());
+      await seedActors(
+        db,
+        ids.map((id) => ({
+          ...localActorValues(id, id),
+          localId: null,
+          created: Temporal.Instant.from("2026-09-14T12:00:00.123456Z"),
+        })),
+      );
+      const query = `query($instance: ID!, $after: String) { node(id: $instance) { ... on Instance { actors(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`;
+      const seen: string[] = [];
+      let after: string | null = null;
+      let hasNextPage = true;
+      for (let page = 0; hasNextPage && page <= ids.length; page += 1) {
+        const body = await (
+          await post({
+            query,
+            variables: {
+              instance: globalId("Instance", localInstanceId),
+              after,
+            },
+          })
+        ).json();
+        assert.equal(body.errors, undefined);
+        const connection = body.data.node.actors;
+        if (connection.edges.length === 0) break;
+        seen.push(
+          ...connection.edges.map(
+            (edge: { node: { uuid: string } }) => edge.node.uuid,
+          ),
+        );
+        ({ hasNextPage } = connection.pageInfo);
+        ({ cursor: after } = connection.edges.at(-1));
+      }
+      assert.deepEqual(seen, [...ids].sort().reverse());
+      assert.equal(hasNextPage, false);
+    });
+  });
+});
 
-async function seedAuthenticatedLocalInstance(
-  db: Database,
-): Promise<RequestInit> {
-  await db.insert(schema.accounts).values({
-    id: accountId,
-    email: "owner@example.com",
-    name: "Owner",
-    created,
+it("hides references to collections whose owner is deleted", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const outboxReference = await db.query.actorCollectionReferences.findFirst({
+      where: { actorId: localActorId, role: "outbox" },
+    });
+    assert.ok(outboxReference);
+    await db
+      .update(schema.actorCollectionReferences)
+      .set({ collectionId: outboxReference.collectionId })
+      .where(
+        and(
+          eq(schema.actorCollectionReferences.actorId, remoteActorId),
+          eq(schema.actorCollectionReferences.role, "featured"),
+        ),
+      );
+    await db
+      .update(schema.actors)
+      .set({ deleted: Temporal.Now.instant() })
+      .where(eq(schema.actors.id, localActorId));
+    const response = await (
+      await post({
+        query: `query($remote: ID!) { remote: node(id: $remote) { ... on Actor { featured { iri } followers { iri } } } }`,
+        variables: { remote: globalId("Actor", remoteActorId) },
+      })
+    ).json();
+    assert.deepEqual(response, {
+      data: {
+        remote: {
+          featured: null,
+          followers: {
+            iri: "https://remote.example.com/users/bob/followers",
+          },
+        },
+      },
+    });
   });
-  await db.insert(schema.sessions).values({
-    id: sessionId,
-    accountId,
-    tokenHash: await hashSecret(accessToken),
-  });
-  await seedLocalInstance(db);
-  await db.insert(schema.instanceMembers).values({
-    accountId,
-    instanceId: localInstanceId,
-    admin: true,
-    accepted,
-    created,
-  });
-  return { headers: { authorization: `Bearer ${accessToken}` } };
-}
+});
 
-async function seedLocalActor(db: Database): Promise<void> {
-  await seedLocalInstance(db);
-  await db.insert(schema.localActors).values({
-    id: localActorId,
-    avatar: "avatar.png",
-    header: "header.png",
+it("resolves multiple actor roles referencing a shared collection", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const outboxReference = await db.query.actorCollectionReferences.findFirst({
+      where: { actorId: localActorId, role: "outbox" },
+      with: { collection: { with: { resource: true } } },
+    });
+    assert.ok(outboxReference);
+    const outbox = outboxReference.collection;
+    await db
+      .update(schema.actorCollectionReferences)
+      .set({ collectionId: outbox.id })
+      .where(eq(schema.actorCollectionReferences.role, "featured"));
+    const response = await (
+      await post({
+        query: `query($local: ID!, $remote: ID!) { local: node(id: $local) { ... on Actor { outbox { id iri } featured { id iri } } } remote: node(id: $remote) { ... on Actor { featured { id iri } } } }`,
+        variables: {
+          local: globalId("Actor", localActorId),
+          remote: globalId("Actor", remoteActorId),
+        },
+      })
+    ).json();
+    assert.equal(response.errors, undefined);
+    assert.deepEqual(response.data.local.featured, response.data.local.outbox);
+    assert.deepEqual(response.data.remote.featured, response.data.local.outbox);
   });
-  await db.insert(schema.actors).values({
-    id: localActorId,
-    localId: localActorId,
-    instanceId: localInstanceId,
-    type: "Person",
-    username: "alice",
-    iri: `https://test-instance.drfed.org/users/${localActorId}`,
-    inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-    outboxUrl: `https://test-instance.drfed.org/users/${localActorId}/outbox`,
-    avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-    followersUrl: `https://test-instance.drfed.org/users/${localActorId}/followers`,
-    followingUrl: `https://test-instance.drfed.org/users/${localActorId}/following`,
-    headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
-    profileUrl: "https://test-instance.drfed.org/@alice",
-    featuredUrl: `https://test-instance.drfed.org/users/${localActorId}/featured`,
-    created,
-  });
-}
+});
 
-async function seedLocalInstance(db: Database): Promise<void> {
-  await db.insert(schema.localInstances).values({
-    id: localInstanceId,
-    slug: "test-instance",
-    expires,
+it("hides deleted local actor details from node and nodes", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    await db
+      .update(schema.localActors)
+      .set({ avatar: "avatar.png", header: "header.png" });
+    const query = `query($id: ID!) {
+      node(id: $id) { ... on LocalActor { uuid avatar header } }
+      nodes(ids: [$id]) { ... on LocalActor { uuid avatar header } }
+    }`;
+    const variables = { id: globalId("LocalActor", localActorId) };
+    const live = {
+      uuid: localActorId,
+      avatar: "avatar.png",
+      header: "header.png",
+    };
+    assert.deepEqual(await (await post({ query, variables })).json(), {
+      data: { node: live, nodes: [live] },
+    });
+    await db
+      .update(schema.actors)
+      .set({ deleted: Temporal.Now.instant() })
+      .where(eq(schema.actors.id, localActorId));
+    assert.deepEqual(await (await post({ query, variables })).json(), {
+      data: { node: null, nodes: [null] },
+    });
   });
-  await db.insert(schema.instances).values({
-    id: localInstanceId,
-    localId: localInstanceId,
-    created,
-    host: "test-instance.drfed.org",
-  });
-}
-
-async function seedRemoteActor(db: Database): Promise<void> {
-  await db.insert(schema.instances).values({
-    id: remoteInstanceId,
-    created,
-    host: "remote.example.com",
-  });
-  await db.insert(schema.actors).values({
-    id: remoteActorId,
-    instanceId: remoteInstanceId,
-    type: "Service",
-    username: "bob",
-    iri: "https://remote.example.com/users/bob",
-    inboxUrl: "https://remote.example.com/users/bob/inbox",
-    outboxUrl: "https://remote.example.com/users/bob/outbox",
-    avatarUrl: "https://remote.example.com/users/bob/avatar.png",
-    followersUrl: "https://remote.example.com/users/bob/followers",
-    followingUrl: "https://remote.example.com/users/bob/following",
-    headerUrl: "https://remote.example.com/users/bob/header.png",
-    profileUrl: "https://remote.example.com/@bob",
-    featuredUrl: "https://remote.example.com/users/bob/featured",
-    created,
-  });
-}
+});
