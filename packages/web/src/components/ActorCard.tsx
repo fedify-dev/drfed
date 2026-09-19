@@ -18,14 +18,14 @@ import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
-import type { ActorDetail_actor$key } from "./__generated__/ActorDetail_actor.graphql.ts";
+import type { ActorCard_actor$key } from "./__generated__/ActorCard_actor.graphql.ts";
 
 import styles from "~/styles/instance.module.css";
 
-export const ActorDetail = (props: { $actor: ActorDetail_actor$key }) => {
+export const ActorCard = (props: { $actor: ActorCard_actor$key }) => {
   const actorData = createFragment(
     graphql`
-      fragment ActorDetail_actor on Actor {
+      fragment ActorCard_actor on Actor {
         handle
       }
     `,
