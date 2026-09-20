@@ -156,11 +156,10 @@ describe("createFederation()", () => {
 describe("createYogaServer()", () => {
   it("does not mutate the federation instance", async () => {
     await withTestHarness(({ db, mailer, federation }) => {
-      const loginOrigins = new Set(["https://drfed.test"]);
       assert.doesNotThrow(() =>
         createYogaServer(db, federation, {
           mailer,
-          loginOrigins,
+          loginOrigin: new URL("https://drfed.test"),
           rootOrigin: new URL("https://drfed.test"),
         }),
       );

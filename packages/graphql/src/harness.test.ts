@@ -172,16 +172,16 @@ export async function withTestHarness<T>(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks
   callback: (harness: TestHarness) => Promise<T> | T,
   rootOrigin: URL = new URL("https://drfed.org"),
+  loginOrigin: URL = new URL("https://drfed.test"),
   emailFrom?: string,
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
     const federation = await createFederation(db, { kv: new MemoryKvStore() });
-    const loginOrigins = new Set(["https://drfed.test"]);
     const yoga = createYogaServer(db, federation, {
       mailer,
-      loginOrigins,
       rootOrigin,
+      loginOrigin,
       emailFrom,
     });
     const fetch: TestFetch = yoga.fetch.bind(yoga);
