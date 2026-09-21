@@ -1,0 +1,1 @@
+CREATE INDEX "activity_object_published_index" ON "activities" ("objectId","published","id");

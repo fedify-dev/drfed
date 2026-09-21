@@ -28,14 +28,14 @@ export const sendMail = async (
     createMessage({
       from: ctx.emailFrom,
       to,
-      // FIXME: Internationalize the email subject
+      // FIXME: https://github.com/fedify-dev/drfed/issues/35
       subject: "Sign in to DrFed",
       content: renderLoginEmail(loginUrl),
     }),
   );
 
 const renderLoginEmail = (loginUrl: string): MessageContent => ({
-  // FIXME: Internationalize the email content
+  // FIXME: https://github.com/fedify-dev/drfed/issues/35
   text: `Hello, Welcome to DrFed! If you request to login to DrFed, please visit:
 
 open ${loginUrl}

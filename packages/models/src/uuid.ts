@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-import { v7 } from "uuid";
+import { v7, validate } from "uuid";
 
 /**
  * A UUID string.  It does not guarantee that the string is a normalized UUID.
@@ -37,3 +37,10 @@ export function areUuidsEqual(left: Uuid, right: Uuid): boolean {
 export function uuidV7(): Uuid {
   return v7() as Uuid;
 }
+
+/**
+ * Validate UUID.
+ * @param value A Value to validate.
+ * @returns `true` if the input is `Uuid`.
+ */
+export const validateUuid = (value: unknown): value is Uuid => validate(value);

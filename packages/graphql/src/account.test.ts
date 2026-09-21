@@ -22,9 +22,9 @@ import { describe, it } from "@logtape/testing-node/autoload";
 
 import { withTestHarness } from "./harness.test.ts";
 
-const accepted = new Date("2026-06-24T00:00:00.000Z");
-const created = new Date("2026-06-24T00:00:00.000Z");
-const expires = new Date("2026-07-24T00:00:00.000Z");
+const accepted = Temporal.Instant.from("2026-06-24T00:00:00.000Z");
+const created = Temporal.Instant.from("2026-06-24T00:00:00.000Z");
+const expires = Temporal.Instant.from("2026-07-24T00:00:00.000Z");
 const ok = 200;
 
 const accountId = "00000000-0000-4000-8000-000000000001";
@@ -116,8 +116,8 @@ const accountInstancesResponse = {
         totalCount: 1,
         edges: [
           {
-            created: "2026-06-24T00:00:00.000Z",
-            accepted: "2026-06-24T00:00:00.000Z",
+            created: created.toString(),
+            accepted: accepted.toString(),
             admin: true,
             node: {
               uuid: acceptedInstanceId,
@@ -463,3 +463,54 @@ async function seedLocalInstances(db: Database): Promise<void> {
     },
   ]);
 }
+
+// Cursor requests depend on the preceding page.
+// oxlint-disable no-await-in-loop
+it("paginates both membership connections with identical microsecond timestamps", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedMembershipGraph(db);
+    await db.update(schema.instanceMembers).set({
+      accepted,
+      created: Temporal.Instant.from("2026-09-14T12:00:00.123456Z"),
+    });
+    const auth = await createSession(db);
+    for (const scenario of [
+      {
+        type: "Account",
+        id: accountId,
+        field: "instances",
+        ids: [pendingInstanceId, acceptedInstanceId],
+      },
+      {
+        type: "Instance",
+        id: acceptedInstanceId,
+        field: "members",
+        ids: [pendingMemberId, memberId, accountId],
+      },
+    ]) {
+      const seen: string[] = [];
+      let after: string | null = null;
+      for (const expected of scenario.ids) {
+        const response = await post(
+          {
+            query: `query($id: ID!, $after: String) { node(id: $id) { ... on ${scenario.type} { ${scenario.field}(first: 1, after: $after) { edges { cursor node { uuid } } pageInfo { hasNextPage } } } } }`,
+            variables: { id: btoa(`${scenario.type}:${scenario.id}`), after },
+          },
+          auth,
+        );
+        const body = await response.json();
+        assert.equal(body.errors, undefined);
+        const connection = body.data.node[scenario.field];
+        assert.equal(connection.edges.length, 1);
+        assert.equal(connection.edges[0].node.uuid, expected);
+        seen.push(connection.edges[0].node.uuid);
+        assert.equal(
+          connection.pageInfo.hasNextPage,
+          seen.length < scenario.ids.length,
+        );
+        after = connection.edges[0].cursor;
+      }
+      assert.deepEqual(seen, scenario.ids);
+    }
+  });
+});

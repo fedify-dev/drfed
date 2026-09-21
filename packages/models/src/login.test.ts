@@ -30,8 +30,8 @@ import { drizzle } from "drizzle-orm/pglite";
 
 const accountId = uuidV7();
 const challengeId = uuidV7();
-const now = new Date("2026-09-08T00:00:00Z");
-const expires = new Date("2026-09-08T00:15:00Z");
+const now = Temporal.Instant.from("2026-09-08T00:00:00Z");
+const expires = Temporal.Instant.from("2026-09-08T00:15:00Z");
 let client: PGlite;
 let db: Database;
 
@@ -58,12 +58,12 @@ afterEach(async () => {
 });
 
 describe("login challenges", () => {
-  it("finds an active challenge by its public ID with Date and SQL clocks", async () => {
+  it("finds an active challenge by its public ID with Instant and SQL clocks", async () => {
     assert.equal(
       (await findLoginChallenge(db, challengeId, now)).accountId,
       accountId,
     );
-    const clock = sql<Date>`${now.toISOString()}::timestamptz`;
+    const clock = sql`${now.toString()}::timestamptz`;
     assert.equal(
       (await findLoginChallenge(db, challengeId, clock)).id,
       challengeId,
@@ -91,7 +91,7 @@ describe("login challenges", () => {
     const row = await db.query.loginChallenges.findFirst({
       where: { id: challengeId },
     });
-    assert.deepEqual(row?.consumed, now);
+    assert.equal(row?.consumed?.epochNanoseconds, now.epochNanoseconds);
     await assert.rejects(
       consumeLoginChallenge(db, challengeId, now),
       LoginChallengeConsumptionError,
@@ -148,7 +148,7 @@ describe("login challenges", () => {
       })
       .where(eq(schema.loginChallenges.id, challengeId));
     await findLoginChallenge(db, challengeId);
-    await consumeLoginChallenge(db, challengeId, sql<Date>`CURRENT_TIMESTAMP`);
+    await consumeLoginChallenge(db, challengeId, sql`CURRENT_TIMESTAMP`);
     await assert.rejects(
       findLoginChallenge(db, challengeId),
       LoginChallengeNotFoundError,
@@ -166,6 +166,28 @@ describe("login challenges", () => {
     const row = await db.query.loginChallenges.findFirst({
       where: { id: challengeId },
     });
-    assert.ok(row?.consumed instanceof Date);
+    assert.ok(row?.consumed instanceof Temporal.Instant);
   });
+});
+
+// The connection timezone must be set before each pair of reads.
+// oxlint-disable no-await-in-loop
+it("preserves microseconds through writes, SQL defaults and non-UTC query results", async () => {
+  const instant = Temporal.Instant.from("2026-09-14T12:00:00.123456Z");
+  await db.update(schema.loginChallenges).set({ created: instant });
+  for (const zone of [
+    "UTC",
+    "Asia/Seoul",
+    "Asia/Kolkata",
+    "America/Los_Angeles",
+  ]) {
+    await db.execute(sql`select set_config('TimeZone', ${zone}, false)`);
+    const [selected] = await db.select().from(schema.loginChallenges);
+    const related = await db.query.loginChallenges.findFirst({
+      with: { account: true },
+    });
+    assert.equal(selected?.created.epochNanoseconds, instant.epochNanoseconds);
+    assert.equal(related?.created.epochNanoseconds, instant.epochNanoseconds);
+    assert.ok(related?.account.created instanceof Temporal.Instant);
+  }
 });

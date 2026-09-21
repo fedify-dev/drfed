@@ -129,6 +129,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
     setErrorMessage(undefined);
     commitGenerateActors({
       variables: { instance, size },
+      // oxlint-disable-next-line max-statements
       onCompleted: (response, errors) => {
         const graphQLErrors = errors ?? [];
         if (graphQLErrors.length > 0) {
@@ -138,7 +139,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
           return;
         }
 
-        // TODO: Replace current codes to dictionary looking up
+        // FIXME: https://github.com/fedify-dev/drfed/issues/86
         const result = response.generateActors;
         switch (result.resultType) {
           case "CreateActorsSuccess": {

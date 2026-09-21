@@ -58,6 +58,10 @@
       "types": "./dist/builder.d.mts",
       "default": "./dist/builder.mjs"
     },
+    "./classification": {
+      "types": "./dist/classification.d.mts",
+      "default": "./dist/classification.mjs"
+    },
     "./federation": {
       "types": "./dist/federation.d.mts",
       "default": "./dist/federation.mjs"
@@ -69,6 +73,10 @@
     "./schema": {
       "types": "./dist/schema.d.mts",
       "default": "./dist/schema.mjs"
+    },
+    "./object": {
+      "types": "./dist/object.d.mts",
+      "default": "./dist/object.mjs"
     },
     "./origin": {
       "types": "./dist/origin.d.mts",
@@ -85,9 +93,11 @@
       "src/account.ts",
       "src/actor.ts",
       "src/builder.ts",
+      "src/classification.ts",
       "src/federation.ts",
       "src/instance.ts",
       "src/schema.ts",
+      "src/object.ts",
       "src/origin.ts"
     ],
     "dts": {

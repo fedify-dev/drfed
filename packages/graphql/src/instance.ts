@@ -261,9 +261,7 @@ builder.mutationFields((t) => ({
             .values({
               id: uuid(),
               slug,
-              expires: new Date(
-                Temporal.Now.instant().add({ hours: YEAR_BY_HOURS }).toString(),
-              ),
+              expires: Temporal.Now.instant().add({ hours: YEAR_BY_HOURS }),
             })
             .returning();
           if (local == null) {
@@ -277,7 +275,7 @@ builder.mutationFields((t) => ({
           await tx.insert(schema.instanceMembers).values({
             instanceId: instance.id,
             accountId: account.id,
-            accepted: new Date(),
+            accepted: Temporal.Now.instant(),
           });
           const instances = await tx.$count(
             schema.instanceMembers,
