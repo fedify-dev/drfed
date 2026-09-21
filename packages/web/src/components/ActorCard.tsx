@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { A } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
@@ -27,6 +28,7 @@ export const ActorCard = (props: { $actor: ActorCard_actor$key }) => {
     graphql`
       fragment ActorCard_actor on Actor {
         handle
+        id
       }
     `,
     () => props.$actor,
@@ -37,7 +39,9 @@ export const ActorCard = (props: { $actor: ActorCard_actor$key }) => {
       {(actor) => (
         <article class={styles.actorCard}>
           <span class={styles.actorMarker} aria-hidden="true" />
-          <p>{actor().handle}</p>
+          <A href={`/actor/${encodeURIComponent(actor().id)}`}>
+            {actor().handle}
+          </A>
         </article>
       )}
     </Show>

@@ -171,7 +171,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   width: 0.85rem;
 }
 
-.actorCard p {
+.actorCard a {
   font-family: var(--font-mono);
   font-size: 0.9rem;
   margin: 0;
@@ -180,7 +180,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .backLink:focus-visible,
 .createButton:focus-visible,
-.endpointList a:focus-visible {
+.endpointList a:focus-visible,
+.actorCard a:focus-visible {
   outline: 3px solid var(--accent-soft);
   outline-offset: 0.2rem;
 }
