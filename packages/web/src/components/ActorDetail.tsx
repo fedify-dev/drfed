@@ -118,7 +118,7 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
                       {(url) => (
                         <div>
                           <dt>{endpoint.label}</dt>
-                          <dd>
+                          <dd class={styles.endpoint}>
                             <a href={httpUrl(url())}>{url()}</a>
                             <CopyButton value={url()} label={endpoint.label} />
                           </dd>

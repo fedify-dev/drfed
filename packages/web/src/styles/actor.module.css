@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   color: var(--ink-soft);
   justify-self: start;
   font-weight: 700;
+  text-decoration: none;
 }
 .header {
   display: flex;
@@ -85,6 +86,21 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .fields a {
   color: var(--ink);
   text-underline-offset: 0.2rem;
+}
+.endpoint {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.endpoint > a {
+  flex: 1;
+  min-width: 0;
+}
+.endpoint > :last-child {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 40%;
+  margin-top: 0;
 }
 .page a:focus-visible {
   outline: 3px solid var(--accent-soft);
