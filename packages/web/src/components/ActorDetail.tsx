@@ -40,10 +40,18 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
         iri
         avatarUrl
         inboxUrl
-        outboxUrl
-        followersUrl
-        followingUrl
-        featuredUrl
+        outbox {
+          iri
+        }
+        followers {
+          iri
+        }
+        following {
+          iri
+        }
+        featured {
+          iri
+        }
         profileUrl
         instance {
           host
@@ -58,10 +66,10 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
         const endpoints = () => [
           { label: "Actor IRI", url: actor().iri },
           { label: "Inbox", url: actor().inboxUrl },
-          { label: "Outbox", url: actor().outboxUrl },
-          { label: "Followers", url: actor().followersUrl },
-          { label: "Following", url: actor().followingUrl },
-          { label: "Featured", url: actor().featuredUrl },
+          { label: "Outbox", url: actor().outbox?.iri },
+          { label: "Followers", url: actor().followers?.iri },
+          { label: "Following", url: actor().following?.iri },
+          { label: "Featured", url: actor().featured?.iri },
           { label: "Profile", url: actor().profileUrl },
         ];
         return (
