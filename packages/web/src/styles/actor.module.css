@@ -1,0 +1,117 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.page {
+  display: grid;
+  gap: 1.5rem;
+  padding-bottom: 3rem;
+}
+.backLink {
+  color: var(--ink-soft);
+  justify-self: start;
+  font-weight: 700;
+  text-decoration: none;
+}
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1.25rem;
+}
+.header > div {
+  min-width: 0;
+}
+.header h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(1.25rem, 4vw, 2rem);
+  overflow-wrap: anywhere;
+}
+.avatar {
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.label {
+  color: var(--accent-strong);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: clamp(1rem, 3vw, 1.75rem);
+}
+.panel h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+.fields {
+  margin: 1.25rem 0 0;
+}
+.fields > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+}
+.fields dt {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+.fields dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.fields a {
+  color: var(--ink);
+  text-underline-offset: 0.2rem;
+}
+.endpoint {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.endpoint > a {
+  flex: 1;
+  min-width: 0;
+}
+.endpoint > :last-child {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  max-width: 40%;
+  margin-top: 0;
+}
+.page a:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+@media (max-width: 520px) {
+  .fields > div {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .header {
+    align-items: start;
+  }
+}

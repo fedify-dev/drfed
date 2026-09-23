@@ -29,7 +29,7 @@ import {
   useRelayEnvironment,
 } from "solid-relay";
 
-import { ActorDetail } from "~/components/ActorDetail.tsx";
+import { ActorCard } from "~/components/ActorCard.tsx";
 
 import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql.ts";
 
@@ -47,7 +47,7 @@ const instanceDetailQuery = graphql`
           totalCount
           edges {
             node {
-              ...ActorDetail_actor
+              ...ActorCard_actor
             }
           }
         }
@@ -165,7 +165,7 @@ export default function InstanceDetailPage(
             </header>
             <div class={styles.actorList}>
               <For each={instance().actors.edges}>
-                {(edge) => <ActorDetail $actor={edge.node} />}
+                {(edge) => <ActorCard $actor={edge.node} />}
               </For>
             </div>
           </section>

@@ -2,5 +2,10 @@
   "src": "./src",
   "schema": "./schema.graphql",
   "language": "typescript",
+  "customScalarTypes": {
+    "DateTime": "string",
+    "URL": "string",
+    "UUID": "string"
+  },
   "eagerEsModules": true
 }
