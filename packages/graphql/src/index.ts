@@ -46,9 +46,9 @@ export interface YogaServerOptions {
   emailFrom?: string | undefined;
 
   /**
-   * Origin list for login.
+   * Origin for login.
    */
-  loginOrigins: ReadonlySet<string>;
+  loginOrigin: URL;
 
   /**
    * The root origin of this deployment.  Every instance is served from a
@@ -116,7 +116,7 @@ const fillOptions = (
   // at drfed.org would fail the SPF and DMARC checks of every deployment but
   // the project's own, and the login mail would be rejected or junked.
   emailFrom: opt.emailFrom ?? `noreply@${canonicalHostname(opt.rootOrigin)}`,
-  loginOrigins: opt.loginOrigins,
+  loginOrigin: opt.loginOrigin,
   rootOrigin: opt.rootOrigin,
 });
 

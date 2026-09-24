@@ -22,7 +22,7 @@ import { message, optionNames } from "@optique/core/message";
 import { map, optional, withDefault } from "@optique/core/modifiers";
 import type { InferValue } from "@optique/core/parser";
 import { flag, option } from "@optique/core/primitives";
-import { email, socketAddress, url } from "@optique/core/valueparser";
+import { email, origin, socketAddress, url } from "@optique/core/valueparser";
 import { loggingOptions } from "@optique/logtape";
 import { path } from "@optique/run/valueparser";
 import { LogTapeTransport } from "@upyo/logtape";
@@ -124,6 +124,14 @@ const emailFromParser = optional(
   }),
 );
 
+const loginOriginParser = option(
+  "--login-origin",
+  origin({ allowedProtocols: ["http:", "https:"] }),
+  {
+    description: message`The frontend origin allowed in email login links.`,
+  },
+);
+
 const serverParser = object("DrFed server", {
   address: withDefault(
     option("--listen", "-l", socketAddress({ requirePort: true }), {
@@ -146,6 +154,7 @@ const serverParser = object("DrFed server", {
     }),
   ),
   rootOrigin: rootOriginParser,
+  loginOrigin: loginOriginParser,
   emailFrom: emailFromParser,
   mailer: smtpParser,
   seed: seedParser,

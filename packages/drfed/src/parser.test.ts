@@ -129,16 +129,17 @@ describe("drfed-server", () => {
         "--email-from=postmaster@mail.example",
       ]);
       assert.notEqual(accepted.code, 0);
-      assert.match(accepted.stderr, /DRFED_LOGIN_ORIGINS/u);
+      assert.match(accepted.stderr, /Missing option .*--login-origin/u);
 
       const rejected = await run([
         "--data-path",
         dataPath,
         "--root-origin=https://drfed.net",
+        "--login-origin=https://drfed.net",
         "--email-from=not-an-address",
       ]);
       assert.notEqual(rejected.code, 0);
-      assert.doesNotMatch(rejected.stderr, /DRFED_LOGIN_ORIGINS/u);
+      assert.match(rejected.stderr, /Expected a valid email address/u);
     } finally {
       await rm(dataPath, { force: true, recursive: true });
     }

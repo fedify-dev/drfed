@@ -197,6 +197,7 @@ describe("email authentication", () => {
         equal(message.sender.address, "postmaster@mail.example");
       },
       new URL("https://drfed.example"),
+      new URL("https://drfed.test"),
       "postmaster@mail.example",
     );
   });

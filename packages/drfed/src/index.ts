@@ -41,24 +41,6 @@ import seedData from "./seed.ts";
 import { createFetchHandler, warnAboutStrandedInstances } from "./serving.ts";
 
 async function runServer(options: ServerOptions) {
-  const values = process.env.DRFED_LOGIN_ORIGINS?.split(",").map((value) =>
-    value.trim(),
-  );
-  if (values == null || values.some((value) => value === "")) {
-    throw new TypeError("DRFED_LOGIN_ORIGINS must contain valid origins.");
-  }
-  const loginOrigins = new Set(
-    values.map((value) => {
-      const url = new URL(value);
-      if (url.protocol !== "https:" && url.protocol !== "http:") {
-        throw new TypeError(
-          `Unsupported login origin protocol: ${url.protocol}`,
-        );
-      }
-      return url.origin;
-    }),
-  );
-
   const { credentials } = options.drizzle;
   if (options.drizzle.migrate) await migrate({ credentials });
   if (options.seed) await seedData(options.drizzle.db);
@@ -67,13 +49,13 @@ async function runServer(options: ServerOptions) {
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
   const federation = await createFederation(options.drizzle.db, { kv });
-  const { emailFrom, mailer, rootOrigin } = options;
+  const { emailFrom, mailer, rootOrigin, loginOrigin } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
     rootOrigin,
     emailFrom,
     mailer,
-    loginOrigins,
+    loginOrigin,
   });
   await warnAboutStrandedInstances(options.drizzle.db, rootOrigin);
   const server = serve({
