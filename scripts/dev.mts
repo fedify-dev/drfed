@@ -49,7 +49,7 @@ try {
 // DNS or /etc/hosts setup, which is what makes per-instance subdomains usable
 // in development.
 const defaultRootOrigin = "http://drfed.localhost:8888";
-const defaultLoginOrigin = "http://drfed.locaㅣhost:3000";
+const defaultLoginOrigin = "http://drfed.localhost:3000";
 const isWindows = process.platform === "win32";
 const pnpm = isWindows ? "pnpm.cmd" : "pnpm";
 
