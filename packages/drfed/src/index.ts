@@ -18,7 +18,9 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import { createYogaServer } from "@drfed/graphql";
-import createFederation from "@drfed/graphql/federation";
+import createFederation, {
+  createInboundRecorder,
+} from "@drfed/graphql/federation";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
 import { PgliteKvStore } from "@fedify/pglite";
@@ -60,7 +62,11 @@ async function runServer(options: ServerOptions) {
   await warnAboutStrandedInstances(options.drizzle.db, rootOrigin);
   const server = serve({
     fetch: createFetchHandler({
-      federation,
+      federation: createInboundRecorder({
+        db: options.drizzle.db,
+        federation,
+        kv,
+      }),
       rootOrigin,
       serveControlSurface: yogaServer.fetch,
     }),

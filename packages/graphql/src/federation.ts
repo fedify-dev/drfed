@@ -51,7 +51,14 @@ import {
 import { getLogger } from "@logtape/logtape";
 import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
+import {
+  createOutboxErrorHandler,
+  createPermanentFailureHandler,
+} from "./activity-log/outbound.ts";
 import { canonicalizeAuthority } from "./origin.ts";
+
+export { createInboundRecorder } from "./activity-log/inbound.ts";
+export { deliverActivity } from "./activity-log/outbound.ts";
 
 /**
  * The vocabulary object types that DrFed serves as actors.
@@ -123,6 +130,8 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       }
       return toActorObject(ctx, identifier, actor);
     })
+    // Until #87 supplies keys, inbox loaders use unsigned document fetching.
+    .setKeyPairsDispatcher(() => [])
     .mapHandle(async (ctx, username) => {
       const actor = await db.query.actors.findFirst({
         where: {
@@ -312,6 +321,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
           };
     },
   );
+  builder.setOutboxPermanentFailureHandler(createPermanentFailureHandler(db));
   return builder;
 }
 
@@ -328,7 +338,19 @@ export default async function createFederation(
   db: Database,
   options: FederationOptions<unknown>,
 ): Promise<Federation<unknown>> {
-  return await buildFederation(db).build(options);
+  if (options.queue != null) {
+    throw new TypeError(
+      "Activity logging requires synchronous delivery; queues are not supported.",
+    );
+  }
+  const recordError = createOutboxErrorHandler(db);
+  return await buildFederation(db).build({
+    ...options,
+    async onOutboxError(error, activity) {
+      await recordError(error, activity);
+      await options.onOutboxError?.(error, activity);
+    },
+  });
 }
 
 // Whether a sanction is *currently* active is always determined by comparing

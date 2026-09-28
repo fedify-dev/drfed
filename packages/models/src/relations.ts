@@ -19,6 +19,32 @@ import { defineRelations } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
 export const relations = defineRelations(schema, (r) => ({
+  keys: {
+    versions: r.many.keyVersions({ from: r.keys.id, to: r.keyVersions.keyId }),
+  },
+  keyVersions: {
+    key: r.one.keys({
+      from: r.keyVersions.keyId,
+      to: r.keys.id,
+      optional: false,
+    }),
+    activityLogs: r.many.activityLogs({
+      from: r.keyVersions.id,
+      to: r.activityLogs.verificationKeyId,
+    }),
+  },
+  activityLogs: {
+    instance: r.one.instances({
+      from: r.activityLogs.instanceId,
+      to: r.instances.id,
+      optional: false,
+    }),
+    actor: r.one.actors({ from: r.activityLogs.actorId, to: r.actors.id }),
+    verificationKey: r.one.keyVersions({
+      from: r.activityLogs.verificationKeyId,
+      to: r.keyVersions.id,
+    }),
+  },
   accounts: {
     instances: r.many.instances({
       from: r.accounts.id.through(r.instanceMembers.accountId),
@@ -56,6 +82,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   instances: {
+    activityLogs: r.many.activityLogs({
+      from: r.instances.id,
+      to: r.activityLogs.instanceId,
+    }),
     members: r.many.accounts({
       from: r.instances.id.through(r.instanceMembers.instanceId),
       to: r.accounts.id.through(r.instanceMembers.accountId),
@@ -220,6 +250,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
+    activityLogs: r.many.activityLogs({
+      from: r.actors.id,
+      to: r.activityLogs.actorId,
+    }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,
       to: r.actorCollectionReferences.actorId,

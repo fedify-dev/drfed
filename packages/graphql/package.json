@@ -81,6 +81,10 @@
     "./origin": {
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
+    },
+    "./activity-log": {
+      "types": "./dist/activity-log.d.mts",
+      "default": "./dist/activity-log.mjs"
     }
   },
   "files": [
@@ -98,7 +102,8 @@
       "src/instance.ts",
       "src/schema.ts",
       "src/object.ts",
-      "src/origin.ts"
+      "src/origin.ts",
+      "src/activity-log.ts"
     ],
     "dts": {
       "sourcemap": true,

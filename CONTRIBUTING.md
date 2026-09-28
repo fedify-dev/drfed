@@ -362,6 +362,15 @@ When adding a new object or field, follow the existing `builder.drizzleNode()`
 and `t.drizzleField()` patterns.  Keep resolver database access through
 `ctx.db`.
 
+Activity delivery observations live in `activity_logs`, independently of the
+ActivityPub `activities` resources. The federation HTTP surface must pass
+through `createInboundRecorder` with the same KV store as Fedify. Keep the
+public-key cache serialization compatible with the installed Fedify version.
+Use `deliverActivity` for future outgoing delivery; queue-backed delivery is
+not supported until delivery success callbacks are available. Log payloads
+are private to local instance members and administrators, including Relay node
+lookups.
+
 
 CLI and server changes
 ----------------------

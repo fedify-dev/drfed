@@ -1,0 +1,764 @@
+"""
+Represents an `Account` in the DrFed platform.  Note that it differs from the ActivityPub `Actor`s that belong to `Instance`s.
+"""
+type Account implements Node {
+  """
+  Whether the `Account` has administrator privileges.  `null` unless the viewer is the `Account` itself or a site administrator.
+  """
+  admin: Boolean
+
+  """The date/time when the `Account` was created."""
+  created: DateTime!
+
+  """
+  The email address of the `Account`.  `null` unless the viewer is the `Account` itself or a site administrator.
+  """
+  email: Email
+
+  """The unique identifier of the `Account`."""
+  id: ID!
+
+  """
+  The `Instance`s that the `Account` belongs to.  `null` unless the viewer is the `Account` itself or a site administrator; an empty connection means the `Account` belongs to no `Instance`.
+  """
+  instances(after: String, before: String, first: Int, last: Int): AccountInstancesConnection
+
+  """The display name of the `Account`."""
+  name: String!
+
+  """The UUID of the `Account`."""
+  uuid: UUID!
+}
+
+type AccountInstancesConnection {
+  edges: [AccountInstancesConnectionEdge!]!
+  pageInfo: PageInfo!
+
+  """
+  The total number of `Instance`s that the `Account` belongs to.Note that pending memberships are not counted.
+  """
+  totalCount: Int!
+}
+
+type AccountInstancesConnectionEdge {
+  """
+  The date/time when the `Account` accepted membership in the `Instance`.
+  """
+  accepted: DateTime
+
+  """Whether the `Account` has administrator privileges in the `Instance`."""
+  admin: Boolean!
+
+  """The date/time when the `Account` was added to the `Instance`."""
+  created: DateTime!
+  cursor: String!
+  node: Instance!
+}
+
+type Activity implements Node {
+  actor: Actor!
+
+  """Stored audience occurrences, in original order including duplicates."""
+  audience: [Resource!]!
+
+  """Stored bcc occurrences, in original order including duplicates."""
+  bcc: [Resource!]!
+
+  """Stored bto occurrences, in original order including duplicates."""
+  bto: [Resource!]!
+
+  """Stored cc occurrences, in original order including duplicates."""
+  cc: [Resource!]!
+  document: JSON
+
+  """
+  Expected classifications for this activity and its Object. Empty if the object is absent, hidden, or not an Object.
+  """
+  expectedClassifications: [ExpectedClassification!]!
+  id: ID!
+  iri: URL!
+  object: Resource
+  published: DateTime!
+  resource: Resource!
+
+  """Stored to occurrences, in original order including duplicates."""
+  to: [Resource!]!
+  type: ActivityType!
+}
+
+type ActivityLog implements Node {
+  activityIri: URL
+  actor: Actor
+  created: DateTime!
+  direction: ActivityLogDirection!
+  error: String
+  id: ID!
+  inboxUrl: URL!
+  instance: Instance!
+  objectIri: URL
+  objectType: String
+
+  """
+  Original inbound JSON or compact outbound JSON-LD. May contain unverified remote input and private recipients. Null represents a literal JSON null body.
+  """
+  payload: JSON
+  remoteActorIri: URL
+  remoteHost: String
+  signedKeyIri: URL
+  status: ActivityLogStatus!
+  statusCode: Int
+  type: String
+  uuid: UUID!
+
+  """
+  The public key version used in verification, even when it failed. Its presence does not imply success; consult status.
+  """
+  verificationKey: KeyVersion
+}
+
+enum ActivityLogDirection {
+  inbound
+  outbound
+}
+
+input ActivityLogFilter {
+  direction: ActivityLogDirection
+  status: ActivityLogStatus
+  type: String
+}
+
+enum ActivityLogStatus {
+  failed
+  permanently_failed
+  queued
+  received
+  rejected
+  sent
+  unverified
+}
+
+enum ActivityType {
+  Create
+}
+
+"""Represents an `Actor` in the DrFed platform."""
+type Actor implements Node {
+  """
+  This local actor's delivery observations, newest first. Restricted to instance members and administrators.
+  """
+  activityLogs(after: String, before: String, filter: ActivityLogFilter, first: Int, last: Int): ActorActivityLogsConnection!
+
+  """The avatar URL of the `Actor`."""
+  avatarUrl: URL
+
+  """The creation date/time of the `Actor`."""
+  created: DateTime!
+  featured: Collection
+  followers: Collection
+  following: Collection
+
+  """The handle of the `Actor`."""
+  handle: String!
+
+  """The header URL of the `Actor`."""
+  headerUrl: URL
+
+  """The unique identifier of the `Actor`."""
+  id: ID!
+
+  """The inbox URL of the `Actor`."""
+  inboxUrl: URL!
+
+  """The `Instance` that the `Actor` belongs to."""
+  instance: Instance!
+  iri: URL!
+
+  """The local details of the `Actor`, or null if it is remote."""
+  local: LocalActor
+
+  """
+  Non-deleted objects, newest publication first. All addressing is publicly readable through GraphQL.
+  """
+  objects(after: String, before: String, first: Int, last: Int): ObjectConnection!
+
+  """
+  The stored outbox collection. For local actors, it contains every stored `Create` activity regardless of addressing and retains activities whose objects are deleted so their recorded history remains inspectable. The ActivityPub outbox serves only activities with Public addressing whose objects are not deleted.
+  """
+  outbox: Collection
+
+  """The profile URL of the `Actor`."""
+  profileUrl: URL
+  resource: Resource!
+
+  """
+  The type of the `Actor`: `Application` | `Group` | `Organization` | `Person` | `Service`
+  """
+  type: ActorType!
+
+  """The username of the `Actor`."""
+  username: String!
+
+  """The UUID of the `Actor`."""
+  uuid: UUID!
+}
+
+type ActorActivityLogsConnection {
+  edges: [ActorActivityLogsConnectionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type ActorActivityLogsConnectionEdge {
+  cursor: String!
+  node: ActivityLog!
+}
+
+enum ActorType {
+  Application
+  Group
+  Organization
+  Person
+  Service
+}
+
+input AddressingInput {
+  audience: [URL!]! = []
+  bcc: [URL!]! = []
+  bto: [URL!]! = []
+  cc: [URL!]! = []
+  to: [URL!]! = []
+}
+
+type Collection implements Node {
+  """
+  The `totalItems` reported by the collection document. It can differ from the locally observed count and is null for local collections. Unlike `totalCount` and `items`, this value is not recalculated when deleted actors, deleted objects, or resources authored by deleted actors are excluded.
+  """
+  declaredTotalItems: Int
+  id: ID!
+  iri: URL!
+
+  """
+  The locally stored, visible members. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this connection and `totalCount`.
+  """
+  items(after: String, before: String, first: Int, last: Int): CollectionItemsConnection!
+  owner: Actor
+  resource: Resource!
+
+  """
+  The number of locally stored, visible members. It can differ from `declaredTotalItems`. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this count and `items`.
+  """
+  totalCount: Int!
+  type: CollectionType!
+}
+
+type CollectionItemsConnection {
+  edges: [CollectionItemsConnectionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type CollectionItemsConnectionEdge {
+  cursor: String!
+  node: Resource!
+}
+
+enum CollectionType {
+  Collection
+  OrderedCollection
+}
+
+"""Represents an error that occurred while creating an `Actor`."""
+type CreateActorsError {
+  """
+  A human-readable message describing the error.  Don't use this for programmatic error handling, use the `type` field instead.
+  """
+  message: String!
+
+  """The type of the error.  Use this for programmatic error handling."""
+  type: CreateActorsErrorType!
+}
+
+enum CreateActorsErrorType {
+  InstanceNotFound
+  InvalidSize
+  TooManyActors
+}
+
+union CreateActorsResult = CreateActorsError | CreateActorsSuccess
+
+type CreateActorsSuccess {
+  actors: [Actor!]!
+}
+
+"""Represents an error that occurred while creating an `Instance`."""
+type CreateInstanceError {
+  """
+  A human-readable message describing the error.  Don't use this for programmatic error handling, use the `type` field instead.
+  """
+  message: String!
+
+  """The type of the error.  Use this for programmatic error handling."""
+  type: CreateInstanceErrorType!
+}
+
+enum CreateInstanceErrorType {
+  InvalidSlug
+  SlugAlreadyTaken
+  TooManyInstances
+}
+
+union CreateInstanceResult = CreateInstanceError | Instance
+
+type CreateObjectError {
+  """
+  A human-readable message describing the error.  Don't use this for programmatic error handling, use the `type` field instead.
+  """
+  message: String!
+
+  """The type of the error.  Use this for programmatic error handling."""
+  type: CreateObjectErrorType!
+}
+
+enum CreateObjectErrorType {
+  ActorNotFound
+  InvalidContent
+  InvalidLanguage
+}
+
+union CreateObjectResult = CreateObjectError | Object
+
+"""An ISO 8601 instant preserving sub-millisecond precision."""
+scalar DateTime
+
+scalar Email
+
+"""
+Expected classification; actual access depends on receiver state and policy.
+"""
+type ExpectedClassification {
+  classification: String!
+  implementation: Implementation!
+  reason: String!
+  version: String!
+}
+
+enum Implementation {
+  MASTODON
+  MISSKEY
+}
+
+"""Represents an `Instance` in the DrFed platform."""
+type Instance implements Node {
+  """
+  Delivery observations, newest first. Restricted to local instance members and administrators.
+  """
+  activityLogs(after: String, before: String, filter: ActivityLogFilter, first: Int, last: Int): InstanceActivityLogsConnection!
+
+  """The `Actor`s that belong to the `Instance`."""
+  actors(after: String, before: String, first: Int, last: Int): InstanceActorsConnection!
+
+  """The creation date/time of the `Instance`."""
+  created: DateTime!
+  host: String!
+
+  """The unique identifier of the `Instance`."""
+  id: ID!
+
+  """
+  The `LocalInstance` backing the `Instance` when it is hosted by this DrFed deployment.  `null` if the `Instance` is remote, i.e., hosted by another server on the fediverse.
+  """
+  localInstance: LocalInstance
+
+  """The `Account`s that belong to the `Instance`."""
+  members(after: String, before: String, first: Int, last: Int): InstanceMembersConnection!
+  nodeInfoUrl: String
+  software: String
+  softwareVersion: String
+
+  """
+  The absolute origin the `Instance` is served at, e.g. `https://foo-bar.drfed.net`.  Local instances follow this deployment's root origin, so a development deployment yields an `http:` URL carrying its port; remote instances are always `https:`.
+  """
+  url: String!
+  uuid: UUID!
+}
+
+type InstanceActivityLogsConnection {
+  edges: [InstanceActivityLogsConnectionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type InstanceActivityLogsConnectionEdge {
+  cursor: String!
+  node: ActivityLog!
+}
+
+type InstanceActorsConnection {
+  edges: [InstanceActorsConnectionEdge!]!
+  pageInfo: PageInfo!
+
+  """The total number of `Actor`s that belong to the `Instance`."""
+  totalCount: Int!
+}
+
+type InstanceActorsConnectionEdge {
+  """The date/time when the `Actor` was added to the `Instance`."""
+  created: DateTime!
+  cursor: String!
+  node: Actor!
+
+  """
+  The type of the `Actor`: `Application` | `Group` | `Organization` | `Person` | `Service`
+  """
+  type: ActorType!
+
+  """The username of the `Actor`."""
+  username: String!
+}
+
+type InstanceMembersConnection {
+  edges: [InstanceMembersConnectionEdge!]!
+  pageInfo: PageInfo!
+
+  """
+  The total number of `Account`s that belong to the `Instance`. Note that pending members are not counted.
+  """
+  totalCount: Int!
+}
+
+type InstanceMembersConnectionEdge {
+  """
+  The date/time when the `Account` accepted membership in the `Instance`.
+  """
+  accepted: DateTime
+
+  """Whether the `Account` has administrator privileges in the `Instance`."""
+  admin: Boolean!
+
+  """The date/time when the `Account` was added to the `Instance`."""
+  created: DateTime!
+  cursor: String!
+  node: Account!
+}
+
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+type Key implements Node {
+  created: DateTime!
+  id: ID!
+  iri: URL!
+  uuid: UUID!
+  versions: [KeyVersion!]!
+}
+
+type KeyVersion implements Node {
+  fingerprint: String!
+
+  """
+  DrFed observation time, not the remote key rotation time; does not imply continuous use between observations.
+  """
+  firstSeen: DateTime!
+  id: ID!
+  key: Key!
+
+  """
+  DrFed observation time, not the remote key rotation time; does not imply continuous use between observations.
+  """
+  lastSeen: DateTime!
+  publicKey: JSON!
+  uuid: UUID!
+}
+
+"""Represents the local details of an `Actor`."""
+type LocalActor implements Node {
+  """The profile image of the actor."""
+  avatar: String
+
+  """The profile banner image of the actor."""
+  header: String
+
+  """The unique identifier of the local actor details."""
+  id: ID!
+
+  """The UUID of the local actor details."""
+  uuid: UUID!
+}
+
+"""
+Represents a `LocalInstance`, i.e., an `Instance` hosted by this DrFed deployment.  Only accepted members of the `Instance` it backs, and site administrators, can read it, because it carries operational details such as the expiry date and the actor quota.
+"""
+type LocalInstance implements Node {
+  """The expire date of the instance."""
+  expires: DateTime!
+
+  """The unique identifier of the `LocalInstance`."""
+  id: ID!
+
+  """
+  The `Instance` this `LocalInstance` backs, which carries the federation-facing data such as the host name.
+  """
+  instance: Instance
+  maxActors: Int!
+  slug: String!
+
+  """The UUID of the `LocalInstance`."""
+  uuid: UUID!
+}
+
+"""An email login challenge."""
+type LoginChallenge {
+  """The public identifier of the login challenge."""
+  challengeId: UUID!
+}
+
+"""The session revoked."""
+type LogoutSuccess {
+  """Revoking status."""
+  revoke: Boolean!
+}
+
+type Mutation {
+  """Complete login challenge."""
+  completeLoginChallenge(challengeId: UUID!, code: String!): Session
+
+  """Create an instance."""
+  createInstance(
+    """
+    A unique instance slug, which becomes the leftmost label of the instance's domain name, e.g. `slug` in `slug.example.com`.
+    """
+    slug: String!
+  ): CreateInstanceResult!
+
+  """
+  Create a local ActivityPub object without delivering it to remote servers.
+  """
+  createObject(
+    """
+    The local author actor ID. The viewer must be an accepted instance member.
+    """
+    actor: ID!
+
+    """
+    Explicit addressing preserved in order, including duplicates. Empty lists are allowed.
+    """
+    addressing: AddressingInput!
+
+    """
+    Non-empty HTML stored verbatim; browser clients must sanitize it before rendering.
+    """
+    contentHtml: String!
+
+    """A BCP 47 language tag, canonicalized and limited to 35 characters."""
+    language: String
+
+    """Optional title. Empty or whitespace-only values are stored as null."""
+    name: String
+
+    """Whether to mark the content as sensitive."""
+    sensitive: Boolean! = false
+
+    """
+    Optional summary or content warning. Empty or whitespace-only values are stored as null.
+    """
+    summary: String
+
+    """The ActivityStreams object type to create."""
+    type: ObjectType! = Note
+  ): CreateObjectResult!
+
+  """Create actors."""
+  generateActors(
+    """The ID of the target instance"""
+    instance: ID!
+
+    """How many actors to generate"""
+    size: Int!
+  ): CreateActorsResult!
+
+  """Send a magic link without revealing whether the account exists."""
+  loginByEmail(
+    """The email address of the `Account`."""
+    email: Email!
+
+    """
+    Use {challengeId} and {code} variables. The URL's origin must be in the server's login allowlist.
+    """
+    verifyUrl: URITemplate!
+  ): LoginChallenge!
+
+  """Revokes a session. Return always `revoke: true`."""
+  revokeSession: LogoutSuccess!
+}
+
+interface Node {
+  id: ID!
+}
+
+"""Represents an ActivityPub object authored by an `Actor`."""
+type Object implements Node {
+  """
+  Activities referencing this object, optionally filtered by type. Excludes deleted authors; ordered by published ASC, id ASC.
+  """
+  activities(after: String, before: String, first: Int, last: Int, type: ActivityType): ObjectActivitiesConnection!
+
+  """The actor that authored the object."""
+  actor: Actor!
+
+  """Stored audience occurrences, in original order including duplicates."""
+  audience: [Resource!]!
+
+  """Stored bcc occurrences, in original order including duplicates."""
+  bcc: [Resource!]!
+
+  """Stored bto occurrences, in original order including duplicates."""
+  bto: [Resource!]!
+
+  """Stored cc occurrences, in original order including duplicates."""
+  cc: [Resource!]!
+
+  """
+  HTML preserved verbatim. Clients must sanitize it before browser rendering.
+  """
+  contentHtml: String!
+
+  """
+  The time the object was stored in DrFed, distinct from its publication time.
+  """
+  created: DateTime!
+  document: JSON
+
+  """The Relay global ID of the object."""
+  id: ID!
+  iri: URL!
+
+  """The canonical BCP 47 tag used for contentMap, if specified."""
+  language: String
+
+  """The optional title of the object."""
+  name: String
+
+  """The ActivityStreams publication time."""
+  published: DateTime!
+  resource: Resource!
+
+  """Whether the content is marked sensitive."""
+  sensitive: Boolean!
+
+  """The optional summary or content warning."""
+  summary: String
+
+  """Stored to occurrences, in original order including duplicates."""
+  to: [Resource!]!
+
+  """The ActivityStreams vocabulary type: Note or Article."""
+  type: ObjectType!
+
+  """The time the stored object was last updated."""
+  updated: DateTime!
+
+  """The human-readable page URL, if available."""
+  url: URL
+
+  """The UUID of the ActivityPub Object."""
+  uuid: UUID!
+}
+
+type ObjectActivitiesConnection {
+  edges: [ObjectActivitiesConnectionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type ObjectActivitiesConnectionEdge {
+  cursor: String!
+  node: Activity!
+}
+
+type ObjectConnection {
+  edges: [ObjectEdge!]!
+  pageInfo: PageInfo!
+
+  """
+  The number of non-deleted objects authored by this actor, regardless of addressing.
+  """
+  totalCount: Int!
+}
+
+type ObjectEdge {
+  cursor: String!
+  node: Object!
+}
+
+enum ObjectType {
+  Article
+  Note
+}
+
+type PageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+}
+
+type Query {
+  """Get an `Account` by its UUID."""
+  accountByUuid(
+    """The UUID of the `Account` to retrieve."""
+    uuid: UUID!
+  ): Account
+
+  """
+  Get a `LocalInstance` by its slug.  Returns `null` if no `LocalInstance` has the given slug.
+  """
+  localInstanceBySlug(
+    """
+    The slug of the `LocalInstance` to retrieve, i.e., the label that forms the first part of its host name.
+    """
+    slug: String!
+  ): LocalInstance
+  node(id: ID!): Node
+  nodes(ids: [ID!]!): [Node]!
+
+  """`Account` if authorized, else `null`"""
+  viewer: Account
+}
+
+type Resource implements Node {
+  """
+  Typed details, or null while unknown or when the typed row or its author/owner is deleted.
+  """
+  detail: ResourceDetail
+  id: ID!
+  iri: URL!
+  kind: ResourceKind!
+}
+
+union ResourceDetail = Activity | Actor | Collection | Object
+
+enum ResourceKind {
+  activity
+  actor
+  collection
+  object
+  unknown
+}
+
+type Session {
+  accessToken: String
+  account: Account!
+  created: DateTime!
+  expires: DateTime!
+  id: UUID!
+}
+
+scalar URITemplate
+
+"""
+A field whose value conforms to the standard URL format as specified in RFC3986: https://www.ietf.org/rfc/rfc3986.txt.
+"""
+scalar URL
+
+"""
+A field whose value is a generic Universally Unique Identifier: https://en.wikipedia.org/wiki/Universally_unique_identifier.
+"""
+scalar UUID

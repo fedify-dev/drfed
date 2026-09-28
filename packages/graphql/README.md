@@ -24,15 +24,16 @@ Usage
 
 ~~~~ ts
 import { createYogaServer } from "@drfed/graphql";
-import createFederation from "@drfed/graphql/federation";
+import createFederation, { createInboundRecorder } from "@drfed/graphql/federation";
 
 const federation = await createFederation(db, { kv });
+const recordedInbox = createInboundRecorder({ db, federation, kv });
 const yoga = createYogaServer(db, federation, {
   loginOrigins: new Set(["https://drfed.example.com"]),
 });
 serve({
   fetch: (request) =>
-    federation.fetch(request, { onNotFound: yoga.fetch, contextData: undefined }),
+    recordedInbox.fetch(request, { onNotFound: yoga.fetch, contextData: undefined }),
 });
 ~~~~
 
@@ -41,3 +42,28 @@ registered.  `createYogaServer` accepts a Drizzle database instance, that
 federation, and server options, and returns a GraphQL Yoga server
 ready to handle HTTP requests.  The federation is stored in the resolver
 context as is; `createYogaServer` never registers anything on it.
+
+
+Activity logs
+-------------
+
+`Instance.activityLogs` and `Actor.activityLogs` expose delivery observations,
+newest first, with direction, status, and type filters. Only accepted local
+instance members and site administrators can read them, including through
+Relay node IDs. Payloads may contain unverified input and private recipients.
+A literal JSON `null` body is retained and exposed as a nullable `payload`.
+
+`ActivityLog.verificationKey` retains the observed public key version even
+when verification failed. `KeyVersion.firstSeen` and `lastSeen` are DrFed
+observation times, not remote rotation times or evidence of continuous use.
+
+Wrap the federation HTTP surface with `createInboundRecorder` using the same
+KV store (and public-key prefix when customized). JSON inbox POSTs are logged;
+non-JSON bodies are excluded. Logging errors never replace federation responses.
+
+`deliverActivity` is the outbound entry point for explicit recipients once
+local actor keys are available (#87). It records one row per destination inbox
+and settles each synchronous delivery independently. `createFederation` rejects
+queues until Fedify exposes delivery success callbacks. Activity resource
+persistence (#88), retention policies, and the activity-log UI (#13) are
+separate.

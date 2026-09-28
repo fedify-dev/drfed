@@ -1,0 +1,693 @@
+// DrFed: A web-based platform for developing and debugging ActivityPub apps
+// Copyright (C) 2026 DrFed team
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// Each request observes the preceding request's cache and database changes.
+// oxlint-disable no-await-in-loop, max-statements
+import assert from "node:assert/strict";
+import { it } from "node:test";
+
+import {
+  classifyInbound,
+  createInboundRecorder,
+  createKeyCache,
+  createOutboxErrorHandler,
+  createPermanentFailureHandler,
+  deliverActivity,
+  describeActivity,
+} from "@drfed/graphql/activity-log";
+import createFederation from "@drfed/graphql/federation";
+import { schema } from "@drfed/models";
+import { recordInbound, recordOutbound } from "@drfed/models/activity-log";
+import { observeKeyVersion } from "@drfed/models/key";
+import {
+  type Context,
+  type Federation,
+  MemoryKvStore,
+  SendActivityError,
+  generateCryptoKeyPair,
+  signRequest,
+} from "@fedify/fedify";
+import {
+  Create,
+  CryptographicKey,
+  type DocumentLoader,
+  Multikey,
+  Person,
+} from "@fedify/vocab";
+import { eq } from "drizzle-orm";
+
+import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
+import {
+  accountId,
+  globalId,
+  localActorId,
+  localInstanceId,
+  remoteActorId,
+  remoteInstanceId,
+  seedAuthenticatedLocalInstance,
+  seedLocalActor,
+  seedRemoteActor,
+} from "./seed.test.ts";
+
+const actorIri = new URL("https://remote.example/users/alice");
+const keyId = new URL(`${actorIri.href}#main-key`);
+const inbox = `https://test-instance.drfed.org/users/${localActorId}/inbox`;
+const fetchOptions = { contextData: undefined };
+const payload = (id: string) => ({
+  "@context": "https://www.w3.org/ns/activitystreams",
+  id: `https://remote.example/activities/${id}`,
+  type: "Create",
+  actor: actorIri.href,
+  object: {
+    id: `https://remote.example/notes/${id}`,
+    type: "Note",
+    content: "test",
+  },
+  bcc: ["https://private.example/recipient"],
+});
+const request = (body: unknown, url = inbox) =>
+  new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/activity+json" },
+    body: JSON.stringify(body),
+  });
+
+it("records signed, rotated, tampered and rejected inbox deliveries with the original JSON", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const kv = new MemoryKvStore();
+    const a = await generateCryptoKeyPair();
+    const b = await generateCryptoKeyPair();
+    let currentKey = a.publicKey;
+    let loads = 0;
+    const documentLoader: DocumentLoader = async (url) => {
+      loads += 1;
+      const key = new CryptographicKey({
+        id: keyId,
+        owner: actorIri,
+        publicKey: currentKey,
+      });
+      const document =
+        url === actorIri.href
+          ? await new Person({ id: actorIri, publicKey: key }).toJsonLd()
+          : await key.toJsonLd();
+      return { documentUrl: url, contextUrl: null, document };
+    };
+    const { contextLoader } = (
+      await createFederation(db, { kv })
+    ).createContext(new URL(inbox), undefined);
+    const federation = await createFederation(db, {
+      kv,
+      contextLoaderFactory: () => contextLoader,
+      documentLoaderFactory: () => documentLoader,
+    });
+    const recorder = createInboundRecorder({ db, federation, kv });
+    const send = async (
+      body: unknown,
+      privateKey = a.privateKey,
+      url = inbox,
+    ) => {
+      const signed = await signRequest(request(body, url), privateKey, keyId);
+      return await recorder.fetch(signed, fetchOptions);
+    };
+    assert.equal((await send(payload("first"))).status, 202);
+    const [first] = await db.query.activityLogs.findMany();
+    assert.ok(first);
+    assert.equal(first.status, "received");
+    assert.equal(first.type, "Create");
+    assert.equal(first.objectType, "Note");
+    assert.equal(first.signedKeyIri, keyId.href);
+    assert.ok(first.verificationKeyId);
+    assert.equal(first.actorId, localActorId);
+    assert.deepEqual(first.payload, payload("first"));
+    const [firstVersion] = await db.query.keyVersions.findMany();
+    assert.ok(firstVersion);
+    // Digest failure happens before a key lookup. An existing cache entry is
+    // not evidence that this request used that key.
+    const badDigest = await signRequest(
+      request(payload("bad-digest")),
+      a.privateKey,
+      keyId,
+    );
+    badDigest.headers.set(
+      "digest",
+      "SHA-256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    );
+    assert.equal((await recorder.fetch(badDigest, fetchOptions)).status, 401);
+    const digestLog = await db.query.activityLogs.findFirst({
+      where: { activityIri: payload("bad-digest").id },
+    });
+    assert.equal(digestLog?.signedKeyIri, keyId.href);
+    assert.equal(digestLog?.verificationKeyId, null);
+    const firstLoads = loads;
+    assert.equal(firstLoads, 1);
+    assert.equal((await send(payload("second"))).status, 202);
+    assert.equal(loads, firstLoads);
+    assert.equal(await db.$count(schema.keyVersions), 1);
+    const [seenAgain] = await db.query.keyVersions.findMany();
+    assert.ok(seenAgain);
+    assert.ok(
+      Temporal.Instant.compare(seenAgain.lastSeen, firstVersion.lastSeen) > 0,
+    );
+    currentKey = b.publicKey;
+    await kv.delete(["_fedify", "publicKey", keyId.href]);
+    assert.equal((await send(payload("rotated"), b.privateKey)).status, 202);
+    assert.equal(await db.$count(schema.keyVersions), 2);
+    assert.equal(
+      (await db.query.activityLogs.findFirst({ where: { id: first.id } }))
+        ?.verificationKeyId,
+      firstVersion.id,
+    );
+    // Sign with A while the advertised key is B: cryptographic verification fails.
+    assert.equal((await send(payload("tampered"))).status, 401);
+    const bad = await db.query.activityLogs.findFirst({
+      where: { activityIri: payload("tampered").id },
+    });
+    assert.equal(bad?.status, "unverified");
+    assert.ok(bad?.verificationKeyId);
+    const mismatch = {
+      ...payload("mismatch"),
+      actor: "https://other.example/actor",
+    };
+    assert.equal((await send(mismatch, b.privateKey)).status, 401);
+    assert.equal(
+      (
+        await db.query.activityLogs.findFirst({
+          where: { activityIri: mismatch.id },
+        })
+      )?.status,
+      "rejected",
+    );
+    assert.equal(
+      (
+        await send(
+          payload("shared"),
+          b.privateKey,
+          "https://test-instance.drfed.org/inbox",
+        )
+      ).status,
+      202,
+    );
+    assert.equal(
+      (
+        await db.query.activityLogs.findFirst({
+          where: { activityIri: payload("shared").id },
+        })
+      )?.actorId,
+      null,
+    );
+    await kv.delete(["_fedify", "publicKey", keyId.href]);
+    assert.equal(await db.$count(schema.keyVersions), 2);
+  });
+});
+
+it("records missing signatures and failed key fetches, and skips non-JSON/non-inbox requests", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const kv = new MemoryKvStore();
+    const { contextLoader } = (
+      await createFederation(db, { kv })
+    ).createContext(new URL(inbox), undefined);
+    const federation = await createFederation(db, {
+      kv,
+      contextLoaderFactory: () => contextLoader,
+      documentLoaderFactory: () => () =>
+        Promise.reject(new TypeError("offline")),
+    });
+    const recorder = createInboundRecorder({ db, federation, kv });
+    assert.equal(
+      (await recorder.fetch(request(payload("unsigned")), fetchOptions)).status,
+      401,
+    );
+    const [unsigned] = await db.query.activityLogs.findMany();
+    assert.ok(unsigned);
+    assert.equal(unsigned.status, "unverified");
+    assert.equal(unsigned.signedKeyIri, null);
+    assert.equal(unsigned.verificationKeyId, null);
+    const pair = await generateCryptoKeyPair();
+    assert.equal(
+      (
+        await recorder.fetch(
+          await signRequest(
+            request(payload("unavailable")),
+            pair.privateKey,
+            keyId,
+          ),
+          fetchOptions,
+        )
+      ).status,
+      401,
+    );
+    const failed = await db.query.activityLogs.findFirst({
+      where: { activityIri: payload("unavailable").id },
+    });
+    assert.equal(failed?.signedKeyIri, keyId.href);
+    assert.equal(failed?.verificationKeyId, null);
+    assert.match(failed?.error ?? "", /keyFetchError/u);
+    await recorder.fetch(
+      new Request(inbox, { method: "POST", body: "not JSON" }),
+      fetchOptions,
+    );
+    await recorder.fetch(new Request(inbox), fetchOptions);
+    await recorder.fetch(
+      request({}, "https://test-instance.drfed.org/not-an-inbox"),
+      fetchOptions,
+    );
+    assert.equal(await db.$count(schema.activityLogs), 2);
+    await recorder.fetch(request(null), fetchOptions);
+    const nullPayload = await db.query.activityLogs.findFirst({
+      where: { type: { isNull: true } },
+    });
+    assert.equal(nullPayload?.payload, null);
+    await db.execute(`DROP TABLE activity_logs`);
+    assert.equal(
+      (await recorder.fetch(request(payload("log-failure")), fetchOptions))
+        .status,
+      401,
+    );
+  });
+});
+
+it("uses the Fedify KV serialization for RSA, Multikey and negative entries", async () => {
+  const kv = new MemoryKvStore();
+  const cache = createKeyCache(kv);
+  const rsa = await generateCryptoKeyPair();
+  const key = new CryptographicKey({
+    id: keyId,
+    owner: actorIri,
+    publicKey: rsa.publicKey,
+  });
+  await cache.set(keyId, key);
+  assert.deepEqual(
+    await kv.get(["_fedify", "publicKey", keyId.href]),
+    await key.toJsonLd(),
+  );
+  assert.ok((await cache.get(keyId)) instanceof CryptographicKey);
+  const ed = await generateCryptoKeyPair("Ed25519");
+  const multi = new Multikey({
+    id: keyId,
+    controller: actorIri,
+    publicKey: ed.publicKey,
+  });
+  await kv.set(["_fedify", "publicKey", keyId.href], await multi.toJsonLd());
+  assert.ok((await cache.get(keyId)) instanceof Multikey);
+  await cache.set(keyId, null);
+  assert.equal(await cache.get(keyId), null);
+  await cache.setFetchError(keyId, { error: new TypeError("offline") });
+  assert.equal(
+    ((await cache.getFetchError(keyId)) as { error: Error }).error.name,
+    "TypeError",
+  );
+  await kv.set(["_fedify", "publicKey", keyId.href], "not a key");
+  assert.equal(await cache.get(keyId), undefined);
+});
+
+it("classifies accepted proofs independently of HTTP signature failure and describes malformed JSON-LD", async () => {
+  assert.deepEqual(await describeActivity({}), {
+    type: null,
+    activityIri: null,
+    remoteActorIri: null,
+    objectType: null,
+    objectIri: null,
+  });
+  assert.equal(
+    (await describeActivity({ type: "Extension", id: "urn:test" })).type,
+    "Extension",
+  );
+  assert.equal(
+    classifyInbound({ verified: false, reason: { type: "noSignature" } }, 202),
+    "received",
+  );
+  assert.deepEqual(
+    await describeActivity({
+      "@context": 123,
+      type: "Extension",
+      id: "urn:test",
+      actor: ["unknown"],
+      object: "urn:object",
+    }),
+    {
+      type: "Extension",
+      activityIri: "urn:test",
+      remoteActorIri: null,
+      objectType: null,
+      objectIri: null,
+    },
+  );
+});
+
+it("paginates tied timestamps, filters logs and reads verification keys as an instance member", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await seedLocalActor(db);
+    const version = await observeKeyVersion(db, {
+      iri: keyId.href,
+      publicKey: { kty: "RSA", e: "AQAB", n: "test" },
+    });
+    const created = Temporal.Instant.from("2026-09-01T00:00:00.123456Z");
+    const rows = [];
+    for (const status of ["received", "unverified", "rejected"] as const) {
+      rows.push(
+        await recordInbound(db, {
+          instanceId: localInstanceId,
+          actorId: localActorId,
+          inboxUrl: inbox,
+          status,
+          type: status === "received" ? "Create" : "Follow",
+          verificationKeyId: version.id,
+          payload: { bcc: ["private"] },
+          created,
+        }),
+      );
+    }
+    const outbound = await recordOutbound(db, {
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: inbox,
+      activityIri: "https://local.example/activity",
+      type: "Create",
+      payload: {},
+      created,
+    });
+    const query = `query($id: ID!, $after: String, $filter: ActivityLogFilter) {
+      node(id: $id) { ... on Instance { activityLogs(first: 2, after: $after, filter: $filter) {
+        edges { cursor node { uuid direction status type payload verificationKey { fingerprint publicKey key { iri versions { uuid } } } } }
+        pageInfo { hasNextPage endCursor }
+      } } }
+    }`;
+    const page = async (after?: string, filter?: Record<string, string>) => {
+      const result = await (
+        await post(
+          {
+            query,
+            variables: {
+              id: globalId("Instance", localInstanceId),
+              after,
+              filter,
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.equal(result.errors, undefined, JSON.stringify(result.errors));
+      return result.data.node.activityLogs;
+    };
+    const first = await page();
+    const second = await page(first.pageInfo.endCursor);
+    assert.equal(first.pageInfo.hasNextPage, true);
+    assert.equal(second.pageInfo.hasNextPage, false);
+    assert.deepEqual(
+      [...first.edges, ...second.edges].map(
+        (edge: { node: { uuid: string } }) => edge.node.uuid,
+      ),
+      [outbound, ...rows.toReversed()].map((row) => row.id),
+    );
+    assert.equal(first.edges[1].node.verificationKey.key.iri, keyId.href);
+    assert.equal(
+      (await page(undefined, { direction: "outbound" })).edges.length,
+      1,
+    );
+    assert.equal(
+      (await page(undefined, { status: "received" })).edges.length,
+      1,
+    );
+    assert.equal((await page(undefined, { type: "Create" })).edges.length, 2);
+    const actorResult = await (
+      await post(
+        {
+          query: `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs(first: 10) { edges { node { uuid } } } } } }`,
+        },
+        auth,
+      )
+    ).json();
+    assert.equal(actorResult.errors, undefined);
+    assert.equal(actorResult.data.node.activityLogs.edges.length, 4);
+  });
+});
+
+it("denies anonymous/nonmember access including node typename and remote connections", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await seedLocalActor(db);
+    await seedRemoteActor(db);
+    const log = await recordInbound(db, {
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: inbox,
+      status: "received",
+      payload: {},
+    });
+    const logId = Buffer.from(`ActivityLog:${log.id}`).toString("base64");
+    const queries = [
+      `{ node(id: "${logId}") { __typename } }`,
+      `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs { pageInfo { hasNextPage } } } } }`,
+      `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs { pageInfo { hasNextPage } } } } }`,
+    ];
+    for (const query of queries) {
+      assert.ok((await (await post({ query })).json()).errors?.length);
+    }
+    await db
+      .delete(schema.instanceMembers)
+      .where(eq(schema.instanceMembers.accountId, accountId));
+    for (const query of queries) {
+      assert.ok((await (await post({ query }, auth)).json()).errors?.length);
+    }
+    await db
+      .update(schema.accounts)
+      .set({ admin: true })
+      .where(eq(schema.accounts.id, accountId));
+    assert.equal(
+      (await (await post({ query: queries[0]! }, auth)).json()).errors,
+      undefined,
+    );
+    for (const [type, id] of [
+      ["Instance", remoteInstanceId],
+      ["Actor", remoteActorId],
+    ] as const) {
+      assert.ok(
+        (
+          await (
+            await post(
+              {
+                query: `{ node(id: "${globalId(type, id)}") { ... on ${type} { activityLogs { pageInfo { hasNextPage } } } } }`,
+              },
+              auth,
+            )
+          ).json()
+        ).errors?.length,
+      );
+    }
+  });
+});
+
+it("settles synchronous delivery and retains HTTP failure diagnostics", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const ctx = federation.createContext(new URL(inbox), undefined);
+    const recipient = {
+      id: actorIri,
+      inboxId: new URL("https://remote.example/inbox"),
+    };
+    const activity = new Create({
+      id: new URL("https://test-instance.drfed.org/activity/1"),
+      actor: ctx.getActorUri(localActorId),
+    });
+    const sender = { identifier: localActorId };
+    const fakeContext = (
+      sendActivity: Context<unknown>["sendActivity"],
+    ): Context<unknown> =>
+      new Proxy(ctx, {
+        get(target, property) {
+          return property === "sendActivity"
+            ? sendActivity
+            : Reflect.get(target, property);
+        },
+      });
+    await deliverActivity(
+      db,
+      fakeContext(() => Promise.resolve()),
+      sender,
+      [recipient, recipient],
+      activity,
+    );
+    assert.equal(await db.$count(schema.activityLogs), 1);
+    assert.equal((await db.query.activityLogs.findFirst())?.status, "sent");
+    const failure = new SendActivityError(
+      recipient.inboxId,
+      410,
+      "gone",
+      "Gone forever",
+    );
+    const failActivity = new Create({
+      id: new URL("https://test-instance.drfed.org/activity/2"),
+      actor: ctx.getActorUri(localActorId),
+    });
+    await deliverActivity(
+      db,
+      fakeContext(async () => {
+        await createOutboxErrorHandler(db)(failure, failActivity);
+        await createPermanentFailureHandler(db)(ctx, {
+          activity: failActivity,
+          inbox: recipient.inboxId,
+          error: failure,
+          statusCode: 410,
+          reason: "http",
+          actorIds: [actorIri],
+        });
+      }),
+      sender,
+      recipient,
+      failActivity,
+    );
+    const failed = await db.query.activityLogs.findFirst({
+      where: { activityIri: failActivity.id!.href },
+    });
+    assert.equal(failed?.status, "permanently_failed");
+    assert.equal(failed?.statusCode, 410);
+    assert.equal(failed?.error, "Gone forever");
+  });
+});
+
+it("settles successful inboxes independently from thrown delivery failures", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const context = federation.createContext(new URL(inbox), undefined);
+    const good = {
+      id: actorIri,
+      inboxId: new URL("https://remote.example/good"),
+    };
+    const bad = {
+      id: actorIri,
+      inboxId: new URL("https://remote.example/bad"),
+    };
+    const activity = new Create({
+      id: new URL("https://test-instance.drfed.org/activity/mixed"),
+      actor: context.getActorUri(localActorId),
+    });
+    const ctx = new Proxy(context, {
+      get(target, property) {
+        if (property !== "sendActivity") return Reflect.get(target, property);
+        return async (_sender: unknown, recipients: { inboxId: URL }[]) => {
+          if (recipients[0]?.inboxId.href === bad.inboxId.href) {
+            const error = new SendActivityError(
+              bad.inboxId,
+              503,
+              "unavailable",
+              "Try later",
+            );
+            await createOutboxErrorHandler(db)(error, activity);
+            throw error;
+          }
+        };
+      },
+    });
+    await assert.rejects(
+      deliverActivity(
+        db,
+        ctx,
+        { identifier: localActorId },
+        [good, bad],
+        activity,
+      ),
+      SendActivityError,
+    );
+    const rows = await db.query.activityLogs.findMany({
+      orderBy: { inboxUrl: "asc" },
+    });
+    assert.equal(rows[0]?.status, "failed");
+    assert.equal(rows[0]?.statusCode, 503);
+    assert.equal(rows[0]?.error, "Try later");
+    assert.equal(rows[1]?.status, "sent");
+  });
+});
+
+it("returns a literal JSON null payload without nulling its connection", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await recordInbound(db, {
+      instanceId: localInstanceId,
+      inboxUrl: inbox,
+      status: "unverified",
+      payload: null,
+    });
+    const result = await (
+      await post(
+        {
+          query: `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 1) { edges { node { status payload } } } } } }`,
+        },
+        auth,
+      )
+    ).json();
+    assert.equal(result.errors, undefined);
+    assert.deepEqual(result.data.node.activityLogs.edges[0].node, {
+      status: "unverified",
+      payload: null,
+    });
+  });
+});
+
+it("skips verification observations for unclaimed hosts and failed instance lookups", async () => {
+  await withTemporaryDatabase(async (db) => {
+    const kv = new MemoryKvStore();
+    const base = await createFederation(db, { kv });
+    const pair = await generateCryptoKeyPair();
+    let reads = 0;
+    const passThrough = new Response("No local instance", { status: 404 });
+    const federation = {
+      createContext: (input: Request, data: unknown) => {
+        const ctx = base.createContext(input, data);
+        return new Proxy(ctx, {
+          get(target, property) {
+            if (property === "documentLoader") {
+              return () => {
+                reads += 1;
+                return Promise.reject(new Error("Unexpected key lookup"));
+              };
+            }
+            const value = Reflect.get(target, property);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      },
+      fetch: () => Promise.resolve(passThrough),
+    } as unknown as Federation<unknown>;
+    const recorder = createInboundRecorder({ db, federation, kv });
+    const signed = await signRequest(
+      request(payload("unknown-host")),
+      pair.privateKey,
+      keyId,
+    );
+    assert.equal(
+      await recorder.fetch(signed.clone(), fetchOptions),
+      passThrough,
+    );
+    assert.equal(reads, 0);
+    assert.equal(await db.$count(schema.keys), 0);
+    assert.equal(await db.$count(schema.keyVersions), 0);
+    assert.equal(await db.$count(schema.activityLogs), 0);
+    await db.execute(
+      "ALTER TABLE instances RENAME TO temporarily_unavailable_instances",
+    );
+    assert.equal(
+      await recorder.fetch(signed.clone(), fetchOptions),
+      passThrough,
+    );
+    assert.equal(reads, 0);
+    assert.equal(await db.$count(schema.keyVersions), 0);
+  });
+});

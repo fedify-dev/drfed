@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { webcrypto } from "node:crypto";
+
 import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -513,3 +515,126 @@ export const addressing = pgTable(
   ],
 );
 export type Addressing = typeof addressing.$inferSelect;
+
+/** Direction of an observed delivery. */
+export const activityLogDirectionEnum = pgEnum("activity_log_direction", [
+  "inbound",
+  "outbound",
+]);
+export const activityLogStatusEnum = pgEnum("activity_log_status", [
+  "received",
+  "unverified",
+  "rejected",
+  "queued",
+  "sent",
+  "failed",
+  "permanently_failed",
+]);
+
+/** Logical public keys, identified by their exact IRI. */
+export const keys = pgTable("keys", {
+  id: uuid().$type<Uuid>().primaryKey(),
+  iri: text().notNull().unique(),
+  created: instant().notNull().default(currentTimestamp),
+});
+
+/** Immutable key material, independently retained from Fedify's KV cache. */
+export const keyVersions = pgTable(
+  "key_versions",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    keyId: uuid("key_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => keys.id, { onDelete: "restrict" }),
+    publicKey: jsonb("public_key").$type<webcrypto.JsonWebKey>().notNull(),
+    fingerprint: text().notNull(),
+    /** DrFed observation time, not remote rotation time or evidence of continuous use. */
+    firstSeen: instant("first_seen").notNull(),
+    /** DrFed observation time, not remote rotation time or evidence of continuous use. */
+    lastSeen: instant("last_seen").notNull(),
+  },
+  (table) => [
+    unique("key_versions_key_id_fingerprint_unique").on(
+      table.keyId,
+      table.fingerprint,
+    ),
+    check(
+      "key_versions_seen_check",
+      sql`${table.lastSeen} >= ${table.firstSeen}`,
+    ),
+    check(
+      "key_versions_public_key_check",
+      sql`NOT (${table.publicKey} ?| array['d','p','q','dp','dq','qi','oth','k'])`,
+    ),
+  ],
+);
+
+/** Delivery observations; payloads may contain unverified, private remote input. */
+export const activityLogs = pgTable(
+  "activity_logs",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    instanceId: uuid("instance_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => instances.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id")
+      .$type<Uuid>()
+      .references(() => actors.id, { onDelete: "set null" }),
+    direction: activityLogDirectionEnum().notNull(),
+    status: activityLogStatusEnum().notNull(),
+    type: text(),
+    activityIri: text("activity_iri"),
+    objectType: text("object_type"),
+    objectIri: text("object_iri"),
+    signedKeyIri: text("signed_key_iri"),
+    /** A referenced version does not imply successful verification; consult status. */
+    verificationKeyId: uuid("verification_key_id")
+      .$type<Uuid>()
+      .references(() => keyVersions.id, { onDelete: "restrict" }),
+    remoteActorIri: text("remote_actor_iri"),
+    remoteHost: text("remote_host"),
+    inboxUrl: text("inbox_url").notNull(),
+    statusCode: integer("status_code"),
+    error: text(),
+    payload: jsonb().$type<unknown>().notNull(),
+    created: instant().notNull().default(currentTimestamp),
+  },
+  (table) => [
+    check(
+      "activity_logs_direction_status_check",
+      sql`(${table.direction} = 'inbound' AND ${table.status} IN ('received', 'unverified', 'rejected')) OR (${table.direction} = 'outbound' AND ${table.status} IN ('queued', 'sent', 'failed', 'permanently_failed'))`,
+    ),
+    check(
+      "activity_logs_status_code_check",
+      sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
+    ),
+    check(
+      "activity_logs_outbound_key_check",
+      sql`${table.direction} <> 'outbound' OR ${table.verificationKeyId} IS NULL`,
+    ),
+    index("activity_log_instance_created_index").on(
+      table.instanceId,
+      desc(table.created),
+      desc(table.id),
+    ),
+    index("activity_log_actor_created_index").on(
+      table.actorId,
+      desc(table.created),
+      desc(table.id),
+    ),
+    index("activity_log_verification_key_index").on(table.verificationKeyId),
+    index("activity_log_outbound_index")
+      .on(table.activityIri, table.inboxUrl)
+      .where(sql`${table.direction} = 'outbound'`),
+  ],
+);
+export type Key = typeof keys.$inferSelect;
+export type KeyVersion = typeof keyVersions.$inferSelect;
+export type ActivityLog = typeof activityLogs.$inferSelect;
+export type NewActivityLog = typeof activityLogs.$inferInsert;
+export type ActivityLogDirection =
+  (typeof activityLogDirectionEnum.enumValues)[number];
+export type ActivityLogStatus =
+  (typeof activityLogStatusEnum.enumValues)[number];
