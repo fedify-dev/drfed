@@ -14,16 +14,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import type { webcrypto } from "node:crypto";
-
 import { eq, sql } from "drizzle-orm";
 
 import type { Database } from "./db.ts";
 import { type KeyVersion, keyVersions, keys } from "./schema.ts";
 import { uuidV7 } from "./uuid.ts";
 
-/** Public JWK fields including optional JOSE metadata. */
-export type PublicJwk = webcrypto.JsonWebKey & { kid?: string; use?: string };
+/** Web Crypto's JWK export type, including optional JOSE metadata. */
+export type PublicJwk = Exclude<
+  Awaited<ReturnType<SubtleCrypto["exportKey"]>>,
+  ArrayBuffer
+> & { kid?: string; use?: string };
 
 const privateParameters = [
   "d",
@@ -40,7 +41,7 @@ const privateParameters = [
  * Reject private/symmetric key material and remove mutable Web Crypto metadata.
  * @returns The public JWK without key_ops and ext.
  */
-export function toPublicJwk(jwk: PublicJwk): webcrypto.JsonWebKey {
+export function toPublicJwk(jwk: PublicJwk): PublicJwk {
   if (privateParameters.some((name) => name in jwk)) {
     throw new TypeError("Expected an asymmetric public JWK.");
   }
@@ -56,10 +57,12 @@ export function thumbprintInput(jwk: PublicJwk): string {
   const key = toPublicJwk(jwk);
   const required =
     key.kty === "RSA"
-      ? { e: key.e, kty: key.kty, n: key.n }
+      ? // oxlint-disable id-length
+        { e: key.e, kty: key.kty, n: key.n }
       : key.kty === "OKP" && key.crv === "Ed25519"
         ? { crv: key.crv, kty: key.kty, x: key.x }
         : null;
+  // oxlint-able id-length
   if (
     required == null ||
     Object.values(required).some(
@@ -80,7 +83,10 @@ export async function jwkThumbprint(jwk: PublicJwk): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(thumbprintInput(jwk)),
   );
-  return Buffer.from(digest).toString("base64url");
+  return new Uint8Array(digest).toBase64({
+    alphabet: "base64url",
+    omitPadding: true,
+  });
 }
 
 /**

@@ -21,19 +21,16 @@ import {
 import type { Uuid } from "@drfed/models/uuid";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 
-import builder, { type DrFedObjectRef } from "./builder.ts";
+import builder, { type DrFedObjectRef } from "../builder.ts";
 
-export { createKeyCache } from "./activity-log/keycache.ts";
-export {
-  classifyInbound,
-  createInboundRecorder,
-} from "./activity-log/inbound.ts";
-export { describeActivity } from "./activity-log/describe.ts";
+export { createKeyCache } from "./keycache.ts";
+export { classifyInbound, createInboundRecorder } from "./inbound.ts";
+export { describeActivity } from "./describe.ts";
 export {
   deliverActivity,
   createOutboxErrorHandler,
   createPermanentFailureHandler,
-} from "./activity-log/outbound.ts";
+} from "./outbound.ts";
 
 const ActivityLogDirection = builder.enumType("ActivityLogDirection", {
   values: activityLogDirectionEnum.enumValues,
@@ -53,44 +50,6 @@ const access = (localId: Uuid | null) =>
     ? false
     : { $any: { admin: true as const, localInstanceMember: localId } };
 
-const KeyRef = builder.drizzleNode("keys", {
-  name: "Key",
-  authScopes: { authenticated: true },
-  runScopesOnType: true,
-  id: { column: (key) => key.id },
-  fields: (t) => ({
-    uuid: t.expose("id", { type: "UUID" }),
-    iri: t.expose("iri", { type: "URL" }),
-    created: t.expose("created", { type: "DateTime" }),
-    versions: t.relation("versions", {
-      query: { orderBy: { firstSeen: "asc", id: "asc" } },
-    }),
-  }),
-});
-export const Key: DrFedObjectRef = KeyRef;
-const observationDescription =
-  "DrFed observation time, not the remote key rotation time; does not imply continuous use between observations.";
-const KeyVersionRef = builder.drizzleNode("keyVersions", {
-  name: "KeyVersion",
-  authScopes: { authenticated: true },
-  runScopesOnType: true,
-  id: { column: (version) => version.id },
-  fields: (t) => ({
-    uuid: t.expose("id", { type: "UUID" }),
-    key: t.relation("key"),
-    publicKey: t.expose("publicKey", { type: "JSON" }),
-    fingerprint: t.exposeString("fingerprint"),
-    firstSeen: t.expose("firstSeen", {
-      type: "DateTime",
-      description: observationDescription,
-    }),
-    lastSeen: t.expose("lastSeen", {
-      type: "DateTime",
-      description: observationDescription,
-    }),
-  }),
-});
-export const KeyVersion: DrFedObjectRef = KeyVersionRef;
 const ActivityLogRef = builder.drizzleNode("activityLogs", {
   name: "ActivityLog",
   select: { with: { instance: { columns: { localId: true } } } },
@@ -111,7 +70,8 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
     verificationKey: t.relation("verificationKey", {
       nullable: true,
       description:
-        "The public key version used in verification, even when it failed. Its presence does not imply success; consult status.",
+        "The public key version used in verification, even when it failed. " +
+        "Its presence does not imply success; consult status.",
     }),
     remoteActorIri: t.expose("remoteActorIri", { type: "URL", nullable: true }),
     remoteHost: t.exposeString("remoteHost", { nullable: true }),
@@ -122,7 +82,9 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
       type: "JSON",
       nullable: true,
       description:
-        "Original inbound JSON or compact outbound JSON-LD. May contain unverified remote input and private recipients. Null represents a literal JSON null body.",
+        "Original inbound JSON or compact outbound JSON-LD. " +
+        "May contain unverified remote input and private recipients. " +
+        "Null represents a literal JSON null body.",
     }),
     created: t.expose("created", { type: "DateTime" }),
   }),
@@ -148,7 +110,8 @@ builder.drizzleObjectField("instances", "activityLogs", (t) =>
     type: ActivityLog,
     args: { filter: t.arg({ type: ActivityLogFilter }) },
     description:
-      "Delivery observations, newest first. Restricted to local instance members and administrators.",
+      "Delivery observations, newest first. " +
+      "Restricted to local instance members and administrators.",
     select: (args, ctx, nestedSelection) =>
       ({
         columns: { localId: true },
@@ -166,7 +129,8 @@ builder.drizzleObjectField("actors", "activityLogs", (t) =>
     type: ActivityLog,
     args: { filter: t.arg({ type: ActivityLogFilter }) },
     description:
-      "This local actor's delivery observations, newest first. Restricted to instance members and administrators.",
+      "This local actor's delivery observations, newest first. " +
+      "Restricted to instance members and administrators.",
     select: (args, ctx, nestedSelection) =>
       ({
         columns: { localId: true },

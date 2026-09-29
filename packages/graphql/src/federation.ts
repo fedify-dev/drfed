@@ -486,14 +486,22 @@ function recipients(rows: readonly StoredAddressing[]): {
  * @returns An EXISTS predicate matching explicit Public addressing.
  */
 function publicAddressing(sourceId: SQLWrapper): SQL {
-  return sql`exists (select 1 from ${schema.addressing} where ${schema.addressing.sourceId} = ${sourceId} and ${schema.addressing.targetId} = ${PUBLIC_RESOURCE_ID} and ${schema.addressing.property} in ('to', 'cc'))`;
+  return sql`exists (select 1 from ${schema.addressing} where ${
+    schema.addressing.sourceId
+  } = ${sourceId} and ${
+    schema.addressing.targetId
+  } = ${PUBLIC_RESOURCE_ID} and ${schema.addressing.property} in ('to', 'cc'))`;
 }
 function servedActivity(table: {
   id: SQLWrapper;
   objectId: SQLWrapper;
   type: SQLWrapper;
 }): SQL {
-  return sql`${table.type} = 'Create' and ${publicAddressing(table.id)} and exists (select 1 from ${schema.objects} where ${schema.objects.id} = ${table.objectId} and ${schema.objects.deleted} is null)`;
+  return sql`${table.type} = 'Create' and ${publicAddressing(
+    table.id,
+  )} and exists (select 1 from ${schema.objects} where ${
+    schema.objects.id
+  } = ${table.objectId} and ${schema.objects.deleted} is null)`;
 }
 function collectionIri(actor: StoredActor, role: string): URL | null {
   const reference = actor.collectionReferences.find(

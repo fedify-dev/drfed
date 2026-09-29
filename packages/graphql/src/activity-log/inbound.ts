@@ -63,7 +63,9 @@ function verificationError(result: VerifyRequestDetailedResult): string | null {
   if (result.verified) return null;
   const { reason } = result;
   if (reason.type !== "keyFetchError") return reason.type;
-  return `keyFetchError: ${"status" in reason.result ? reason.result.status : reason.result.error.name}`;
+  return `keyFetchError: ${
+    "status" in reason.result ? reason.result.status : reason.result.error.name
+  }`;
 }
 
 type Loaders = Pick<
@@ -90,29 +92,29 @@ async function observeVerification(
       await keyCache.set(id, key);
     },
   };
-  let verification: VerifyRequestDetailedResult | undefined;
-  let verificationKeyId: Uuid | null = null;
-  // Capture key material before Fedify or another request can refresh the cache.
+  let result: VerifyRequestDetailedResult | undefined;
+  let keyId: Uuid | null = null;
+  // Capture key material before Fedify or
+  // another request can refresh the cache.
   try {
-    verification = await verifyRequestDetailed(request, {
+    result = await verifyRequestDetailed(request, {
       keyCache: observedCache,
       ...loaders,
     });
-    const key = verification.verified
-      ? verification.key
-      : verification.reason.type === "invalidSignature" &&
-          verification.reason.keyId != null
-        ? observedKeys.get(verification.reason.keyId.href)
+    const key = result.verified
+      ? result.key
+      : result.reason.type === "invalidSignature" && result.reason.keyId != null
+        ? observedKeys.get(result.reason.keyId.href)
         : null;
-    const keyId = verification.verified
-      ? verification.key.id
-      : verification.reason.type === "noSignature"
+    const verifiedKeyId = result.verified
+      ? result.key.id
+      : result.reason.type === "noSignature"
         ? null
-        : verification.reason.keyId;
-    if (key?.publicKey != null && keyId != null) {
-      verificationKeyId = (
+        : result.reason.keyId;
+    if (key?.publicKey != null && verifiedKeyId != null) {
+      keyId = (
         await observeKeyVersion(db, {
-          iri: keyId.href,
+          iri: verifiedKeyId.href,
           publicKey: await exportJwk(key.publicKey),
         })
       ).id;
@@ -122,7 +124,7 @@ async function observeVerification(
       error,
     });
   }
-  return { verification, verificationKeyId };
+  return { result, keyId };
 }
 
 async function findRecordingInstance(db: Database, host: string) {
@@ -165,30 +167,32 @@ export function createInboundRecorder({
     async fetch(request, options) {
       const ctx = federation.createContext(request, options.contextData);
       const route = ctx.parseUri(new URL(request.url));
-      if (request.method !== "POST" || route?.type !== "inbox") {
-        return await federation.fetch(request, options);
-      }
-      // Unclaimed subdomains must not create orphaned public-key history.
       const instance = await findRecordingInstance(db, ctx.host);
-      if (instance == null) return await federation.fetch(request, options);
-      let payload: unknown;
-      try {
-        payload = await request.clone().json();
-      } catch {
-        return await federation.fetch(request, options);
+      const payload: unknown = await request
+        .clone()
+        .json()
+        .catch((e) => e);
+      const response = await federation.fetch(request, options);
+      if (
+        request.method !== "POST" ||
+        route?.type !== "inbox" ||
+        // Unclaimed subdomains must not create orphaned public-key history.
+        instance == null ||
+        payload instanceof Error
+      ) {
+        return response;
       }
       const loaders = {
         documentLoader: ctx.documentLoader,
         contextLoader: ctx.contextLoader,
       };
       const keyCache = createKeyCache(kv, publicKeyPrefix, loaders);
-      const { verification, verificationKeyId } = await observeVerification(
+      const verification = await observeVerification(
         db,
         request,
         keyCache,
         loaders,
       );
-      const response = await federation.fetch(request, options);
       try {
         const actor =
           route.identifier != null && validateUuid(route.identifier)
@@ -200,27 +204,27 @@ export function createInboundRecorder({
                 },
               })
             : null;
-        const signedKeyIri = signedKeyId(verification)?.href ?? null;
+        const signedKeyIri = signedKeyId(verification.result)?.href ?? null;
         const description = await describeActivity(payload, loaders);
         await recordInbound(db, {
           ...description,
           instanceId: instance.id,
           actorId: actor?.id ?? null,
           status:
-            verification == null
+            verification.result == null
               ? response.ok
                 ? "received"
                 : "unverified"
-              : classifyInbound(verification, response.status),
+              : classifyInbound(verification.result, response.status),
           signedKeyIri,
-          verificationKeyId,
+          verificationKeyId: verification.keyId,
           remoteHost: remoteHost(description.remoteActorIri, signedKeyIri),
           inboxUrl: request.url,
           statusCode: response.status,
           error:
-            verification == null
+            verification.result == null
               ? "Verification observation failed"
-              : verificationError(verification),
+              : verificationError(verification.result),
           payload,
         });
       } catch (error) {

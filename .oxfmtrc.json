@@ -9,7 +9,6 @@
     ".agents/skills/",
     ".claude/skills/",
     "plans/",
-    "**/__generated__/**",
-    "packages/web/schema.graphql"
+    "**/__generated__/**"
   ]
 }

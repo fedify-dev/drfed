@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import type { webcrypto } from "node:crypto";
-
 import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -36,6 +34,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+import type { PublicJwk } from "./key.ts";
 import type { Uuid } from "./uuid.ts";
 
 /** A timestamptz column preserving PostgreSQL's microsecond precision. */
@@ -547,7 +546,7 @@ export const keyVersions = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => keys.id, { onDelete: "restrict" }),
-    publicKey: jsonb("public_key").$type<webcrypto.JsonWebKey>().notNull(),
+    publicKey: jsonb("public_key").$type<PublicJwk>().notNull(),
     fingerprint: text().notNull(),
     /** DrFed observation time, not remote rotation time or evidence of continuous use. */
     firstSeen: instant("first_seen").notNull(),

@@ -15,7 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // Each request observes the preceding request's cache and database changes.
-// oxlint-disable no-await-in-loop, max-statements
+
+// oxlint-disable no-await-in-loop max-statements id-length
 import assert from "node:assert/strict";
 import { it } from "node:test";
 

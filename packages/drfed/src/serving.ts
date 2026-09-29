@@ -19,8 +19,8 @@ import type { Database } from "@drfed/models";
 import { getLogger } from "@logtape/logtape";
 
 /**
- * The federation surface (including the inbound recorder) that the router needs, narrowed so that
- * the routing can be exercised without building one.
+ * The federation surface (including the inbound recorder) that the router
+ * needs, narrowed so that the routing can be exercised without building one.
  */
 export interface FederationHandler {
   fetch(
