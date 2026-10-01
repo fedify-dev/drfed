@@ -19,6 +19,7 @@ import { For, Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
 import type { ActorObjectList_actor$key } from "./__generated__/ActorObjectList_actor.graphql.ts";
+import { CopyButton } from "./CopyButton.tsx";
 
 import styles from "~/styles/actor.module.css";
 
@@ -66,10 +67,12 @@ export function ActorObjectList(props: { $actor: ActorObjectList_actor$key }) {
                           <header>
                             <p class={styles.label}>{object().type}</p>
                             <h3>
-                              <a href={object().iri}>
-                                {object().name ?? "Untitled object"}
-                              </a>
+                              <p>{object().name ?? "Untitled object"}</p>
                             </h3>
+                            <div>
+                              iri: {object().iri}
+                              <CopyButton value={object().iri} label={"iri"} />
+                            </div>
                             <time dateTime={object().published}>
                               {object().published}
                             </time>
