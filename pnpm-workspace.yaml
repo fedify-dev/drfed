@@ -8,6 +8,7 @@ allowBuilds:
 
 catalog:
   "@electric-sql/pglite": ^0.5.3
+  "@faker-js/faker": ^10.5.0
   "@fedify/fedify": 2.4.0-pr.1020.43+41cebe9c
   "@fedify/postgres": 2.4.0-pr.1020.43+41cebe9c
   "@fedify/pglite": 2.4.0-pr.1020.43+41cebe9c

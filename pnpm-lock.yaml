@@ -9,6 +9,9 @@ catalogs:
     '@electric-sql/pglite':
       specifier: ^0.5.3
       version: 0.5.3
+    '@faker-js/faker':
+      specifier: ^10.5.0
+      version: 10.5.0
     '@fedify/fedify':
       specifier: 2.4.0-pr.1020.43+41cebe9c
       version: 2.4.0-pr.1020.43
@@ -275,6 +278,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@faker-js/faker':
+        specifier: 'catalog:'
+        version: 10.5.0
       '@formisch/solid':
         specifier: 1.0.0
         version: 1.0.0(solid-js@1.9.14)(typescript@7.0.2)(valibot@1.4.2(typescript@7.0.2))
@@ -312,9 +318,6 @@ importers:
         specifier: ^8.2.0
         version: 8.2.0(@types/node@26.0.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(yaml@2.9.0)
     devDependencies:
-      '@faker-js/faker':
-        specifier: ^10.5.0
-        version: 10.5.0
       '@types/relay-runtime':
         specifier: ^20.1.1
         version: 20.1.1
