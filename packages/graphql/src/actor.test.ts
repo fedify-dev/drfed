@@ -97,6 +97,52 @@ const actorQuery = `
 `;
 
 describe("Mutation.generateActors", () => {
+  it("returns a declared error for an unparseable stored host without creating resources", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      // A space makes this independent of the runtime's ICU/Punycode rules.
+      const host = "bad host.drfed.org";
+      await db
+        .update(schema.instances)
+        .set({ host })
+        .where(eq(schema.instances.id, localInstanceId));
+      const tables = [
+        schema.localActors,
+        schema.actors,
+        schema.resources,
+        schema.collections,
+        schema.actorCollectionReferences,
+      ];
+      const before = [];
+      for (const table of tables) {
+        before.push(await db.$count(table));
+      }
+
+      const response = await post(
+        {
+          query: generateActorsMutation,
+          variables: {
+            instance: globalId("Instance", localInstanceId),
+            size: 1,
+          },
+        },
+        auth,
+      );
+
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(body.data.generateActors.resultType, "CreateActorsError");
+      assert.equal(body.data.generateActors.type, "InvalidInstanceHost");
+      assert.ok(body.data.generateActors.message.includes(host));
+      const after = [];
+      for (const table of tables) {
+        after.push(await db.$count(table));
+      }
+      assert.deepEqual(after, before);
+    });
+  });
+
   it("creates local actors", async () => {
     await withTestHarness(async ({ db, post }) => {
       const auth = await seedAuthenticatedLocalInstance(db);

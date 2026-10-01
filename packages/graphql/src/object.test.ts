@@ -67,6 +67,50 @@ const outboxQuery = `query($actor: ID!) {
 const accept = { accept: "application/activity+json" };
 
 describe("Mutation.createObject", () => {
+  for (const member of [true, false]) {
+    it(`returns ${member ? "InvalidInstanceHost" : "ActorNotFound"} for an unparseable stored host without changing resources`, async () => {
+      await withTestHarness(async ({ db, post }) => {
+        const auth = await seedAuthenticatedLocalInstance(db);
+        await seedLocalActor(db);
+        // A space makes this independent of the runtime's ICU/Punycode rules.
+        const host = "bad host.drfed.org";
+        await db
+          .update(schema.instances)
+          .set({ host })
+          .where(eq(schema.instances.id, localInstanceId));
+        if (!member) await db.delete(schema.instanceMembers);
+        const tables = [
+          schema.objects,
+          schema.activities,
+          schema.resources,
+          schema.addressing,
+          schema.collectionItems,
+        ];
+        const before = [];
+        for (const table of tables) before.push(await db.$count(table));
+        const collectionsBefore = await db.select().from(schema.collections);
+
+        const response = await post({ query: mutation, variables }, auth);
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.equal(body.errors, undefined);
+        assert.equal(body.data.createObject.resultType, "CreateObjectError");
+        assert.equal(
+          body.data.createObject.errorType,
+          member ? "InvalidInstanceHost" : "ActorNotFound",
+        );
+        assert.equal(body.data.createObject.message.includes(host), member);
+        const after = [];
+        for (const table of tables) after.push(await db.$count(table));
+        assert.deepEqual(after, before);
+        assert.deepEqual(
+          await db.select().from(schema.collections),
+          collectionsBefore,
+        );
+      });
+    });
+  }
+
   for (const rootOrigin of [
     "http://drfed.org",
     "http://drfed.localhost:8888",

@@ -162,6 +162,7 @@ export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
                 );
                 return;
               }
+              case "InvalidInstanceHost":
               case "TooManyActors": {
                 setErrorMessage(result.message);
                 return;

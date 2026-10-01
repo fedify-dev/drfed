@@ -205,7 +205,12 @@ builder.drizzleObjectField("actors", "objects", (t) =>
 );
 
 const CreateObjectErrorType = builder.enumType("CreateObjectErrorType", {
-  values: ["ActorNotFound", "InvalidContent", "InvalidLanguage"] as const,
+  values: [
+    "ActorNotFound",
+    "InvalidContent",
+    "InvalidInstanceHost",
+    "InvalidLanguage",
+  ] as const,
 });
 interface CreateObjectError {
   readonly type: typeof CreateObjectErrorType.$inferType;
@@ -318,6 +323,8 @@ builder.mutationFields((t) => ({
         throw new Error("You must be authenticated to create objects.");
       }
       if (!validateUuid(actorId)) return actorNotFound;
+      // Keep host validation and resource creation under the same actor lock.
+      // oxlint-disable-next-line max-statements
       return await ctx.db.transaction(async (tx) => {
         const [actor] = await tx
           .select({ id: schema.actors.id, host: schema.instances.host })
@@ -347,11 +354,21 @@ builder.mutationFields((t) => ({
           )
           .limit(1);
         if (actor == null) return actorNotFound;
+        const instanceUrl = `${ctx.rootOrigin.protocol}//${actor.host}`;
+        // Stored authorities can outlive the runtime that accepted them.
+        if (!URL.canParse(instanceUrl)) {
+          return {
+            type: "InvalidInstanceHost" as const,
+            message:
+              `The instance host ${JSON.stringify(actor.host)} cannot be ` +
+              "parsed by this server. Contact the server administrator.",
+          };
+        }
         await lockActorCollection(tx, actorId, "outbox");
         const published = Temporal.Now.instant();
         const id = uuid();
         const fedCtx = ctx.federation.createContext(
-          new URL(`${ctx.rootOrigin.protocol}//${actor.host}`),
+          new URL(instanceUrl),
           undefined,
         );
         const iri = fedCtx.getObjectUri(APObject, {

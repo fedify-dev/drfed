@@ -204,10 +204,12 @@ CreateActorsSuccessRef.implement({
 
 const INVALID_SIZE = "InvalidSize" as const;
 const INSTANCE_NOT_FOUND = "InstanceNotFound" as const;
+const INVALID_INSTANCE_HOST = "InvalidInstanceHost" as const;
 const TOO_MANY_ACTORS = "TooManyActors" as const;
 const CreateActorsErrors = [
   INVALID_SIZE,
   INSTANCE_NOT_FOUND,
+  INVALID_INSTANCE_HOST,
   TOO_MANY_ACTORS,
 ] as const;
 
@@ -317,6 +319,16 @@ builder.mutationFields((t) => ({
         // slug, so that actor URIs cannot drift from the instance the rest of
         // the fediverse already knows.
         const { host, maxActors } = instance;
+        const instanceUrl = `${ctx.rootOrigin.protocol}//${host}`;
+        // Stored authorities can outlive the runtime that accepted them.
+        if (!URL.canParse(instanceUrl)) {
+          return {
+            type: INVALID_INSTANCE_HOST,
+            message:
+              `The instance host ${JSON.stringify(host)} cannot be parsed by ` +
+              "this server. Contact the server administrator.",
+          };
+        }
         const currActors = await tx.$count(
           schema.actors,
           eq(schema.actors.instanceId, targetInstanceId),
@@ -334,7 +346,7 @@ builder.mutationFields((t) => ({
         }
         // Create actors
         const fedCtx = ctx.federation.createContext(
-          new URL(`${ctx.rootOrigin.protocol}//${host}`),
+          new URL(instanceUrl),
           undefined,
         );
         const ids = Array.from({ length: size }, () => ({ id: uuid() }));
