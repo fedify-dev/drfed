@@ -14,14 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // oxlint-disable import/no-unassigned-import
-
 import "./account.ts";
-import "./activity-log/entry.ts";
-import "./actor.ts";
-import "./auth/entry.ts";
 import "./instance.ts";
-import "./key.ts";
+import "./auth/entry.ts";
+import "./actor.ts";
 import "./object.ts";
+import "./activity-log/entry.ts";
+import "./key.ts";
 import builder from "./builder.ts";
 
 builder.queryType({});

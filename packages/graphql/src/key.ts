@@ -18,6 +18,9 @@ import builder, { type DrFedObjectRef } from "./builder.ts";
 
 const KeyRef = builder.drizzleNode("keys", {
   name: "Key",
+  description:
+    "A remote public key, identified by its IRI.  Readable by any " +
+    "authenticated viewer, since it holds public material only.",
   authScopes: { authenticated: true },
   runScopesOnType: true,
   id: { column: (key) => key.id },
@@ -25,7 +28,8 @@ const KeyRef = builder.drizzleNode("keys", {
     uuid: t.expose("id", { type: "UUID" }),
     iri: t.expose("iri", { type: "URL" }),
     created: t.expose("created", { type: "DateTime" }),
-    versions: t.relation("versions", {
+    versions: t.relatedConnection("versions", {
+      description: "The observed versions of the key, oldest first.",
       query: { orderBy: { firstSeen: "asc", id: "asc" } },
     }),
   }),
@@ -36,6 +40,9 @@ const observationDescription =
   "does not imply continuous use between observations.";
 const KeyVersionRef = builder.drizzleNode("keyVersions", {
   name: "KeyVersion",
+  description:
+    "Immutable public key material observed under a `Key`.  Readable by " +
+    "any authenticated viewer.",
   authScopes: { authenticated: true },
   runScopesOnType: true,
   id: { column: (version) => version.id },

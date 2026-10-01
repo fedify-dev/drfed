@@ -24,32 +24,35 @@ import {
   classifyInbound,
   createInboundRecorder,
   createKeyCache,
-  createOutboxErrorHandler,
-  createPermanentFailureHandler,
   deliverActivity,
   describeActivity,
 } from "@drfed/graphql/activity-log";
-import createFederation from "@drfed/graphql/federation";
+import createFederation, {
+  type TrackedFederation,
+} from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
 import { recordInbound, recordOutbound } from "@drfed/models/activity-log";
 import { observeKeyVersion } from "@drfed/models/key";
 import {
   type Context,
-  type Federation,
   MemoryKvStore,
   SendActivityError,
+  type SenderKeyPair,
   generateCryptoKeyPair,
   signRequest,
 } from "@fedify/fedify";
 import {
+  type Activity,
   Create,
   CryptographicKey,
   type DocumentLoader,
   Multikey,
   Person,
+  type Recipient,
 } from "@fedify/vocab";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 
+import { withInbox } from "./activity-log/remote.test.ts";
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
   accountId,
@@ -67,6 +70,13 @@ const actorIri = new URL("https://remote.example/users/alice");
 const keyId = new URL(`${actorIri.href}#main-key`);
 const inbox = `https://test-instance.drfed.org/users/${localActorId}/inbox`;
 const fetchOptions = { contextData: undefined };
+const rootOrigin = new URL("https://drfed.org");
+const observed = {
+  verificationResult: "no_signature",
+  body: new TextEncoder().encode("{}"),
+  created: Temporal.Now.instant(),
+  completed: Temporal.Now.instant(),
+} as const;
 const payload = (id: string) => ({
   "@context": "https://www.w3.org/ns/activitystreams",
   id: `https://remote.example/activities/${id}`,
@@ -115,7 +125,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       contextLoaderFactory: () => contextLoader,
       documentLoaderFactory: () => documentLoader,
     });
-    const recorder = createInboundRecorder({ db, federation, kv });
+    const recorder = createInboundRecorder({ db, federation, rootOrigin });
     const send = async (
       body: unknown,
       privateKey = a.privateKey,
@@ -128,6 +138,14 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     const [first] = await db.query.activityLogs.findMany();
     assert.ok(first);
     assert.equal(first.status, "received");
+    assert.equal(first.verificationMechanism, "http_signature");
+    assert.equal(first.verificationResult, "verified");
+    assert.equal(first.error, null);
+    assert.equal(first.requestUrl, inbox);
+    assert.deepEqual(
+      JSON.parse(new TextDecoder().decode(first.body!)),
+      payload("first"),
+    );
     assert.equal(first.type, "Create");
     assert.equal(first.objectType, "Note");
     assert.equal(first.signedKeyIri, keyId.href);
@@ -153,6 +171,18 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     });
     assert.equal(digestLog?.signedKeyIri, keyId.href);
     assert.equal(digestLog?.verificationKeyId, null);
+    assert.equal(digestLog?.verificationResult, "invalid_signature");
+    const digestHeader = new Map(digestLog?.headers).get("digest");
+    assert.equal(
+      digestHeader,
+      "SHA-256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    );
+    assert.notEqual(
+      `SHA-256=${new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new Uint8Array(digestLog!.body!)),
+      ).toBase64()}`,
+      digestHeader,
+    );
     const firstLoads = loads;
     assert.equal(firstLoads, 1);
     assert.equal((await send(payload("second"))).status, 202);
@@ -178,20 +208,20 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       where: { activityIri: payload("tampered").id },
     });
     assert.equal(bad?.status, "unverified");
+    assert.equal(bad?.verificationResult, "invalid_signature");
     assert.ok(bad?.verificationKeyId);
     const mismatch = {
       ...payload("mismatch"),
       actor: "https://other.example/actor",
     };
     assert.equal((await send(mismatch, b.privateKey)).status, 401);
-    assert.equal(
-      (
-        await db.query.activityLogs.findFirst({
-          where: { activityIri: mismatch.id },
-        })
-      )?.status,
-      "rejected",
-    );
+    const rejected = await db.query.activityLogs.findFirst({
+      where: { activityIri: mismatch.id },
+    });
+    assert.equal(rejected?.status, "rejected");
+    assert.equal(rejected?.verificationResult, "verified");
+    assert.equal(rejected?.error, rejected?.responseBody);
+    assert.match(rejected?.error ?? "", /do not match/u);
     assert.equal(
       (
         await send(
@@ -215,7 +245,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
   });
 });
 
-it("records missing signatures and failed key fetches, and skips non-JSON/non-inbox requests", async () => {
+it("records missing signatures, failed key fetches and non-JSON bodies, and skips non-inbox requests", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
     const kv = new MemoryKvStore();
@@ -228,7 +258,7 @@ it("records missing signatures and failed key fetches, and skips non-JSON/non-in
       documentLoaderFactory: () => () =>
         Promise.reject(new TypeError("offline")),
     });
-    const recorder = createInboundRecorder({ db, federation, kv });
+    const recorder = createInboundRecorder({ db, federation, rootOrigin });
     assert.equal(
       (await recorder.fetch(request(payload("unsigned")), fetchOptions)).status,
       401,
@@ -238,6 +268,8 @@ it("records missing signatures and failed key fetches, and skips non-JSON/non-in
     assert.equal(unsigned.status, "unverified");
     assert.equal(unsigned.signedKeyIri, null);
     assert.equal(unsigned.verificationKeyId, null);
+    assert.equal(unsigned.verificationMechanism, "http_signature");
+    assert.equal(unsigned.verificationResult, "no_signature");
     const pair = await generateCryptoKeyPair();
     assert.equal(
       (
@@ -257,23 +289,42 @@ it("records missing signatures and failed key fetches, and skips non-JSON/non-in
     });
     assert.equal(failed?.signedKeyIri, keyId.href);
     assert.equal(failed?.verificationKeyId, null);
+    assert.equal(failed?.verificationResult, "key_fetch_error");
     assert.match(failed?.error ?? "", /keyFetchError/u);
-    await recorder.fetch(
+    const invalid = await recorder.fetch(
       new Request(inbox, { method: "POST", body: "not JSON" }),
       fetchOptions,
+    );
+    assert.equal(invalid.status, 400);
+    const unparsed = await db.query.activityLogs.findFirst({
+      where: { statusCode: 400 },
+    });
+    assert.equal(
+      new TextDecoder().decode(unparsed?.body ?? undefined),
+      "not JSON",
+    );
+    assert.equal(unparsed?.type, null);
+    assert.deepEqual(unparsed?.types, []);
+    // Fedify refused the body before verifying anything.
+    assert.equal(unparsed?.verificationMechanism, null);
+    assert.equal(unparsed?.verificationResult, "unattempted");
+    assert.equal(
+      await db.$count(schema.activityLogs, isNull(schema.activityLogs.payload)),
+      1,
     );
     await recorder.fetch(new Request(inbox), fetchOptions);
     await recorder.fetch(
       request({}, "https://test-instance.drfed.org/not-an-inbox"),
       fetchOptions,
     );
-    assert.equal(await db.$count(schema.activityLogs), 2);
+    assert.equal(await db.$count(schema.activityLogs), 3);
     await recorder.fetch(request(null), fetchOptions);
-    const nullPayload = await db.query.activityLogs.findFirst({
-      where: { type: { isNull: true } },
-    });
-    assert.equal(nullPayload?.payload, null);
-    await db.execute(`DROP TABLE activity_logs`);
+    assert.equal(await db.$count(schema.activityLogs), 4);
+    assert.equal(
+      await db.$count(schema.activityLogs, isNull(schema.activityLogs.payload)),
+      1,
+    );
+    await db.execute(`DROP TABLE activity_logs CASCADE`);
     assert.equal(
       (await recorder.fetch(request(payload("log-failure")), fetchOptions))
         .status,
@@ -319,6 +370,7 @@ it("uses the Fedify KV serialization for RSA, Multikey and negative entries", as
 it("classifies accepted proofs independently of HTTP signature failure and describes malformed JSON-LD", async () => {
   assert.deepEqual(await describeActivity({}), {
     type: null,
+    types: [],
     activityIri: null,
     remoteActorIri: null,
     objectType: null,
@@ -328,10 +380,22 @@ it("classifies accepted proofs independently of HTTP signature failure and descr
     (await describeActivity({ type: "Extension", id: "urn:test" })).type,
     "Extension",
   );
-  assert.equal(
-    classifyInbound({ verified: false, reason: { type: "noSignature" } }, 202),
-    "received",
-  );
+  for (const [statusCode, handled, verificationResult, status] of [
+    [202, true, "no_signature", "received"],
+    [202, true, "invalid_signature", "received"],
+    [202, false, "verified", "acknowledged"],
+    [401, false, "verified", "rejected"],
+    [401, false, "unobserved", "unverified"],
+    [400, false, "no_signature", "unverified"],
+    // Handling threw instead of answering.
+    [null, true, "verified", "rejected"],
+    [null, false, "unattempted", "unverified"],
+  ] as const) {
+    assert.equal(
+      classifyInbound({ statusCode, handled, verificationResult }),
+      status,
+    );
+  }
   assert.deepEqual(
     await describeActivity({
       "@context": 123,
@@ -342,6 +406,7 @@ it("classifies accepted proofs independently of HTTP signature failure and descr
     }),
     {
       type: "Extension",
+      types: ["Extension"],
       activityIri: "urn:test",
       remoteActorIri: null,
       objectType: null,
@@ -363,6 +428,7 @@ it("paginates tied timestamps, filters logs and reads verification keys as an in
     for (const status of ["received", "unverified", "rejected"] as const) {
       rows.push(
         await recordInbound(db, {
+          ...observed,
           instanceId: localInstanceId,
           actorId: localActorId,
           inboxUrl: inbox,
@@ -385,7 +451,7 @@ it("paginates tied timestamps, filters logs and reads verification keys as an in
     });
     const query = `query($id: ID!, $after: String, $filter: ActivityLogFilter) {
       node(id: $id) { ... on Instance { activityLogs(first: 2, after: $after, filter: $filter) {
-        edges { cursor node { uuid direction status type payload verificationKey { fingerprint publicKey key { iri versions { uuid } } } } }
+        edges { cursor node { uuid direction status type payload verificationKey { fingerprint publicKey key { iri versions { edges { node { uuid } } } } } } }
         pageInfo { hasNextPage endCursor }
       } } }
     }`;
@@ -445,6 +511,7 @@ it("denies anonymous/nonmember access including node typename and remote connect
     await seedLocalActor(db);
     await seedRemoteActor(db);
     const log = await recordInbound(db, {
+      ...observed,
       instanceId: localInstanceId,
       actorId: localActorId,
       inboxUrl: inbox,
@@ -494,19 +561,22 @@ it("denies anonymous/nonmember access including node typename and remote connect
   });
 });
 
+/**
+ * A key of the test's own to deliver with, since local key pairs arrive with
+ * #87.
+ * @returns The key pair.
+ */
+async function testKey(): Promise<SenderKeyPair> {
+  const { privateKey } = await generateCryptoKeyPair("Ed25519");
+  return { keyId: new URL(`${actorIri.href}#key`), privateKey };
+}
+
 it("settles synchronous delivery and retains HTTP failure diagnostics", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
     const federation = await createFederation(db, { kv: new MemoryKvStore() });
     const ctx = federation.createContext(new URL(inbox), undefined);
-    const recipient = {
-      id: actorIri,
-      inboxId: new URL("https://remote.example/inbox"),
-    };
-    const activity = new Create({
-      id: new URL("https://test-instance.drfed.org/activity/1"),
-      actor: ctx.getActorUri(localActorId),
-    });
+    const key = await testKey();
     const sender = { identifier: localActorId };
     const fakeContext = (
       sendActivity: Context<unknown>["sendActivity"],
@@ -518,15 +588,39 @@ it("settles synchronous delivery and retains HTTP failure diagnostics", async ()
             : Reflect.get(target, property);
         },
       });
-    await deliverActivity(
-      db,
-      fakeContext(() => Promise.resolve()),
-      sender,
-      [recipient, recipient],
-      activity,
-    );
+    // Fedify delivers for real: only its report of the delivery makes it sent.
+    await withInbox([[202, ""]], async (remote) => {
+      const recipient = { id: actorIri, inboxId: remote };
+      const activity = new Create({
+        id: new URL("https://test-instance.drfed.org/activity/1"),
+        actor: ctx.getActorUri(localActorId),
+      });
+      await deliverActivity(
+        db,
+        fakeContext((_sender, recipients, sent) =>
+          ctx.sendActivity(key, recipients as Recipient[], sent),
+        ),
+        sender,
+        [recipient, recipient],
+        activity,
+      );
+    });
     assert.equal(await db.$count(schema.activityLogs), 1);
-    assert.equal((await db.query.activityLogs.findFirst())?.status, "sent");
+    const sent = await db.query.activityLogs.findFirst({
+      with: { attempts: true },
+    });
+    assert.equal(sent?.status, "sent");
+    assert.equal(sent.statusCode, 202);
+    assert.ok(sent.completed != null);
+    assert.deepEqual(
+      sent.attempts.map((attempt) => attempt.succeeded),
+      [true],
+    );
+    // Fedify reports a synchronous failure only by throwing it.
+    const recipient = {
+      id: actorIri,
+      inboxId: new URL("https://remote.example/inbox"),
+    };
     const failure = new SendActivityError(
       recipient.inboxId,
       410,
@@ -537,29 +631,33 @@ it("settles synchronous delivery and retains HTTP failure diagnostics", async ()
       id: new URL("https://test-instance.drfed.org/activity/2"),
       actor: ctx.getActorUri(localActorId),
     });
-    await deliverActivity(
-      db,
-      fakeContext(async () => {
-        await createOutboxErrorHandler(db)(failure, failActivity);
-        await createPermanentFailureHandler(db)(ctx, {
-          activity: failActivity,
-          inbox: recipient.inboxId,
-          error: failure,
-          statusCode: 410,
-          reason: "http",
-          actorIds: [actorIri],
-        });
-      }),
-      sender,
-      recipient,
-      failActivity,
+    await assert.rejects(
+      deliverActivity(
+        db,
+        fakeContext(() => Promise.reject(failure)),
+        sender,
+        recipient,
+        failActivity,
+      ),
+      SendActivityError,
     );
     const failed = await db.query.activityLogs.findFirst({
       where: { activityIri: failActivity.id!.href },
+      with: { attempts: true },
     });
-    assert.equal(failed?.status, "permanently_failed");
+    assert.equal(failed?.status, "failed");
     assert.equal(failed?.statusCode, 410);
-    assert.equal(failed?.error, "Gone forever");
+    assert.equal(failed?.error, "gone");
+    assert.equal(failed?.responseBody, "Gone forever");
+    assert.deepEqual(
+      failed?.attempts.map((attempt) => [
+        attempt.succeeded,
+        attempt.statusCode,
+        attempt.error,
+        attempt.responseBody,
+      ]),
+      [[false, 410, "gone", "Gone forever"]],
+    );
   });
 });
 
@@ -568,10 +666,7 @@ it("settles successful inboxes independently from thrown delivery failures", asy
     await seedLocalActor(db);
     const federation = await createFederation(db, { kv: new MemoryKvStore() });
     const context = federation.createContext(new URL(inbox), undefined);
-    const good = {
-      id: actorIri,
-      inboxId: new URL("https://remote.example/good"),
-    };
+    const key = await testKey();
     const bad = {
       id: actorIri,
       inboxId: new URL("https://remote.example/bad"),
@@ -583,37 +678,41 @@ it("settles successful inboxes independently from thrown delivery failures", asy
     const ctx = new Proxy(context, {
       get(target, property) {
         if (property !== "sendActivity") return Reflect.get(target, property);
-        return async (_sender: unknown, recipients: { inboxId: URL }[]) => {
-          if (recipients[0]?.inboxId.href === bad.inboxId.href) {
-            const error = new SendActivityError(
-              bad.inboxId,
-              503,
-              "unavailable",
-              "Try later",
-            );
-            await createOutboxErrorHandler(db)(error, activity);
-            throw error;
-          }
-        };
+        return (_sender: unknown, recipients: Recipient[], sent: Activity) =>
+          recipients[0]?.inboxId?.href === bad.inboxId.href
+            ? Promise.reject(
+                new SendActivityError(
+                  bad.inboxId,
+                  503,
+                  "unavailable",
+                  "Try later",
+                ),
+              )
+            : target.sendActivity(key, recipients, sent);
       },
     });
-    await assert.rejects(
-      deliverActivity(
-        db,
-        ctx,
-        { identifier: localActorId },
-        [good, bad],
-        activity,
-      ),
-      SendActivityError,
-    );
+    await withInbox([[202, ""]], async (remote) => {
+      const good = { id: actorIri, inboxId: remote };
+      await assert.rejects(
+        deliverActivity(
+          db,
+          ctx,
+          { identifier: localActorId },
+          [good, bad],
+          activity,
+        ),
+        SendActivityError,
+      );
+    });
     const rows = await db.query.activityLogs.findMany({
       orderBy: { inboxUrl: "asc" },
     });
-    assert.equal(rows[0]?.status, "failed");
-    assert.equal(rows[0]?.statusCode, 503);
-    assert.equal(rows[0]?.error, "Try later");
-    assert.equal(rows[1]?.status, "sent");
+    assert.equal(rows[0]?.status, "sent");
+    assert.equal(rows[0]?.statusCode, 202);
+    assert.equal(rows[1]?.status, "failed");
+    assert.equal(rows[1]?.statusCode, 503);
+    assert.equal(rows[1]?.error, "unavailable");
+    assert.equal(rows[1]?.responseBody, "Try later");
   });
 });
 
@@ -621,6 +720,7 @@ it("returns a literal JSON null payload without nulling its connection", async (
   await withTestHarness(async ({ db, post }) => {
     const auth = await seedAuthenticatedLocalInstance(db);
     await recordInbound(db, {
+      ...observed,
       instanceId: localInstanceId,
       inboxUrl: inbox,
       status: "unverified",
@@ -666,8 +766,8 @@ it("skips verification observations for unclaimed hosts and failed instance look
         });
       },
       fetch: () => Promise.resolve(passThrough),
-    } as unknown as Federation<unknown>;
-    const recorder = createInboundRecorder({ db, federation, kv });
+    } as unknown as TrackedFederation;
+    const recorder = createInboundRecorder({ db, federation, rootOrigin });
     const signed = await signRequest(
       request(payload("unknown-host")),
       pair.privateKey,
