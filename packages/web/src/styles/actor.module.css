@@ -112,6 +112,75 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   outline: 3px solid var(--accent-soft);
   outline-offset: 0.2rem;
 }
+.objectList {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+.objectList > li {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding: 1.5rem 0;
+}
+.objectList > li:last-child {
+  padding-bottom: 0;
+}
+.objectHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem 1rem;
+}
+.objectHeader .label {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.objectHeader h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.objectHeader time {
+  grid-column: 2;
+  grid-row: 1;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.objectHeader .endpoint {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.objectIri {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.objectContent {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent-soft);
+  border-radius: var(--radius-sm);
+  margin: 1rem 0 0;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.objectContent code {
+  font: inherit;
+}
+.objectEmpty {
+  color: var(--ink-soft);
+  margin: 1.25rem 0 0;
+}
 @media (max-width: 520px) {
   .fields > div {
     grid-template-columns: 1fr;
@@ -119,5 +188,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   }
   .header {
     align-items: start;
+  }
+  .objectHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .objectHeader time {
+    grid-column: 1;
+    grid-row: 3;
   }
 }

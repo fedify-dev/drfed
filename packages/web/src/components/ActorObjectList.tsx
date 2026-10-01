@@ -55,29 +55,34 @@ export function ActorObjectList(props: { $actor: ActorObjectList_actor$key }) {
           <h2 id="objects-title">Objects</h2>
           <Show
             when={actor().objects.edges.length > 0}
-            fallback={<p>No objects yet.</p>}
+            fallback={<p class={styles.objectEmpty}>No objects yet.</p>}
           >
-            <ul>
+            <ul class={styles.objectList}>
               <For each={actor().objects.edges}>
                 {(edge) => (
                   <Show when={edge.node}>
                     {(object) => (
                       <li>
                         <article>
-                          <header>
+                          <header class={styles.objectHeader}>
                             <p class={styles.label}>{object().type}</p>
-                            <h3>
-                              <p>{object().name ?? "Untitled object"}</p>
-                            </h3>
-                            <div>
-                              iri: {object().iri}
-                              <CopyButton value={object().iri} label={"iri"} />
+                            <h3>{object().name ?? "Untitled object"}</h3>
+                            <div class={styles.endpoint}>
+                              <span class={styles.objectIri}>
+                                IRI: {object().iri}
+                              </span>
+                              <CopyButton
+                                value={object().iri}
+                                label="object IRI"
+                              />
                             </div>
                             <time dateTime={object().published}>
                               {object().published}
                             </time>
                           </header>
-                          <pre>{object().contentHtml}</pre>
+                          <pre class={styles.objectContent}>
+                            <code>{object().contentHtml}</code>
+                          </pre>
                         </article>
                       </li>
                     )}
