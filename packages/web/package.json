@@ -46,6 +46,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@faker-js/faker": "catalog:",
     "@formisch/solid": "1.0.0",
     "@kobalte/core": "^0.13.13",
     "@solidjs/meta": "^0.29.4",
@@ -60,7 +61,6 @@
     "vite": "^8.2.0"
   },
   "devDependencies": {
-    "@faker-js/faker": "^10.5.0",
     "@types/relay-runtime": "^20.1.1",
     "eslint-plugin-solid": "^0.14.5",
     "relay-compiler": "^21.0.1",

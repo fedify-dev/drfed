@@ -22,6 +22,7 @@ import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
+import { faker } from "@faker-js/faker";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { and, eq } from "drizzle-orm";
 
@@ -143,7 +144,14 @@ describe("Mutation.generateActors", () => {
     });
   });
 
-  it("creates local actors", async () => {
+  it("creates local actors with normalized usernames and retries collisions", async (t) => {
+    const username = t.mock.method(
+      faker.internet,
+      "username",
+      () => "Dr.FED42",
+    );
+    username.mock.mockImplementationOnce(() => "Dr-Fed43", 2);
+
     await withTestHarness(async ({ db, post }) => {
       const auth = await seedAuthenticatedLocalInstance(db);
 
@@ -189,6 +197,18 @@ describe("Mutation.generateActors", () => {
 
       const actors = await db.select().from(schema.actors);
       assert.equal(actors.length, 2);
+      assert.equal(username.mock.callCount(), 3);
+      assert.deepEqual(
+        new Set(actors.map((actor) => actor.username)),
+        new Set(["dr_fed42", "dr_fed43"]),
+      );
+      for (const actor of actors) {
+        assert.match(actor.username, /^[a-z0-9_]+$/u);
+        assert.equal(
+          actor.profileUrl,
+          `https://test-instance.drfed.org/@${actor.username}`,
+        );
+      }
       assert.equal(
         actors.every(
           (actor) =>

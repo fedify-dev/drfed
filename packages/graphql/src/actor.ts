@@ -22,6 +22,7 @@
 import { type Database, promoteResource, schema } from "@drfed/models";
 import { type CollectionRole, actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
+import { faker } from "@faker-js/faker";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
@@ -358,14 +359,19 @@ builder.mutationFields((t) => ({
             fedCtx.getActorUri(id).href,
             "actor",
             async (inner, resource) => {
-              const [createdActor] = await inner
-                .insert(schema.actors)
-                .values(generateActor(resource.id, targetInstanceId, fedCtx))
-                .returning();
-              if (createdActor == null) {
-                throw new Error("Actor insertion returned no row.");
+              for (let attempt = 0; attempt < 10; attempt += 1) {
+                const [createdActor] = await inner
+                  .insert(schema.actors)
+                  .values(generateActor(resource.id, targetInstanceId, fedCtx))
+                  .onConflictDoNothing({
+                    target: [schema.actors.username, schema.actors.instanceId],
+                  })
+                  .returning();
+                if (createdActor != null) {
+                  return createdActor;
+                }
               }
-              return createdActor;
+              throw new Error("Actor insertion returned no row.");
             },
             id,
           );
@@ -406,15 +412,19 @@ function generateActor(
   instanceId: Uuid,
   fedCtx: Context<unknown>,
 ): PgInsertValue<typeof schema.actors> {
+  const username = faker.internet
+    .username()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/gu, "_");
+
   return {
     id,
     localId: id,
-    // FIXME: https://github.com/fedify-dev/drfed/issues/85
-    username: id,
+    username,
     instanceId,
     type: "Person",
     inboxUrl: fedCtx.getInboxUri(id).href,
-    profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
+    profileUrl: new URL(`/@${username}`, fedCtx.origin).href,
   };
 }
 
