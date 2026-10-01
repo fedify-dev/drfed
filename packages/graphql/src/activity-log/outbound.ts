@@ -18,71 +18,82 @@ import type { Database } from "@drfed/models";
 import { recordOutbound, settleOutbound } from "@drfed/models/activity-log";
 import type { ActivityLog } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
+import type { Context, Federation } from "@fedify/fedify";
 import {
-  type Context,
-  type OutboxErrorHandler,
-  type OutboxPermanentFailureHandler,
-  SendActivityError,
-} from "@fedify/fedify";
-import type { Activity, Recipient } from "@fedify/vocab";
+  type Activity,
+  PUBLIC_COLLECTION,
+  type Recipient,
+} from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 
 import { canonicalizeAuthority } from "../origin.ts";
 import { describeActivity, remoteHost } from "./describe.ts";
+import {
+  type Delivery,
+  type Settlement,
+  deliveredStatus,
+  failureOf,
+  reportsSent,
+  withDelivery,
+} from "./queue.ts";
+import { trackRequest } from "./tracking.ts";
 
 const logger = getLogger(["drfed", "graphql", "activity-log"]);
 
+const queued = new WeakSet<Federation<unknown>>();
+
 /**
- * Record HTTP failures without making diagnostic persistence affect delivery.
- * @returns A Fedify outbox error callback.
+ * How a delivery Fedify returned from without sending or enqueuing settles:
+ * no attempt was made, and none will be.
  */
-export function createOutboxErrorHandler(db: Database): OutboxErrorHandler {
-  return async (error, activity) => {
-    if (!(error instanceof SendActivityError) || activity?.id == null) return;
-    try {
-      await settleOutbound(db, {
-        activityIri: activity.id.href,
-        inboxUrl: error.inbox.href,
-        status: "failed",
-        statusCode: error.statusCode,
-        error: error.responseBody,
-      });
-    } catch (cause) {
-      logger.error("Could not record delivery failure: {error}", {
-        error: cause,
-      });
-    }
-  };
+const undelivered: Settlement = {
+  status: "permanently_failed",
+  attempted: false,
+  statusCode: null,
+  error: "Fedify made no delivery to the inbox.",
+  responseBody: null,
+};
+
+/** Mark a federation as delivering through a message queue. */
+export function markQueued(federation: Federation<unknown>): void {
+  queued.add(federation);
 }
 
 /**
- * Preserve permanent failures even if the general error callback follows them.
- * @returns A Fedify permanent-failure callback.
+ * Group recipients by inbox, without the sender and Public.  Fedify delivers
+ * only to a recipient that has both an ID and an inbox, so any other is left
+ * out.
+ * @returns The recipients of each inbox URL.
  */
-export function createPermanentFailureHandler(
-  db: Database,
-): OutboxPermanentFailureHandler<unknown> {
-  return async (_ctx, values) => {
-    if (values.activity.id == null) return;
-    try {
-      await settleOutbound(db, {
-        activityIri: values.activity.id.href,
-        inboxUrl: values.inbox.href,
-        status: "permanently_failed",
-        statusCode: values.statusCode,
-        error: values.error.responseBody,
-      });
-    } catch (error) {
-      logger.error("Could not record permanent delivery failure: {error}", {
-        error,
-      });
+export function groupRecipients(
+  recipients: readonly Recipient[],
+  senderIri: string | undefined,
+): Map<string, Recipient[]> {
+  const targets = new Map<string, Recipient[]>();
+  for (const recipient of recipients) {
+    const iri = recipient.id?.href;
+    if (
+      iri == null ||
+      recipient.inboxId == null ||
+      iri === senderIri ||
+      iri === PUBLIC_COLLECTION.href
+    ) {
+      continue;
     }
-  };
+    const url = recipient.inboxId.href;
+    const group = targets.get(url) ?? [];
+    if (group.some((member) => member.id?.href === iri)) continue;
+    targets.set(url, [...group, recipient]);
+  }
+  return targets;
 }
 
 /**
- * Deliver to explicit recipients through the current synchronous federation.
- * Each activity needs a unique IRI. Queue-backed delivery is not supported.
+ * Deliver to explicit recipients through the current federation.
+ * Each activity needs a unique IRI.  `bto` and `bcc` are removed before delivery.
+ * A recipient without an ID or an inbox gets no delivery, and so no log.
+ * With a message queue, `createFederation()` settles each attempt the worker
+ * makes; without one, the one attempt settles here.
  * Local actor key dispatchers must be registered before using this entry point.
  */
 export async function deliverActivity(
@@ -108,65 +119,90 @@ export async function deliverActivity(
   if (actor == null) {
     throw new TypeError("Delivery requires a local sender on this instance.");
   }
-  const targets = new Map<string, Recipient[]>();
-  for (const recipient of Array.isArray(recipients)
-    ? recipients
-    : [recipients]) {
-    if (recipient.inboxId == null) continue;
-    const url = recipient.inboxId.href;
-    targets.set(url, [...(targets.get(url) ?? []), recipient]);
-  }
+  const activityIri = activity.id.href;
+  const delivered = activity.clone({ btos: [], bccs: [] });
+  const synchronous = !queued.has(ctx.federation);
+  const targets = groupRecipients(
+    Array.isArray(recipients) ? recipients : [recipients],
+    activity.actorId?.href,
+  );
   const results = await Promise.allSettled(
     Array.from(targets, async ([inboxUrl, group]) => {
       let row: ActivityLog | undefined;
       try {
-        const payload = await activity.toJsonLd({
+        const payload = await delivered.toJsonLd({
           format: "compact",
           contextLoader: ctx.contextLoader,
         });
         const description = await describeActivity(payload, {
           contextLoader: ctx.contextLoader,
         });
-        const recipient = group[0]!;
+        const recipientIris = group.flatMap((recipient) =>
+          recipient.id == null ? [] : [recipient.id.href],
+        );
+        const remoteActorIri =
+          group.length === 1 ? (recipientIris[0] ?? null) : null;
         row = await recordOutbound(db, {
           ...description,
           instanceId: actor.instanceId,
           actorId: actor.id,
-          activityIri: activity.id!.href,
-          remoteActorIri: recipient.id?.href ?? null,
-          remoteHost: remoteHost(recipient.id?.href ?? null, inboxUrl),
+          activityIri,
+          remoteActorIri,
+          remoteHost: remoteHost(remoteActorIri, inboxUrl),
           inboxUrl,
+          recipientIris,
           payload,
         });
       } catch (error) {
         logger.error("Could not record outgoing activity: {error}", { error });
       }
-      const settle = async (status: "sent" | "failed", error?: unknown) => {
+      const settle = async (settlement: Settlement) => {
         if (row == null) return;
         try {
           await settleOutbound(db, {
+            ...settlement,
             id: row.id,
-            activityIri: activity.id!.href,
+            activityIri,
             inboxUrl,
-            status,
-            onlyQueued: true,
-            error: error == null ? null : String(error),
           });
-        } catch (cause) {
+        } catch (error) {
           logger.error("Could not settle outgoing activity: {error}", {
-            error: cause,
+            error,
           });
         }
       };
-      try {
-        // Resolve each destination independently: one failing inbox must not mark
-        // a successful delivery as failed or leave it queued.
-        await ctx.sendActivity(sender, group, activity);
-      } catch (error) {
-        await settle("failed", error);
+      // Resolve each destination independently: one failing inbox must not mark
+      // a successful delivery as failed or leave it queued.
+      const send = () => ctx.sendActivity(sender, group, delivered);
+      const delivery: Delivery | undefined =
+        row == null ? undefined : { logId: row.id, inboxUrl, enqueued: false };
+      const { spans, responses } = await trackRequest(() =>
+        delivery == null ? send() : withDelivery(delivery, send),
+      ).catch(async (error: unknown) => {
+        await settle({
+          ...failureOf(error),
+          status: "failed",
+          attempted: true,
+        });
         throw error;
+      });
+      // Fedify returns without sending to a recipient it leaves out: the sent
+      // event tells a delivery made from none, and the enqueued message a
+      // delivery pending from none.  A group is always one inbox, so Fedify
+      // never fans it out through a queue.
+      if (synchronous) {
+        await settle(
+          reportsSent(spans, inboxUrl)
+            ? {
+                status: "sent",
+                attempted: true,
+                statusCode: deliveredStatus(responses, inboxUrl),
+              }
+            : undelivered,
+        );
+      } else if (delivery?.enqueued === false) {
+        await settle(undelivered);
       }
-      await settle("sent");
     }),
   );
   const failure = results.find((result) => result.status === "rejected");
