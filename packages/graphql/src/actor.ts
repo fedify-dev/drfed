@@ -424,7 +424,7 @@ function generateActor(
     instanceId,
     type: "Person",
     inboxUrl: fedCtx.getInboxUri(id).href,
-    profileUrl: new URL(`/@${id}`, fedCtx.origin).href,
+    profileUrl: new URL(`/@${username}`, fedCtx.origin).href,
   };
 }
 
