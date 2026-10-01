@@ -65,7 +65,7 @@ async function runServer(options: ServerOptions) {
       federation: createInboundRecorder({
         db: options.drizzle.db,
         federation,
-        kv,
+        rootOrigin,
       }),
       rootOrigin,
       serveControlSurface: yogaServer.fetch,

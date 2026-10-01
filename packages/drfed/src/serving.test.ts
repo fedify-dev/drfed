@@ -264,7 +264,7 @@ it("records inbox requests only on the instance surface", async () => {
     const federation = await createFederation(db, { kv });
     const fetch = createFetchHandler({
       rootOrigin,
-      federation: createInboundRecorder({ db, federation, kv }),
+      federation: createInboundRecorder({ db, federation, rootOrigin }),
       serveControlSurface: () => new Response("control"),
     });
     const body = JSON.stringify({

@@ -27,7 +27,6 @@ import type {
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
   type Context,
-  type Federation,
   type FederationBuilder,
   type FederationOptions,
   createFederationBuilder,
@@ -49,15 +48,27 @@ import {
   Tombstone,
 } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
+import { metrics, trace } from "@opentelemetry/api";
 import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
+import { markQueued } from "./activity-log/outbound.ts";
 import {
-  createOutboxErrorHandler,
-  createPermanentFailureHandler,
-} from "./activity-log/outbound.ts";
+  observeQueues,
+  outboxQueue,
+  reportOutboxError,
+  reportPermanentFailure,
+} from "./activity-log/queue.ts";
+import { trackMetrics, trackSpans } from "./activity-log/telemetry.ts";
+import {
+  type TrackedFederation,
+  attachKv,
+  markHandled,
+  trackPublicKeys,
+} from "./activity-log/tracking.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
 export { createInboundRecorder } from "./activity-log/inbound.ts";
+export type { TrackedFederation } from "./activity-log/tracking.ts";
 export { deliverActivity } from "./activity-log/outbound.ts";
 
 /**
@@ -130,7 +141,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
       }
       return toActorObject(ctx, identifier, actor);
     })
-    // Until #87 supplies keys, inbox loaders use unsigned document fetching.
+    // FIXME: https://github.com/fedify-dev/drfed/issues/87
     .setKeyPairsDispatcher(() => [])
     .mapHandle(async (ctx, username) => {
       const actor = await db.query.actors.findFirst({
@@ -149,6 +160,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
     .setInboxListeners("/users/{identifier}/inbox", "/inbox")
     // FIXME: https://github.com/fedify-dev/drfed/issues/88
     .on(Activity, (_ctx, activity) => {
+      markHandled();
       logger.debug("Received an activity: {activity}", { activity });
     })
     .onError((_ctx, error) => {
@@ -321,7 +333,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
           };
     },
   );
-  builder.setOutboxPermanentFailureHandler(createPermanentFailureHandler(db));
+  builder.setOutboxPermanentFailureHandler(reportPermanentFailure);
   return builder;
 }
 
@@ -329,6 +341,10 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
  * Creates a `Federation` instance with every DrFed dispatcher registered.
  * Every registration happens on a fresh builder inside this function, so the
  * returned instance is complete and must not be mutated further.
+ * The queues, if any, are observed so that each delivery attempt settles its
+ * outbound log and each queued inbox listener run its inbound log.  The public-key cache and the spans and measurements
+ * Fedify reports are tracked so that `createInboundRecorder()` sees how each
+ * inbox request was verified, and with which key.
  * @param db The database to resolve local actors from.
  * @param options Options for the underlying Fedify `Federation`, such as
  *                the `kv` store.
@@ -337,20 +353,30 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
 export default async function createFederation(
   db: Database,
   options: FederationOptions<unknown>,
-): Promise<Federation<unknown>> {
-  if (options.queue != null) {
-    throw new TypeError(
-      "Activity logging requires synchronous delivery; queues are not supported.",
-    );
-  }
-  const recordError = createOutboxErrorHandler(db);
-  return await buildFederation(db).build({
+): Promise<TrackedFederation> {
+  const federation = await buildFederation(db).build({
     ...options,
+    kv: trackPublicKeys(
+      options.kv,
+      options.kvPrefixes?.publicKey ?? ["_fedify", "publicKey"],
+    ),
+    tracerProvider: trackSpans(
+      options.tracerProvider ?? trace.getTracerProvider(),
+    ),
+    meterProvider: trackMetrics(
+      options.meterProvider ?? metrics.getMeterProvider(),
+    ),
+    ...(options.queue == null
+      ? {}
+      : { queue: observeQueues(db, options.kv, options.queue) }),
     async onOutboxError(error, activity) {
-      await recordError(error, activity);
+      await reportOutboxError(error, activity);
       await options.onOutboxError?.(error, activity);
     },
   });
+  if (outboxQueue(options.queue) != null) markQueued(federation);
+  attachKv(federation, options.kv);
+  return federation as TrackedFederation;
 }
 
 // Whether a sanction is *currently* active is always determined by comparing
@@ -486,22 +512,14 @@ function recipients(rows: readonly StoredAddressing[]): {
  * @returns An EXISTS predicate matching explicit Public addressing.
  */
 function publicAddressing(sourceId: SQLWrapper): SQL {
-  return sql`exists (select 1 from ${schema.addressing} where ${
-    schema.addressing.sourceId
-  } = ${sourceId} and ${
-    schema.addressing.targetId
-  } = ${PUBLIC_RESOURCE_ID} and ${schema.addressing.property} in ('to', 'cc'))`;
+  return sql`exists (select 1 from ${schema.addressing} where ${schema.addressing.sourceId} = ${sourceId} and ${schema.addressing.targetId} = ${PUBLIC_RESOURCE_ID} and ${schema.addressing.property} in ('to', 'cc'))`;
 }
 function servedActivity(table: {
   id: SQLWrapper;
   objectId: SQLWrapper;
   type: SQLWrapper;
 }): SQL {
-  return sql`${table.type} = 'Create' and ${publicAddressing(
-    table.id,
-  )} and exists (select 1 from ${schema.objects} where ${
-    schema.objects.id
-  } = ${table.objectId} and ${schema.objects.deleted} is null)`;
+  return sql`${table.type} = 'Create' and ${publicAddressing(table.id)} and exists (select 1 from ${schema.objects} where ${schema.objects.id} = ${table.objectId} and ${schema.objects.deleted} is null)`;
 }
 function collectionIri(actor: StoredActor, role: string): URL | null {
   const reference = actor.collectionReferences.find(
