@@ -119,6 +119,7 @@
   },
   "dependencies": {
     "@drfed/models": "workspace:*",
+    "@faker-js/faker": "catalog:",
     "@fedify/uri-template": "^2.3.1",
     "@fedify/fedify": "catalog:",
     "@fedify/vocab": "catalog:",
