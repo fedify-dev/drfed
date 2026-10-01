@@ -14,102 +14,274 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import type { Database } from "./db.ts";
 import {
   type ActivityLog,
   type NewActivityLog,
+  type NewActivityLogActor,
+  activityLogActors,
+  activityLogAttempts,
   activityLogs,
 } from "./schema.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
 
 type LogEntry = Omit<NewActivityLog, "id" | "direction" | "status">;
-export type InboundLogEntry = LogEntry & {
-  readonly status: "received" | "unverified" | "rejected";
+
+export interface AddressedActor {
+  readonly actorId: Uuid;
+  readonly viaCollectionIri?: string | null;
+}
+
+/**
+ * `payload` is `undefined` for an unparsable body and `null` for JSON `null`;
+ * it is stored as SQL `NULL` when jsonb cannot hold it, and `body` keeps it.
+ */
+export type InboundLogEntry = Omit<
+  LogEntry,
+  "body" | "verificationResult" | "recipientIris"
+> & {
+  /** Chosen in advance when something must name the log before it exists. */
+  readonly id?: Uuid;
+  readonly status: "received" | "acknowledged" | "unverified" | "rejected";
+  readonly verificationResult: NonNullable<LogEntry["verificationResult"]>;
+  readonly body: Uint8Array;
+  readonly addressed?: readonly AddressedActor[];
+  /** When the request arrived, before verification and handling. */
+  readonly created: Temporal.Instant;
+  /** When DrFed answered the request. */
+  readonly completed: Temporal.Instant;
 };
-export type OutboundLogEntry = Omit<LogEntry, "verificationKeyId"> & {
+
+/** `payload` is the document before signing, without `bto` and `bcc`. */
+export type OutboundLogEntry = Omit<
+  LogEntry,
+  | "verificationKeyId"
+  | "verificationMechanism"
+  | "verificationResult"
+  | "body"
+  | "headers"
+  | "requestUrl"
+  | "completed"
+> & {
   readonly activityIri: string;
 };
 
+type ActorRow = Omit<NewActivityLogActor, "logId">;
+
 /**
- * Persist one inbound observation without reserializing its original payload.
+ * Merge the inbox owner and addressed actors into one row per actor.
+ * @returns The actor rows of an inbound log.
+ */
+export function inboundActorRows(entry: {
+  readonly actorId?: Uuid | null | undefined;
+  readonly addressed?: readonly AddressedActor[] | undefined;
+}): ActorRow[] {
+  const rows = new Map<Uuid, ActorRow>();
+  if (entry.actorId != null) {
+    rows.set(entry.actorId, { actorId: entry.actorId, inboxOwner: true });
+  }
+  for (const { actorId, viaCollectionIri } of entry.addressed ?? []) {
+    const row = rows.get(actorId);
+    rows.set(actorId, {
+      ...row,
+      actorId,
+      addressed: true,
+      viaCollectionIri:
+        row?.addressed === true && row.viaCollectionIri == null
+          ? null
+          : (viaCollectionIri ?? null),
+    });
+  }
+  return [...rows.values()];
+}
+
+/**
+ * PostgreSQL's jsonb holds neither U+0000 nor an unpaired surrogate, in keys
+ * or in values.
+ * @returns Whether the JSON value can be stored as jsonb.
+ */
+function storableJson(value: unknown): boolean {
+  if (typeof value === "string") {
+    return !value.includes("\0") && value.isWellFormed();
+  }
+  return (
+    typeof value !== "object" ||
+    value == null ||
+    Object.entries(value).every(
+      ([key, item]) => storableJson(key) && storableJson(item),
+    )
+  );
+}
+
+/**
+ * Keep a payload jsonb cannot hold out of the log, rather than the log.
+ * @returns The value to store, SQL `NULL` for such a payload.
+ */
+const jsonb = (payload: unknown) =>
+  payload === null
+    ? sql`'null'::jsonb`
+    : storableJson(payload)
+      ? payload
+      : null;
+
+/**
+ * PostgreSQL's text holds no U+0000, which a remote response or an error
+ * quoting one may carry; keep the rest of it rather than lose the log.
+ * @returns The text with each U+0000 replaced by U+FFFD.
+ */
+const text = (value: string | null | undefined): string | null =>
+  value?.replaceAll("\0", "\ufffd") ?? null;
+
+async function insertLog(
+  db: Database,
+  log: NewActivityLog,
+  actors: readonly ActorRow[],
+): Promise<ActivityLog> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(activityLogs)
+      .values({
+        ...log,
+        error: text(log.error),
+        responseBody: text(log.responseBody),
+      })
+      .returning();
+    if (row == null) throw new Error("Missing activity log after insertion.");
+    if (actors.length > 0) {
+      await tx
+        .insert(activityLogActors)
+        .values(actors.map((actor) => ({ ...actor, logId: row.id })));
+    }
+    return row;
+  });
+}
+
+/**
+ * Persist one inbound observation with its actor rows in one transaction.
  * @returns The inserted inbound log.
  */
 export async function recordInbound(
   db: Database,
-  entry: InboundLogEntry,
+  { addressed, body, id = uuidV7(), ...entry }: InboundLogEntry,
 ): Promise<ActivityLog> {
-  const [row] = await db
-    .insert(activityLogs)
-    .values({
+  return await insertLog(
+    db,
+    {
       ...entry,
-      payload: entry.payload === null ? sql`'null'::jsonb` : entry.payload,
-      id: uuidV7(),
+      body: Buffer.from(body),
+      payload: jsonb(entry.payload),
+      id,
       direction: "inbound",
-    })
-    .returning();
-  if (row == null) throw new Error("Missing inbound log after insertion.");
-  return row;
+    },
+    inboundActorRows({ actorId: entry.actorId, addressed }),
+  );
 }
 
 /**
- * Start a delivery observation. Outbound keys are not verification keys.
+ * Record that an inbox listener ran for an inbound delivery answered before it
+ * did, as a queued one is.
+ * @returns Whether an acknowledged inbound log was found.
+ */
+export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
+  const rows = await db
+    .update(activityLogs)
+    .set({ status: "received" })
+    .where(
+      and(
+        eq(activityLogs.id, id),
+        eq(activityLogs.direction, "inbound"),
+        eq(activityLogs.status, "acknowledged"),
+      ),
+    )
+    .returning({ id: activityLogs.id });
+  return rows.length > 0;
+}
+
+/**
+ * Start a delivery observation.  The payload is the document before signing.
  * @returns The inserted queued outbound log.
  */
 export async function recordOutbound(
   db: Database,
   entry: OutboundLogEntry,
 ): Promise<ActivityLog> {
-  const [row] = await db
-    .insert(activityLogs)
-    .values({
+  return await insertLog(
+    db,
+    {
       ...entry,
-      payload: entry.payload === null ? sql`'null'::jsonb` : entry.payload,
+      // The application clock, as inbound logs use, so both directions sort together.
+      created: entry.created ?? Temporal.Now.instant(),
+      payload: jsonb(entry.payload),
       id: uuidV7(),
       direction: "outbound",
       status: "queued",
-      verificationKeyId: null,
-    })
-    .returning();
-  if (row == null) throw new Error("Missing outbound log after insertion.");
-  return row;
+    },
+    entry.actorId == null ? [] : [{ actorId: entry.actorId, sender: true }],
+  );
 }
 
-/** Settle pending deliveries; successful or permanent results are never overwritten. */
+/** What a settled delivery shows; null fields for a successful attempt. */
+export interface OutboundSettlement {
+  readonly activityIri: string;
+  readonly inboxUrl: string;
+  readonly status: "sent" | "failed" | "permanently_failed" | "abandoned";
+  readonly statusCode?: number | null;
+  readonly error?: string | null;
+  readonly responseBody?: string | null;
+  /** Whether an attempt ended with this result, rather than none being made. */
+  readonly attempted: boolean;
+  /** Restrict a synchronous delivery to the row started by that invocation. */
+  readonly id?: Uuid;
+}
+
+/**
+ * Settle the most recent pending (`queued` or `failed`) delivery to an inbox,
+ * keeping each ended attempt.  `sent`, `permanently_failed` and `abandoned`
+ * deliveries are never changed again.
+ * @returns Whether a pending delivery was found.
+ */
 export async function settleOutbound(
   db: Database,
-  entry: {
-    readonly activityIri: string;
-    readonly inboxUrl: string;
-    readonly status: "sent" | "failed" | "permanently_failed";
-    readonly statusCode?: number | null;
-    readonly error?: string | null;
-    /** Restrict a synchronous completion to the row started by that invocation. */
-    readonly id?: Uuid;
-    /** Leave detailed failure callbacks intact when settling a thrown exception. */
-    readonly onlyQueued?: boolean;
-  },
-): Promise<void> {
-  await db
-    .update(activityLogs)
-    .set({
-      status: entry.status,
-      statusCode: entry.statusCode ?? null,
-      error: entry.error ?? null,
-    })
-    .where(
-      and(
-        eq(activityLogs.direction, "outbound"),
-        eq(activityLogs.activityIri, entry.activityIri),
-        eq(activityLogs.inboxUrl, entry.inboxUrl),
-        entry.id == null ? undefined : eq(activityLogs.id, entry.id),
-        inArray(
-          activityLogs.status,
-          entry.status === "sent" || entry.onlyQueued
-            ? ["queued"]
-            : ["queued", "failed"],
+  entry: OutboundSettlement,
+): Promise<boolean> {
+  const summary = {
+    statusCode: entry.statusCode ?? null,
+    error: text(entry.error),
+    responseBody: text(entry.responseBody),
+  };
+  return await db.transaction(async (tx) => {
+    const [log] = await tx
+      .select({ id: activityLogs.id })
+      .from(activityLogs)
+      .where(
+        and(
+          eq(activityLogs.direction, "outbound"),
+          eq(activityLogs.activityIri, entry.activityIri),
+          eq(activityLogs.inboxUrl, entry.inboxUrl),
+          inArray(activityLogs.status, ["queued", "failed"]),
+          entry.id == null ? undefined : eq(activityLogs.id, entry.id),
         ),
-      ),
-    );
+      )
+      .orderBy(desc(activityLogs.created), desc(activityLogs.id))
+      .limit(1)
+      .for("update");
+    if (log == null) return false;
+    const completed = Temporal.Now.instant();
+    if (entry.attempted) {
+      await tx.insert(activityLogAttempts).values({
+        ...summary,
+        id: uuidV7(),
+        logId: log.id,
+        succeeded: entry.status === "sent",
+        created: completed,
+      });
+    }
+    await tx
+      .update(activityLogs)
+      .set({ ...summary, status: entry.status, completed })
+      .where(eq(activityLogs.id, log.id));
+    return true;
+  });
 }

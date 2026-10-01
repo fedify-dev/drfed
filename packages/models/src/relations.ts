@@ -39,10 +39,41 @@ export const relations = defineRelations(schema, (r) => ({
       to: r.instances.id,
       optional: false,
     }),
-    actor: r.one.actors({ from: r.activityLogs.actorId, to: r.actors.id }),
+    actor: r.one.actors({
+      from: r.activityLogs.actorId,
+      to: r.actors.id,
+      where: { deleted: { isNull: true } },
+    }),
+    actorLinks: r.many.activityLogActors({
+      from: r.activityLogs.id,
+      to: r.activityLogActors.logId,
+    }),
     verificationKey: r.one.keyVersions({
       from: r.activityLogs.verificationKeyId,
       to: r.keyVersions.id,
+    }),
+    attempts: r.many.activityLogAttempts({
+      from: r.activityLogs.id,
+      to: r.activityLogAttempts.logId,
+    }),
+  },
+  activityLogAttempts: {
+    log: r.one.activityLogs({
+      from: r.activityLogAttempts.logId,
+      to: r.activityLogs.id,
+      optional: false,
+    }),
+  },
+  activityLogActors: {
+    log: r.one.activityLogs({
+      from: r.activityLogActors.logId,
+      to: r.activityLogs.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activityLogActors.actorId,
+      to: r.actors.id,
+      optional: false,
     }),
   },
   accounts: {
@@ -251,8 +282,8 @@ export const relations = defineRelations(schema, (r) => ({
   },
   actors: {
     activityLogs: r.many.activityLogs({
-      from: r.actors.id,
-      to: r.activityLogs.actorId,
+      from: r.actors.id.through(r.activityLogActors.actorId),
+      to: r.activityLogs.id.through(r.activityLogActors.logId),
     }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,

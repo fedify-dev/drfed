@@ -18,6 +18,7 @@ import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  bytea,
   char,
   check,
   customType,
@@ -520,15 +521,48 @@ export const activityLogDirectionEnum = pgEnum("activity_log_direction", [
   "inbound",
   "outbound",
 ]);
+
+/**
+ * Inbound: `received` (2xx, listener ran), `acknowledged` (2xx, listener did
+ * not run), `unverified`, `rejected` (refused although verified); a request
+ * whose handling threw is one of the last two, without a status code.  Outbound:
+ * `queued` (no attempt ended yet), `sent`, `failed` (the latest attempt
+ * failed; a queued delivery may be retried), `permanently_failed`,
+ * `abandoned` (the retry policy ran out).
+ */
 export const activityLogStatusEnum = pgEnum("activity_log_status", [
   "received",
+  "acknowledged",
   "unverified",
   "rejected",
   "queued",
   "sent",
   "failed",
   "permanently_failed",
+  "abandoned",
 ]);
+
+/** The mechanism that authenticated an inbound activity. */
+export const activityLogVerificationMechanismEnum = pgEnum(
+  "activity_log_verification_mechanism",
+  ["http_signature", "ld_signature", "object_integrity_proof"],
+);
+
+/**
+ * What Fedify reported of an inbound verification; `unattempted` when it
+ * answered before verifying, and `unobserved` when recording failed.
+ */
+export const activityLogVerificationResultEnum = pgEnum(
+  "activity_log_verification_result",
+  [
+    "verified",
+    "invalid_signature",
+    "key_fetch_error",
+    "no_signature",
+    "unattempted",
+    "unobserved",
+  ],
+);
 
 /** Logical public keys, identified by their exact IRI. */
 export const keys = pgTable("keys", {
@@ -566,6 +600,11 @@ export const keyVersions = pgTable(
       "key_versions_public_key_check",
       sql`NOT (${table.publicKey} ?| array['d','p','q','dp','dq','qi','oth','k'])`,
     ),
+    index("key_version_key_first_seen_index").on(
+      table.keyId,
+      table.firstSeen,
+      table.id,
+    ),
   ],
 );
 
@@ -578,32 +617,60 @@ export const activityLogs = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
+    /** The owner of the inbox the request arrived at, or the sending actor. */
     actorId: uuid("actor_id")
       .$type<Uuid>()
       .references(() => actors.id, { onDelete: "set null" }),
     direction: activityLogDirectionEnum().notNull(),
     status: activityLogStatusEnum().notNull(),
+    verificationMechanism: activityLogVerificationMechanismEnum(
+      "verification_mechanism",
+    ),
+    verificationResult: activityLogVerificationResultEnum(
+      "verification_result",
+    ),
     type: text(),
+    types: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
     activityIri: text("activity_iri"),
     objectType: text("object_type"),
     objectIri: text("object_iri"),
     signedKeyIri: text("signed_key_iri"),
-    /** A referenced version does not imply successful verification; consult status. */
+    /** A referenced version does not imply successful verification. */
     verificationKeyId: uuid("verification_key_id")
       .$type<Uuid>()
       .references(() => keyVersions.id, { onDelete: "restrict" }),
+    /** Inbound, only the first `actor`; the rest are in `payload`. */
     remoteActorIri: text("remote_actor_iri"),
     remoteHost: text("remote_host"),
     inboxUrl: text("inbox_url").notNull(),
+    requestUrl: text("request_url"),
+    /** Names are lowercase; original order and case are not kept. */
+    headers: jsonb().$type<readonly (readonly [string, string])[]>(),
+    body: bytea(),
     statusCode: integer("status_code"),
+    responseBody: text("response_body"),
     error: text(),
-    payload: jsonb().$type<unknown>().notNull(),
+    payload: jsonb().$type<unknown>(),
+    recipientIris: text("recipient_iris")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    /** Inbound, when the request arrived; outbound, when delivery started. */
     created: instant().notNull().default(currentTimestamp),
+    /** Inbound, when DrFed answered; outbound, the latest status change. */
+    completed: instant(),
   },
   (table) => [
     check(
       "activity_logs_direction_status_check",
-      sql`(${table.direction} = 'inbound' AND ${table.status} IN ('received', 'unverified', 'rejected')) OR (${table.direction} = 'outbound' AND ${table.status} IN ('queued', 'sent', 'failed', 'permanently_failed'))`,
+      sql`(${table.direction} = 'inbound' AND ${table.status} IN ('received', 'acknowledged', 'unverified', 'rejected')) OR (${table.direction} = 'outbound' AND ${table.status} IN ('queued', 'sent', 'failed', 'permanently_failed', 'abandoned'))`,
+    ),
+    check(
+      "activity_logs_completed_check",
+      sql`(${table.completed} IS NULL) = (${table.status} = 'queued')`,
     ),
     check(
       "activity_logs_status_code_check",
@@ -613,27 +680,102 @@ export const activityLogs = pgTable(
       "activity_logs_outbound_key_check",
       sql`${table.direction} <> 'outbound' OR ${table.verificationKeyId} IS NULL`,
     ),
+    check(
+      "activity_logs_verification_result_check",
+      sql`(${table.direction} = 'inbound') = (${table.verificationResult} IS NOT NULL)`,
+    ),
+    check(
+      "activity_logs_verification_mechanism_check",
+      sql`${table.verificationMechanism} IS NULL OR (${table.direction} = 'inbound' AND ${table.verificationResult} NOT IN ('unattempted', 'unobserved'))`,
+    ),
+    check(
+      "activity_logs_body_check",
+      sql`(${table.direction} = 'inbound') = (${table.body} IS NOT NULL)`,
+    ),
     index("activity_log_instance_created_index").on(
       table.instanceId,
       desc(table.created),
       desc(table.id),
     ),
-    index("activity_log_actor_created_index").on(
-      table.actorId,
-      desc(table.created),
-      desc(table.id),
-    ),
+    index("activity_log_actor_index").on(table.actorId),
     index("activity_log_verification_key_index").on(table.verificationKeyId),
     index("activity_log_outbound_index")
       .on(table.activityIri, table.inboxUrl)
       .where(sql`${table.direction} = 'outbound'`),
   ],
 );
+
+/** Each ended attempt of an outbound delivery. */
+export const activityLogAttempts = pgTable(
+  "activity_log_attempts",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    logId: uuid("log_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => activityLogs.id, { onDelete: "cascade" }),
+    succeeded: boolean().notNull(),
+    statusCode: integer("status_code"),
+    responseBody: text("response_body"),
+    error: text(),
+    /** When the attempt ended. */
+    created: instant().notNull().default(currentTimestamp),
+  },
+  (table) => [
+    check(
+      "activity_log_attempts_status_code_check",
+      sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
+    ),
+    check(
+      "activity_log_attempts_error_check",
+      sql`${table.succeeded} = (${table.error} IS NULL)`,
+    ),
+    index("activity_log_attempt_log_index").on(
+      table.logId,
+      table.created,
+      table.id,
+    ),
+  ],
+);
+
+/** The local actors a log concerns, one row per log and actor. */
+export const activityLogActors = pgTable(
+  "activity_log_actors",
+  {
+    logId: uuid("log_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => activityLogs.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    inboxOwner: boolean("inbox_owner").notNull().default(false),
+    addressed: boolean().notNull().default(false),
+    sender: boolean().notNull().default(false),
+    viaCollectionIri: text("via_collection_iri"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.logId, table.actorId] }),
+    check(
+      "activity_log_actors_role_check",
+      sql`${table.inboxOwner} OR ${table.addressed} OR ${table.sender}`,
+    ),
+    index("activity_log_actor_log_index").on(table.actorId, desc(table.logId)),
+  ],
+);
 export type Key = typeof keys.$inferSelect;
 export type KeyVersion = typeof keyVersions.$inferSelect;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type NewActivityLog = typeof activityLogs.$inferInsert;
+export type ActivityLogAttempt = typeof activityLogAttempts.$inferSelect;
+export type ActivityLogActor = typeof activityLogActors.$inferSelect;
+export type NewActivityLogActor = typeof activityLogActors.$inferInsert;
 export type ActivityLogDirection =
   (typeof activityLogDirectionEnum.enumValues)[number];
 export type ActivityLogStatus =
   (typeof activityLogStatusEnum.enumValues)[number];
+export type ActivityLogVerificationMechanism =
+  (typeof activityLogVerificationMechanismEnum.enumValues)[number];
+export type ActivityLogVerificationResult =
+  (typeof activityLogVerificationResultEnum.enumValues)[number];

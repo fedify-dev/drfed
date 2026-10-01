@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "78cf5984-6dea-4b2c-b5c6-20591c77a1c4",
+  "id": "10a7ac3c-ffbe-46a9-8ea9-4f50ee544b12",
   "prevIds": [
     "478b925d-8ac8-466c-9804-bb055fdd6489",
     "7c4a0afb-efbc-4ae7-b6b5-ebc6daaddb3e"
@@ -16,14 +16,35 @@
     {
       "values": [
         "received",
+        "acknowledged",
         "unverified",
         "rejected",
         "queued",
         "sent",
         "failed",
-        "permanently_failed"
+        "permanently_failed",
+        "abandoned"
       ],
       "name": "activity_log_status",
+      "entityType": "enums",
+      "schema": "public"
+    },
+    {
+      "values": ["http_signature", "ld_signature", "object_integrity_proof"],
+      "name": "activity_log_verification_mechanism",
+      "entityType": "enums",
+      "schema": "public"
+    },
+    {
+      "values": [
+        "verified",
+        "invalid_signature",
+        "key_fetch_error",
+        "no_signature",
+        "unattempted",
+        "unobserved"
+      ],
+      "name": "activity_log_verification_result",
       "entityType": "enums",
       "schema": "public"
     },
@@ -78,6 +99,18 @@
     {
       "isRlsEnabled": false,
       "name": "activities",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "activity_log_actors",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "activity_log_attempts",
       "entityType": "tables",
       "schema": "public"
     },
@@ -354,6 +387,175 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "log_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "inbox_owner",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "addressed",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "sender",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "via_collection_iri",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "log_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "succeeded",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "response_body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "name": "created",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
@@ -412,6 +614,32 @@
       "table": "activity_logs"
     },
     {
+      "type": "activity_log_verification_mechanism",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "verification_mechanism",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "activity_log_verification_result",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "verification_result",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -420,6 +648,19 @@
       "generated": null,
       "identity": null,
       "name": "type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "types",
       "entityType": "columns",
       "schema": "public",
       "table": "activity_logs"
@@ -529,6 +770,45 @@
       "table": "activity_logs"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "request_url",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "headers",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "bytea",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -549,6 +829,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "response_body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "error",
       "entityType": "columns",
       "schema": "public",
@@ -557,12 +850,25 @@
     {
       "type": "jsonb",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "payload",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "recipient_iris",
       "entityType": "columns",
       "schema": "public",
       "table": "activity_logs"
@@ -576,6 +882,19 @@
       "generated": null,
       "identity": null,
       "name": "created",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "completed",
       "entityType": "columns",
       "schema": "public",
       "table": "activity_logs"
@@ -1980,6 +2299,69 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "actor_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "\"log_id\" desc",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "activity_log_actor_log_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "log_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "activity_log_attempt_log_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "instance_id",
           "isExpression": false,
           "asc": true,
@@ -2020,20 +2402,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        },
-        {
-          "value": "\"created\" desc",
-          "isExpression": true,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "\"id\" desc",
-          "isExpression": true,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         }
       ],
       "isUnique": false,
@@ -2041,7 +2409,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_actor_created_index",
+      "name": "activity_log_actor_index",
       "entityType": "indexes",
       "schema": "public",
       "table": "activity_logs"
@@ -2239,6 +2607,41 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "key_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "first_seen",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "key_version_key_first_seen_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "key_versions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "actorId",
           "isExpression": false,
           "asc": true,
@@ -2308,6 +2711,45 @@
       "entityType": "fks",
       "schema": "public",
       "table": "activities"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["log_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_logs",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_log_actors_log_id_activity_logs_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["actor_id"],
+      "schemaTo": "public",
+      "tableTo": "actors",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_log_actors_actor_id_actors_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["log_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_logs",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_log_attempts_log_id_activity_logs_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_log_attempts"
     },
     {
       "nameExplicit": false,
@@ -2609,6 +3051,14 @@
       "table": "sessions"
     },
     {
+      "columns": ["log_id", "actor_id"],
+      "nameExplicit": false,
+      "name": "activity_log_actors_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
       "columns": ["actorId", "role"],
       "nameExplicit": false,
       "name": "actor_collection_references_pkey",
@@ -2646,6 +3096,14 @@
       "name": "activities_pkey",
       "schema": "public",
       "table": "activities",
+      "entityType": "pks"
+    },
+    {
+      "columns": ["id"],
+      "nameExplicit": false,
+      "name": "activity_log_attempts_pkey",
+      "schema": "public",
+      "table": "activity_log_attempts",
       "entityType": "pks"
     },
     {
@@ -2864,8 +3322,36 @@
       "table": "accounts"
     },
     {
-      "value": "(\"direction\" = 'inbound' AND \"status\" IN ('received', 'unverified', 'rejected')) OR (\"direction\" = 'outbound' AND \"status\" IN ('queued', 'sent', 'failed', 'permanently_failed'))",
+      "value": "\"inbox_owner\" OR \"addressed\" OR \"sender\"",
+      "name": "activity_log_actors_role_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "value": "\"status_code\" IS NULL OR \"status_code\" BETWEEN 100 AND 599",
+      "name": "activity_log_attempts_status_code_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "value": "\"succeeded\" = (\"error\" IS NULL)",
+      "name": "activity_log_attempts_error_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_log_attempts"
+    },
+    {
+      "value": "(\"direction\" = 'inbound' AND \"status\" IN ('received', 'acknowledged', 'unverified', 'rejected')) OR (\"direction\" = 'outbound' AND \"status\" IN ('queued', 'sent', 'failed', 'permanently_failed', 'abandoned'))",
       "name": "activity_logs_direction_status_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "value": "(\"completed\" IS NULL) = (\"status\" = 'queued')",
+      "name": "activity_logs_completed_check",
       "entityType": "checks",
       "schema": "public",
       "table": "activity_logs"
@@ -2880,6 +3366,27 @@
     {
       "value": "\"direction\" <> 'outbound' OR \"verification_key_id\" IS NULL",
       "name": "activity_logs_outbound_key_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "value": "(\"direction\" = 'inbound') = (\"verification_result\" IS NOT NULL)",
+      "name": "activity_logs_verification_result_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "value": "\"verification_mechanism\" IS NULL OR (\"direction\" = 'inbound' AND \"verification_result\" NOT IN ('unattempted', 'unobserved'))",
+      "name": "activity_logs_verification_mechanism_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_logs"
+    },
+    {
+      "value": "(\"direction\" = 'inbound') = (\"body\" IS NOT NULL)",
+      "name": "activity_logs_body_check",
       "entityType": "checks",
       "schema": "public",
       "table": "activity_logs"

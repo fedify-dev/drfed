@@ -62,7 +62,7 @@ export function thumbprintInput(jwk: PublicJwk): string {
       : key.kty === "OKP" && key.crv === "Ed25519"
         ? { crv: key.crv, kty: key.kty, x: key.x }
         : null;
-  // oxlint-able id-length
+  // oxlint-enable id-length
   if (
     required == null ||
     Object.values(required).some(
