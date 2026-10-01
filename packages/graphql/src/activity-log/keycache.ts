@@ -32,6 +32,9 @@ type DiagnosticKeyCache = KeyCache & {
     error: FetchKeyErrorResult | undefined,
   ): Promise<void>;
 };
+// Fedify's KvKeyCache keeps each key below the prefix under this generation.
+const generation = "2";
+const keyTtl = Temporal.Duration.from({ days: 30 });
 const unavailableTtl = Temporal.Duration.from({ minutes: 10 });
 
 async function parseKey(
@@ -58,20 +61,21 @@ export function createKeyCache(
   prefix: KvKey = ["_fedify", "publicKey"],
   options: Loaders = {},
 ): DiagnosticKeyCache {
+  const entryKey = (id: URL): KvKey => [...prefix, generation, id.href];
   const errorKey = (id: URL): KvKey => [...prefix, "__fetchError", id.href];
   return {
     async get(keyId) {
-      const value = await kv.get([...prefix, keyId.href]);
+      const value = await kv.get(entryKey(keyId));
       if (value == null) return value;
       const key = await parseKey(value, options);
-      if (key == null) await kv.delete([...prefix, keyId.href]);
+      if (key == null) await kv.delete(entryKey(keyId));
       return key;
     },
     async set(keyId, key) {
       await kv.set(
-        [...prefix, keyId.href],
+        entryKey(keyId),
         key == null ? null : await key.toJsonLd(options),
-        key == null ? { ttl: unavailableTtl } : undefined,
+        { ttl: key == null ? unavailableTtl : keyTtl },
       );
     },
     async getFetchError(keyId) {
@@ -135,7 +139,7 @@ export async function trackedKey(
   keyIri: string,
   options: Loaders = {},
 ): Promise<CryptographicKey | Multikey | null> {
-  const entry = JSON.stringify([keyIri]);
+  const entry = JSON.stringify([generation, keyIri]);
   const brought = await Promise.all(
     fetches
       .filter(({ result }) => result === "hit" || result === "fetched")

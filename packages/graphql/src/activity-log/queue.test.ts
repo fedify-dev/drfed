@@ -102,6 +102,7 @@ async function deliver(
 ): Promise<Log[]> {
   const federation = await createFederation(db, {
     kv: new MemoryKvStore(),
+    allowPrivateAddress: true,
     ...(queue == null ? {} : { queue, manuallyStartQueue: true }),
     circuitBreaker: false,
     outboxRetryPolicy: ({ attempts }) =>
@@ -196,10 +197,10 @@ it("keeps the status a redirected delivery ended with", async () => {
   });
 });
 
-it("follows a redirect to a location outside ASCII as either follower reads it", async () => {
+it("follows a redirect to a location outside ASCII as Fedify reads it", async () => {
   // The header carries the UTF-8 bytes of the path, which Node.js writes from
-  // the Latin-1 string of them.  Fedify reads them back as Latin-1 and
-  // `fetch()` as UTF-8, and each requests the path it read.
+  // the Latin-1 string of them.  Fedify follows the redirect itself whether it
+  // signs the request or not, reading them back as Latin-1.
   const location = Buffer.from("/caf\u00e9", "utf8").toString("latin1");
   await withSeededDatabase(async (db) => {
     for (const algorithm of ["Ed25519", "RSASSA-PKCS1-v1_5"] as const) {
@@ -221,10 +222,7 @@ it("follows a redirect to a location outside ASCII as either follower reads it",
       );
       assert.equal(log?.status, "sent");
       assert.equal(log?.statusCode, 202);
-      assert.deepEqual(paths, [
-        "/inbox",
-        algorithm === "Ed25519" ? "/caf%C3%A9" : "/caf%C3%83%C2%A9",
-      ]);
+      assert.deepEqual(paths, ["/inbox", "/caf%C3%83%C2%A9"]);
     }
   });
 });

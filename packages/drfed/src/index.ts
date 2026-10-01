@@ -50,7 +50,10 @@ async function runServer(options: ServerOptions) {
     "driver" in credentials
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
-  const federation = await createFederation(options.drizzle.db, { kv });
+  const federation = await createFederation(options.drizzle.db, {
+    kv,
+    allowPrivateAddress: true,
+  });
   const { emailFrom, mailer, rootOrigin, loginOrigins } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {

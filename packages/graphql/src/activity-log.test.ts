@@ -103,9 +103,11 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     const a = await generateCryptoKeyPair();
     const b = await generateCryptoKeyPair();
     let currentKey = a.publicKey;
-    let loads = 0;
+    // Fedify fetches the actor on every request to check that it owns the key,
+    // so only fetches of the key itself tell whether the cache served it.
+    let keyLoads = 0;
     const documentLoader: DocumentLoader = async (url) => {
-      loads += 1;
+      if (url === keyId.href) keyLoads += 1;
       const key = new CryptographicKey({
         id: keyId,
         owner: actorIri,
@@ -183,10 +185,9 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       ).toBase64()}`,
       digestHeader,
     );
-    const firstLoads = loads;
-    assert.equal(firstLoads, 1);
+    assert.equal(keyLoads, 1);
     assert.equal((await send(payload("second"))).status, 202);
-    assert.equal(loads, firstLoads);
+    assert.equal(keyLoads, 1);
     assert.equal(await db.$count(schema.keyVersions), 1);
     const [seenAgain] = await db.query.keyVersions.findMany();
     assert.ok(seenAgain);
@@ -194,7 +195,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       Temporal.Instant.compare(seenAgain.lastSeen, firstVersion.lastSeen) > 0,
     );
     currentKey = b.publicKey;
-    await kv.delete(["_fedify", "publicKey", keyId.href]);
+    await kv.delete(["_fedify", "publicKey", "2", keyId.href]);
     assert.equal((await send(payload("rotated"), b.privateKey)).status, 202);
     assert.equal(await db.$count(schema.keyVersions), 2);
     assert.equal(
@@ -240,7 +241,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       )?.actorId,
       null,
     );
-    await kv.delete(["_fedify", "publicKey", keyId.href]);
+    await kv.delete(["_fedify", "publicKey", "2", keyId.href]);
     assert.equal(await db.$count(schema.keyVersions), 2);
   });
 });
@@ -344,7 +345,7 @@ it("uses the Fedify KV serialization for RSA, Multikey and negative entries", as
   });
   await cache.set(keyId, key);
   assert.deepEqual(
-    await kv.get(["_fedify", "publicKey", keyId.href]),
+    await kv.get(["_fedify", "publicKey", "2", keyId.href]),
     await key.toJsonLd(),
   );
   assert.ok((await cache.get(keyId)) instanceof CryptographicKey);
@@ -354,7 +355,10 @@ it("uses the Fedify KV serialization for RSA, Multikey and negative entries", as
     controller: actorIri,
     publicKey: ed.publicKey,
   });
-  await kv.set(["_fedify", "publicKey", keyId.href], await multi.toJsonLd());
+  await kv.set(
+    ["_fedify", "publicKey", "2", keyId.href],
+    await multi.toJsonLd(),
+  );
   assert.ok((await cache.get(keyId)) instanceof Multikey);
   await cache.set(keyId, null);
   assert.equal(await cache.get(keyId), null);
@@ -363,7 +367,7 @@ it("uses the Fedify KV serialization for RSA, Multikey and negative entries", as
     ((await cache.getFetchError(keyId)) as { error: Error }).error.name,
     "TypeError",
   );
-  await kv.set(["_fedify", "publicKey", keyId.href], "not a key");
+  await kv.set(["_fedify", "publicKey", "2", keyId.href], "not a key");
   assert.equal(await cache.get(keyId), undefined);
 });
 
@@ -574,7 +578,10 @@ async function testKey(): Promise<SenderKeyPair> {
 it("settles synchronous delivery and retains HTTP failure diagnostics", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
-    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const federation = await createFederation(db, {
+      kv: new MemoryKvStore(),
+      allowPrivateAddress: true,
+    });
     const ctx = federation.createContext(new URL(inbox), undefined);
     const key = await testKey();
     const sender = { identifier: localActorId };
@@ -664,7 +671,10 @@ it("settles synchronous delivery and retains HTTP failure diagnostics", async ()
 it("settles successful inboxes independently from thrown delivery failures", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
-    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const federation = await createFederation(db, {
+      kv: new MemoryKvStore(),
+      allowPrivateAddress: true,
+    });
     const context = federation.createContext(new URL(inbox), undefined);
     const key = await testKey();
     const bad = {

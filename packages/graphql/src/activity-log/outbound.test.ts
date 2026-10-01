@@ -90,6 +90,7 @@ async function createDeliveringContext(
 ): Promise<{ readonly ctx: Context<unknown>; readonly passed: Activity[] }> {
   const federation = await createFederation(db, {
     kv: new MemoryKvStore(),
+    allowPrivateAddress: true,
     ...(queue == null ? {} : { queue, manuallyStartQueue: true }),
   });
   const { privateKey } = await generateCryptoKeyPair("Ed25519");
