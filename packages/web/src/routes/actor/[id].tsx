@@ -30,6 +30,7 @@ import {
 } from "solid-relay";
 
 import { ActorDetail } from "~/components/ActorDetail.tsx";
+import { ActorObjectList } from "~/components/ActorObjectList.tsx";
 
 import type { ActorDetailQuery } from "./__generated__/ActorDetailQuery.graphql.ts";
 
@@ -40,6 +41,7 @@ const actorDetailQuery = graphql`
     node(id: $id) {
       ... on Actor @alias(as: "actor") {
         ...ActorDetail_actor
+        ...ActorObjectList_actor
       }
     }
   }
@@ -98,7 +100,12 @@ function ActorDetailContent(props: { data: RouteData }) {
   return (
     <Show when={data()}>
       <Show when={actor()} fallback={<p>Actor not found.</p>}>
-        {(value) => <ActorDetail $actor={value()} />}
+        {(value) => (
+          <>
+            <ActorDetail $actor={value()} />
+            <ActorObjectList $actor={value()} />
+          </>
+        )}
       </Show>
     </Show>
   );
