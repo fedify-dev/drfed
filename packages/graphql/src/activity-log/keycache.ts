@@ -22,6 +22,8 @@ import type {
 } from "@fedify/fedify";
 import { CryptographicKey, Multikey } from "@fedify/vocab";
 
+import type { ObservedKeyFetch } from "./tracking.ts";
+
 type Loaders = Parameters<typeof CryptographicKey.fromJsonLd>[1];
 type DiagnosticKeyCache = KeyCache & {
   getFetchError(keyId: URL): Promise<FetchKeyErrorResult | undefined>;
@@ -31,6 +33,21 @@ type DiagnosticKeyCache = KeyCache & {
   ): Promise<void>;
 };
 const unavailableTtl = Temporal.Duration.from({ minutes: 10 });
+
+async function parseKey(
+  value: unknown,
+  options: Loaders,
+): Promise<CryptographicKey | Multikey | undefined> {
+  try {
+    return await CryptographicKey.fromJsonLd(value, options);
+  } catch {
+    try {
+      return await Multikey.fromJsonLd(value, options);
+    } catch {
+      return undefined;
+    }
+  }
+}
 
 /**
  * KV wire format shared with the installed Fedify KvKeyCache.
@@ -46,16 +63,9 @@ export function createKeyCache(
     async get(keyId) {
       const value = await kv.get([...prefix, keyId.href]);
       if (value == null) return value;
-      try {
-        return await CryptographicKey.fromJsonLd(value, options);
-      } catch {
-        try {
-          return await Multikey.fromJsonLd(value, options);
-        } catch {
-          await kv.delete([...prefix, keyId.href]);
-          return undefined;
-        }
-      }
+      const key = await parseKey(value, options);
+      if (key == null) await kv.delete([...prefix, keyId.href]);
+      return key;
     },
     async set(keyId, key) {
       await kv.set(
@@ -109,4 +119,28 @@ export function createKeyCache(
       await kv.set(errorKey(keyId), value, { ttl: unavailableTtl });
     },
   };
+}
+
+/**
+ * The key a verification used, out of the key fetches `trackRequest()`
+ * reported of it: the last its public-key cache entry held while a fetch
+ * brought a key, even one fetched again, and even when fetching it again then
+ * failed and emptied the entry.  What a fetch read but could not use does not
+ * count, nor what another verification of the request found under the IRI.
+ * @param fetches The key fetches of the one verification, in order.
+ * @returns The key, or null when no fetch brought one.
+ */
+export async function trackedKey(
+  fetches: readonly ObservedKeyFetch[],
+  keyIri: string,
+  options: Loaders = {},
+): Promise<CryptographicKey | Multikey | null> {
+  const entry = JSON.stringify([keyIri]);
+  const brought = await Promise.all(
+    fetches
+      .filter(({ result }) => result === "hit" || result === "fetched")
+      .flatMap(({ keys }) => keys.get(entry) ?? [])
+      .map((value) => (value == null ? undefined : parseKey(value, options))),
+  );
+  return brought.findLast((key) => key != null) ?? null;
 }

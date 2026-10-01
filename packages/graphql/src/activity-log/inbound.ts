@@ -16,115 +16,77 @@
 
 import type { Database } from "@drfed/models";
 import { recordInbound } from "@drfed/models/activity-log";
-import { observeKeyVersion } from "@drfed/models/key";
-import { type Uuid, validateUuid } from "@drfed/models/uuid";
-import {
-  type Federation,
-  type FederationFetchOptions,
-  type KeyCache,
-  type KvKey,
-  type KvStore,
-  type RequestContext,
-  type VerifyRequestDetailedResult,
-  exportJwk,
-  verifyRequestDetailed,
-} from "@fedify/fedify";
+import type {
+  ActivityLogVerificationResult,
+  Instance,
+} from "@drfed/models/schema";
+import { type Uuid, uuidV7, validateUuid } from "@drfed/models/uuid";
+import type { FederationFetchOptions } from "@fedify/fedify";
+import type { DocumentLoader } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 
-import { canonicalizeAuthority } from "../origin.ts";
-import { describeActivity, remoteHost } from "./describe.ts";
-import { createKeyCache } from "./keycache.ts";
+import { canonicalizeAuthority, instanceUrl } from "../origin.ts";
+import { addressedIris, findAddressedActors } from "./addressing.ts";
+import { describeParsed, parseActivity, remoteHost } from "./describe.ts";
+import { describeError, receivedMeanwhile } from "./queue.ts";
+import {
+  type Report,
+  type TrackedFederation,
+  kvOf,
+  trackSettled,
+  unwrap,
+} from "./tracking.ts";
+import { observeVerification } from "./verification.ts";
 
 const logger = getLogger(["drfed", "graphql", "activity-log"]);
 
+type InboundStatus = "received" | "acknowledged" | "unverified" | "rejected";
+
 /**
  * The actual federation response determines whether an activity was accepted.
+ * @param statusCode Null when handling threw instead of answering.
  * @returns The inbound delivery status.
  */
-export function classifyInbound(
-  verification: VerifyRequestDetailedResult,
-  responseStatus: number,
-): "received" | "unverified" | "rejected" {
-  if (responseStatus >= 200 && responseStatus < 300) return "received";
-  return verification.verified ? "rejected" : "unverified";
-}
-
-function signedKeyId(
-  verification: VerifyRequestDetailedResult | undefined,
-): URL | null {
-  if (verification == null) return null;
-  if (verification.verified) return verification.key.id;
-  return verification.reason.type === "noSignature"
-    ? null
-    : (verification.reason.keyId ?? null);
-}
-
-function verificationError(result: VerifyRequestDetailedResult): string | null {
-  if (result.verified) return null;
-  const { reason } = result;
-  if (reason.type !== "keyFetchError") return reason.type;
-  return `keyFetchError: ${
-    "status" in reason.result ? reason.result.status : reason.result.error.name
-  }`;
-}
-
-type Loaders = Pick<
-  RequestContext<unknown>,
-  "documentLoader" | "contextLoader"
->;
-
-async function observeVerification(
-  db: Database,
-  request: Request,
-  keyCache: KeyCache,
-  loaders: Loaders,
-) {
-  const observedKeys = new Map<string, Awaited<ReturnType<KeyCache["get"]>>>();
-  const observedCache: KeyCache = {
-    ...keyCache,
-    async get(id) {
-      const key = await keyCache.get(id);
-      observedKeys.set(id.href, key);
-      return key;
-    },
-    async set(id, key) {
-      observedKeys.set(id.href, key);
-      await keyCache.set(id, key);
-    },
-  };
-  let result: VerifyRequestDetailedResult | undefined;
-  let keyId: Uuid | null = null;
-  // Capture key material before Fedify or
-  // another request can refresh the cache.
-  try {
-    result = await verifyRequestDetailed(request, {
-      keyCache: observedCache,
-      ...loaders,
-    });
-    const key = result.verified
-      ? result.key
-      : result.reason.type === "invalidSignature" && result.reason.keyId != null
-        ? observedKeys.get(result.reason.keyId.href)
-        : null;
-    const verifiedKeyId = result.verified
-      ? result.key.id
-      : result.reason.type === "noSignature"
-        ? null
-        : result.reason.keyId;
-    if (key?.publicKey != null && verifiedKeyId != null) {
-      keyId = (
-        await observeKeyVersion(db, {
-          iri: verifiedKeyId.href,
-          publicKey: await exportJwk(key.publicKey),
-        })
-      ).id;
-    }
-  } catch (error) {
-    logger.error("Could not observe inbox verification: {error}", {
-      error,
-    });
+export function classifyInbound({
+  statusCode,
+  handled,
+  verificationResult,
+}: {
+  readonly statusCode: number | null;
+  readonly handled: boolean;
+  readonly verificationResult: ActivityLogVerificationResult;
+}): InboundStatus {
+  if (statusCode != null && statusCode >= 200 && statusCode < 300) {
+    return handled ? "received" : "acknowledged";
   }
-  return { result, keyId };
+  return verificationResult === "verified" ? "rejected" : "unverified";
+}
+
+/**
+ * Drop `cookie`, and reduce non-`Signature` `authorization` to its scheme.
+ * @returns The headers as `[name, value]` pairs.
+ */
+export function recordedHeaders(headers: Headers): [string, string][] {
+  return [...headers]
+    .filter(([name]) => name !== "cookie")
+    .map(([name, value]): [string, string] => {
+      if (name !== "authorization") return [name, value];
+      const [scheme = ""] = value.trim().split(/\s+/u);
+      return [name, scheme.toLowerCase() === "signature" ? value : scheme];
+    });
+}
+
+/**
+ * Parse a body from its octets.
+ * @returns The parsed value, or undefined when the body is not JSON.
+ */
+export function parseBody(body: Uint8Array): unknown {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(body));
+    return value;
+  } catch {
+    return undefined;
+  }
 }
 
 async function findRecordingInstance(db: Database, host: string) {
@@ -143,94 +105,196 @@ async function findRecordingInstance(db: Database, host: string) {
   }
 }
 
+async function readBody(request: Request): Promise<Uint8Array | undefined> {
+  try {
+    return new Uint8Array(await request.clone().arrayBuffer());
+  } catch (error) {
+    logger.error("Could not read the inbox request body: {error}", { error });
+    return undefined;
+  }
+}
+
+async function readResponseBody(response: Response): Promise<string | null> {
+  try {
+    return await response.clone().text();
+  } catch (error) {
+    logger.error("Could not read the inbox response body: {error}", { error });
+    return null;
+  }
+}
+
 /**
  * Wrap inbox POSTs while preserving Fedify responses even when recording fails.
+ * A request Fedify throws on is recorded too, and the exception thrown again.
+ * The federation must come from `createFederation()`, which lets the recorder
+ * see how Fedify verified each request and with which public key.
  * @returns A fetch handler that records inbox observations.
  */
 export function createInboundRecorder({
   db,
   federation,
-  kv,
-  publicKeyPrefix,
+  rootOrigin,
 }: {
   readonly db: Database;
-  readonly federation: Federation<unknown>;
-  readonly kv: KvStore;
-  readonly publicKeyPrefix?: KvKey;
+  readonly federation: TrackedFederation;
+  readonly rootOrigin: URL;
 }): {
   fetch(
     request: Request,
     options: FederationFetchOptions<unknown>,
   ): Promise<Response>;
 } {
+  async function record(
+    request: Request,
+    instance: Instance,
+    identifier: string | undefined,
+    observed: {
+      readonly id: Uuid;
+      readonly body: Uint8Array;
+      readonly payload: unknown;
+      readonly report: Pick<Report, "spans" | "verifications">;
+      readonly outcome: PromiseSettledResult<Response>;
+      readonly handled: boolean;
+      readonly loaders: Parameters<typeof parseActivity>[1] & {
+        readonly contextLoader: DocumentLoader;
+      };
+      readonly created: Temporal.Instant;
+      readonly completed: Temporal.Instant;
+    },
+  ): Promise<void> {
+    const {
+      id,
+      body,
+      payload,
+      report,
+      outcome,
+      handled,
+      loaders,
+      created,
+      completed,
+    } = observed;
+    const response = outcome.status === "fulfilled" ? outcome.value : null;
+    const statusCode = response?.status ?? null;
+    const verification = await observeVerification(
+      db,
+      request.headers,
+      payload,
+      report,
+      loaders.contextLoader,
+    );
+    const owner =
+      identifier != null && validateUuid(identifier)
+        ? await db.query.actors.findFirst({
+            where: {
+              id: identifier,
+              instanceId: instance.id,
+              localId: { isNotNull: true },
+            },
+          })
+        : null;
+    const activity =
+      payload === undefined ? null : await parseActivity(payload, loaders);
+    const description = await describeParsed(payload, activity, loaders);
+    const status = classifyInbound({
+      statusCode,
+      handled,
+      verificationResult: verification.result,
+    });
+    const responseBody =
+      response == null ? null : await readResponseBody(response);
+    await recordInbound(db, {
+      ...description,
+      id,
+      instanceId: instance.id,
+      actorId: owner?.id ?? null,
+      addressed: await findAddressedActors(
+        db,
+        instance.id,
+        addressedIris(activity),
+      ),
+      status,
+      verificationMechanism: verification.mechanism,
+      verificationResult: verification.result,
+      signedKeyIri: verification.signedKeyIri,
+      verificationKeyId: verification.keyId,
+      remoteHost: remoteHost(
+        description.remoteActorIri,
+        verification.signedKeyIri,
+      ),
+      inboxUrl:
+        owner?.inboxUrl ??
+        instanceUrl(rootOrigin, instance.host, new URL(request.url).pathname)
+          .href,
+      requestUrl: request.url,
+      headers: recordedHeaders(request.headers),
+      body,
+      statusCode,
+      responseBody,
+      error:
+        outcome.status === "rejected"
+          ? describeError(outcome.reason)
+          : status === "unverified" || status === "rejected"
+            ? (verification.detail ?? (responseBody || null))
+            : null,
+      payload,
+      created,
+      completed,
+    });
+    // A queue worker may have run the inbox listener before this was recorded.
+    const kv = kvOf(federation);
+    if (status === "acknowledged" && kv != null) {
+      await receivedMeanwhile(db, kv, id);
+    }
+  }
+
   return {
     async fetch(request, options) {
+      // Arrival, not insertion, orders the logs: requests may finish out of order.
+      const created = Temporal.Now.instant();
+      if (request.method !== "POST") {
+        return await federation.fetch(request, options);
+      }
       const ctx = federation.createContext(request, options.contextData);
       const route = ctx.parseUri(new URL(request.url));
+      if (route?.type !== "inbox") {
+        return await federation.fetch(request, options);
+      }
+      // Unclaimed subdomains must not create orphaned public-key history.
       const instance = await findRecordingInstance(db, ctx.host);
-      const payload: unknown = await request
-        .clone()
-        .json()
-        .catch((e) => e);
-      const response = await federation.fetch(request, options);
-      if (
-        request.method !== "POST" ||
-        route?.type !== "inbox" ||
-        // Unclaimed subdomains must not create orphaned public-key history.
-        instance == null ||
-        payload instanceof Error
-      ) {
-        return response;
+      const body = instance == null ? undefined : await readBody(request);
+      if (instance == null || body == null) {
+        return await federation.fetch(request, options);
       }
       const loaders = {
         documentLoader: ctx.documentLoader,
         contextLoader: ctx.contextLoader,
       };
-      const keyCache = createKeyCache(kv, publicKeyPrefix, loaders);
-      const verification = await observeVerification(
-        db,
-        request,
-        keyCache,
-        loaders,
+      const payload = parseBody(body);
+      // Fedify reports how it verified the request as it handles it; nothing
+      // is verified again, so the log shows Fedify's outcome and keys.
+      // Chosen now, so that a queued inbox message can name the log.
+      const id = uuidV7();
+      const { outcome, handled, ...report } = await trackSettled(
+        () => federation.fetch(request, options),
+        { inboundLogId: id },
       );
+      const completed = Temporal.Now.instant();
       try {
-        const actor =
-          route.identifier != null && validateUuid(route.identifier)
-            ? await db.query.actors.findFirst({
-                where: {
-                  id: route.identifier,
-                  instanceId: instance.id,
-                  localId: { isNotNull: true },
-                },
-              })
-            : null;
-        const signedKeyIri = signedKeyId(verification.result)?.href ?? null;
-        const description = await describeActivity(payload, loaders);
-        await recordInbound(db, {
-          ...description,
-          instanceId: instance.id,
-          actorId: actor?.id ?? null,
-          status:
-            verification.result == null
-              ? response.ok
-                ? "received"
-                : "unverified"
-              : classifyInbound(verification.result, response.status),
-          signedKeyIri,
-          verificationKeyId: verification.keyId,
-          remoteHost: remoteHost(description.remoteActorIri, signedKeyIri),
-          inboxUrl: request.url,
-          statusCode: response.status,
-          error:
-            verification.result == null
-              ? "Verification observation failed"
-              : verificationError(verification.result),
+        await record(request, instance, route.identifier, {
+          id,
+          body,
           payload,
+          report,
+          outcome,
+          handled,
+          loaders,
+          created,
+          completed,
         });
       } catch (error) {
         logger.error("Could not record inbox activity: {error}", { error });
       }
-      return response;
+      return unwrap(outcome);
     },
   };
 }
