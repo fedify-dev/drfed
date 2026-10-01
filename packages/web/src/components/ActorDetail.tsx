@@ -99,15 +99,24 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
               <dl class={styles.fields}>
                 <div>
                   <dt>Username</dt>
-                  <dd>{actor().username}</dd>
+                  <dd>
+                    {actor().username}
+                    <CopyButton value={actor().username} label={"username"} />
+                  </dd>
                 </div>
                 <div>
                   <dt>Instance</dt>
-                  <dd>{actor().instance.host}</dd>
+                  <dd>
+                    {actor().instance.host}
+                    <CopyButton value={actor().instance.host} label={"host"} />
+                  </dd>
                 </div>
                 <div>
                   <dt>UUID</dt>
-                  <dd>{actor().uuid}</dd>
+                  <dd>
+                    {actor().uuid}
+                    <CopyButton value={actor().uuid} label={"uuid"} />
+                  </dd>
                 </div>
                 <div>
                   <dt>Created</dt>

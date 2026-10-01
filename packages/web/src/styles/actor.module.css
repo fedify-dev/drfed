@@ -82,6 +82,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   font-family: var(--font-mono);
   font-size: 0.9rem;
   overflow-wrap: anywhere;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 .endpoint {
   display: flex;
