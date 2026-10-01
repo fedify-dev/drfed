@@ -22,6 +22,7 @@
 import { type Database, promoteResource, schema } from "@drfed/models";
 import { type CollectionRole, actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
+import { faker } from "@faker-js/faker";
 import type { Context } from "@fedify/fedify";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
@@ -406,11 +407,15 @@ function generateActor(
   instanceId: Uuid,
   fedCtx: Context<unknown>,
 ): PgInsertValue<typeof schema.actors> {
+  const username = faker.internet
+    .username()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/gu, "_");
+
   return {
     id,
     localId: id,
-    // FIXME: https://github.com/fedify-dev/drfed/issues/85
-    username: id,
+    username,
     instanceId,
     type: "Person",
     inboxUrl: fedCtx.getInboxUri(id).href,
