@@ -359,14 +359,19 @@ builder.mutationFields((t) => ({
             fedCtx.getActorUri(id).href,
             "actor",
             async (inner, resource) => {
-              const [createdActor] = await inner
-                .insert(schema.actors)
-                .values(generateActor(resource.id, targetInstanceId, fedCtx))
-                .returning();
-              if (createdActor == null) {
-                throw new Error("Actor insertion returned no row.");
+              for (let attempt = 0; attempt < 10; attempt += 1) {
+                const [createdActor] = await inner
+                  .insert(schema.actors)
+                  .values(generateActor(resource.id, targetInstanceId, fedCtx))
+                  .onConflictDoNothing({
+                    target: [schema.actors.username, schema.actors.instanceId],
+                  })
+                  .returning();
+                if (createdActor != null) {
+                  return createdActor;
+                }
               }
-              return createdActor;
+              throw new Error("Actor insertion returned no row.");
             },
             id,
           );
