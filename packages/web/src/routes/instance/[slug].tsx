@@ -30,6 +30,7 @@ import {
 } from "solid-relay";
 
 import { ActorCard } from "~/components/ActorCard.tsx";
+import { CopyButton } from "~/components/CopyButton.tsx";
 
 import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql.ts";
 
@@ -158,6 +159,7 @@ export default function InstanceDetailPage(
                     <dt>{label}</dt>
                     <dd>
                       <a href={url}>{url}</a>
+                      <CopyButton value={url} label={label} />
                     </dd>
                   </div>
                 )}

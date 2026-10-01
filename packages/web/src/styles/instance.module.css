@@ -123,6 +123,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .endpointList dd {
   margin: 0;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .endpointList a {
