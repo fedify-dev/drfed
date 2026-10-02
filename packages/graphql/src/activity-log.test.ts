@@ -31,7 +31,11 @@ import createFederation, {
   type TrackedFederation,
 } from "@drfed/graphql/federation";
 import { schema } from "@drfed/models";
-import { recordInbound, recordOutbound } from "@drfed/models/activity-log";
+import {
+  recordInbound,
+  recordOutbound,
+  settleOutbound,
+} from "@drfed/models/activity-log";
 import { observeKeyVersion } from "@drfed/models/key";
 import {
   type Context,
@@ -589,6 +593,201 @@ it("denies anonymous/nonmember access including node typename and remote connect
         ).errors?.length,
       );
     }
+  });
+});
+
+it("pages through the attempts of a delivery, oldest first", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await seedLocalActor(db);
+    const outgoing = {
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: inbox,
+      activityIri: "https://local.example/activity",
+      payload: {},
+    } as const;
+    const outbound = await recordOutbound(db, outgoing);
+    for (const [status, statusCode, error] of [
+      ["failed", 503, "First"],
+      ["failed", 502, "Second"],
+      ["sent", 202, null],
+    ] as const) {
+      await settleOutbound(db, {
+        ...outgoing,
+        status,
+        statusCode,
+        error,
+        attempted: true,
+      });
+    }
+    const inbound = await recordInbound(db, {
+      ...observed,
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: inbox,
+      status: "received",
+      payload: {},
+    });
+    const page = async (id: string, first: number, after?: string) => {
+      const result = await (
+        await post(
+          {
+            query: `query($id: ID!, $first: Int!, $after: String) {
+              node(id: $id) { ... on ActivityLog {
+                attempts(first: $first, after: $after) {
+                  edges { node { succeeded statusCode error } }
+                  pageInfo { hasNextPage endCursor }
+                }
+              } }
+            }`,
+            variables: {
+              id: Buffer.from(`ActivityLog:${id}`).toString("base64"),
+              first,
+              after,
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.equal(result.errors, undefined, JSON.stringify(result.errors));
+      return result.data.node.attempts;
+    };
+    const attempts = [];
+    let after: string | undefined;
+    for (const hasNextPage of [true, true, false]) {
+      const { edges, pageInfo } = await page(outbound.id, 1, after);
+      assert.equal(pageInfo.hasNextPage, hasNextPage);
+      attempts.push(...edges.map((edge: { node: unknown }) => edge.node));
+      after = pageInfo.endCursor;
+    }
+    assert.deepEqual(attempts, [
+      { succeeded: false, statusCode: 503, error: "First" },
+      { succeeded: false, statusCode: 502, error: "Second" },
+      { succeeded: true, statusCode: 202, error: null },
+    ]);
+    assert.deepEqual(await page(inbound.id, 10), {
+      edges: [],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    });
+  });
+});
+
+it("tells on each edge of an actor's logs how the delivery concerns it", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    const auth = await seedAuthenticatedLocalInstance(db);
+    await seedLocalActor(db);
+    const followers = "https://remote.example/users/alice/followers";
+    const following = "https://remote.example/users/alice/following";
+    const at = (minute: number) =>
+      Temporal.Instant.from(`2026-09-01T00:0${minute}:00Z`);
+    // Inserted in another order than they were created in.
+    const owned = await recordInbound(db, {
+      ...observed,
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: inbox,
+      status: "received",
+      payload: {},
+      addressed: [{ actorId: localActorId }],
+      created: at(3),
+    });
+    const shared = await recordInbound(db, {
+      ...observed,
+      instanceId: localInstanceId,
+      inboxUrl: "https://test-instance.drfed.org/inbox",
+      status: "received",
+      payload: {},
+      addressed: [
+        { actorId: localActorId, viaCollectionIri: following },
+        { actorId: localActorId, viaCollectionIri: followers },
+      ],
+      created: at(1),
+    });
+    const sent = await recordOutbound(db, {
+      instanceId: localInstanceId,
+      actorId: localActorId,
+      inboxUrl: "https://remote.example/inbox",
+      activityIri: "https://local.example/activity",
+      payload: {},
+      created: at(2),
+    });
+    const page = async (
+      first: number,
+      after?: string,
+      filter?: Record<string, string>,
+    ) => {
+      const result = await (
+        await post(
+          {
+            query: `query($id: ID!, $first: Int!, $after: String, $filter: ActivityLogFilter) {
+              node(id: $id) { ... on Actor {
+                activityLogs(first: $first, after: $after, filter: $filter) {
+                  edges {
+                    inboxOwner sender addressed addressedDirectly viaCollections
+                    node { uuid actor { uuid } }
+                  }
+                  pageInfo { hasNextPage endCursor }
+                }
+              } }
+            }`,
+            variables: {
+              id: globalId("Actor", localActorId),
+              first,
+              after,
+              filter,
+            },
+          },
+          auth,
+        )
+      ).json();
+      assert.equal(result.errors, undefined, JSON.stringify(result.errors));
+      return result.data.node.activityLogs;
+    };
+    const first = await page(2);
+    const second = await page(2, first.pageInfo.endCursor);
+    assert.deepEqual(
+      [first.pageInfo.hasNextPage, second.pageInfo.hasNextPage],
+      [true, false],
+    );
+    assert.deepEqual(
+      [...first.edges, ...second.edges],
+      [
+        {
+          inboxOwner: true,
+          sender: false,
+          addressed: true,
+          addressedDirectly: true,
+          viaCollections: [],
+          node: { uuid: owned.id, actor: { uuid: localActorId } },
+        },
+        {
+          inboxOwner: false,
+          sender: true,
+          addressed: false,
+          addressedDirectly: false,
+          viaCollections: [],
+          node: { uuid: sent.id, actor: { uuid: localActorId } },
+        },
+        {
+          inboxOwner: false,
+          sender: false,
+          addressed: true,
+          addressedDirectly: false,
+          viaCollections: [followers, following],
+          node: { uuid: shared.id, actor: null },
+        },
+      ],
+    );
+    const uuids = async (filter: Record<string, string>) =>
+      (await page(10, undefined, filter)).edges.map(
+        (edge: { node: { uuid: string } }) => edge.node.uuid,
+      );
+    assert.deepEqual(await uuids({ direction: "outbound" }), [sent.id]);
+    assert.deepEqual(await uuids({ direction: "inbound" }), [
+      owned.id,
+      shared.id,
+    ]);
   });
 });
 

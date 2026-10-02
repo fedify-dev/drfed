@@ -513,14 +513,9 @@ it("keeps one row per log and actor and requires a role", async () => {
     const found = await db.query.actors.findFirst({
       where: { id: actorId },
       with: {
-        activityLogs: { orderBy: { created: "desc", id: "desc" } },
         activityLogLinks: { orderBy: { created: "desc", logId: "desc" } },
       },
     });
-    assert.deepEqual(
-      found?.activityLogs.map((row) => row.id),
-      [sent.id, log.id],
-    );
     assert.deepEqual(
       found?.activityLogLinks.map((link) => link.logId),
       [sent.id, log.id],

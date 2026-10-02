@@ -298,10 +298,6 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
-    activityLogs: r.many.activityLogs({
-      from: r.actors.id.through(r.activityLogActors.actorId),
-      to: r.activityLogs.id.through(r.activityLogActors.logId),
-    }),
     activityLogLinks: r.many.activityLogActors({
       from: r.actors.id,
       to: r.activityLogActors.actorId,

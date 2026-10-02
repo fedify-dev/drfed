@@ -1669,7 +1669,7 @@ it("relates a log to every local actor it concerns, once", async () => {
         await query(
           {
             query: `{
-              actor: node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs(first: 20) { edges { node { activityIri } } } } }
+              actor: node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs(first: 20) { edges { addressedDirectly viaCollections node { activityIri } } } } }
               instance: node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 20) { edges { node { activityIri actor { uuid } } } } } }
             }`,
           },
@@ -1692,6 +1692,20 @@ it("relates a log to every local actor it concerns, once", async () => {
       "shared",
       "own",
     ]);
+    assert.deepEqual(
+      before.actor.activityLogs.edges
+        .slice(0, 2)
+        .map(
+          (edge: { addressedDirectly: boolean; viaCollections: string[] }) => [
+            edge.addressedDirectly,
+            edge.viaCollections,
+          ],
+        ),
+      [
+        [true, [followers, following]],
+        [false, [followers]],
+      ],
+    );
     assert.equal(before.instance.activityLogs.edges.length, deliveries.length);
     assert.equal(
       before.instance.activityLogs.edges.at(-1).node.actor.uuid,

@@ -53,7 +53,13 @@ instance members and site administrators can read them, including through
 Relay node IDs.  `Actor.activityLogs` lists the deliveries that arrived at the
 actor's inbox, that the actor sent, and that are addressed to the actor through
 any inbox, the shared one included.  Addressing through a collection counts as
-far as DrFed has stored the collection's members.
+far as DrFed has stored the collection's members.  Each of its edges tells how
+the delivery concerns the actor: `inboxOwner`, `sender`, `addressed`,
+`addressedDirectly` when the activity named the actor itself, and
+`viaCollections`, every addressed collection the actor was a member of when the
+delivery arrived, so that a shared-inbox delivery, whose `actor` is null, still
+explains why it is in the actor's feed.  `ActivityLog.attempts` is a
+connection, oldest attempt first.
 
 Wrap the federation HTTP surface with `createInboundRecorder`, passing a
 federation made by `createFederation` and the root origin.  Every inbox `POST`

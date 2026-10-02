@@ -305,7 +305,7 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
         "inbound request whose handling threw is the exception.  Null for " +
         "accepted ones.",
     }),
-    attempts: t.relation("attempts", {
+    attempts: t.relatedConnection("attempts", {
       query: { orderBy: { created: "asc", id: "asc" } },
       description:
         "Outbound: each attempt that ended, oldest first, including the " +
@@ -348,20 +348,39 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
 });
 export const ActivityLog: DrFedObjectRef = ActivityLogRef;
 
+type LogFilter = typeof ActivityLogFilter.$inferInput | null | undefined;
+const logWhere = (filter: LogFilter) => ({
+  ...(filter?.direction == null ? {} : { direction: filter.direction }),
+  ...(filter?.status == null ? {} : { status: filter.status }),
+  ...(filter?.type == null ? {} : { type: filter.type }),
+});
 const logsConnection = drizzleConnectionHelpers(builder, "activityLogs", {
-  query: ({
-    filter,
-  }: {
-    filter?: typeof ActivityLogFilter.$inferInput | null;
-  }) => ({
-    where: {
-      ...(filter?.direction == null ? {} : { direction: filter.direction }),
-      ...(filter?.status == null ? {} : { status: filter.status }),
-      ...(filter?.type == null ? {} : { type: filter.type }),
-    },
+  query: ({ filter }: { filter?: LogFilter }) => ({
+    where: logWhere(filter),
     orderBy: { created: "desc", id: "desc" },
   }),
 });
+// Paged over an actor's links, which copy the created of their logs, so that
+// each edge tells how the log concerns the actor.
+const actorLogsConnection = drizzleConnectionHelpers(
+  builder,
+  "activityLogActors",
+  {
+    query: ({ filter }: { filter?: LogFilter }) => ({
+      where: { log: logWhere(filter) },
+      orderBy: { created: "desc", logId: "desc" },
+    }),
+    select: (nestedSelection) => ({
+      with: {
+        log: nestedSelection(),
+        // Every column, since Pothos cannot add a composite primary key to
+        // a narrower selection.
+        collections: { orderBy: { collectionIri: "asc" } },
+      },
+    }),
+    resolveNode: (link) => link.log,
+  },
+);
 builder.drizzleObjectField("instances", "activityLogs", (t) =>
   t.connection({
     type: ActivityLog,
@@ -382,26 +401,61 @@ builder.drizzleObjectField("instances", "activityLogs", (t) =>
   }),
 );
 builder.drizzleObjectField("actors", "activityLogs", (t) =>
-  t.connection({
-    type: ActivityLog,
-    args: { filter: t.arg({ type: ActivityLogFilter }) },
-    description:
-      "Deliveries that concern this local actor, newest first: those that " +
-      "arrived at its inbox, those it sent, and those addressed to it " +
-      "through any inbox, directly or as a member of an addressed " +
-      "collection.  Collection membership counts only as far as DrFed has " +
-      "stored it.  Restricted to instance members and administrators.",
-    select: (args, ctx, nestedSelection) =>
-      ({
-        columns: { localId: true },
-        with: {
-          instance: { columns: { localId: true } },
-          activityLogs: logsConnection.getQuery(args, ctx, nestedSelection),
-        },
-      }) as const,
-    resolve: (actor, args, ctx) =>
-      logsConnection.resolve(actor.activityLogs, args, ctx, actor),
-    authScopes: (actor) =>
-      actor.localId == null ? false : access(actor.instance.localId),
-  }),
+  t.connection(
+    {
+      type: ActivityLog,
+      args: { filter: t.arg({ type: ActivityLogFilter }) },
+      description:
+        "Deliveries that concern this local actor, newest first: those " +
+        "that arrived at its inbox, those it sent, and those addressed to " +
+        "it through any inbox, directly or as a member of an addressed " +
+        "collection.  Collection membership counts only as far as DrFed " +
+        "has stored it.  Each edge tells how the delivery concerns the " +
+        "actor.  Restricted to instance members and administrators.",
+      select: (args, ctx, nestedSelection) =>
+        ({
+          columns: { localId: true },
+          with: {
+            instance: { columns: { localId: true } },
+            activityLogLinks: actorLogsConnection.getQuery(
+              args,
+              ctx,
+              nestedSelection,
+            ),
+          },
+        }) as const,
+      resolve: (actor, args, ctx) =>
+        actorLogsConnection.resolve(actor.activityLogLinks, args, ctx, actor),
+      authScopes: (actor) =>
+        actor.localId == null ? false : access(actor.instance.localId),
+    },
+    {},
+    {
+      fields: (edge) => ({
+        inboxOwner: edge.exposeBoolean("inboxOwner", {
+          description: "Whether the delivery arrived at this actor's inbox.",
+        }),
+        sender: edge.exposeBoolean("sender", {
+          description: "Whether this actor sent the delivery.",
+        }),
+        addressed: edge.exposeBoolean("addressed", {
+          description:
+            "Whether the activity addressed this actor, directly or " +
+            "through a collection.",
+        }),
+        addressedDirectly: edge.exposeBoolean("addressedDirectly", {
+          description: "Whether the activity addressed this actor by its IRI.",
+        }),
+        viaCollections: edge.field({
+          type: ["URL"],
+          description:
+            "The addressed collections this actor was a member of when the " +
+            "delivery arrived, as far as DrFed had stored them, in IRI " +
+            "order.  Empty when no collection addressed it.",
+          resolve: (link) =>
+            link.collections.map(({ collectionIri }) => collectionIri),
+        }),
+      }),
+    },
+  ),
 );
