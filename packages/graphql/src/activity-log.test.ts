@@ -35,6 +35,7 @@ import { recordInbound, recordOutbound } from "@drfed/models/activity-log";
 import { observeKeyVersion } from "@drfed/models/key";
 import {
   type Context,
+  type KvKey,
   MemoryKvStore,
   SendActivityError,
   type SenderKeyPair,
@@ -334,7 +335,7 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
   });
 });
 
-it("uses the Fedify KV serialization for RSA, Multikey and negative entries", async () => {
+it("uses the Fedify KV serialization for RSA, Multikey, scoped and negative entries", async () => {
   const kv = new MemoryKvStore();
   const cache = createKeyCache(kv);
   const rsa = await generateCryptoKeyPair();
@@ -369,6 +370,32 @@ it("uses the Fedify KV serialization for RSA, Multikey and negative entries", as
   );
   await kv.set(["_fedify", "publicKey", "2", keyId.href], "not a key");
   assert.equal(await cache.get(keyId), undefined);
+  // A key at a compatible identifier is wrapped with when its entry expires.
+  const scoped = cache.compatibleKeyScope("multikey");
+  const entry: KvKey = [
+    "_fedify",
+    "publicKey",
+    "__compatible",
+    "multikey",
+    keyId.href,
+  ];
+  const before = Temporal.Now.instant().epochMilliseconds;
+  await scoped.set(keyId, multi);
+  const stored = await kv.get<{ key: unknown; expires: number }>(entry);
+  assert.deepEqual(Object.keys(stored ?? {}).sort(), ["expires", "key"]);
+  assert.deepEqual(stored?.key, await multi.toJsonLd());
+  assert.ok((stored?.expires ?? 0) > before);
+  assert.ok((await scoped.get(keyId)) instanceof Multikey);
+  assert.equal(
+    await cache.compatibleKeyScope("httpSignature").get(keyId),
+    undefined,
+  );
+  await scoped.set(keyId, null);
+  assert.equal((await kv.get<{ key: unknown }>(entry))?.key, null);
+  assert.equal(await scoped.get(keyId), null);
+  await kv.set(entry, await multi.toJsonLd());
+  assert.equal(await scoped.get(keyId), undefined);
+  assert.equal(await kv.get(entry), undefined);
 });
 
 it("classifies accepted proofs independently of HTTP signature failure and describes malformed JSON-LD", async () => {

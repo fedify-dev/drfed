@@ -245,6 +245,60 @@ it("records an Object Integrity Proof, and acknowledges a duplicate without rece
   });
 });
 
+it("records the key of an Object Integrity Proof at an FEP-ef61 compatible identifier", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    // Fedify caches a key at such an identifier only apart for each purpose.
+    const compatibleKeyId = new URL(
+      "https://remote.example/.well-known/apgateway/did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK/actor#key",
+    );
+    const pair = await generateCryptoKeyPair("Ed25519");
+    const { contextLoader, send } = await createRecorder(
+      db,
+      new Map([
+        [
+          compatibleKeyId.href,
+          new Multikey({
+            id: compatibleKeyId,
+            controller: actorIri,
+            publicKey: pair.publicKey,
+          }),
+        ],
+      ]),
+    );
+    const signed = await signObject(
+      new Create({
+        id: new URL("https://remote.example/activities/compatible"),
+        actor: actorIri,
+        object: new Note({
+          id: new URL("https://remote.example/notes/compatible"),
+        }),
+      }),
+      pair.privateKey,
+      compatibleKeyId,
+      { contextLoader },
+    );
+    const body = JSON.stringify(
+      await signed.toJsonLd({ format: "compact", contextLoader }),
+    );
+    // Fedify fetches the key the first time, and reads its cache the second.
+    assert.equal((await send(post(body))).status, 202);
+    assert.equal((await send(post(body))).status, 202);
+    const [first, second] = await logs(db);
+    assert.equal(first?.status, "received");
+    assert.equal(first?.verificationMechanism, "object_integrity_proof");
+    assert.equal(first?.verificationResult, "verified");
+    assert.notEqual(first?.verificationKeyId, null);
+    assert.equal(first?.verificationKey?.key.iri, compatibleKeyId.href);
+    assert.equal(
+      first?.verificationKey?.publicKey.x,
+      (await exportJwk(pair.publicKey)).x,
+    );
+    assert.equal(second?.verificationResult, "verified");
+    assert.equal(second?.verificationKeyId, first?.verificationKeyId);
+  });
+});
+
 it("records the key Fedify verified with, whatever a later fetch returns", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);

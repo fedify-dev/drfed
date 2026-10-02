@@ -358,9 +358,12 @@ export async function observeVerification(
     const key =
       verdict.keyIri == null
         ? null
-        : await trackedKey(verdict.keyFetches ?? [], verdict.keyIri, {
-            contextLoader,
-          });
+        : await trackedKey(
+            verdict.keyFetches ?? [],
+            verdict.keyIri,
+            verdict.mechanism,
+            { contextLoader },
+          );
     const version =
       key?.publicKey == null || verdict.keyIri == null
         ? null
