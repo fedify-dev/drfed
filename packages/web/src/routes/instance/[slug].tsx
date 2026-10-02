@@ -31,6 +31,7 @@ import {
 
 import { ActorCard } from "~/components/ActorCard.tsx";
 import { CopyButton } from "~/components/CopyButton.tsx";
+import { InstanceActivityLog } from "~/components/InstanceActivityLog.tsx";
 
 import type { InstanceDetailQuery } from "./__generated__/InstanceDetailQuery.graphql.ts";
 
@@ -41,6 +42,7 @@ const instanceDetailQuery = graphql`
   query InstanceDetailQuery($slug: String!) {
     localInstanceBySlug(slug: $slug) {
       instance {
+        ...ActivityLogTimeline_instance
         id
         host
         url
@@ -181,6 +183,7 @@ export default function InstanceDetailPage(
               </For>
             </div>
           </section>
+          <InstanceActivityLog $instance={instance()} />
         </main>
       )}
     </Show>
