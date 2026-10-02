@@ -141,7 +141,12 @@ async function createRecorder(
 const logs = (db: Database) =>
   db.query.activityLogs.findMany({
     orderBy: { id: "asc" },
-    with: { verificationKey: { with: { key: true } }, actorLinks: true },
+    with: {
+      verificationKey: { with: { key: true } },
+      actorLinks: {
+        with: { collections: { orderBy: { collectionIri: "asc" } } },
+      },
+    },
   });
 
 it("records the key of the Linked Data Signature that verified, not of the HTTP signature", async () => {
@@ -1600,15 +1605,21 @@ it("relates a log to every local actor it concerns, once", async () => {
     const { send } = await createRecorder(db);
     const followers = "https://remote.example.com/users/bob/followers";
     const following = "https://remote.example.com/users/bob/following";
+    const featured = "https://remote.example.com/users/bob/featured";
     await addActorCollectionItem(db, remoteActorId, "followers", localActorId);
+    await addActorCollectionItem(db, remoteActorId, "following", localActorId);
     const deliveries: [string, string, Record<string, unknown>][] = [
       ["own", inbox, { to: localActorIri }],
       ["shared", sharedInbox, { to: localActorIri, cc: [localActorIri] }],
       ["object", sharedInbox, { to: { id: localActorIri, type: "Person" } }],
       ["array", sharedInbox, { bcc: ["urn:other", localActorIri] }],
       ["members", sharedInbox, { cc: followers }],
-      ["both", sharedInbox, { to: [localActorIri], cc: [followers] }],
-      ["empty", sharedInbox, { cc: following }],
+      [
+        "both",
+        sharedInbox,
+        { to: [localActorIri], cc: [following, followers] },
+      ],
+      ["empty", sharedInbox, { cc: featured }],
       ["public", sharedInbox, { to: "as:Public" }],
       [
         "typed",
@@ -1628,16 +1639,21 @@ it("relates a log to every local actor it concerns, once", async () => {
           link.actorId,
           link.inboxOwner,
           link.addressed,
-          link.viaCollectionIri,
+          link.addressedDirectly,
+          link.collections.map(({ collectionIri }) => collectionIri),
         ]),
       ]),
       [
-        ["own", localActorId, [[localActorId, true, true, null]]],
-        ["shared", null, [[localActorId, false, true, null]]],
-        ["object", null, [[localActorId, false, true, null]]],
-        ["array", null, [[localActorId, false, true, null]]],
-        ["members", null, [[localActorId, false, true, followers]]],
-        ["both", null, [[localActorId, false, true, null]]],
+        ["own", localActorId, [[localActorId, true, true, true, []]]],
+        ["shared", null, [[localActorId, false, true, true, []]]],
+        ["object", null, [[localActorId, false, true, true, []]]],
+        ["array", null, [[localActorId, false, true, true, []]]],
+        ["members", null, [[localActorId, false, true, false, [followers]]]],
+        [
+          "both",
+          null,
+          [[localActorId, false, true, true, [followers, following]]],
+        ],
         ["empty", null, []],
         ["public", null, []],
         ["typed", null, []],

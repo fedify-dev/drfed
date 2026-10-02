@@ -22,6 +22,7 @@ import {
   char,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   json,
@@ -738,7 +739,10 @@ export const activityLogAttempts = pgTable(
   ],
 );
 
-/** The local actors a log concerns, one row per log and actor. */
+/**
+ * The local actors a log concerns, one row per log and actor; each must be a
+ * local actor of the log's instance, which the record functions check.
+ */
 export const activityLogActors = pgTable(
   "activity_log_actors",
   {
@@ -751,9 +755,13 @@ export const activityLogActors = pgTable(
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
     inboxOwner: boolean("inbox_owner").notNull().default(false),
+    /** Addressed directly or through a collection. */
     addressed: boolean().notNull().default(false),
+    /** Addressed by its own IRI; collections are in a row each. */
+    addressedDirectly: boolean("addressed_directly").notNull().default(false),
     sender: boolean().notNull().default(false),
-    viaCollectionIri: text("via_collection_iri"),
+    /** The log's `created`, which an actor's logs are ordered by. */
+    created: instant().notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.logId, table.actorId] }),
@@ -761,7 +769,35 @@ export const activityLogActors = pgTable(
       "activity_log_actors_role_check",
       sql`${table.inboxOwner} OR ${table.addressed} OR ${table.sender}`,
     ),
-    index("activity_log_actor_log_index").on(table.actorId, desc(table.logId)),
+    check(
+      "activity_log_actors_addressed_directly_check",
+      sql`NOT ${table.addressedDirectly} OR ${table.addressed}`,
+    ),
+    index("activity_log_actor_created_index").on(
+      table.actorId,
+      desc(table.created),
+      desc(table.logId),
+    ),
+  ],
+);
+
+/** Each addressed collection a log reached a local actor through. */
+export const activityLogActorCollections = pgTable(
+  "activity_log_actor_collections",
+  {
+    logId: uuid("log_id").$type<Uuid>().notNull(),
+    actorId: uuid("actor_id").$type<Uuid>().notNull(),
+    collectionIri: text("collection_iri").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.logId, table.actorId, table.collectionIri],
+    }),
+    foreignKey({
+      name: "activity_log_actor_collections_link_fkey",
+      columns: [table.logId, table.actorId],
+      foreignColumns: [activityLogActors.logId, activityLogActors.actorId],
+    }).onDelete("cascade"),
   ],
 );
 export type Key = typeof keys.$inferSelect;
@@ -771,6 +807,8 @@ export type NewActivityLog = typeof activityLogs.$inferInsert;
 export type ActivityLogAttempt = typeof activityLogAttempts.$inferSelect;
 export type ActivityLogActor = typeof activityLogActors.$inferSelect;
 export type NewActivityLogActor = typeof activityLogActors.$inferInsert;
+export type ActivityLogActorCollection =
+  typeof activityLogActorCollections.$inferSelect;
 export type ActivityLogDirection =
   (typeof activityLogDirectionEnum.enumValues)[number];
 export type ActivityLogStatus =

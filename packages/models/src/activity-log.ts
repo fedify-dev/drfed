@@ -14,16 +14,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
-import type { Database } from "./db.ts";
+import type { Database, Transaction } from "./db.ts";
 import {
   type ActivityLog,
   type NewActivityLog,
   type NewActivityLogActor,
+  activityLogActorCollections,
   activityLogActors,
   activityLogAttempts,
   activityLogs,
+  actors,
 } from "./schema.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
 
@@ -68,10 +70,14 @@ export type OutboundLogEntry = Omit<
   readonly activityIri: string;
 };
 
-type ActorRow = Omit<NewActivityLogActor, "logId">;
+type ActorRow = Omit<NewActivityLogActor, "logId" | "created"> & {
+  /** The addressed collections that reached the actor, sorted. */
+  readonly collectionIris?: readonly string[];
+};
 
 /**
- * Merge the inbox owner and addressed actors into one row per actor.
+ * Merge the inbox owner and addressed actors into one row per actor, keeping
+ * every way each was addressed, whatever order they come in.
  * @returns The actor rows of an inbound log.
  */
 export function inboundActorRows(entry: {
@@ -84,14 +90,17 @@ export function inboundActorRows(entry: {
   }
   for (const { actorId, viaCollectionIri } of entry.addressed ?? []) {
     const row = rows.get(actorId);
+    const collectionIris = row?.collectionIris ?? [];
     rows.set(actorId, {
       ...row,
       actorId,
       addressed: true,
-      viaCollectionIri:
-        row?.addressed === true && row.viaCollectionIri == null
-          ? null
-          : (viaCollectionIri ?? null),
+      addressedDirectly:
+        row?.addressedDirectly === true || viaCollectionIri == null,
+      collectionIris:
+        viaCollectionIri == null
+          ? collectionIris
+          : [...new Set([...collectionIris, viaCollectionIri])].toSorted(),
     });
   }
   return [...rows.values()];
@@ -134,12 +143,43 @@ const jsonb = (payload: unknown) =>
 const text = (value: string | null | undefined): string | null =>
   value?.replaceAll("\0", "\ufffd") ?? null;
 
+/**
+ * Refuse to relate a log to anything but local actors of its instance, which
+ * neither foreign key can tell.
+ * @throws {Error} When an actor is remote, or of another instance.
+ */
+async function checkLocalActors(
+  tx: Transaction,
+  instanceId: Uuid,
+  actorIds: readonly (Uuid | null | undefined)[],
+): Promise<void> {
+  const ids = [...new Set(actorIds.filter((id) => id != null))];
+  if (ids.length === 0) return;
+  const local = await tx.$count(
+    actors,
+    and(
+      inArray(actors.id, ids),
+      eq(actors.instanceId, instanceId),
+      isNotNull(actors.localId),
+    ),
+  );
+  if (local !== ids.length) {
+    throw new Error(
+      "An activity log relates only to local actors of its instance.",
+    );
+  }
+}
+
 async function insertLog(
   db: Database,
   log: NewActivityLog,
-  actors: readonly ActorRow[],
+  links: readonly ActorRow[],
 ): Promise<ActivityLog> {
   return await db.transaction(async (tx) => {
+    await checkLocalActors(tx, log.instanceId, [
+      log.actorId,
+      ...links.map(({ actorId }) => actorId),
+    ]);
     const [row] = await tx
       .insert(activityLogs)
       .values({
@@ -149,10 +189,24 @@ async function insertLog(
       })
       .returning();
     if (row == null) throw new Error("Missing activity log after insertion.");
-    if (actors.length > 0) {
-      await tx
-        .insert(activityLogActors)
-        .values(actors.map((actor) => ({ ...actor, logId: row.id })));
+    if (links.length > 0) {
+      await tx.insert(activityLogActors).values(
+        links.map(({ collectionIris: _, ...link }) => ({
+          ...link,
+          logId: row.id,
+          created: row.created,
+        })),
+      );
+    }
+    const collections = links.flatMap(({ actorId, collectionIris = [] }) =>
+      collectionIris.map((collectionIri) => ({
+        logId: row.id,
+        actorId,
+        collectionIri,
+      })),
+    );
+    if (collections.length > 0) {
+      await tx.insert(activityLogActorCollections).values(collections);
     }
     return row;
   });
@@ -160,7 +214,10 @@ async function insertLog(
 
 /**
  * Persist one inbound observation with its actor rows in one transaction.
+ * The inbox owner and every addressed actor must be local actors of
+ * `instanceId`; otherwise nothing is recorded.
  * @returns The inserted inbound log.
+ * @throws {Error} When an actor is not a local actor of the instance.
  */
 export async function recordInbound(
   db: Database,
@@ -201,7 +258,10 @@ export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
 
 /**
  * Start a delivery observation.  The payload is the document before signing.
+ * The sender must be a local actor of `instanceId`; otherwise nothing is
+ * recorded.
  * @returns The inserted queued outbound log.
+ * @throws {Error} When the sender is not a local actor of the instance.
  */
 export async function recordOutbound(
   db: Database,

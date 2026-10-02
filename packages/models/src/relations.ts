@@ -75,6 +75,23 @@ export const relations = defineRelations(schema, (r) => ({
       to: r.actors.id,
       optional: false,
     }),
+    collections: r.many.activityLogActorCollections({
+      from: [r.activityLogActors.logId, r.activityLogActors.actorId],
+      to: [
+        r.activityLogActorCollections.logId,
+        r.activityLogActorCollections.actorId,
+      ],
+    }),
+  },
+  activityLogActorCollections: {
+    actorLink: r.one.activityLogActors({
+      from: [
+        r.activityLogActorCollections.logId,
+        r.activityLogActorCollections.actorId,
+      ],
+      to: [r.activityLogActors.logId, r.activityLogActors.actorId],
+      optional: false,
+    }),
   },
   accounts: {
     instances: r.many.instances({
@@ -284,6 +301,10 @@ export const relations = defineRelations(schema, (r) => ({
     activityLogs: r.many.activityLogs({
       from: r.actors.id.through(r.activityLogActors.actorId),
       to: r.activityLogs.id.through(r.activityLogActors.logId),
+    }),
+    activityLogLinks: r.many.activityLogActors({
+      from: r.actors.id,
+      to: r.activityLogActors.actorId,
     }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,

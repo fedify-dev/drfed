@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "10a7ac3c-ffbe-46a9-8ea9-4f50ee544b12",
+  "id": "1e2806c8-1ca7-4e28-9bc7-0dce59e8d752",
   "prevIds": [
     "478b925d-8ac8-466c-9804-bb055fdd6489",
     "7c4a0afb-efbc-4ae7-b6b5-ebc6daaddb3e"
@@ -99,6 +99,12 @@
     {
       "isRlsEnabled": false,
       "name": "activities",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "activity_log_actor_collections",
       "entityType": "tables",
       "schema": "public"
     },
@@ -390,6 +396,45 @@
       "name": "log_id",
       "entityType": "columns",
       "schema": "public",
+      "table": "activity_log_actor_collections"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actor_collections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "collection_iri",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actor_collections"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "log_id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "activity_log_actors"
     },
     {
@@ -439,20 +484,33 @@
       "default": "false",
       "generated": null,
       "identity": null,
+      "name": "addressed_directly",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
       "name": "sender",
       "entityType": "columns",
       "schema": "public",
       "table": "activity_log_actors"
     },
     {
-      "type": "text",
+      "type": "timestamp with time zone",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "via_collection_iri",
+      "name": "created",
       "entityType": "columns",
       "schema": "public",
       "table": "activity_log_actors"
@@ -2306,6 +2364,13 @@
           "opclass": null
         },
         {
+          "value": "\"created\" desc",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "\"log_id\" desc",
           "isExpression": true,
           "asc": true,
@@ -2318,7 +2383,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_actor_log_index",
+      "name": "activity_log_actor_created_index",
       "entityType": "indexes",
       "schema": "public",
       "table": "activity_log_actors"
@@ -2713,6 +2778,19 @@
       "table": "activities"
     },
     {
+      "nameExplicit": true,
+      "columns": ["log_id", "actor_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_log_actors",
+      "columnsTo": ["log_id", "actor_id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_log_actor_collections_link_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_log_actor_collections"
+    },
+    {
       "nameExplicit": false,
       "columns": ["log_id"],
       "schemaTo": "public",
@@ -3051,6 +3129,14 @@
       "table": "sessions"
     },
     {
+      "columns": ["log_id", "actor_id", "collection_iri"],
+      "nameExplicit": false,
+      "name": "activity_log_actor_collections_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "activity_log_actor_collections"
+    },
+    {
       "columns": ["log_id", "actor_id"],
       "nameExplicit": false,
       "name": "activity_log_actors_pkey",
@@ -3324,6 +3410,13 @@
     {
       "value": "\"inbox_owner\" OR \"addressed\" OR \"sender\"",
       "name": "activity_log_actors_role_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_log_actors"
+    },
+    {
+      "value": "NOT \"addressed_directly\" OR \"addressed\"",
+      "name": "activity_log_actors_addressed_directly_check",
       "entityType": "checks",
       "schema": "public",
       "table": "activity_log_actors"

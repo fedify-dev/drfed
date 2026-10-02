@@ -223,16 +223,21 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
     assert.deepEqual(passed[0]?.bccIds, []);
     assert.deepEqual(passed[0]?.toIds, [alice.id]);
     assert.deepEqual(activity.bccIds, [bob.id]);
-    assert.deepEqual(await db.query.activityLogActors.findMany(), [
-      {
-        logId: log?.id,
-        actorId: localActorId,
-        inboxOwner: false,
-        addressed: false,
-        sender: true,
-        viaCollectionIri: null,
-      },
-    ]);
+    const links = await db.query.activityLogActors.findMany();
+    assert.deepEqual(
+      links.map(({ created: _, ...link }) => link),
+      [
+        {
+          logId: log?.id,
+          actorId: localActorId,
+          inboxOwner: false,
+          addressed: false,
+          addressedDirectly: false,
+          sender: true,
+        },
+      ],
+    );
+    assert.equal(links[0]?.created.toString(), log?.created.toString());
   });
   assert.deepEqual(
     [

@@ -53,8 +53,14 @@ a retry never rewrites the outcome of an earlier attempt.
 
 `activity_log_actors` relates a log to each local actor it concerns, as the
 owner of the inbox, as an addressed recipient, or as the sender, with one row
-per log and actor.  Both record functions insert these rows in the same
-transaction as the log.
+per log and actor.  An addressed actor keeps every way it was addressed:
+`addressed_directly` when the activity named the actor itself, and a row in
+`activity_log_actor_collections` for each addressed collection it was a member
+of.  Each row copies the log's `created`, by which an actor's logs are ordered.
+Both record functions insert these rows in the same transaction as the log.
+They record nothing and throw when the inbox owner, the sender, or an
+addressed actor is not a local actor of the log's instance, since neither
+foreign key can tell.
 
 `@drfed/models/key` exposes public-JWK validation, RFC 7638/RFC 8037 SHA-256
 thumbprints, and `observeKeyVersion`.  `keys` identifies each exact key IRI;

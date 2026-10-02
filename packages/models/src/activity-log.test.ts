@@ -336,58 +336,102 @@ it("keeps one row per log and actor and requires a role", async () => {
     await migrate({ credentials: { driver: "pglite", client } });
     const db = drizzle({ client, schema, relations });
     const instanceId = uuidV7();
+    const otherInstanceId = uuidV7();
     const actorId = uuidV7();
     const otherId = uuidV7();
-    await db
-      .insert(schema.instances)
-      .values({ id: instanceId, host: "local.example" });
-    for (const [id, username] of [
-      [actorId, "alice"],
-      [otherId, "bob"],
+    const strangerId = uuidV7();
+    const remoteId = uuidV7();
+    await db.insert(schema.instances).values([
+      { id: instanceId, host: "local.example" },
+      { id: otherInstanceId, host: "other.example" },
+    ]);
+    for (const [id, username, instance, local] of [
+      [actorId, "alice", instanceId, true],
+      [otherId, "bob", instanceId, true],
+      [strangerId, "carol", otherInstanceId, true],
+      [remoteId, "dave", instanceId, false],
     ] as const) {
       const iri = `https://local.example/users/${id}`;
+      if (local) await db.insert(schema.localActors).values({ id });
       await db.insert(schema.resources).values({ id, iri, kind: "actor" });
       await db.insert(schema.actors).values({
         id,
+        localId: local ? id : null,
         type: "Person",
         username,
-        instanceId,
+        instanceId: instance,
         inboxUrl: `${iri}/inbox`,
       });
     }
-    const collection = "https://local.example/collections/1";
-    assert.deepEqual(
-      inboundActorRows({
-        actorId,
-        addressed: [
-          { actorId, viaCollectionIri: collection },
-          { actorId },
-          { actorId: otherId, viaCollectionIri: collection },
+    const [first, second] = [
+      "https://local.example/collections/1",
+      "https://local.example/collections/2",
+    ];
+    // Every way an actor was addressed is kept, whatever order it comes in.
+    for (const collections of [
+      [first, second],
+      [second, first],
+    ]) {
+      assert.deepEqual(
+        inboundActorRows({
+          actorId,
+          addressed: [
+            ...collections.map((viaCollectionIri) => ({
+              actorId,
+              viaCollectionIri,
+            })),
+            { actorId },
+            { actorId, viaCollectionIri: first },
+            { actorId: otherId, viaCollectionIri: first },
+          ],
+        }),
+        [
+          {
+            actorId,
+            inboxOwner: true,
+            addressed: true,
+            addressedDirectly: true,
+            collectionIris: [first, second],
+          },
+          {
+            actorId: otherId,
+            addressed: true,
+            addressedDirectly: false,
+            collectionIris: [first],
+          },
         ],
-      }),
-      [
-        { actorId, inboxOwner: true, addressed: true, viaCollectionIri: null },
-        { actorId: otherId, addressed: true, viaCollectionIri: collection },
-      ],
-    );
-    const log = await recordInbound(db, {
+      );
+    }
+    const created = Temporal.Instant.from("2026-09-01T00:00:00.123456Z");
+    const inbound = {
       instanceId,
-      actorId,
       inboxUrl: `https://local.example/users/${actorId}/inbox`,
       status: "received",
       verificationResult: "verified",
       body: new TextEncoder().encode("{}"),
       payload: {},
-      addressed: [{ actorId }, { actorId: otherId }],
-      created: Temporal.Now.instant(),
-      completed: Temporal.Now.instant(),
-    });
-    const sent = await recordOutbound(db, {
-      instanceId,
+      created,
+      completed: created,
+    } as const;
+    const log = await recordInbound(db, {
+      ...inbound,
       actorId,
+      addressed: [
+        { actorId, viaCollectionIri: second },
+        { actorId },
+        { actorId, viaCollectionIri: first },
+        { actorId: otherId, viaCollectionIri: first },
+      ],
+    });
+    const outbound = {
+      instanceId,
       inboxUrl: "https://remote.example/inbox",
       activityIri: "https://local.example/activity/1",
       payload: {},
+    } as const;
+    const sent = await recordOutbound(db, {
+      ...outbound,
+      actorId,
       recipientIris: ["https://remote.example/a", "https://remote.example/b"],
     });
     assert.deepEqual(sent.recipientIris, [
@@ -396,6 +440,7 @@ it("keeps one row per log and actor and requires a role", async () => {
     ]);
     const links = await db.query.activityLogActors.findMany({
       orderBy: { logId: "asc", actorId: "asc" },
+      with: { collections: { orderBy: { collectionIri: "asc" } } },
     });
     assert.deepEqual(
       links.map((link) => [
@@ -403,32 +448,87 @@ it("keeps one row per log and actor and requires a role", async () => {
         link.actorId,
         link.inboxOwner,
         link.addressed,
+        link.addressedDirectly,
         link.sender,
+        link.collections.map(({ collectionIri }) => collectionIri),
       ]),
       [
-        [log.id, actorId, true, true, false],
-        [log.id, otherId, false, true, false],
-        [sent.id, actorId, false, false, true],
+        [log.id, actorId, true, true, true, false, [first, second]],
+        [log.id, otherId, false, true, false, false, [first]],
+        [sent.id, actorId, false, false, false, true, []],
       ],
     );
-    await assert.rejects(
-      db
-        .insert(schema.activityLogActors)
-        .values({ logId: log.id, actorId, sender: true }),
+    // Each row copies the created of its log, which orders an actor's logs.
+    assert.deepEqual(
+      links.map((link) => link.created.toString()),
+      [log, log, sent].map((row) => row.created.toString()),
     );
     await assert.rejects(
       db
         .insert(schema.activityLogActors)
-        .values({ logId: sent.id, actorId: otherId }),
+        .values({ logId: log.id, actorId, sender: true, created }),
     );
+    await assert.rejects(
+      db
+        .insert(schema.activityLogActors)
+        .values({ logId: sent.id, actorId: otherId, created }),
+    );
+    await assert.rejects(
+      db.insert(schema.activityLogActors).values({
+        logId: sent.id,
+        actorId: otherId,
+        inboxOwner: true,
+        addressedDirectly: true,
+        created,
+      }),
+    );
+    await assert.rejects(
+      db.insert(schema.activityLogActorCollections).values({
+        logId: sent.id,
+        actorId: otherId,
+        collectionIri: first,
+      }),
+    );
+    // Only local actors of the log's instance, in any role.
+    const logs = await db.$count(schema.activityLogs);
+    for (const refused of [
+      () => recordOutbound(db, { ...outbound, actorId: strangerId }),
+      () => recordOutbound(db, { ...outbound, actorId: remoteId }),
+      () => recordInbound(db, { ...inbound, actorId: remoteId }),
+      () =>
+        recordInbound(db, {
+          ...inbound,
+          actorId,
+          addressed: [{ actorId: strangerId }],
+        }),
+      () =>
+        recordInbound(db, {
+          ...inbound,
+          addressed: [{ actorId: remoteId, viaCollectionIri: first }],
+        }),
+    ]) {
+      await assert.rejects(refused, /local actors of its instance/u);
+    }
+    assert.equal(await db.$count(schema.activityLogs), logs);
     const found = await db.query.actors.findFirst({
       where: { id: actorId },
-      with: { activityLogs: { orderBy: { created: "desc", id: "desc" } } },
+      with: {
+        activityLogs: { orderBy: { created: "desc", id: "desc" } },
+        activityLogLinks: { orderBy: { created: "desc", logId: "desc" } },
+      },
     });
     assert.deepEqual(
       found?.activityLogs.map((row) => row.id),
       [sent.id, log.id],
     );
+    assert.deepEqual(
+      found?.activityLogLinks.map((link) => link.logId),
+      [sent.id, log.id],
+    );
+    await db
+      .delete(schema.activityLogs)
+      .where(eq(schema.activityLogs.id, log.id));
+    assert.equal(await db.$count(schema.activityLogActorCollections), 0);
   } finally {
     await client.close();
   }

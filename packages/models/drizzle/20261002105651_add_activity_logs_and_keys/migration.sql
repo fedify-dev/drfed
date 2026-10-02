@@ -2,15 +2,24 @@ CREATE TYPE "activity_log_direction" AS ENUM('inbound', 'outbound');--> statemen
 CREATE TYPE "activity_log_status" AS ENUM('received', 'acknowledged', 'unverified', 'rejected', 'queued', 'sent', 'failed', 'permanently_failed', 'abandoned');--> statement-breakpoint
 CREATE TYPE "activity_log_verification_mechanism" AS ENUM('http_signature', 'ld_signature', 'object_integrity_proof');--> statement-breakpoint
 CREATE TYPE "activity_log_verification_result" AS ENUM('verified', 'invalid_signature', 'key_fetch_error', 'no_signature', 'unattempted', 'unobserved');--> statement-breakpoint
+CREATE TABLE "activity_log_actor_collections" (
+	"log_id" uuid,
+	"actor_id" uuid,
+	"collection_iri" text,
+	CONSTRAINT "activity_log_actor_collections_pkey" PRIMARY KEY("log_id","actor_id","collection_iri")
+);
+--> statement-breakpoint
 CREATE TABLE "activity_log_actors" (
 	"log_id" uuid,
 	"actor_id" uuid,
 	"inbox_owner" boolean DEFAULT false NOT NULL,
 	"addressed" boolean DEFAULT false NOT NULL,
+	"addressed_directly" boolean DEFAULT false NOT NULL,
 	"sender" boolean DEFAULT false NOT NULL,
-	"via_collection_iri" text,
+	"created" timestamp with time zone NOT NULL,
 	CONSTRAINT "activity_log_actors_pkey" PRIMARY KEY("log_id","actor_id"),
-	CONSTRAINT "activity_log_actors_role_check" CHECK ("inbox_owner" OR "addressed" OR "sender")
+	CONSTRAINT "activity_log_actors_role_check" CHECK ("inbox_owner" OR "addressed" OR "sender"),
+	CONSTRAINT "activity_log_actors_addressed_directly_check" CHECK (NOT "addressed_directly" OR "addressed")
 );
 --> statement-breakpoint
 CREATE TABLE "activity_log_attempts" (
@@ -80,13 +89,14 @@ CREATE TABLE "keys" (
 	"created" timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "activity_log_actor_log_index" ON "activity_log_actors" ("actor_id","log_id" desc);--> statement-breakpoint
+CREATE INDEX "activity_log_actor_created_index" ON "activity_log_actors" ("actor_id","created" desc,"log_id" desc);--> statement-breakpoint
 CREATE INDEX "activity_log_attempt_log_index" ON "activity_log_attempts" ("log_id","created","id");--> statement-breakpoint
 CREATE INDEX "activity_log_instance_created_index" ON "activity_logs" ("instance_id","created" desc,"id" desc);--> statement-breakpoint
 CREATE INDEX "activity_log_actor_index" ON "activity_logs" ("actor_id");--> statement-breakpoint
 CREATE INDEX "activity_log_verification_key_index" ON "activity_logs" ("verification_key_id");--> statement-breakpoint
 CREATE INDEX "activity_log_outbound_index" ON "activity_logs" ("activity_iri","inbox_url") WHERE "direction" = 'outbound';--> statement-breakpoint
 CREATE INDEX "key_version_key_first_seen_index" ON "key_versions" ("key_id","first_seen","id");--> statement-breakpoint
+ALTER TABLE "activity_log_actor_collections" ADD CONSTRAINT "activity_log_actor_collections_link_fkey" FOREIGN KEY ("log_id","actor_id") REFERENCES "activity_log_actors"("log_id","actor_id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "activity_log_actors" ADD CONSTRAINT "activity_log_actors_log_id_activity_logs_id_fkey" FOREIGN KEY ("log_id") REFERENCES "activity_logs"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "activity_log_actors" ADD CONSTRAINT "activity_log_actors_actor_id_actors_id_fkey" FOREIGN KEY ("actor_id") REFERENCES "actors"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "activity_log_attempts" ADD CONSTRAINT "activity_log_attempts_log_id_activity_logs_id_fkey" FOREIGN KEY ("log_id") REFERENCES "activity_logs"("id") ON DELETE CASCADE;--> statement-breakpoint
