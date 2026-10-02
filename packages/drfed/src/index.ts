@@ -18,7 +18,9 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import { createYogaServer } from "@drfed/graphql";
-import createFederation from "@drfed/graphql/federation";
+import createFederation, {
+  createInboundRecorder,
+} from "@drfed/graphql/federation";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
 import { PgliteKvStore } from "@fedify/pglite";
@@ -48,7 +50,10 @@ async function runServer(options: ServerOptions) {
     "driver" in credentials
       ? new PgliteKvStore(credentials.client)
       : new PostgresKvStore(credentials.client);
-  const federation = await createFederation(options.drizzle.db, { kv });
+  const federation = await createFederation(options.drizzle.db, {
+    kv,
+    allowPrivateAddress: true,
+  });
   const { emailFrom, mailer, rootOrigin, loginOrigins } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
@@ -60,7 +65,11 @@ async function runServer(options: ServerOptions) {
   await warnAboutStrandedInstances(options.drizzle.db, rootOrigin);
   const server = serve({
     fetch: createFetchHandler({
-      federation,
+      federation: createInboundRecorder({
+        db: options.drizzle.db,
+        federation,
+        rootOrigin,
+      }),
       rootOrigin,
       serveControlSurface: yogaServer.fetch,
     }),

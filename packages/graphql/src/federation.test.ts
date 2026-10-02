@@ -228,7 +228,7 @@ describe("ActivityPub resource origin spelling", () => {
             new Request(requestIri, { headers: accept }),
             { contextData: undefined },
           );
-          assert.equal(response.status, 200);
+          assert.equal(response.status, resource === "Tombstone" ? 410 : 200);
           const body = await response.json();
           assert.equal(body.id, iri);
           assert.equal(body.type, resource === "object" ? "Note" : resource);
@@ -329,8 +329,8 @@ describe("ActivityPub objects", () => {
         new Request(object.iri, { headers: accept }),
         { contextData: undefined },
       );
-      // Fedify serializes generic object tombstones with HTTP 200.
-      assert.equal(deleted.status, 200);
+      // Fedify serves object tombstones with HTTP 410, keeping the body.
+      assert.equal(deleted.status, 410);
       const tombstone = await deleted.json();
       assert.equal(tombstone.type, "Tombstone");
       assert.equal(

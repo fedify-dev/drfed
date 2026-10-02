@@ -21,9 +21,13 @@ import {
   findStrandedInstances,
   warnAboutStrandedInstances,
 } from "@drfed/drfed/serving";
+import createFederation, {
+  createInboundRecorder,
+} from "@drfed/graphql/federation";
 import { migrate, relations, schema } from "@drfed/models";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
+import { MemoryKvStore } from "@fedify/fedify";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { drizzle } from "drizzle-orm/pglite";
 
@@ -240,4 +244,55 @@ describe("findStrandedInstances()", () => {
       await client.close();
     }
   });
+});
+
+it("records inbox requests only on the instance surface", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const db = drizzle({ client, relations, schema });
+    const localId = uuid();
+    await db.insert(schema.localInstances).values({
+      id: localId,
+      slug: "logs",
+      expires: Temporal.Now.instant().add({ hours: 24 }),
+    });
+    await db
+      .insert(schema.instances)
+      .values({ id: localId, localId, host: "logs.drfed.net" });
+    const kv = new MemoryKvStore();
+    const federation = await createFederation(db, { kv });
+    const fetch = createFetchHandler({
+      rootOrigin,
+      federation: createInboundRecorder({ db, federation, rootOrigin }),
+      serveControlSurface: () => new Response("control"),
+    });
+    const body = JSON.stringify({
+      "@context": "https://www.w3.org/ns/activitystreams",
+      type: "Create",
+      actor: "https://remote.example/alice",
+    });
+    assert.equal(
+      (
+        await fetch(
+          new Request("https://logs.drfed.net/inbox", { method: "POST", body }),
+        )
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(
+          new Request("https://drfed.net/inbox", { method: "POST", body }),
+        )
+      ).status,
+      200,
+    );
+    const rows = await db.query.activityLogs.findMany();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.instanceId, localId);
+    assert.equal(rows[0]?.status, "unverified");
+  } finally {
+    await client.close();
+  }
 });

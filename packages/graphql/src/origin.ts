@@ -153,3 +153,15 @@ export function canonicalizeAuthority(authority: string): string {
   const url = `https://${authority}`;
   return URL.canParse(url) ? canonicalAuthority(new URL(url)) : authority;
 }
+
+/**
+ * Composes the canonical URL of a path on an instance from its stored
+ * authority, not from the spelling a request used.
+ * @param rootOrigin The root origin of this deployment, for its scheme.
+ * @param host The stored authority of the instance, i.e. `instances.host`.
+ * @param path The absolute path of the resource.
+ * @returns The canonical URL, e.g. `https://foo-bar.drfed.net/inbox`.
+ */
+export function instanceUrl(rootOrigin: URL, host: string, path: string): URL {
+  return new URL(path, `${rootOrigin.protocol}//${host}`);
+}

@@ -19,6 +19,80 @@ import { defineRelations } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
 export const relations = defineRelations(schema, (r) => ({
+  keys: {
+    versions: r.many.keyVersions({ from: r.keys.id, to: r.keyVersions.keyId }),
+  },
+  keyVersions: {
+    key: r.one.keys({
+      from: r.keyVersions.keyId,
+      to: r.keys.id,
+      optional: false,
+    }),
+    activityLogs: r.many.activityLogs({
+      from: r.keyVersions.id,
+      to: r.activityLogs.verificationKeyId,
+    }),
+  },
+  activityLogs: {
+    instance: r.one.instances({
+      from: r.activityLogs.instanceId,
+      to: r.instances.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activityLogs.actorId,
+      to: r.actors.id,
+      where: { deleted: { isNull: true } },
+    }),
+    actorLinks: r.many.activityLogActors({
+      from: r.activityLogs.id,
+      to: r.activityLogActors.logId,
+    }),
+    verificationKey: r.one.keyVersions({
+      from: r.activityLogs.verificationKeyId,
+      to: r.keyVersions.id,
+    }),
+    attempts: r.many.activityLogAttempts({
+      from: r.activityLogs.id,
+      to: r.activityLogAttempts.logId,
+    }),
+  },
+  activityLogAttempts: {
+    log: r.one.activityLogs({
+      from: r.activityLogAttempts.logId,
+      to: r.activityLogs.id,
+      optional: false,
+    }),
+  },
+  activityLogActors: {
+    log: r.one.activityLogs({
+      from: r.activityLogActors.logId,
+      to: r.activityLogs.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activityLogActors.actorId,
+      to: r.actors.id,
+      optional: false,
+    }),
+    collections: r.many.activityLogActorCollections({
+      from: [r.activityLogActors.logId, r.activityLogActors.actorId],
+      to: [
+        r.activityLogActorCollections.logId,
+        r.activityLogActorCollections.actorId,
+      ],
+    }),
+  },
+  activityLogActorCollections: {
+    actorLink: r.one.activityLogActors({
+      from: [
+        r.activityLogActorCollections.logId,
+        r.activityLogActorCollections.actorId,
+      ],
+      to: [r.activityLogActors.logId, r.activityLogActors.actorId],
+      optional: false,
+    }),
+  },
   accounts: {
     instances: r.many.instances({
       from: r.accounts.id.through(r.instanceMembers.accountId),
@@ -56,6 +130,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   instances: {
+    activityLogs: r.many.activityLogs({
+      from: r.instances.id,
+      to: r.activityLogs.instanceId,
+    }),
     members: r.many.accounts({
       from: r.instances.id.through(r.instanceMembers.instanceId),
       to: r.accounts.id.through(r.instanceMembers.accountId),
@@ -220,6 +298,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
+    activityLogLinks: r.many.activityLogActors({
+      from: r.actors.id,
+      to: r.activityLogActors.actorId,
+    }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,
       to: r.actorCollectionReferences.actorId,
