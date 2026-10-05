@@ -28,6 +28,8 @@ import { createPaginationFragment } from "solid-relay";
 import type { ActivityLogTimeline_instance$key } from "./__generated__/ActivityLogTimeline_instance.graphql.ts";
 import { ActivityLogBox } from "./ActivityLogBox.tsx";
 
+import styles from "~/styles/activity-log.module.css";
+
 /**
  * A chronological delivery list that loads older entries when scrolled upward.
  * @returns The shared scrollable activity timeline.
@@ -64,11 +66,11 @@ export function ActivityLogTimeline(props: {
   const [failed, setFailed] = createSignal(false);
   let viewport: HTMLElement | undefined;
   let initialized = false;
-  let anchor: { height: number; top: number } | undefined;
+  let anchor: { height: number } | undefined;
   let frame: number | undefined;
 
   // Older pages are prepended visually; compensate for their height so the
-  // entry the reader was looking at stays in place.
+  // current reading position stays in place, including scrolling during the request.
   createEffect(() => {
     entries();
     if (frame !== undefined) cancelAnimationFrame(frame);
@@ -78,7 +80,7 @@ export function ActivityLogTimeline(props: {
         viewport.scrollTop = viewport.scrollHeight;
         initialized = true;
       } else if (anchor) {
-        viewport.scrollTop = anchor.top + viewport.scrollHeight - anchor.height;
+        viewport.scrollTop += viewport.scrollHeight - anchor.height;
         anchor = undefined;
       }
     });
@@ -89,7 +91,7 @@ export function ActivityLogTimeline(props: {
 
   function loadOlder() {
     if (!viewport || !data.hasNext || data.isLoadingNext) return;
-    anchor = { height: viewport.scrollHeight, top: viewport.scrollTop };
+    anchor = { height: viewport.scrollHeight };
     setFailed(false);
     data.loadNext(20, {
       onComplete(error) {
@@ -111,12 +113,7 @@ export function ActivityLogTimeline(props: {
         // Keyboard users must be able to focus and scroll this region.
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
-        style={{
-          height: "24rem",
-          overflow: "auto",
-          "overflow-anchor": "none",
-          "overflow-wrap": "anywhere",
-        }}
+        class={styles.timeline}
         onScroll={() => {
           if (initialized && viewport && viewport.scrollTop < 64 && !failed()) {
             loadOlder();
@@ -136,30 +133,17 @@ export function ActivityLogTimeline(props: {
           when={entries().length > 0}
           fallback={<p>No activity recorded yet.</p>}
         >
-          <ul
-            style={{
-              margin: "0",
-              padding: "0",
-              "list-style": "none",
-              display: "grid",
-              gap: "0.75rem",
-            }}
-          >
+          <ul class={styles.list}>
             <For each={entries()}>
               {(edge) => (
-                <li
-                  style={{
-                    display: "grid",
-                    "grid-template-columns": "minmax(0, 1fr) minmax(0, 1fr)",
-                    gap: "1rem",
-                  }}
-                >
+                <li class={styles.row}>
                   <div
-                    style={{
-                      "grid-column":
-                        edge.node.direction === "inbound" ? "1" : "2",
-                      "min-width": "0",
-                    }}
+                    class={[
+                      styles.entry,
+                      edge.node.direction === "inbound"
+                        ? styles.incoming
+                        : styles.outgoing,
+                    ].join(" ")}
                   >
                     <ActivityLogBox $log={edge.node} />
                   </div>

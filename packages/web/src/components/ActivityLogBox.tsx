@@ -21,6 +21,8 @@ import { createFragment } from "solid-relay";
 import type { ActivityLogBox_log$key } from "./__generated__/ActivityLogBox_log.graphql.ts";
 import { CopyButton } from "./CopyButton.tsx";
 
+import styles from "~/styles/activity-log.module.css";
+
 /**
  * Displays delivery endpoints and expands to show the recorded JSON-LD.
  * @returns A keyboard-accessible activity disclosure.
@@ -32,6 +34,7 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
         direction
         type
         objectType
+        objectIri
         actor {
           iri
         }
@@ -78,13 +81,9 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
       {(log) => (
         <details
           onToggle={(event) => setOpen(event.currentTarget.open)}
-          style={{
-            border: "1px solid var(--line)",
-            "border-radius": "0.5rem",
-            padding: "0.75rem",
-          }}
+          class={styles.box}
         >
-          <summary style={{ cursor: "pointer", "overflow-wrap": "anywhere" }}>
+          <summary class={styles.summary}>
             <strong>
               {log().type ?? "Unknown activity"}
               {log().objectType != undefined && log().objectType !== ""
@@ -92,10 +91,13 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
                 : ""}
             </strong>
             <span> · {log().status}</span>
-            <span style={{ display: "block", "margin-top": "0.5rem" }}>
+            <Show when={log().objectIri}>
+              {(iri) => <span class={styles.detailLine}>Object: {iri()}</span>}
+            </Show>
+            <span class={styles.detailLine}>
               From: {from() ?? "Unknown sender"}
             </span>
-            <span style={{ display: "block" }}>
+            <span class={styles.recipientLine}>
               To:{" "}
               <For each={to()}>
                 {(iri, index) => (
@@ -106,13 +108,10 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
                 )}
               </For>
             </span>
-            <time
-              style={{ display: "block", "margin-top": "0.5rem" }}
-              dateTime={log().created}
-            >
+            <time class={styles.detailLine} dateTime={log().created}>
               {log().created}
             </time>
-            <span style={{ display: "block", "margin-top": "0.5rem" }}>
+            <span class={styles.detailLine}>
               {open() ? "Hide source" : "View source"}
             </span>
           </summary>
@@ -128,12 +127,7 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
               fallback={<p>No source recorded.</p>}
             >
               <CopyButton value={source() ?? ""} label="activity source" />
-              <pre
-                style={{
-                  "white-space": "pre-wrap",
-                  "overflow-wrap": "anywhere",
-                }}
-              >
+              <pre class={styles.source}>
                 <code>{source()}</code>
               </pre>
             </Show>
