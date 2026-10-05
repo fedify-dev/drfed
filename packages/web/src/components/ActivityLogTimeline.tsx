@@ -26,6 +26,7 @@ import {
 import { createPaginationFragment } from "solid-relay";
 
 import type { ActivityLogTimeline_instance$key } from "./__generated__/ActivityLogTimeline_instance.graphql.ts";
+import { ActivityLogBox } from "./ActivityLogBox.tsx";
 
 /**
  * A chronological delivery list that loads older entries when scrolled upward.
@@ -49,11 +50,7 @@ export function ActivityLogTimeline(props: {
             node {
               id
               direction
-              type
-              remoteActorIri
-              remoteHost
-              status
-              created
+              ...ActivityLogBox_log
             }
           }
         }
@@ -157,33 +154,15 @@ export function ActivityLogTimeline(props: {
                     gap: "1rem",
                   }}
                 >
-                  <article
-                    aria-label={
-                      edge.node.direction === "inbound"
-                        ? "Incoming activity"
-                        : "Outgoing activity"
-                    }
+                  <div
                     style={{
                       "grid-column":
                         edge.node.direction === "inbound" ? "1" : "2",
-                      border: "1px solid var(--line)",
-                      "border-radius": "0.5rem",
-                      padding: "0.75rem",
+                      "min-width": "0",
                     }}
                   >
-                    <p>
-                      <strong>{edge.node.type ?? "Unknown activity"}</strong> ·{" "}
-                      {edge.node.status}
-                    </p>
-                    <p>
-                      {edge.node.remoteActorIri ??
-                        edge.node.remoteHost ??
-                        "Unknown remote actor"}
-                    </p>
-                    <time dateTime={edge.node.created}>
-                      {edge.node.created}
-                    </time>
-                  </article>
+                    <ActivityLogBox $log={edge.node} />
+                  </div>
                 </li>
               )}
             </For>
