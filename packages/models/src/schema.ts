@@ -18,9 +18,11 @@ import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  bytea,
   char,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   json,
@@ -34,6 +36,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+import type { PublicJwk } from "./key.ts";
 import type { Uuid } from "./uuid.ts";
 
 /** A timestamptz column preserving PostgreSQL's microsecond precision. */
@@ -513,3 +516,312 @@ export const addressing = pgTable(
   ],
 );
 export type Addressing = typeof addressing.$inferSelect;
+
+/** Direction of an observed delivery. */
+export const activityDeliveryDirectionEnum = pgEnum(
+  "activity_delivery_direction",
+  ["inbound", "outbound"],
+);
+
+/**
+ * Inbound: `received` (2xx, listener ran), `acknowledged` (2xx, listener did
+ * not run), `unverified`, `rejected` (refused although verified); a request
+ * whose handling threw is one of the last two, without a status code.  Outbound:
+ * `queued` (no attempt ended yet), `sent`, `failed` (the latest attempt
+ * failed; a queued delivery may be retried), `permanently_failed`,
+ * `abandoned` (the retry policy ran out).
+ */
+export const activityDeliveryStatusEnum = pgEnum("activity_delivery_status", [
+  "received",
+  "acknowledged",
+  "unverified",
+  "rejected",
+  "queued",
+  "sent",
+  "failed",
+  "permanently_failed",
+  "abandoned",
+]);
+
+/** The mechanism that authenticated an inbound activity. */
+export const activityDeliveryVerificationMechanismEnum = pgEnum(
+  "activity_delivery_verification_mechanism",
+  ["http_signature", "ld_signature", "object_integrity_proof"],
+);
+
+/**
+ * What Fedify reported of an inbound verification; `unattempted` when it
+ * answered before verifying, and `unobserved` when recording failed.
+ */
+export const activityDeliveryVerificationResultEnum = pgEnum(
+  "activity_delivery_verification_result",
+  [
+    "verified",
+    "invalid_signature",
+    "key_fetch_error",
+    "no_signature",
+    "unattempted",
+    "unobserved",
+  ],
+);
+
+/** Logical public keys, identified by their exact IRI. */
+export const keys = pgTable("keys", {
+  id: uuid().$type<Uuid>().primaryKey(),
+  iri: text().notNull().unique(),
+  created: instant().notNull().default(currentTimestamp),
+});
+
+/** Immutable key material, independently retained from Fedify's KV cache. */
+export const keyVersions = pgTable(
+  "key_versions",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    keyId: uuid("key_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => keys.id, { onDelete: "restrict" }),
+    publicKey: jsonb("public_key").$type<PublicJwk>().notNull(),
+    fingerprint: text().notNull(),
+    /** DrFed observation time, not remote rotation time or evidence of continuous use. */
+    firstSeen: instant("first_seen").notNull(),
+    /** DrFed observation time, not remote rotation time or evidence of continuous use. */
+    lastSeen: instant("last_seen").notNull(),
+  },
+  (table) => [
+    unique("key_versions_key_id_fingerprint_unique").on(
+      table.keyId,
+      table.fingerprint,
+    ),
+    check(
+      "key_versions_seen_check",
+      sql`${table.lastSeen} >= ${table.firstSeen}`,
+    ),
+    check(
+      "key_versions_public_key_check",
+      sql`NOT (${table.publicKey} ?| array['d','p','q','dp','dq','qi','oth','k'])`,
+    ),
+    index("key_version_key_first_seen_index").on(
+      table.keyId,
+      table.firstSeen,
+      table.id,
+    ),
+  ],
+);
+
+/** Delivery observations; payloads may contain unverified, private remote input. */
+export const activityDeliveries = pgTable(
+  "activity_deliveries",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    instanceId: uuid("instance_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => instances.id, { onDelete: "cascade" }),
+    /** The owner of the inbox the request arrived at, or the sending actor. */
+    actorId: uuid("actor_id")
+      .$type<Uuid>()
+      .references(() => actors.id, { onDelete: "set null" }),
+    direction: activityDeliveryDirectionEnum().notNull(),
+    status: activityDeliveryStatusEnum().notNull(),
+    verificationMechanism: activityDeliveryVerificationMechanismEnum(
+      "verification_mechanism",
+    ),
+    verificationResult: activityDeliveryVerificationResultEnum(
+      "verification_result",
+    ),
+    type: text(),
+    types: text()
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    activityIri: text("activity_iri"),
+    objectType: text("object_type"),
+    objectIri: text("object_iri"),
+    signedKeyIri: text("signed_key_iri"),
+    /** A referenced version does not imply successful verification. */
+    verificationKeyId: uuid("verification_key_id")
+      .$type<Uuid>()
+      .references(() => keyVersions.id, { onDelete: "restrict" }),
+    /** Inbound, only the first `actor`; the rest are in `payload`. */
+    remoteActorIri: text("remote_actor_iri"),
+    remoteHost: text("remote_host"),
+    inboxUrl: text("inbox_url").notNull(),
+    requestUrl: text("request_url"),
+    /** Names are lowercase; original order and case are not kept. */
+    headers: jsonb().$type<readonly (readonly [string, string])[]>(),
+    body: bytea(),
+    statusCode: integer("status_code"),
+    responseBody: text("response_body"),
+    error: text(),
+    payload: jsonb().$type<unknown>(),
+    recipientIris: text("recipient_iris")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
+    /** Inbound, when the request arrived; outbound, when delivery started. */
+    created: instant().notNull().default(currentTimestamp),
+    /** Inbound, when DrFed answered; outbound, the latest status change. */
+    completed: instant(),
+  },
+  (table) => [
+    check(
+      "activity_deliveries_direction_status_check",
+      sql`(${table.direction} = 'inbound' AND ${table.status} IN ('received', 'acknowledged', 'unverified', 'rejected')) OR (${table.direction} = 'outbound' AND ${table.status} IN ('queued', 'sent', 'failed', 'permanently_failed', 'abandoned'))`,
+    ),
+    check(
+      "activity_deliveries_completed_check",
+      sql`(${table.completed} IS NULL) = (${table.status} = 'queued')`,
+    ),
+    check(
+      "activity_deliveries_status_code_check",
+      sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
+    ),
+    check(
+      "activity_deliveries_outbound_key_check",
+      sql`${table.direction} <> 'outbound' OR ${table.verificationKeyId} IS NULL`,
+    ),
+    check(
+      "activity_deliveries_verification_result_check",
+      sql`(${table.direction} = 'inbound') = (${table.verificationResult} IS NOT NULL)`,
+    ),
+    check(
+      "activity_deliveries_verification_mechanism_check",
+      sql`${table.verificationMechanism} IS NULL OR (${table.direction} = 'inbound' AND ${table.verificationResult} NOT IN ('unattempted', 'unobserved'))`,
+    ),
+    check(
+      "activity_deliveries_body_check",
+      sql`(${table.direction} = 'inbound') = (${table.body} IS NOT NULL)`,
+    ),
+    index("activity_delivery_instance_created_index").on(
+      table.instanceId,
+      desc(table.created),
+      desc(table.id),
+    ),
+    index("activity_delivery_actor_index").on(table.actorId),
+    index("activity_delivery_verification_key_index").on(
+      table.verificationKeyId,
+    ),
+    index("activity_delivery_outbound_index")
+      .on(table.activityIri, table.inboxUrl)
+      .where(sql`${table.direction} = 'outbound'`),
+  ],
+);
+
+/** Each ended attempt of an outbound delivery. */
+export const activityDeliveryAttempts = pgTable(
+  "activity_delivery_attempts",
+  {
+    id: uuid().$type<Uuid>().primaryKey(),
+    deliveryId: uuid("delivery_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => activityDeliveries.id, { onDelete: "cascade" }),
+    succeeded: boolean().notNull(),
+    statusCode: integer("status_code"),
+    responseBody: text("response_body"),
+    error: text(),
+    /** When the attempt ended. */
+    created: instant().notNull().default(currentTimestamp),
+  },
+  (table) => [
+    check(
+      "activity_delivery_attempts_status_code_check",
+      sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
+    ),
+    check(
+      "activity_delivery_attempts_error_check",
+      sql`${table.succeeded} = (${table.error} IS NULL)`,
+    ),
+    index("activity_delivery_attempt_delivery_index").on(
+      table.deliveryId,
+      table.created,
+      table.id,
+    ),
+  ],
+);
+
+/**
+ * The local actors a delivery concerns, one row per delivery and actor; each
+ * must be a local actor of the delivery's instance, which the record functions
+ * check.
+ */
+export const activityDeliveryActors = pgTable(
+  "activity_delivery_actors",
+  {
+    deliveryId: uuid("delivery_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => activityDeliveries.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => actors.id, { onDelete: "cascade" }),
+    inboxOwner: boolean("inbox_owner").notNull().default(false),
+    /** Addressed directly or through a collection. */
+    addressed: boolean().notNull().default(false),
+    /** Addressed by its own IRI; collections are in a row each. */
+    addressedDirectly: boolean("addressed_directly").notNull().default(false),
+    sender: boolean().notNull().default(false),
+    /** The delivery's `created`, which an actor's deliveries are ordered by. */
+    created: instant().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deliveryId, table.actorId] }),
+    check(
+      "activity_delivery_actors_role_check",
+      sql`${table.inboxOwner} OR ${table.addressed} OR ${table.sender}`,
+    ),
+    check(
+      "activity_delivery_actors_addressed_directly_check",
+      sql`NOT ${table.addressedDirectly} OR ${table.addressed}`,
+    ),
+    index("activity_delivery_actor_created_index").on(
+      table.actorId,
+      desc(table.created),
+      desc(table.deliveryId),
+    ),
+  ],
+);
+
+/** Each addressed collection a delivery reached a local actor through. */
+export const activityDeliveryActorCollections = pgTable(
+  "activity_delivery_actor_collections",
+  {
+    deliveryId: uuid("delivery_id").$type<Uuid>().notNull(),
+    actorId: uuid("actor_id").$type<Uuid>().notNull(),
+    collectionIri: text("collection_iri").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.deliveryId, table.actorId, table.collectionIri],
+    }),
+    foreignKey({
+      name: "activity_delivery_actor_collections_link_fkey",
+      columns: [table.deliveryId, table.actorId],
+      foreignColumns: [
+        activityDeliveryActors.deliveryId,
+        activityDeliveryActors.actorId,
+      ],
+    }).onDelete("cascade"),
+  ],
+);
+export type Key = typeof keys.$inferSelect;
+export type KeyVersion = typeof keyVersions.$inferSelect;
+export type ActivityDelivery = typeof activityDeliveries.$inferSelect;
+export type NewActivityDelivery = typeof activityDeliveries.$inferInsert;
+export type ActivityDeliveryAttempt =
+  typeof activityDeliveryAttempts.$inferSelect;
+export type ActivityDeliveryActor = typeof activityDeliveryActors.$inferSelect;
+export type NewActivityDeliveryActor =
+  typeof activityDeliveryActors.$inferInsert;
+export type ActivityDeliveryActorCollection =
+  typeof activityDeliveryActorCollections.$inferSelect;
+export type ActivityDeliveryDirection =
+  (typeof activityDeliveryDirectionEnum.enumValues)[number];
+export type ActivityDeliveryStatus =
+  (typeof activityDeliveryStatusEnum.enumValues)[number];
+export type ActivityDeliveryVerificationMechanism =
+  (typeof activityDeliveryVerificationMechanismEnum.enumValues)[number];
+export type ActivityDeliveryVerificationResult =
+  (typeof activityDeliveryVerificationResultEnum.enumValues)[number];

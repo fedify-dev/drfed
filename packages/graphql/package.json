@@ -81,6 +81,10 @@
     "./origin": {
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
+    },
+    "./activity-delivery": {
+      "types": "./dist/activity-delivery/entry.d.mts",
+      "default": "./dist/activity-delivery/entry.mjs"
     }
   },
   "files": [
@@ -98,7 +102,8 @@
       "src/instance.ts",
       "src/schema.ts",
       "src/object.ts",
-      "src/origin.ts"
+      "src/origin.ts",
+      "src/activity-delivery/entry.ts"
     ],
     "dts": {
       "sourcemap": true,
@@ -125,6 +130,7 @@
     "@fedify/vocab": "catalog:",
     "@logtape/graphql-yoga": "catalog:",
     "@logtape/logtape": "catalog:",
+    "@opentelemetry/api": "^1.9.1",
     "@pothos/core": "^4.13.0",
     "@pothos/plugin-drizzle": "^0.17.4",
     "@pothos/plugin-errors": "^4.9.1",

@@ -28,6 +28,24 @@ const logger = getLogger(["drfed", "graphql", "test"]);
 
 const testEndpoint = "https://drfed.test/graphql";
 
+let databaseSnapshot: Promise<Blob> | undefined;
+
+async function createDatabaseSnapshot(): Promise<Blob> {
+  const client = new PGlite();
+  try {
+    await client.waitReady;
+    await migrate({ credentials: { driver: "pglite", client } });
+    return await client.dumpDataDir("none");
+  } finally {
+    await client.close();
+  }
+}
+
+function getDatabaseSnapshot(): Promise<Blob> {
+  databaseSnapshot ??= createDatabaseSnapshot();
+  return databaseSnapshot;
+}
+
 /**
  * The `fetch()` function exposed by the test Yoga server.
  */
@@ -95,9 +113,9 @@ export interface TestHarness {
 /**
  * Runs a callback with a fresh in-memory PGlite database.
  *
- * The database is migrated before the callback is invoked, so every table in
- * the current `@drfed/models` schema is available.  The underlying PGlite
- * client is closed after the callback resolves or rejects.
+ * Each database is restored from a lazily cached, migrated snapshot, so every
+ * table in the current `@drfed/models` schema is available.  The underlying
+ * PGlite client is closed after the callback resolves or rejects.
  *
  * @example
  * ```ts
@@ -123,10 +141,9 @@ export async function withTemporaryDatabase<T>(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks
   callback: (db: Database) => Promise<T> | T,
 ): Promise<Awaited<T>> {
-  const client = new PGlite();
+  const client = new PGlite({ loadDataDir: await getDatabaseSnapshot() });
   try {
     await client.waitReady;
-    await migrate({ credentials: { driver: "pglite", client } });
     const db: Database = drizzle({ client, relations, schema });
     // oxlint-disable-next-line promise/prefer-await-to-callbacks
     return await callback(db);

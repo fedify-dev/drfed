@@ -81,6 +81,14 @@
     "./slug": {
       "types": "./dist/slug.d.mts",
       "default": "./dist/slug.mjs"
+    },
+    "./key": {
+      "types": "./dist/key.d.mts",
+      "default": "./dist/key.mjs"
+    },
+    "./activity-delivery": {
+      "types": "./dist/activity-delivery.d.mts",
+      "default": "./dist/activity-delivery.mjs"
     }
   },
   "files": [
@@ -99,7 +107,9 @@
       "src/uuid.ts",
       "src/login.ts",
       "src/resource.ts",
-      "src/slug.ts"
+      "src/slug.ts",
+      "src/key.ts",
+      "src/activity-delivery.ts"
     ],
     "dts": {
       "sourcemap": true,

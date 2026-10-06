@@ -98,7 +98,7 @@ node scripts/add-license/main.mts
 
 [tasks.test]
 description = "Run tests"
-depends = ["build"]
+depends = ["build:server"]
 usage = '''
 flag "-d --debug" help="Run tests in debug mode"
 '''

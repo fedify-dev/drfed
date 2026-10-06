@@ -19,8 +19,8 @@ import type { Database } from "@drfed/models";
 import { getLogger } from "@logtape/logtape";
 
 /**
- * The part of a Fedify `Federation` that the router needs, narrowed so that
- * the routing can be exercised without building one.
+ * The federation surface (including the inbound recorder) that the router
+ * needs, narrowed so that the routing can be exercised without building one.
  */
 export interface FederationHandler {
   fetch(
@@ -43,7 +43,7 @@ export interface FetchHandlerOptions {
   readonly rootOrigin: URL;
 
   /**
-   * The ActivityPub surface, served on instance subdomains.
+   * The ActivityPub surface with inbox recording, served on instance subdomains.
    */
   readonly federation: FederationHandler;
 

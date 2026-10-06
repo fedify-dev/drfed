@@ -362,6 +362,21 @@ When adding a new object or field, follow the existing `builder.drizzleNode()`
 and `t.drizzleField()` patterns.  Keep resolver database access through
 `ctx.db`.
 
+Activity delivery observations live in `activity_deliveries`, independently
+of the ActivityPub `activities` resources.  The federation HTTP surface must
+pass through `createInboundRecorder` with a federation made by
+`createFederation`, which tracks the public keys, spans and measurements Fedify
+reports for each request, and the deployment's root origin.  Keep the
+public-key cache serialization compatible with the installed Fedify version,
+and read only the spans, events and metrics Fedify documents in its
+OpenTelemetry manual; never verify a request again.  Inbox listeners must call
+`markHandled()`, which is how a delivery tells a received activity from an
+acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
+federation through `createFederation`, which observes the outbox queue so that
+each attempt Fedify's worker makes settles its delivery.  Delivery contents are
+private to local instance members and administrators, including Relay node
+lookups.
+
 
 CLI and server changes
 ----------------------

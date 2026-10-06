@@ -19,6 +19,86 @@ import { defineRelations } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
 export const relations = defineRelations(schema, (r) => ({
+  keys: {
+    versions: r.many.keyVersions({ from: r.keys.id, to: r.keyVersions.keyId }),
+  },
+  keyVersions: {
+    key: r.one.keys({
+      from: r.keyVersions.keyId,
+      to: r.keys.id,
+      optional: false,
+    }),
+    activityDeliveries: r.many.activityDeliveries({
+      from: r.keyVersions.id,
+      to: r.activityDeliveries.verificationKeyId,
+    }),
+  },
+  activityDeliveries: {
+    instance: r.one.instances({
+      from: r.activityDeliveries.instanceId,
+      to: r.instances.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activityDeliveries.actorId,
+      to: r.actors.id,
+      where: { deleted: { isNull: true } },
+    }),
+    actorLinks: r.many.activityDeliveryActors({
+      from: r.activityDeliveries.id,
+      to: r.activityDeliveryActors.deliveryId,
+    }),
+    verificationKey: r.one.keyVersions({
+      from: r.activityDeliveries.verificationKeyId,
+      to: r.keyVersions.id,
+    }),
+    attempts: r.many.activityDeliveryAttempts({
+      from: r.activityDeliveries.id,
+      to: r.activityDeliveryAttempts.deliveryId,
+    }),
+  },
+  activityDeliveryAttempts: {
+    delivery: r.one.activityDeliveries({
+      from: r.activityDeliveryAttempts.deliveryId,
+      to: r.activityDeliveries.id,
+      optional: false,
+    }),
+  },
+  activityDeliveryActors: {
+    delivery: r.one.activityDeliveries({
+      from: r.activityDeliveryActors.deliveryId,
+      to: r.activityDeliveries.id,
+      optional: false,
+    }),
+    actor: r.one.actors({
+      from: r.activityDeliveryActors.actorId,
+      to: r.actors.id,
+      optional: false,
+    }),
+    collections: r.many.activityDeliveryActorCollections({
+      from: [
+        r.activityDeliveryActors.deliveryId,
+        r.activityDeliveryActors.actorId,
+      ],
+      to: [
+        r.activityDeliveryActorCollections.deliveryId,
+        r.activityDeliveryActorCollections.actorId,
+      ],
+    }),
+  },
+  activityDeliveryActorCollections: {
+    actorLink: r.one.activityDeliveryActors({
+      from: [
+        r.activityDeliveryActorCollections.deliveryId,
+        r.activityDeliveryActorCollections.actorId,
+      ],
+      to: [
+        r.activityDeliveryActors.deliveryId,
+        r.activityDeliveryActors.actorId,
+      ],
+      optional: false,
+    }),
+  },
   accounts: {
     instances: r.many.instances({
       from: r.accounts.id.through(r.instanceMembers.accountId),
@@ -56,6 +136,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   instances: {
+    activityDeliveries: r.many.activityDeliveries({
+      from: r.instances.id,
+      to: r.activityDeliveries.instanceId,
+    }),
     members: r.many.accounts({
       from: r.instances.id.through(r.instanceMembers.instanceId),
       to: r.accounts.id.through(r.instanceMembers.accountId),
@@ -220,6 +304,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
+    activityDeliveryLinks: r.many.activityDeliveryActors({
+      from: r.actors.id,
+      to: r.activityDeliveryActors.actorId,
+    }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,
       to: r.actorCollectionReferences.actorId,
