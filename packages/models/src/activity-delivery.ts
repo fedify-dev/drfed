@@ -18,18 +18,18 @@ import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import {
-  type ActivityLog,
-  type NewActivityLog,
-  type NewActivityLogActor,
-  activityLogActorCollections,
-  activityLogActors,
-  activityLogAttempts,
-  activityLogs,
+  type ActivityDelivery,
+  type NewActivityDelivery,
+  type NewActivityDeliveryActor,
+  activityDeliveries,
+  activityDeliveryActorCollections,
+  activityDeliveryActors,
+  activityDeliveryAttempts,
   actors,
 } from "./schema.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
 
-type LogEntry = Omit<NewActivityLog, "id" | "direction" | "status">;
+type DeliveryEntry = Omit<NewActivityDelivery, "id" | "direction" | "status">;
 
 export interface AddressedActor {
   readonly actorId: Uuid;
@@ -40,14 +40,16 @@ export interface AddressedActor {
  * `payload` is `undefined` for an unparsable body and `null` for JSON `null`;
  * it is stored as SQL `NULL` when jsonb cannot hold it, and `body` keeps it.
  */
-export type InboundLogEntry = Omit<
-  LogEntry,
+export type InboundDeliveryEntry = Omit<
+  DeliveryEntry,
   "body" | "verificationResult" | "recipientIris"
 > & {
-  /** Chosen in advance when something must name the log before it exists. */
+  /**
+   * Chosen in advance when something must name the delivery before it exists.
+   */
   readonly id?: Uuid;
   readonly status: "received" | "acknowledged" | "unverified" | "rejected";
-  readonly verificationResult: NonNullable<LogEntry["verificationResult"]>;
+  readonly verificationResult: NonNullable<DeliveryEntry["verificationResult"]>;
   readonly body: Uint8Array;
   readonly addressed?: readonly AddressedActor[];
   /** When the request arrived, before verification and handling. */
@@ -57,8 +59,8 @@ export type InboundLogEntry = Omit<
 };
 
 /** `payload` is the document before signing, without `bto` and `bcc`. */
-export type OutboundLogEntry = Omit<
-  LogEntry,
+export type OutboundDeliveryEntry = Omit<
+  DeliveryEntry,
   | "verificationKeyId"
   | "verificationMechanism"
   | "verificationResult"
@@ -70,7 +72,7 @@ export type OutboundLogEntry = Omit<
   readonly activityIri: string;
 };
 
-type ActorRow = Omit<NewActivityLogActor, "logId" | "created"> & {
+type ActorRow = Omit<NewActivityDeliveryActor, "deliveryId" | "created"> & {
   /** The addressed collections that reached the actor, sorted. */
   readonly collectionIris?: readonly string[];
 };
@@ -78,7 +80,7 @@ type ActorRow = Omit<NewActivityLogActor, "logId" | "created"> & {
 /**
  * Merge the inbox owner and addressed actors into one row per actor, keeping
  * every way each was addressed, whatever order they come in.
- * @returns The actor rows of an inbound log.
+ * @returns The actor rows of an inbound delivery.
  */
 export function inboundActorRows(entry: {
   readonly actorId?: Uuid | null | undefined;
@@ -125,7 +127,8 @@ function storableJson(value: unknown): boolean {
 }
 
 /**
- * Keep a payload jsonb cannot hold out of the log, rather than the log.
+ * Keep a payload jsonb cannot hold out of the delivery, rather than the
+ * delivery.
  * @returns The value to store, SQL `NULL` for such a payload.
  */
 const jsonb = (payload: unknown) =>
@@ -137,15 +140,15 @@ const jsonb = (payload: unknown) =>
 
 /**
  * PostgreSQL's text holds no U+0000, which a remote response or an error
- * quoting one may carry; keep the rest of it rather than lose the log.
+ * quoting one may carry; keep the rest of it rather than lose the delivery.
  * @returns The text with each U+0000 replaced by U+FFFD.
  */
 const text = (value: string | null | undefined): string | null =>
   value?.replaceAll("\0", "\ufffd") ?? null;
 
 /**
- * Refuse to relate a log to anything but local actors of its instance, which
- * neither foreign key can tell.
+ * Refuse to relate a delivery to anything but local actors of its instance,
+ * which neither foreign key can tell.
  * @throws {Error} When an actor is remote, or of another instance.
  */
 async function checkLocalActors(
@@ -165,48 +168,50 @@ async function checkLocalActors(
   );
   if (local !== ids.length) {
     throw new Error(
-      "An activity log relates only to local actors of its instance.",
+      "An activity delivery relates only to local actors of its instance.",
     );
   }
 }
 
-async function insertLog(
+async function insertDelivery(
   db: Database,
-  log: NewActivityLog,
+  delivery: NewActivityDelivery,
   links: readonly ActorRow[],
-): Promise<ActivityLog> {
+): Promise<ActivityDelivery> {
   return await db.transaction(async (tx) => {
-    await checkLocalActors(tx, log.instanceId, [
-      log.actorId,
+    await checkLocalActors(tx, delivery.instanceId, [
+      delivery.actorId,
       ...links.map(({ actorId }) => actorId),
     ]);
     const [row] = await tx
-      .insert(activityLogs)
+      .insert(activityDeliveries)
       .values({
-        ...log,
-        error: text(log.error),
-        responseBody: text(log.responseBody),
+        ...delivery,
+        error: text(delivery.error),
+        responseBody: text(delivery.responseBody),
       })
       .returning();
-    if (row == null) throw new Error("Missing activity log after insertion.");
+    if (row == null) {
+      throw new Error("Missing activity delivery after insertion.");
+    }
     if (links.length > 0) {
-      await tx.insert(activityLogActors).values(
+      await tx.insert(activityDeliveryActors).values(
         links.map(({ collectionIris: _, ...link }) => ({
           ...link,
-          logId: row.id,
+          deliveryId: row.id,
           created: row.created,
         })),
       );
     }
     const collections = links.flatMap(({ actorId, collectionIris = [] }) =>
       collectionIris.map((collectionIri) => ({
-        logId: row.id,
+        deliveryId: row.id,
         actorId,
         collectionIri,
       })),
     );
     if (collections.length > 0) {
-      await tx.insert(activityLogActorCollections).values(collections);
+      await tx.insert(activityDeliveryActorCollections).values(collections);
     }
     return row;
   });
@@ -216,14 +221,14 @@ async function insertLog(
  * Persist one inbound observation with its actor rows in one transaction.
  * The inbox owner and every addressed actor must be local actors of
  * `instanceId`; otherwise nothing is recorded.
- * @returns The inserted inbound log.
+ * @returns The inserted inbound delivery.
  * @throws {Error} When an actor is not a local actor of the instance.
  */
 export async function recordInbound(
   db: Database,
-  { addressed, body, id = uuidV7(), ...entry }: InboundLogEntry,
-): Promise<ActivityLog> {
-  return await insertLog(
+  { addressed, body, id = uuidV7(), ...entry }: InboundDeliveryEntry,
+): Promise<ActivityDelivery> {
+  return await insertDelivery(
     db,
     {
       ...entry,
@@ -239,20 +244,20 @@ export async function recordInbound(
 /**
  * Record that an inbox listener ran for an inbound delivery answered before it
  * did, as a queued one is.
- * @returns Whether an acknowledged inbound log was found.
+ * @returns Whether an acknowledged inbound delivery was found.
  */
 export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
   const rows = await db
-    .update(activityLogs)
+    .update(activityDeliveries)
     .set({ status: "received" })
     .where(
       and(
-        eq(activityLogs.id, id),
-        eq(activityLogs.direction, "inbound"),
-        eq(activityLogs.status, "acknowledged"),
+        eq(activityDeliveries.id, id),
+        eq(activityDeliveries.direction, "inbound"),
+        eq(activityDeliveries.status, "acknowledged"),
       ),
     )
-    .returning({ id: activityLogs.id });
+    .returning({ id: activityDeliveries.id });
   return rows.length > 0;
 }
 
@@ -260,18 +265,18 @@ export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
  * Start a delivery observation.  The payload is the document before signing.
  * The sender must be a local actor of `instanceId`; otherwise nothing is
  * recorded.
- * @returns The inserted queued outbound log.
+ * @returns The inserted queued outbound delivery.
  * @throws {Error} When the sender is not a local actor of the instance.
  */
 export async function recordOutbound(
   db: Database,
-  entry: OutboundLogEntry,
-): Promise<ActivityLog> {
-  return await insertLog(
+  entry: OutboundDeliveryEntry,
+): Promise<ActivityDelivery> {
+  return await insertDelivery(
     db,
     {
       ...entry,
-      // The application clock, as inbound logs use, so both directions sort together.
+      // The application clock, as inbound deliveries use, so both directions sort together.
       created: entry.created ?? Temporal.Now.instant(),
       payload: jsonb(entry.payload),
       id: uuidV7(),
@@ -312,36 +317,36 @@ export async function settleOutbound(
     responseBody: text(entry.responseBody),
   };
   return await db.transaction(async (tx) => {
-    const [log] = await tx
-      .select({ id: activityLogs.id })
-      .from(activityLogs)
+    const [delivery] = await tx
+      .select({ id: activityDeliveries.id })
+      .from(activityDeliveries)
       .where(
         and(
-          eq(activityLogs.direction, "outbound"),
-          eq(activityLogs.activityIri, entry.activityIri),
-          eq(activityLogs.inboxUrl, entry.inboxUrl),
-          inArray(activityLogs.status, ["queued", "failed"]),
-          entry.id == null ? undefined : eq(activityLogs.id, entry.id),
+          eq(activityDeliveries.direction, "outbound"),
+          eq(activityDeliveries.activityIri, entry.activityIri),
+          eq(activityDeliveries.inboxUrl, entry.inboxUrl),
+          inArray(activityDeliveries.status, ["queued", "failed"]),
+          entry.id == null ? undefined : eq(activityDeliveries.id, entry.id),
         ),
       )
-      .orderBy(desc(activityLogs.created), desc(activityLogs.id))
+      .orderBy(desc(activityDeliveries.created), desc(activityDeliveries.id))
       .limit(1)
       .for("update");
-    if (log == null) return false;
+    if (delivery == null) return false;
     const completed = Temporal.Now.instant();
     if (entry.attempted) {
-      await tx.insert(activityLogAttempts).values({
+      await tx.insert(activityDeliveryAttempts).values({
         ...summary,
         id: uuidV7(),
-        logId: log.id,
+        deliveryId: delivery.id,
         succeeded: entry.status === "sent",
         created: completed,
       });
     }
     await tx
-      .update(activityLogs)
+      .update(activityDeliveries)
       .set({ ...summary, status: entry.status, completed })
-      .where(eq(activityLogs.id, log.id));
+      .where(eq(activityDeliveries.id, delivery.id));
     return true;
   });
 }

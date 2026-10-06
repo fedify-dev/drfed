@@ -18,7 +18,10 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import { deliverActivity, groupRecipients } from "@drfed/graphql/activity-log";
+import {
+  deliverActivity,
+  groupRecipients,
+} from "@drfed/graphql/activity-delivery";
 import createFederation from "@drfed/graphql/federation";
 import type { Database } from "@drfed/models";
 import {
@@ -109,8 +112,8 @@ async function createDeliveringContext(
   return { ctx, passed };
 }
 
-const logs = (db: Database) =>
-  db.query.activityLogs.findMany({ orderBy: { id: "asc" } });
+const findDeliveries = (db: Database) =>
+  db.query.activityDeliveries.findMany({ orderBy: { id: "asc" } });
 
 it("keeps the outcome of an earlier attempt when a retry to the same inbox fails", async () => {
   await withTemporaryDatabase(async (db) => {
@@ -131,11 +134,11 @@ it("keeps the outcome of an earlier attempt when a retry to the same inbox fails
       );
     }
     assert.deepEqual(
-      (await logs(db)).map((log) => [
-        log.status,
-        log.statusCode,
-        log.error,
-        log.responseBody,
+      (await findDeliveries(db)).map((delivery) => [
+        delivery.status,
+        delivery.statusCode,
+        delivery.error,
+        delivery.responseBody,
       ]),
       [
         ["failed", 503, "unavailable", "First"],
@@ -158,15 +161,20 @@ it("settles a delivery whose remote response holds text PostgreSQL cannot store"
       deliverActivity(db, ctx, sender, alice, create("nul")),
       SendActivityError,
     );
-    const [log] = await db.query.activityLogs.findMany({
+    const [delivery] = await db.query.activityDeliveries.findMany({
       with: { attempts: true },
     });
     assert.deepEqual(
-      [log?.status, log?.statusCode, log?.error, log?.responseBody],
+      [
+        delivery?.status,
+        delivery?.statusCode,
+        delivery?.error,
+        delivery?.responseBody,
+      ],
       ["failed", 500, "Failed:\nerror\ufffddetails", "error\ufffddetails"],
     );
     assert.deepEqual(
-      log?.attempts.map((attempt) => [
+      delivery?.attempts.map((attempt) => [
         attempt.succeeded,
         attempt.statusCode,
         attempt.responseBody,
@@ -176,7 +184,7 @@ it("settles a delivery whose remote response holds text PostgreSQL cannot store"
   });
 });
 
-it("logs every recipient of a shared inbox and strips blind recipients before delivery", async () => {
+it("records every recipient of a shared inbox and strips blind recipients before delivery", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
     const { ctx, passed } = await createDeliveringContext(db);
@@ -185,7 +193,7 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
       btos: [new URL("urn:bto")],
       bccs: [bob.id],
     });
-    const [log, ...rest] = await withInbox(
+    const [delivery, ...rest] = await withInbox(
       [[202, ""]],
       async (inbox, received) => {
         const shared = { id: alice.id, inboxId: inbox };
@@ -205,16 +213,16 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
         assert.equal(sent.to, alice.id.href);
         assert.equal("bto" in sent, false);
         assert.equal("bcc" in sent, false);
-        return await logs(db);
+        return await findDeliveries(db);
       },
     );
     assert.deepEqual(rest, []);
-    assert.equal(log?.status, "sent");
-    assert.equal(log?.statusCode, 202);
-    assert.deepEqual(log?.recipientIris, [alice.id.href, bob.id.href]);
-    assert.equal(log?.remoteActorIri, null);
-    assert.match(log?.remoteHost ?? "", /^127\.0\.0\.1:\d+$/u);
-    const payload = log?.payload as Record<string, unknown>;
+    assert.equal(delivery?.status, "sent");
+    assert.equal(delivery?.statusCode, 202);
+    assert.deepEqual(delivery?.recipientIris, [alice.id.href, bob.id.href]);
+    assert.equal(delivery?.remoteActorIri, null);
+    assert.match(delivery?.remoteHost ?? "", /^127\.0\.0\.1:\d+$/u);
+    const payload = delivery?.payload as Record<string, unknown>;
     assert.equal(payload.to, alice.id.href);
     assert.equal("bto" in payload, false);
     assert.equal("bcc" in payload, false);
@@ -223,12 +231,12 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
     assert.deepEqual(passed[0]?.bccIds, []);
     assert.deepEqual(passed[0]?.toIds, [alice.id]);
     assert.deepEqual(activity.bccIds, [bob.id]);
-    const links = await db.query.activityLogActors.findMany();
+    const links = await db.query.activityDeliveryActors.findMany();
     assert.deepEqual(
       links.map(({ created: _, ...link }) => link),
       [
         {
-          logId: log?.id,
+          deliveryId: delivery?.id,
           actorId: localActorId,
           inboxOwner: false,
           addressed: false,
@@ -237,7 +245,7 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
         },
       ],
     );
-    assert.equal(links[0]?.created.toString(), log?.created.toString());
+    assert.equal(links[0]?.created.toString(), delivery?.created.toString());
   });
   assert.deepEqual(
     [
@@ -256,7 +264,7 @@ it("logs every recipient of a shared inbox and strips blind recipients before de
   );
 });
 
-it("logs no delivery to a recipient Fedify leaves out for having no ID", async () => {
+it("records no delivery to a recipient Fedify leaves out for having no ID", async () => {
   for (const queue of [undefined, new InProcessMessageQueue()]) {
     await withTemporaryDatabase(async (db) => {
       await seedLocalActor(db);
@@ -268,7 +276,7 @@ it("logs no delivery to a recipient Fedify leaves out for having no ID", async (
         const named = { id: alice.id, inboxId: inbox };
         await deliverActivity(db, ctx, sender, anonymous, create("anonymous"));
         assert.deepEqual(received, []);
-        assert.deepEqual(await logs(db), []);
+        assert.deepEqual(await findDeliveries(db), []);
         // Sharing an inbox with a recipient Fedify delivers to changes nothing.
         await deliverActivity(
           db,
@@ -277,11 +285,11 @@ it("logs no delivery to a recipient Fedify leaves out for having no ID", async (
           [anonymous, named],
           create("mixed"),
         );
-        const [log, ...rest] = await logs(db);
+        const [delivery, ...rest] = await findDeliveries(db);
         assert.deepEqual(rest, []);
-        assert.deepEqual(log?.recipientIris, [alice.id.href]);
-        assert.equal(log?.remoteActorIri, alice.id.href);
-        assert.equal(log?.status, queue == null ? "sent" : "queued");
+        assert.deepEqual(delivery?.recipientIris, [alice.id.href]);
+        assert.equal(delivery?.remoteActorIri, alice.id.href);
+        assert.equal(delivery?.status, queue == null ? "sent" : "queued");
         assert.equal(received.length, queue == null ? 1 : 0);
       });
     });
@@ -302,14 +310,14 @@ it("settles a delivery Fedify returns from without making", async () => {
         const recipient = { id: alice.id, inboxId: inbox };
         await deliverActivity(db, ctx, sender, recipient, create("excluded"));
         assert.deepEqual(received, []);
-        const [log] = await db.query.activityLogs.findMany({
+        const [delivery] = await db.query.activityDeliveries.findMany({
           with: { attempts: true },
         });
-        assert.equal(log?.status, "permanently_failed");
-        assert.equal(log?.statusCode, null);
-        assert.equal(log?.error, "Fedify made no delivery to the inbox.");
-        assert.ok(log?.completed != null);
-        assert.deepEqual(log?.attempts, []);
+        assert.equal(delivery?.status, "permanently_failed");
+        assert.equal(delivery?.statusCode, null);
+        assert.equal(delivery?.error, "Fedify made no delivery to the inbox.");
+        assert.ok(delivery?.completed != null);
+        assert.deepEqual(delivery?.attempts, []);
       });
     });
   }
@@ -322,9 +330,9 @@ it("leaves a delivery queued until the outbox worker attempts it", async () => {
       queue: new InProcessMessageQueue(),
     });
     await deliverActivity(db, ctx, sender, alice, create("queued"));
-    const [log] = await logs(db);
-    assert.equal(log?.status, "queued");
-    assert.equal(log?.completed, null);
-    assert.equal(log?.remoteActorIri, alice.id.href);
+    const [delivery] = await findDeliveries(db);
+    assert.equal(delivery?.status, "queued");
+    assert.equal(delivery?.completed, null);
+    assert.equal(delivery?.remoteActorIri, alice.id.href);
   });
 });

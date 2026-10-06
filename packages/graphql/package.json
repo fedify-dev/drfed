@@ -82,9 +82,9 @@
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
     },
-    "./activity-log": {
-      "types": "./dist/activity-log/entry.d.mts",
-      "default": "./dist/activity-log/entry.mjs"
+    "./activity-delivery": {
+      "types": "./dist/activity-delivery/entry.d.mts",
+      "default": "./dist/activity-delivery/entry.mjs"
     }
   },
   "files": [
@@ -103,7 +103,7 @@
       "src/schema.ts",
       "src/object.ts",
       "src/origin.ts",
-      "src/activity-log/entry.ts"
+      "src/activity-delivery/entry.ts"
     ],
     "dts": {
       "sourcemap": true,

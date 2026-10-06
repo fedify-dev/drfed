@@ -15,10 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
-  activityLogDirectionEnum,
-  activityLogStatusEnum,
-  activityLogVerificationMechanismEnum,
-  activityLogVerificationResultEnum,
+  activityDeliveryDirectionEnum,
+  activityDeliveryStatusEnum,
+  activityDeliveryVerificationMechanismEnum,
+  activityDeliveryVerificationResultEnum,
 } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
@@ -43,11 +43,14 @@ export { deliverActivity, groupRecipients } from "./outbound.ts";
 export { failureOf, queuedSettlements } from "./queue.ts";
 export type { ObservedKeyFetch, ObservedSpan } from "./tracking.ts";
 
-const ActivityLogDirection = builder.enumType("ActivityLogDirection", {
-  description: "Whether DrFed received the delivery or made it.",
-  values: activityLogDirectionEnum.enumValues,
-});
-const ActivityLogStatus = builder.enumType("ActivityLogStatus", {
+const ActivityDeliveryDirection = builder.enumType(
+  "ActivityDeliveryDirection",
+  {
+    description: "Whether DrFed received the delivery or made it.",
+    values: activityDeliveryDirectionEnum.enumValues,
+  },
+);
+const ActivityDeliveryStatus = builder.enumType("ActivityDeliveryStatus", {
   description:
     "What became of a delivery.  Inbound values follow the response DrFed " +
     "gave, a request whose handling threw counting as refused; outbound " +
@@ -87,10 +90,13 @@ const ActivityLogStatus = builder.enumType("ActivityLogStatus", {
       description:
         "Outbound: the retry policy ran out after the latest attempt failed.",
     },
-  } satisfies Record<(typeof activityLogStatusEnum.enumValues)[number], object>,
+  } satisfies Record<
+    (typeof activityDeliveryStatusEnum.enumValues)[number],
+    object
+  >,
 });
 const VerificationMechanism = builder.enumType(
-  "ActivityLogVerificationMechanism",
+  "ActivityDeliveryVerificationMechanism",
   {
     description:
       "How an inbound activity was authenticated.  Not to be confused with " +
@@ -102,45 +108,48 @@ const VerificationMechanism = builder.enumType(
         description: "FEP-8b32 Object Integrity Proofs (`proof`).",
       },
     } satisfies Record<
-      (typeof activityLogVerificationMechanismEnum.enumValues)[number],
+      (typeof activityDeliveryVerificationMechanismEnum.enumValues)[number],
       object
     >,
   },
 );
-const VerificationResult = builder.enumType("ActivityLogVerificationResult", {
-  description:
-    "What Fedify reported of verifying an inbound activity, as it " +
-    "verified it.  Whether the activity was accepted is " +
-    "`ActivityLog.status`.",
-  values: {
-    verified: { description: "A signature or proof was verified." },
-    invalid_signature: {
-      description: "A signature or proof was present and did not verify.",
-    },
-    key_fetch_error: {
-      description:
-        "The key a signature or proof names could not be fetched, or what " +
-        "was fetched held no usable key.",
-    },
-    no_signature: { description: "Nothing to verify was found." },
-    unattempted: {
-      description:
-        "Fedify answered before verifying anything, e.g. a body that is " +
-        "not JSON or an unknown inbox.",
-    },
-    unobserved: {
-      description:
-        "Recording the observation failed; the mechanism is unknown.",
-    },
-  } satisfies Record<
-    (typeof activityLogVerificationResultEnum.enumValues)[number],
-    object
-  >,
-});
-const ActivityLogFilter = builder.inputType("ActivityLogFilter", {
+const VerificationResult = builder.enumType(
+  "ActivityDeliveryVerificationResult",
+  {
+    description:
+      "What Fedify reported of verifying an inbound activity, as it " +
+      "verified it.  Whether the activity was accepted is " +
+      "`ActivityDelivery.status`.",
+    values: {
+      verified: { description: "A signature or proof was verified." },
+      invalid_signature: {
+        description: "A signature or proof was present and did not verify.",
+      },
+      key_fetch_error: {
+        description:
+          "The key a signature or proof names could not be fetched, or what " +
+          "was fetched held no usable key.",
+      },
+      no_signature: { description: "Nothing to verify was found." },
+      unattempted: {
+        description:
+          "Fedify answered before verifying anything, e.g. a body that is " +
+          "not JSON or an unknown inbox.",
+      },
+      unobserved: {
+        description:
+          "Recording the observation failed; the mechanism is unknown.",
+      },
+    } satisfies Record<
+      (typeof activityDeliveryVerificationResultEnum.enumValues)[number],
+      object
+    >,
+  },
+);
+const ActivityDeliveryFilter = builder.inputType("ActivityDeliveryFilter", {
   fields: (t) => ({
-    direction: t.field({ type: ActivityLogDirection }),
-    status: t.field({ type: ActivityLogStatus }),
+    direction: t.field({ type: ActivityDeliveryDirection }),
+    status: t.field({ type: ActivityDeliveryStatus }),
     type: t.string(),
   }),
 });
@@ -157,8 +166,8 @@ const access = (localId: Uuid | null) =>
     ? false
     : { $any: { admin: true as const, localInstanceMember: localId } };
 
-builder.drizzleObject("activityLogAttempts", {
-  name: "ActivityLogAttempt",
+builder.drizzleObject("activityDeliveryAttempts", {
+  name: "ActivityDeliveryAttempt",
   description: "One ended attempt of an outbound delivery.",
   fields: (t) => ({
     uuid: t.expose("id", { type: "UUID" }),
@@ -188,12 +197,12 @@ builder.drizzleObject("activityLogAttempts", {
   }),
 });
 
-const ActivityLogRef = builder.drizzleNode("activityLogs", {
-  name: "ActivityLog",
+const ActivityDeliveryRef = builder.drizzleNode("activityDeliveries", {
+  name: "ActivityDelivery",
   select: { with: { instance: { columns: { localId: true } } } },
-  authScopes: (log) => access(log.instance.localId),
+  authScopes: (delivery) => access(delivery.instance.localId),
   runScopesOnType: true,
-  id: { column: (log) => log.id },
+  id: { column: (delivery) => delivery.id },
   fields: (t) => ({
     uuid: t.expose("id", { type: "UUID" }),
     instance: t.relation("instance"),
@@ -203,9 +212,9 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
         "The owner of the inbox the request arrived at, or the sending " +
         "actor.  Null for the shared inbox, and for a deleted actor.",
     }),
-    direction: t.expose("direction", { type: ActivityLogDirection }),
+    direction: t.expose("direction", { type: ActivityDeliveryDirection }),
     status: t.expose("status", {
-      type: ActivityLogStatus,
+      type: ActivityDeliveryStatus,
       description:
         "The outcome of the delivery.  Inbound, it follows the response " +
         "DrFed gave, not `verificationResult`.",
@@ -216,12 +225,13 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
       description:
         "Inbound: the mechanism that verified the activity, or the last " +
         "one Fedify tried.  Null when Fedify tried none, when recording " +
-        "failed, and for outbound logs.",
+        "failed, and for outbound deliveries.",
     }),
     verificationResult: t.expose("verificationResult", {
       type: VerificationResult,
       nullable: true,
-      description: "Inbound: what verifying found.  Null for outbound logs.",
+      description:
+        "Inbound: what verifying found.  Null for outbound deliveries.",
     }),
     type: t.exposeString("type", {
       nullable: true,
@@ -276,13 +286,13 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
         "Inbound: the request body as received, when it is valid UTF-8; " +
         "otherwise read `rawBodyBase64`.",
       select: { columns: { body: true } },
-      resolve: (log) => decodeUtf8(log.body),
+      resolve: (delivery) => decodeUtf8(delivery.body),
     }),
     rawBodyBase64: t.string({
       nullable: true,
       description: "Inbound: the octets of the request body, in Base64.",
       select: { columns: { body: true } },
-      resolve: (log) => log.body?.toString("base64") ?? null,
+      resolve: (delivery) => delivery.body?.toString("base64") ?? null,
     }),
     statusCode: t.exposeInt("statusCode", {
       nullable: true,
@@ -309,7 +319,7 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
       query: { orderBy: { created: "asc", id: "asc" } },
       description:
         "Outbound: each attempt that ended, oldest first, including the " +
-        "retries of a queued delivery.  Empty for inbound logs.",
+        "retries of a queued delivery.  Empty for inbound deliveries.",
     }),
     payload: t.expose("payload", {
       type: "JSON",
@@ -333,8 +343,8 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
       type: "DateTime",
       description:
         "Inbound: when the request arrived, before it was verified and " +
-        "handled.  Outbound: when DrFed started the delivery.  Logs are " +
-        "ordered by it.",
+        "handled.  Outbound: when DrFed started the delivery.  Deliveries " +
+        "are ordered by it.",
     }),
     completed: t.expose("completed", {
       type: "DateTime",
@@ -346,45 +356,52 @@ const ActivityLogRef = builder.drizzleNode("activityLogs", {
     }),
   }),
 });
-export const ActivityLog: DrFedObjectRef = ActivityLogRef;
+export const ActivityDelivery: DrFedObjectRef = ActivityDeliveryRef;
 
-type LogFilter = typeof ActivityLogFilter.$inferInput | null | undefined;
-const logWhere = (filter: LogFilter) => ({
+type DeliveryFilter =
+  | typeof ActivityDeliveryFilter.$inferInput
+  | null
+  | undefined;
+const deliveryWhere = (filter: DeliveryFilter) => ({
   ...(filter?.direction == null ? {} : { direction: filter.direction }),
   ...(filter?.status == null ? {} : { status: filter.status }),
   ...(filter?.type == null ? {} : { type: filter.type }),
 });
-const logsConnection = drizzleConnectionHelpers(builder, "activityLogs", {
-  query: ({ filter }: { filter?: LogFilter }) => ({
-    where: logWhere(filter),
-    orderBy: { created: "desc", id: "desc" },
-  }),
-});
-// Paged over an actor's links, which copy the created of their logs, so that
-// each edge tells how the log concerns the actor.
-const actorLogsConnection = drizzleConnectionHelpers(
+const deliveriesConnection = drizzleConnectionHelpers(
   builder,
-  "activityLogActors",
+  "activityDeliveries",
   {
-    query: ({ filter }: { filter?: LogFilter }) => ({
-      where: { log: logWhere(filter) },
-      orderBy: { created: "desc", logId: "desc" },
+    query: ({ filter }: { filter?: DeliveryFilter }) => ({
+      where: deliveryWhere(filter),
+      orderBy: { created: "desc", id: "desc" },
+    }),
+  },
+);
+// Paged over an actor's links, which copy the created of their deliveries, so
+// that each edge tells how the delivery concerns the actor.
+const actorDeliveriesConnection = drizzleConnectionHelpers(
+  builder,
+  "activityDeliveryActors",
+  {
+    query: ({ filter }: { filter?: DeliveryFilter }) => ({
+      where: { delivery: deliveryWhere(filter) },
+      orderBy: { created: "desc", deliveryId: "desc" },
     }),
     select: (nestedSelection) => ({
       with: {
-        log: nestedSelection(),
+        delivery: nestedSelection(),
         // Every column, since Pothos cannot add a composite primary key to
         // a narrower selection.
         collections: { orderBy: { collectionIri: "asc" } },
       },
     }),
-    resolveNode: (link) => link.log,
+    resolveNode: (link) => link.delivery,
   },
 );
-builder.drizzleObjectField("instances", "activityLogs", (t) =>
+builder.drizzleObjectField("instances", "activityDeliveries", (t) =>
   t.connection({
-    type: ActivityLog,
-    args: { filter: t.arg({ type: ActivityLogFilter }) },
+    type: ActivityDelivery,
+    args: { filter: t.arg({ type: ActivityDeliveryFilter }) },
     description:
       "Delivery observations, newest first. " +
       "Restricted to local instance members and administrators.",
@@ -392,19 +409,28 @@ builder.drizzleObjectField("instances", "activityLogs", (t) =>
       ({
         columns: { localId: true },
         with: {
-          activityLogs: logsConnection.getQuery(args, ctx, nestedSelection),
+          activityDeliveries: deliveriesConnection.getQuery(
+            args,
+            ctx,
+            nestedSelection,
+          ),
         },
       }) as const,
     resolve: (instance, args, ctx) =>
-      logsConnection.resolve(instance.activityLogs, args, ctx, instance),
+      deliveriesConnection.resolve(
+        instance.activityDeliveries,
+        args,
+        ctx,
+        instance,
+      ),
     authScopes: (instance) => access(instance.localId),
   }),
 );
-builder.drizzleObjectField("actors", "activityLogs", (t) =>
+builder.drizzleObjectField("actors", "activityDeliveries", (t) =>
   t.connection(
     {
-      type: ActivityLog,
-      args: { filter: t.arg({ type: ActivityLogFilter }) },
+      type: ActivityDelivery,
+      args: { filter: t.arg({ type: ActivityDeliveryFilter }) },
       description:
         "Deliveries that concern this local actor, newest first: those " +
         "that arrived at its inbox, those it sent, and those addressed to " +
@@ -417,7 +443,7 @@ builder.drizzleObjectField("actors", "activityLogs", (t) =>
           columns: { localId: true },
           with: {
             instance: { columns: { localId: true } },
-            activityLogLinks: actorLogsConnection.getQuery(
+            activityDeliveryLinks: actorDeliveriesConnection.getQuery(
               args,
               ctx,
               nestedSelection,
@@ -425,7 +451,12 @@ builder.drizzleObjectField("actors", "activityLogs", (t) =>
           },
         }) as const,
       resolve: (actor, args, ctx) =>
-        actorLogsConnection.resolve(actor.activityLogLinks, args, ctx, actor),
+        actorDeliveriesConnection.resolve(
+          actor.activityDeliveryLinks,
+          args,
+          ctx,
+          actor,
+        ),
       authScopes: (actor) =>
         actor.localId == null ? false : access(actor.instance.localId),
     },

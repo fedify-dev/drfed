@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import type { ActivityLogVerificationMechanism } from "@drfed/models/schema";
+import type { ActivityDeliveryVerificationMechanism } from "@drfed/models/schema";
 import type {
   FetchKeyErrorResult,
   KeyCache,
@@ -66,7 +66,7 @@ const compatibleKeyScopes = {
   ld_signature: "cryptographicKey",
   object_integrity_proof: "multikey",
 } as const satisfies Record<
-  ActivityLogVerificationMechanism,
+  ActivityDeliveryVerificationMechanism,
   CompatibleKeyScope
 >;
 
@@ -240,7 +240,7 @@ export function createKeyCache(
 export async function trackedKey(
   fetches: readonly ObservedKeyFetch[],
   keyIri: string,
-  mechanism: ActivityLogVerificationMechanism | null,
+  mechanism: ActivityDeliveryVerificationMechanism | null,
   options: Loaders = {},
 ): Promise<CryptographicKey | Multikey | null> {
   const entry = JSON.stringify([generation, keyIri]);

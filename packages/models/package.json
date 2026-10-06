@@ -86,9 +86,9 @@
       "types": "./dist/key.d.mts",
       "default": "./dist/key.mjs"
     },
-    "./activity-log": {
-      "types": "./dist/activity-log.d.mts",
-      "default": "./dist/activity-log.mjs"
+    "./activity-delivery": {
+      "types": "./dist/activity-delivery.d.mts",
+      "default": "./dist/activity-delivery.mjs"
     }
   },
   "files": [
@@ -109,7 +109,7 @@
       "src/resource.ts",
       "src/slug.ts",
       "src/key.ts",
-      "src/activity-log.ts"
+      "src/activity-delivery.ts"
     ],
     "dts": {
       "sourcemap": true,

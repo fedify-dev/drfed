@@ -26,7 +26,7 @@ import {
   createKeyCache,
   deliverActivity,
   describeActivity,
-} from "@drfed/graphql/activity-log";
+} from "@drfed/graphql/activity-delivery";
 import createFederation, {
   type TrackedFederation,
 } from "@drfed/graphql/federation";
@@ -35,7 +35,7 @@ import {
   recordInbound,
   recordOutbound,
   settleOutbound,
-} from "@drfed/models/activity-log";
+} from "@drfed/models/activity-delivery";
 import { observeKeyVersion } from "@drfed/models/key";
 import {
   type Context,
@@ -57,7 +57,7 @@ import {
 } from "@fedify/vocab";
 import { eq, isNull } from "drizzle-orm";
 
-import { withInbox } from "./activity-log/remote.test.ts";
+import { withInbox } from "./activity-delivery/remote.test.ts";
 import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
 import {
   accountId,
@@ -142,7 +142,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       return await recorder.fetch(signed, fetchOptions);
     };
     assert.equal((await send(payload("first"))).status, 202);
-    const [first] = await db.query.activityLogs.findMany();
+    const [first] = await db.query.activityDeliveries.findMany();
     assert.ok(first);
     assert.equal(first.status, "received");
     assert.equal(first.verificationMechanism, "http_signature");
@@ -173,20 +173,23 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       "SHA-256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     );
     assert.equal((await recorder.fetch(badDigest, fetchOptions)).status, 401);
-    const digestLog = await db.query.activityLogs.findFirst({
+    const digestDelivery = await db.query.activityDeliveries.findFirst({
       where: { activityIri: payload("bad-digest").id },
     });
-    assert.equal(digestLog?.signedKeyIri, keyId.href);
-    assert.equal(digestLog?.verificationKeyId, null);
-    assert.equal(digestLog?.verificationResult, "invalid_signature");
-    const digestHeader = new Map(digestLog?.headers).get("digest");
+    assert.equal(digestDelivery?.signedKeyIri, keyId.href);
+    assert.equal(digestDelivery?.verificationKeyId, null);
+    assert.equal(digestDelivery?.verificationResult, "invalid_signature");
+    const digestHeader = new Map(digestDelivery?.headers).get("digest");
     assert.equal(
       digestHeader,
       "SHA-256=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     );
     assert.notEqual(
       `SHA-256=${new Uint8Array(
-        await crypto.subtle.digest("SHA-256", new Uint8Array(digestLog!.body!)),
+        await crypto.subtle.digest(
+          "SHA-256",
+          new Uint8Array(digestDelivery!.body!),
+        ),
       ).toBase64()}`,
       digestHeader,
     );
@@ -204,13 +207,13 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     assert.equal((await send(payload("rotated"), b.privateKey)).status, 202);
     assert.equal(await db.$count(schema.keyVersions), 2);
     assert.equal(
-      (await db.query.activityLogs.findFirst({ where: { id: first.id } }))
+      (await db.query.activityDeliveries.findFirst({ where: { id: first.id } }))
         ?.verificationKeyId,
       firstVersion.id,
     );
     // Sign with A while the advertised key is B: cryptographic verification fails.
     assert.equal((await send(payload("tampered"))).status, 401);
-    const bad = await db.query.activityLogs.findFirst({
+    const bad = await db.query.activityDeliveries.findFirst({
       where: { activityIri: payload("tampered").id },
     });
     assert.equal(bad?.status, "unverified");
@@ -221,7 +224,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       actor: "https://other.example/actor",
     };
     assert.equal((await send(mismatch, b.privateKey)).status, 401);
-    const rejected = await db.query.activityLogs.findFirst({
+    const rejected = await db.query.activityDeliveries.findFirst({
       where: { activityIri: mismatch.id },
     });
     assert.equal(rejected?.status, "rejected");
@@ -240,7 +243,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     );
     assert.equal(
       (
-        await db.query.activityLogs.findFirst({
+        await db.query.activityDeliveries.findFirst({
           where: { activityIri: payload("shared").id },
         })
       )?.actorId,
@@ -269,7 +272,7 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       (await recorder.fetch(request(payload("unsigned")), fetchOptions)).status,
       401,
     );
-    const [unsigned] = await db.query.activityLogs.findMany();
+    const [unsigned] = await db.query.activityDeliveries.findMany();
     assert.ok(unsigned);
     assert.equal(unsigned.status, "unverified");
     assert.equal(unsigned.signedKeyIri, null);
@@ -290,7 +293,7 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       ).status,
       401,
     );
-    const failed = await db.query.activityLogs.findFirst({
+    const failed = await db.query.activityDeliveries.findFirst({
       where: { activityIri: payload("unavailable").id },
     });
     assert.equal(failed?.signedKeyIri, keyId.href);
@@ -302,7 +305,7 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       fetchOptions,
     );
     assert.equal(invalid.status, 400);
-    const unparsed = await db.query.activityLogs.findFirst({
+    const unparsed = await db.query.activityDeliveries.findFirst({
       where: { statusCode: 400 },
     });
     assert.equal(
@@ -315,7 +318,10 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
     assert.equal(unparsed?.verificationMechanism, null);
     assert.equal(unparsed?.verificationResult, "unattempted");
     assert.equal(
-      await db.$count(schema.activityLogs, isNull(schema.activityLogs.payload)),
+      await db.$count(
+        schema.activityDeliveries,
+        isNull(schema.activityDeliveries.payload),
+      ),
       1,
     );
     await recorder.fetch(new Request(inbox), fetchOptions);
@@ -323,14 +329,17 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       request({}, "https://test-instance.drfed.org/not-an-inbox"),
       fetchOptions,
     );
-    assert.equal(await db.$count(schema.activityLogs), 3);
+    assert.equal(await db.$count(schema.activityDeliveries), 3);
     await recorder.fetch(request(null), fetchOptions);
-    assert.equal(await db.$count(schema.activityLogs), 4);
+    assert.equal(await db.$count(schema.activityDeliveries), 4);
     assert.equal(
-      await db.$count(schema.activityLogs, isNull(schema.activityLogs.payload)),
+      await db.$count(
+        schema.activityDeliveries,
+        isNull(schema.activityDeliveries.payload),
+      ),
       1,
     );
-    await db.execute(`DROP TABLE activity_logs CASCADE`);
+    await db.execute(`DROP TABLE activity_deliveries CASCADE`);
     assert.equal(
       (await recorder.fetch(request(payload("log-failure")), fetchOptions))
         .status,
@@ -450,7 +459,7 @@ it("classifies accepted proofs independently of HTTP signature failure and descr
   );
 });
 
-it("paginates tied timestamps, filters logs and reads verification keys as an instance member", async () => {
+it("paginates tied timestamps, filters deliveries and reads verification keys as an instance member", async () => {
   await withTestHarness(async ({ db, post }) => {
     const auth = await seedAuthenticatedLocalInstance(db);
     await seedLocalActor(db);
@@ -484,8 +493,8 @@ it("paginates tied timestamps, filters logs and reads verification keys as an in
       payload: {},
       created,
     });
-    const query = `query($id: ID!, $after: String, $filter: ActivityLogFilter) {
-      node(id: $id) { ... on Instance { activityLogs(first: 2, after: $after, filter: $filter) {
+    const query = `query($id: ID!, $after: String, $filter: ActivityDeliveryFilter) {
+      node(id: $id) { ... on Instance { activityDeliveries(first: 2, after: $after, filter: $filter) {
         edges { cursor node { uuid direction status type payload verificationKey { fingerprint publicKey key { iri versions { edges { node { uuid } } } } } } }
         pageInfo { hasNextPage endCursor }
       } } }
@@ -505,7 +514,7 @@ it("paginates tied timestamps, filters logs and reads verification keys as an in
         )
       ).json();
       assert.equal(result.errors, undefined, JSON.stringify(result.errors));
-      return result.data.node.activityLogs;
+      return result.data.node.activityDeliveries;
     };
     const first = await page();
     const second = await page(first.pageInfo.endCursor);
@@ -530,13 +539,13 @@ it("paginates tied timestamps, filters logs and reads verification keys as an in
     const actorResult = await (
       await post(
         {
-          query: `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs(first: 10) { edges { node { uuid } } } } } }`,
+          query: `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityDeliveries(first: 10) { edges { node { uuid } } } } } }`,
         },
         auth,
       )
     ).json();
     assert.equal(actorResult.errors, undefined);
-    assert.equal(actorResult.data.node.activityLogs.edges.length, 4);
+    assert.equal(actorResult.data.node.activityDeliveries.edges.length, 4);
   });
 });
 
@@ -545,7 +554,7 @@ it("denies anonymous/nonmember access including node typename and remote connect
     const auth = await seedAuthenticatedLocalInstance(db);
     await seedLocalActor(db);
     await seedRemoteActor(db);
-    const log = await recordInbound(db, {
+    const delivery = await recordInbound(db, {
       ...observed,
       instanceId: localInstanceId,
       actorId: localActorId,
@@ -553,11 +562,13 @@ it("denies anonymous/nonmember access including node typename and remote connect
       status: "received",
       payload: {},
     });
-    const logId = Buffer.from(`ActivityLog:${log.id}`).toString("base64");
+    const deliveryId = Buffer.from(`ActivityDelivery:${delivery.id}`).toString(
+      "base64",
+    );
     const queries = [
-      `{ node(id: "${logId}") { __typename } }`,
-      `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs { pageInfo { hasNextPage } } } } }`,
-      `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs { pageInfo { hasNextPage } } } } }`,
+      `{ node(id: "${deliveryId}") { __typename } }`,
+      `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityDeliveries { pageInfo { hasNextPage } } } } }`,
+      `{ node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityDeliveries { pageInfo { hasNextPage } } } } }`,
     ];
     for (const query of queries) {
       assert.ok((await (await post({ query })).json()).errors?.length);
@@ -585,7 +596,7 @@ it("denies anonymous/nonmember access including node typename and remote connect
           await (
             await post(
               {
-                query: `{ node(id: "${globalId(type, id)}") { ... on ${type} { activityLogs { pageInfo { hasNextPage } } } } }`,
+                query: `{ node(id: "${globalId(type, id)}") { ... on ${type} { activityDeliveries { pageInfo { hasNextPage } } } } }`,
               },
               auth,
             )
@@ -634,7 +645,7 @@ it("pages through the attempts of a delivery, oldest first", async () => {
         await post(
           {
             query: `query($id: ID!, $first: Int!, $after: String) {
-              node(id: $id) { ... on ActivityLog {
+              node(id: $id) { ... on ActivityDelivery {
                 attempts(first: $first, after: $after) {
                   edges { node { succeeded statusCode error } }
                   pageInfo { hasNextPage endCursor }
@@ -642,7 +653,7 @@ it("pages through the attempts of a delivery, oldest first", async () => {
               } }
             }`,
             variables: {
-              id: Buffer.from(`ActivityLog:${id}`).toString("base64"),
+              id: Buffer.from(`ActivityDelivery:${id}`).toString("base64"),
               first,
               after,
             },
@@ -673,7 +684,7 @@ it("pages through the attempts of a delivery, oldest first", async () => {
   });
 });
 
-it("tells on each edge of an actor's logs how the delivery concerns it", async () => {
+it("tells on each edge of an actor's deliveries how the delivery concerns it", async () => {
   await withTestHarness(async ({ db, post }) => {
     const auth = await seedAuthenticatedLocalInstance(db);
     await seedLocalActor(db);
@@ -720,9 +731,9 @@ it("tells on each edge of an actor's logs how the delivery concerns it", async (
       const result = await (
         await post(
           {
-            query: `query($id: ID!, $first: Int!, $after: String, $filter: ActivityLogFilter) {
+            query: `query($id: ID!, $first: Int!, $after: String, $filter: ActivityDeliveryFilter) {
               node(id: $id) { ... on Actor {
-                activityLogs(first: $first, after: $after, filter: $filter) {
+                activityDeliveries(first: $first, after: $after, filter: $filter) {
                   edges {
                     inboxOwner sender addressed addressedDirectly viaCollections
                     node { uuid actor { uuid } }
@@ -742,7 +753,7 @@ it("tells on each edge of an actor's logs how the delivery concerns it", async (
         )
       ).json();
       assert.equal(result.errors, undefined, JSON.stringify(result.errors));
-      return result.data.node.activityLogs;
+      return result.data.node.activityDeliveries;
     };
     const first = await page(2);
     const second = await page(2, first.pageInfo.endCursor);
@@ -838,8 +849,8 @@ it("settles synchronous delivery and retains HTTP failure diagnostics", async ()
         activity,
       );
     });
-    assert.equal(await db.$count(schema.activityLogs), 1);
-    const sent = await db.query.activityLogs.findFirst({
+    assert.equal(await db.$count(schema.activityDeliveries), 1);
+    const sent = await db.query.activityDeliveries.findFirst({
       with: { attempts: true },
     });
     assert.equal(sent?.status, "sent");
@@ -874,7 +885,7 @@ it("settles synchronous delivery and retains HTTP failure diagnostics", async ()
       ),
       SendActivityError,
     );
-    const failed = await db.query.activityLogs.findFirst({
+    const failed = await db.query.activityDeliveries.findFirst({
       where: { activityIri: failActivity.id!.href },
       with: { attempts: true },
     });
@@ -940,7 +951,7 @@ it("settles successful inboxes independently from thrown delivery failures", asy
         SendActivityError,
       );
     });
-    const rows = await db.query.activityLogs.findMany({
+    const rows = await db.query.activityDeliveries.findMany({
       orderBy: { inboxUrl: "asc" },
     });
     assert.equal(rows[0]?.status, "sent");
@@ -965,13 +976,13 @@ it("returns a literal JSON null payload without nulling its connection", async (
     const result = await (
       await post(
         {
-          query: `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 1) { edges { node { status payload } } } } } }`,
+          query: `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityDeliveries(first: 1) { edges { node { status payload } } } } } }`,
         },
         auth,
       )
     ).json();
     assert.equal(result.errors, undefined);
-    assert.deepEqual(result.data.node.activityLogs.edges[0].node, {
+    assert.deepEqual(result.data.node.activityDeliveries.edges[0].node, {
       status: "unverified",
       payload: null,
     });
@@ -1016,7 +1027,7 @@ it("skips verification observations for unclaimed hosts and failed instance look
     assert.equal(reads, 0);
     assert.equal(await db.$count(schema.keys), 0);
     assert.equal(await db.$count(schema.keyVersions), 0);
-    assert.equal(await db.$count(schema.activityLogs), 0);
+    assert.equal(await db.$count(schema.activityDeliveries), 0);
     await db.execute(
       "ALTER TABLE instances RENAME TO temporarily_unavailable_instances",
     );

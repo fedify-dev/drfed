@@ -44,29 +44,29 @@ ready to handle HTTP requests.  The federation is stored in the resolver
 context as is; `createYogaServer` never registers anything on it.
 
 
-Activity logs
--------------
+Activity deliveries
+-------------------
 
-`Instance.activityLogs` and `Actor.activityLogs` expose delivery observations,
-newest first, with direction, status, and type filters.  Only accepted local
-instance members and site administrators can read them, including through
-Relay node IDs.  `Actor.activityLogs` lists the deliveries that arrived at the
-actor's inbox, that the actor sent, and that are addressed to the actor through
-any inbox, the shared one included.  Addressing through a collection counts as
-far as DrFed has stored the collection's members.  Each of its edges tells how
-the delivery concerns the actor: `inboxOwner`, `sender`, `addressed`,
-`addressedDirectly` when the activity named the actor itself, and
-`viaCollections`, every addressed collection the actor was a member of when the
-delivery arrived, so that a shared-inbox delivery, whose `actor` is null, still
-explains why it is in the actor's feed.  `ActivityLog.attempts` is a
-connection, oldest attempt first.
+`Instance.activityDeliveries` and `Actor.activityDeliveries` expose delivery
+observations, newest first, with direction, status, and type filters.  Only
+accepted local instance members and site administrators can read them,
+including through Relay node IDs.  `Actor.activityDeliveries` lists the
+deliveries that arrived at the actor's inbox, that the actor sent, and that are
+addressed to the actor through any inbox, the shared one included.  Addressing
+through a collection counts as far as DrFed has stored the collection's
+members.  Each of its edges tells how the delivery concerns the actor:
+`inboxOwner`, `sender`, `addressed`, `addressedDirectly` when the activity
+named the actor itself, and `viaCollections`, every addressed collection the
+actor was a member of when the delivery arrived, so that a shared-inbox
+delivery, whose `actor` is null, still explains why it is in the actor's feed.
+`ActivityDelivery.attempts` is a connection, oldest attempt first.
 
 Wrap the federation HTTP surface with `createInboundRecorder`, passing a
 federation made by `createFederation` and the root origin.  Every inbox `POST`
-is logged, whether or not its body is JSON; logging errors never replace
-federation responses.  A request Fedify throws on is logged too, with the
+is recorded, whether or not its body is JSON; recording errors never replace
+federation responses.  A request Fedify throws on is recorded too, with the
 exception in `error` and no `statusCode`, and the exception is thrown again.
-An inbound log keeps:
+An inbound delivery keeps:
 
  -  The request as received: `rawBody` (or `rawBodyBase64` when the body is not
     valid UTF-8), `requestHeaders`, and `requestUrl`.  `payload` is the body
@@ -115,9 +115,9 @@ An inbound log keeps:
     listener ran, `acknowledged` when the request was answered 2xx without it
     (a duplicate, for instance), `rejected` when a verified activity was
     refused or its handling threw, and `unverified` otherwise.  With an inbox
-    queue, a log is
+    queue, a delivery is
     `acknowledged` when the request is answered and becomes `received` once the
-    queue worker runs the listener; the queued message carries its log ID.
+    queue worker runs the listener; the queued message carries its delivery ID.
 
 `KeyVersion.firstSeen` and `lastSeen` are DrFed observation times, not remote
 rotation times or evidence of continuous use.  `Key` and `KeyVersion` hold
@@ -128,26 +128,26 @@ local actor keys are available (#87).  It removes `bto` and `bcc` before
 delivery, records one row per destination inbox with every recipient sharing
 it in `recipientIris`, and settles each delivery independently.  A recipient
 without an ID or an inbox is left out, because Fedify does not deliver to it.
-The logged `payload` is the document before signing.  `attempts` keeps every
+The recorded `payload` is the document before signing.  `attempts` keeps every
 attempt that ended, with the status the remote inbox answered, read from the
 responses `fetch()` publishes on `diagnostics_channel`, and the causes of
 network errors.  When the inbox redirects a delivery, the status is the one
 the redirects ended with, whether Fedify followed them, as it does when it
 signs the request, or `fetch()` did.  With a message queue, `createFederation`
-observes Fedify's outbox worker, and each queued message carries the log it
-belongs to.  A delivery becomes `sent` when Fedify reports
+observes Fedify's outbox worker, and each queued message carries the delivery
+it belongs to.  A delivery becomes `sent` when Fedify reports
 `activitypub.activity.sent` for its inbox, stays `failed` while it is retried,
 and ends `permanently_failed`, or `abandoned` when Fedify measures it abandoned
 after its retries ran out.  A delivery Fedify returns from without sending to
 the inbox, or without enqueuing a message to it, is `permanently_failed` with
 no attempt, since Fedify makes none.  The queue is handed to Fedify as one
 without native retries, so that every retry follows Fedify's policy and is
-logged.  Activity resource persistence (#88),
+recorded.  Activity resource persistence (#88),
 retention policies, and the activity-log UI (#13) are separate.
 
 URL fields hold only values that parse as URLs, and no text field holds
 U+0000; anything else a remote server sent stays in `rawBody` and
 `requestHeaders`, and in `payload` when PostgreSQL can store it.  `error` and
 `responseBody` keep what a remote server answered with U+FFFD for each U+0000.
-Logs are ordered by `created`, which for an inbound log is when the request
-arrived; `completed` is when DrFed answered it.
+Deliveries are ordered by `created`, which for an inbound delivery is when the
+request arrived; `completed` is when DrFed answered it.

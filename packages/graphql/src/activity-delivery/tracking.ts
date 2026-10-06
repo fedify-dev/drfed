@@ -93,8 +93,10 @@ export interface Report {
 
 /** The state of a tracked run, which Fedify's reports add to. */
 export interface Tracked {
-  /** The inbound log the run will be recorded as, known before it exists. */
-  readonly inboundLogId?: Uuid;
+  /**
+   * The inbound delivery the run will be recorded as, known before it exists.
+   */
+  readonly inboundDeliveryId?: Uuid;
   handled: boolean;
   /** Tasks the run started may outlive it; they must not add to it. */
   closed: boolean;
@@ -161,7 +163,7 @@ export function untracked<T>(run: () => T): T {
 }
 
 interface TrackOptions {
-  readonly inboundLogId?: Uuid;
+  readonly inboundDeliveryId?: Uuid;
 }
 
 /**
@@ -172,10 +174,10 @@ interface TrackOptions {
  */
 export async function trackSettled<T>(
   run: () => Promise<T>,
-  { inboundLogId }: TrackOptions = {},
+  { inboundDeliveryId }: TrackOptions = {},
 ): Promise<{ readonly outcome: PromiseSettledResult<T> } & Report> {
   const state: Tracked = {
-    ...(inboundLogId == null ? {} : { inboundLogId }),
+    ...(inboundDeliveryId == null ? {} : { inboundDeliveryId }),
     handled: false,
     closed: false,
     keys: new Map(),

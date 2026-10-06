@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import type { AddressedActor } from "@drfed/models/activity-log";
+import type { AddressedActor } from "@drfed/models/activity-delivery";
 import type { Uuid } from "@drfed/models/uuid";
 import { type Activity, PUBLIC_COLLECTION } from "@fedify/vocab";
 

@@ -288,7 +288,7 @@ it("records inbox requests only on the instance surface", async () => {
       ).status,
       200,
     );
-    const rows = await db.query.activityLogs.findMany();
+    const rows = await db.query.activityDeliveries.findMany();
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.instanceId, localId);
     assert.equal(rows[0]?.status, "unverified");

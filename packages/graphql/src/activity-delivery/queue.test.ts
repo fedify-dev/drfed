@@ -24,7 +24,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   deliverActivity,
   queuedSettlements,
-} from "@drfed/graphql/activity-log";
+} from "@drfed/graphql/activity-delivery";
 import createFederation from "@drfed/graphql/federation";
 import type { Database } from "@drfed/models";
 import {
@@ -57,16 +57,16 @@ async function withSeededDatabase<T>(
   });
 }
 
-const logs = (db: Database, activityIri: string) =>
-  db.query.activityLogs.findMany({
+const findDeliveries = (db: Database, activityIri: string) =>
+  db.query.activityDeliveries.findMany({
     where: { activityIri },
     orderBy: { created: "asc", id: "asc" },
     with: { attempts: { orderBy: { created: "asc", id: "asc" } } },
   });
-type Log = Awaited<ReturnType<typeof logs>>[number];
+type Delivery = Awaited<ReturnType<typeof findDeliveries>>[number];
 
-const results = (log: Log | undefined) =>
-  log?.attempts.map((attempt) => [
+const results = (delivery: Delivery | undefined) =>
+  delivery?.attempts.map((attempt) => [
     attempt.succeeded,
     attempt.statusCode,
     attempt.responseBody,
@@ -74,14 +74,14 @@ const results = (log: Log | undefined) =>
 
 /**
  * Deliver one activity through Fedify to `inbox`, with `queue` if any, until
- * every log is settled for good.  The database holds the local actor.
+ * every delivery is settled for good.  The database holds the local actor.
  * @param activity What tells the activity from others delivered from the
  *                 same database.
  * @param retries How many times the worker may retry a failed attempt.
  * @param deliveries How many times to deliver the activity before the worker
  *                   starts.
  * @param algorithm The sender's key.  Fedify signs requests only with RSA.
- * @returns The logs, oldest first.
+ * @returns The deliveries, oldest first.
  */
 async function deliver(
   db: Database,
@@ -99,7 +99,7 @@ async function deliver(
     readonly deliveries?: number;
     readonly algorithm?: "Ed25519" | "RSASSA-PKCS1-v1_5";
   } = {},
-): Promise<Log[]> {
+): Promise<Delivery[]> {
   const federation = await createFederation(db, {
     kv: new MemoryKvStore(),
     allowPrivateAddress: true,
@@ -135,20 +135,20 @@ async function deliver(
       recipient,
       activity,
     )
-      // A synchronous failure is thrown as well as logged.
+      // A synchronous failure is thrown as well as recorded.
       .catch(() => undefined);
   }
   const activityIri = activity.id?.href ?? "";
-  if (queue == null) return await logs(db, activityIri);
+  if (queue == null) return await findDeliveries(db, activityIri);
   const controller = new AbortController();
   const worker = federation.startQueue(undefined, {
     signal: controller.signal,
   });
   try {
     for (let tries = 0; tries < 500; tries += 1) {
-      const found = await logs(db, activityIri);
-      const settled = found.every((log) =>
-        ["sent", "permanently_failed", "abandoned"].includes(log.status),
+      const found = await findDeliveries(db, activityIri);
+      const settled = found.every((delivery) =>
+        ["sent", "permanently_failed", "abandoned"].includes(delivery.status),
       );
       if (found.length === deliveries && settled) return found;
       await sleep(10);
@@ -162,10 +162,12 @@ async function deliver(
 
 it("keeps the status a remote inbox accepted a delivery with", async () => {
   await withSeededDatabase(async (db) => {
-    const [log] = await withInbox([[202, ""]], (inbox) => deliver(db, inbox));
-    assert.equal(log?.status, "sent");
-    assert.equal(log?.statusCode, 202);
-    assert.deepEqual(results(log), [[true, 202, null]]);
+    const [delivery] = await withInbox([[202, ""]], (inbox) =>
+      deliver(db, inbox),
+    );
+    assert.equal(delivery?.status, "sent");
+    assert.equal(delivery?.statusCode, 202);
+    assert.deepEqual(results(delivery), [[true, 202, null]]);
   });
 });
 
@@ -176,7 +178,7 @@ it("keeps the status a redirected delivery ended with", async () => {
     for (const algorithm of ["Ed25519", "RSASSA-PKCS1-v1_5"] as const) {
       for (const redirect of [303, 307]) {
         for (const queued of [false, true]) {
-          const [log] = await withInbox(
+          const [delivery] = await withInbox(
             [
               [redirect, "", "/moved"],
               [202, ""],
@@ -188,9 +190,9 @@ it("keeps the status a redirected delivery ended with", async () => {
                 ...(queued ? { queue: new InProcessMessageQueue() } : {}),
               }),
           );
-          assert.equal(log?.status, "sent");
-          assert.equal(log?.statusCode, 202);
-          assert.deepEqual(results(log), [[true, 202, null]]);
+          assert.equal(delivery?.status, "sent");
+          assert.equal(delivery?.statusCode, 202);
+          assert.deepEqual(results(delivery), [[true, 202, null]]);
         }
       }
     }
@@ -204,7 +206,7 @@ it("follows a redirect to a location outside ASCII as Fedify reads it", async ()
   const location = Buffer.from("/caf\u00e9", "utf8").toString("latin1");
   await withSeededDatabase(async (db) => {
     for (const algorithm of ["Ed25519", "RSASSA-PKCS1-v1_5"] as const) {
-      const { log, paths } = await withInbox(
+      const { delivery, paths } = await withInbox(
         [
           [307, "", location],
           [202, ""],
@@ -215,13 +217,13 @@ it("follows a redirect to a location outside ASCII as Fedify reads it", async ()
             algorithm,
           });
           return {
-            log: delivered,
+            delivery: delivered,
             paths: received.map((request) => request.url),
           };
         },
       );
-      assert.equal(log?.status, "sent");
-      assert.equal(log?.statusCode, 202);
+      assert.equal(delivery?.status, "sent");
+      assert.equal(delivery?.statusCode, 202);
       assert.deepEqual(paths, ["/inbox", "/caf%C3%83%C2%A9"]);
     }
   });
@@ -229,42 +231,42 @@ it("follows a redirect to a location outside ASCII as Fedify reads it", async ()
 
 it("settles a queued delivery the remote inbox accepts", async () => {
   await withSeededDatabase(async (db) => {
-    const [log] = await withInbox([[202, ""]], (inbox) =>
+    const [delivery] = await withInbox([[202, ""]], (inbox) =>
       deliver(db, inbox, { queue: new InProcessMessageQueue() }),
     );
-    assert.equal(log?.status, "sent");
-    assert.deepEqual(results(log), [[true, 202, null]]);
-    assert.ok(log?.completed != null);
+    assert.equal(delivery?.status, "sent");
+    assert.deepEqual(results(delivery), [[true, 202, null]]);
+    assert.ok(delivery?.completed != null);
   });
 });
 
 it("keeps every failed attempt of a queued delivery that is retried into success", async () => {
   await withSeededDatabase(async (db) => {
-    const [log] = await withInbox(
+    const [delivery] = await withInbox(
       [
         [503, "busy"],
         [202, ""],
       ],
       (inbox) => deliver(db, inbox, { queue: new InProcessMessageQueue() }),
     );
-    assert.deepEqual(results(log), [
+    assert.deepEqual(results(delivery), [
       [false, 503, "busy"],
       [true, 202, null],
     ]);
-    assert.equal(log?.error, null);
+    assert.equal(delivery?.error, null);
   });
 });
 
 it("records network failures, and abandons a delivery once retries run out", async () => {
   await withSeededDatabase(async (db) => {
-    const [log] = await withInbox(null, (inbox) =>
+    const [delivery] = await withInbox(null, (inbox) =>
       deliver(db, inbox, { queue: new InProcessMessageQueue(), retries: 1 }),
     );
-    assert.deepEqual(results(log), [
+    assert.deepEqual(results(delivery), [
       [false, null, null],
       [false, null, null],
     ]);
-    for (const attempt of log?.attempts ?? []) {
+    for (const attempt of delivery?.attempts ?? []) {
       assert.match(attempt.error ?? "", /ECONNREFUSED/u);
     }
   });
@@ -274,14 +276,14 @@ it("retries by Fedify's policy even with a queue that retries natively", async (
   await withSeededDatabase(async (db) => {
     const queue = new InProcessMessageQueue();
     Object.defineProperty(queue, "nativeRetrial", { value: true });
-    const [log] = await withInbox(
+    const [delivery] = await withInbox(
       [
         [503, "busy"],
         [503, "busy"],
       ],
       (inbox) => deliver(db, inbox, { queue, retries: 1 }),
     );
-    assert.deepEqual(results(log), [
+    assert.deepEqual(results(delivery), [
       [false, 503, "busy"],
       [false, 503, "busy"],
     ]);
@@ -290,12 +292,12 @@ it("retries by Fedify's policy even with a queue that retries natively", async (
 
 it("settles a permanent failure without retrying it", async () => {
   await withSeededDatabase(async (db) => {
-    const [log] = await withInbox([[410, "gone"]], (inbox) =>
+    const [delivery] = await withInbox([[410, "gone"]], (inbox) =>
       deliver(db, inbox, { queue: new InProcessMessageQueue() }),
     );
-    assert.equal(log?.status, "permanently_failed");
-    assert.deepEqual(results(log), [[false, 410, "gone"]]);
-    assert.equal(log?.statusCode, 410);
+    assert.equal(delivery?.status, "permanently_failed");
+    assert.deepEqual(results(delivery), [[false, 410, "gone"]]);
+    assert.equal(delivery?.statusCode, 410);
   });
 });
 

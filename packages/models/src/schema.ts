@@ -518,10 +518,10 @@ export const addressing = pgTable(
 export type Addressing = typeof addressing.$inferSelect;
 
 /** Direction of an observed delivery. */
-export const activityLogDirectionEnum = pgEnum("activity_log_direction", [
-  "inbound",
-  "outbound",
-]);
+export const activityDeliveryDirectionEnum = pgEnum(
+  "activity_delivery_direction",
+  ["inbound", "outbound"],
+);
 
 /**
  * Inbound: `received` (2xx, listener ran), `acknowledged` (2xx, listener did
@@ -531,7 +531,7 @@ export const activityLogDirectionEnum = pgEnum("activity_log_direction", [
  * failed; a queued delivery may be retried), `permanently_failed`,
  * `abandoned` (the retry policy ran out).
  */
-export const activityLogStatusEnum = pgEnum("activity_log_status", [
+export const activityDeliveryStatusEnum = pgEnum("activity_delivery_status", [
   "received",
   "acknowledged",
   "unverified",
@@ -544,8 +544,8 @@ export const activityLogStatusEnum = pgEnum("activity_log_status", [
 ]);
 
 /** The mechanism that authenticated an inbound activity. */
-export const activityLogVerificationMechanismEnum = pgEnum(
-  "activity_log_verification_mechanism",
+export const activityDeliveryVerificationMechanismEnum = pgEnum(
+  "activity_delivery_verification_mechanism",
   ["http_signature", "ld_signature", "object_integrity_proof"],
 );
 
@@ -553,8 +553,8 @@ export const activityLogVerificationMechanismEnum = pgEnum(
  * What Fedify reported of an inbound verification; `unattempted` when it
  * answered before verifying, and `unobserved` when recording failed.
  */
-export const activityLogVerificationResultEnum = pgEnum(
-  "activity_log_verification_result",
+export const activityDeliveryVerificationResultEnum = pgEnum(
+  "activity_delivery_verification_result",
   [
     "verified",
     "invalid_signature",
@@ -610,8 +610,8 @@ export const keyVersions = pgTable(
 );
 
 /** Delivery observations; payloads may contain unverified, private remote input. */
-export const activityLogs = pgTable(
-  "activity_logs",
+export const activityDeliveries = pgTable(
+  "activity_deliveries",
   {
     id: uuid().$type<Uuid>().primaryKey(),
     instanceId: uuid("instance_id")
@@ -622,12 +622,12 @@ export const activityLogs = pgTable(
     actorId: uuid("actor_id")
       .$type<Uuid>()
       .references(() => actors.id, { onDelete: "set null" }),
-    direction: activityLogDirectionEnum().notNull(),
-    status: activityLogStatusEnum().notNull(),
-    verificationMechanism: activityLogVerificationMechanismEnum(
+    direction: activityDeliveryDirectionEnum().notNull(),
+    status: activityDeliveryStatusEnum().notNull(),
+    verificationMechanism: activityDeliveryVerificationMechanismEnum(
       "verification_mechanism",
     ),
-    verificationResult: activityLogVerificationResultEnum(
+    verificationResult: activityDeliveryVerificationResultEnum(
       "verification_result",
     ),
     type: text(),
@@ -666,55 +666,57 @@ export const activityLogs = pgTable(
   },
   (table) => [
     check(
-      "activity_logs_direction_status_check",
+      "activity_deliveries_direction_status_check",
       sql`(${table.direction} = 'inbound' AND ${table.status} IN ('received', 'acknowledged', 'unverified', 'rejected')) OR (${table.direction} = 'outbound' AND ${table.status} IN ('queued', 'sent', 'failed', 'permanently_failed', 'abandoned'))`,
     ),
     check(
-      "activity_logs_completed_check",
+      "activity_deliveries_completed_check",
       sql`(${table.completed} IS NULL) = (${table.status} = 'queued')`,
     ),
     check(
-      "activity_logs_status_code_check",
+      "activity_deliveries_status_code_check",
       sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
     ),
     check(
-      "activity_logs_outbound_key_check",
+      "activity_deliveries_outbound_key_check",
       sql`${table.direction} <> 'outbound' OR ${table.verificationKeyId} IS NULL`,
     ),
     check(
-      "activity_logs_verification_result_check",
+      "activity_deliveries_verification_result_check",
       sql`(${table.direction} = 'inbound') = (${table.verificationResult} IS NOT NULL)`,
     ),
     check(
-      "activity_logs_verification_mechanism_check",
+      "activity_deliveries_verification_mechanism_check",
       sql`${table.verificationMechanism} IS NULL OR (${table.direction} = 'inbound' AND ${table.verificationResult} NOT IN ('unattempted', 'unobserved'))`,
     ),
     check(
-      "activity_logs_body_check",
+      "activity_deliveries_body_check",
       sql`(${table.direction} = 'inbound') = (${table.body} IS NOT NULL)`,
     ),
-    index("activity_log_instance_created_index").on(
+    index("activity_delivery_instance_created_index").on(
       table.instanceId,
       desc(table.created),
       desc(table.id),
     ),
-    index("activity_log_actor_index").on(table.actorId),
-    index("activity_log_verification_key_index").on(table.verificationKeyId),
-    index("activity_log_outbound_index")
+    index("activity_delivery_actor_index").on(table.actorId),
+    index("activity_delivery_verification_key_index").on(
+      table.verificationKeyId,
+    ),
+    index("activity_delivery_outbound_index")
       .on(table.activityIri, table.inboxUrl)
       .where(sql`${table.direction} = 'outbound'`),
   ],
 );
 
 /** Each ended attempt of an outbound delivery. */
-export const activityLogAttempts = pgTable(
-  "activity_log_attempts",
+export const activityDeliveryAttempts = pgTable(
+  "activity_delivery_attempts",
   {
     id: uuid().$type<Uuid>().primaryKey(),
-    logId: uuid("log_id")
+    deliveryId: uuid("delivery_id")
       .$type<Uuid>()
       .notNull()
-      .references(() => activityLogs.id, { onDelete: "cascade" }),
+      .references(() => activityDeliveries.id, { onDelete: "cascade" }),
     succeeded: boolean().notNull(),
     statusCode: integer("status_code"),
     responseBody: text("response_body"),
@@ -724,15 +726,15 @@ export const activityLogAttempts = pgTable(
   },
   (table) => [
     check(
-      "activity_log_attempts_status_code_check",
+      "activity_delivery_attempts_status_code_check",
       sql`${table.statusCode} IS NULL OR ${table.statusCode} BETWEEN 100 AND 599`,
     ),
     check(
-      "activity_log_attempts_error_check",
+      "activity_delivery_attempts_error_check",
       sql`${table.succeeded} = (${table.error} IS NULL)`,
     ),
-    index("activity_log_attempt_log_index").on(
-      table.logId,
+    index("activity_delivery_attempt_delivery_index").on(
+      table.deliveryId,
       table.created,
       table.id,
     ),
@@ -740,16 +742,17 @@ export const activityLogAttempts = pgTable(
 );
 
 /**
- * The local actors a log concerns, one row per log and actor; each must be a
- * local actor of the log's instance, which the record functions check.
+ * The local actors a delivery concerns, one row per delivery and actor; each
+ * must be a local actor of the delivery's instance, which the record functions
+ * check.
  */
-export const activityLogActors = pgTable(
-  "activity_log_actors",
+export const activityDeliveryActors = pgTable(
+  "activity_delivery_actors",
   {
-    logId: uuid("log_id")
+    deliveryId: uuid("delivery_id")
       .$type<Uuid>()
       .notNull()
-      .references(() => activityLogs.id, { onDelete: "cascade" }),
+      .references(() => activityDeliveries.id, { onDelete: "cascade" }),
     actorId: uuid("actor_id")
       .$type<Uuid>()
       .notNull()
@@ -760,60 +763,65 @@ export const activityLogActors = pgTable(
     /** Addressed by its own IRI; collections are in a row each. */
     addressedDirectly: boolean("addressed_directly").notNull().default(false),
     sender: boolean().notNull().default(false),
-    /** The log's `created`, which an actor's logs are ordered by. */
+    /** The delivery's `created`, which an actor's deliveries are ordered by. */
     created: instant().notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.logId, table.actorId] }),
+    primaryKey({ columns: [table.deliveryId, table.actorId] }),
     check(
-      "activity_log_actors_role_check",
+      "activity_delivery_actors_role_check",
       sql`${table.inboxOwner} OR ${table.addressed} OR ${table.sender}`,
     ),
     check(
-      "activity_log_actors_addressed_directly_check",
+      "activity_delivery_actors_addressed_directly_check",
       sql`NOT ${table.addressedDirectly} OR ${table.addressed}`,
     ),
-    index("activity_log_actor_created_index").on(
+    index("activity_delivery_actor_created_index").on(
       table.actorId,
       desc(table.created),
-      desc(table.logId),
+      desc(table.deliveryId),
     ),
   ],
 );
 
-/** Each addressed collection a log reached a local actor through. */
-export const activityLogActorCollections = pgTable(
-  "activity_log_actor_collections",
+/** Each addressed collection a delivery reached a local actor through. */
+export const activityDeliveryActorCollections = pgTable(
+  "activity_delivery_actor_collections",
   {
-    logId: uuid("log_id").$type<Uuid>().notNull(),
+    deliveryId: uuid("delivery_id").$type<Uuid>().notNull(),
     actorId: uuid("actor_id").$type<Uuid>().notNull(),
     collectionIri: text("collection_iri").notNull(),
   },
   (table) => [
     primaryKey({
-      columns: [table.logId, table.actorId, table.collectionIri],
+      columns: [table.deliveryId, table.actorId, table.collectionIri],
     }),
     foreignKey({
-      name: "activity_log_actor_collections_link_fkey",
-      columns: [table.logId, table.actorId],
-      foreignColumns: [activityLogActors.logId, activityLogActors.actorId],
+      name: "activity_delivery_actor_collections_link_fkey",
+      columns: [table.deliveryId, table.actorId],
+      foreignColumns: [
+        activityDeliveryActors.deliveryId,
+        activityDeliveryActors.actorId,
+      ],
     }).onDelete("cascade"),
   ],
 );
 export type Key = typeof keys.$inferSelect;
 export type KeyVersion = typeof keyVersions.$inferSelect;
-export type ActivityLog = typeof activityLogs.$inferSelect;
-export type NewActivityLog = typeof activityLogs.$inferInsert;
-export type ActivityLogAttempt = typeof activityLogAttempts.$inferSelect;
-export type ActivityLogActor = typeof activityLogActors.$inferSelect;
-export type NewActivityLogActor = typeof activityLogActors.$inferInsert;
-export type ActivityLogActorCollection =
-  typeof activityLogActorCollections.$inferSelect;
-export type ActivityLogDirection =
-  (typeof activityLogDirectionEnum.enumValues)[number];
-export type ActivityLogStatus =
-  (typeof activityLogStatusEnum.enumValues)[number];
-export type ActivityLogVerificationMechanism =
-  (typeof activityLogVerificationMechanismEnum.enumValues)[number];
-export type ActivityLogVerificationResult =
-  (typeof activityLogVerificationResultEnum.enumValues)[number];
+export type ActivityDelivery = typeof activityDeliveries.$inferSelect;
+export type NewActivityDelivery = typeof activityDeliveries.$inferInsert;
+export type ActivityDeliveryAttempt =
+  typeof activityDeliveryAttempts.$inferSelect;
+export type ActivityDeliveryActor = typeof activityDeliveryActors.$inferSelect;
+export type NewActivityDeliveryActor =
+  typeof activityDeliveryActors.$inferInsert;
+export type ActivityDeliveryActorCollection =
+  typeof activityDeliveryActorCollections.$inferSelect;
+export type ActivityDeliveryDirection =
+  (typeof activityDeliveryDirectionEnum.enumValues)[number];
+export type ActivityDeliveryStatus =
+  (typeof activityDeliveryStatusEnum.enumValues)[number];
+export type ActivityDeliveryVerificationMechanism =
+  (typeof activityDeliveryVerificationMechanismEnum.enumValues)[number];
+export type ActivityDeliveryVerificationResult =
+  (typeof activityDeliveryVerificationResultEnum.enumValues)[number];

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1e2806c8-1ca7-4e28-9bc7-0dce59e8d752",
+  "id": "4374c08e-0dd9-4aad-8046-5c984f4ece45",
   "prevIds": [
     "478b925d-8ac8-466c-9804-bb055fdd6489",
     "7c4a0afb-efbc-4ae7-b6b5-ebc6daaddb3e"
@@ -9,7 +9,7 @@
   "ddl": [
     {
       "values": ["inbound", "outbound"],
-      "name": "activity_log_direction",
+      "name": "activity_delivery_direction",
       "entityType": "enums",
       "schema": "public"
     },
@@ -25,13 +25,13 @@
         "permanently_failed",
         "abandoned"
       ],
-      "name": "activity_log_status",
+      "name": "activity_delivery_status",
       "entityType": "enums",
       "schema": "public"
     },
     {
       "values": ["http_signature", "ld_signature", "object_integrity_proof"],
-      "name": "activity_log_verification_mechanism",
+      "name": "activity_delivery_verification_mechanism",
       "entityType": "enums",
       "schema": "public"
     },
@@ -44,7 +44,7 @@
         "unattempted",
         "unobserved"
       ],
-      "name": "activity_log_verification_result",
+      "name": "activity_delivery_verification_result",
       "entityType": "enums",
       "schema": "public"
     },
@@ -104,25 +104,25 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "activity_log_actor_collections",
+      "name": "activity_deliveries",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "activity_log_actors",
+      "name": "activity_delivery_actor_collections",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "activity_log_attempts",
+      "name": "activity_delivery_actors",
       "entityType": "tables",
       "schema": "public"
     },
     {
       "isRlsEnabled": false,
-      "name": "activity_logs",
+      "name": "activity_delivery_attempts",
       "entityType": "tables",
       "schema": "public"
     },
@@ -393,231 +393,10 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "log_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actor_collections"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "actor_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actor_collections"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "collection_iri",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actor_collections"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "log_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "actor_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "inbox_owner",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "addressed",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "addressed_directly",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "sender",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "created",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "log_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "succeeded",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status_code",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "response_body",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "error",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "CURRENT_TIMESTAMP",
-      "generated": null,
-      "identity": null,
-      "name": "created",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "uuid",
@@ -630,7 +409,7 @@
       "name": "instance_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "uuid",
@@ -643,10 +422,10 @@
       "name": "actor_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
-      "type": "activity_log_direction",
+      "type": "activity_delivery_direction",
       "typeSchema": "public",
       "notNull": true,
       "dimensions": 0,
@@ -656,10 +435,10 @@
       "name": "direction",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
-      "type": "activity_log_status",
+      "type": "activity_delivery_status",
       "typeSchema": "public",
       "notNull": true,
       "dimensions": 0,
@@ -669,10 +448,10 @@
       "name": "status",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
-      "type": "activity_log_verification_mechanism",
+      "type": "activity_delivery_verification_mechanism",
       "typeSchema": "public",
       "notNull": false,
       "dimensions": 0,
@@ -682,10 +461,10 @@
       "name": "verification_mechanism",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
-      "type": "activity_log_verification_result",
+      "type": "activity_delivery_verification_result",
       "typeSchema": "public",
       "notNull": false,
       "dimensions": 0,
@@ -695,7 +474,7 @@
       "name": "verification_result",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -708,7 +487,7 @@
       "name": "type",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -721,7 +500,7 @@
       "name": "types",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -734,7 +513,7 @@
       "name": "activity_iri",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -747,7 +526,7 @@
       "name": "object_type",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -760,7 +539,7 @@
       "name": "object_iri",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -773,7 +552,7 @@
       "name": "signed_key_iri",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "uuid",
@@ -786,7 +565,7 @@
       "name": "verification_key_id",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -799,7 +578,7 @@
       "name": "remote_actor_iri",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -812,7 +591,7 @@
       "name": "remote_host",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -825,7 +604,7 @@
       "name": "inbox_url",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -838,7 +617,7 @@
       "name": "request_url",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "jsonb",
@@ -851,7 +630,7 @@
       "name": "headers",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "bytea",
@@ -864,7 +643,7 @@
       "name": "body",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "integer",
@@ -877,7 +656,7 @@
       "name": "status_code",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -890,7 +669,7 @@
       "name": "response_body",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -903,7 +682,7 @@
       "name": "error",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "jsonb",
@@ -916,7 +695,7 @@
       "name": "payload",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "text",
@@ -929,7 +708,7 @@
       "name": "recipient_iris",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "timestamp with time zone",
@@ -942,7 +721,7 @@
       "name": "created",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "type": "timestamp with time zone",
@@ -955,7 +734,228 @@
       "name": "completed",
       "entityType": "columns",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actor_collections"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actor_collections"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "collection_iri",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actor_collections"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "actor_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "inbox_owner",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "addressed",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "addressed_directly",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "sender",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "delivery_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "succeeded",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "response_body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "name": "created",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
     },
     {
       "type": "uuid",
@@ -2357,76 +2357,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "actor_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "\"created\" desc",
-          "isExpression": true,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "\"log_id\" desc",
-          "isExpression": true,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "activity_log_actor_created_index",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "log_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "activity_log_attempt_log_index",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "instance_id",
           "isExpression": false,
           "asc": true,
@@ -2453,10 +2383,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_instance_created_index",
+      "name": "activity_delivery_instance_created_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "nameExplicit": true,
@@ -2474,10 +2404,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_actor_index",
+      "name": "activity_delivery_actor_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "nameExplicit": true,
@@ -2495,10 +2425,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_verification_key_index",
+      "name": "activity_delivery_verification_key_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "nameExplicit": true,
@@ -2523,10 +2453,80 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "activity_log_outbound_index",
+      "name": "activity_delivery_outbound_index",
       "entityType": "indexes",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "actor_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "\"created\" desc",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "\"delivery_id\" desc",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "activity_delivery_actor_created_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "delivery_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "activity_delivery_attempt_delivery_index",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
     },
     {
       "nameExplicit": true,
@@ -2778,58 +2778,6 @@
       "table": "activities"
     },
     {
-      "nameExplicit": true,
-      "columns": ["log_id", "actor_id"],
-      "schemaTo": "public",
-      "tableTo": "activity_log_actors",
-      "columnsTo": ["log_id", "actor_id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "activity_log_actor_collections_link_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "activity_log_actor_collections"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["log_id"],
-      "schemaTo": "public",
-      "tableTo": "activity_logs",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "activity_log_actors_log_id_activity_logs_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["actor_id"],
-      "schemaTo": "public",
-      "tableTo": "actors",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "activity_log_actors_actor_id_actors_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["log_id"],
-      "schemaTo": "public",
-      "tableTo": "activity_logs",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "activity_log_attempts_log_id_activity_logs_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
       "nameExplicit": false,
       "columns": ["instance_id"],
       "schemaTo": "public",
@@ -2837,10 +2785,10 @@
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "activity_logs_instance_id_instances_id_fkey",
+      "name": "activity_deliveries_instance_id_instances_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "nameExplicit": false,
@@ -2850,10 +2798,10 @@
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "SET NULL",
-      "name": "activity_logs_actor_id_actors_id_fkey",
+      "name": "activity_deliveries_actor_id_actors_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "nameExplicit": false,
@@ -2863,10 +2811,62 @@
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
-      "name": "activity_logs_verification_key_id_key_versions_id_fkey",
+      "name": "activity_deliveries_verification_key_id_key_versions_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
+    },
+    {
+      "nameExplicit": true,
+      "columns": ["delivery_id", "actor_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_delivery_actors",
+      "columnsTo": ["delivery_id", "actor_id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_delivery_actor_collections_link_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_delivery_actor_collections"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["delivery_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_deliveries",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_delivery_actors_eZEmaeqml3qX_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["actor_id"],
+      "schemaTo": "public",
+      "tableTo": "actors",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_delivery_actors_actor_id_actors_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["delivery_id"],
+      "schemaTo": "public",
+      "tableTo": "activity_deliveries",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "activity_delivery_attempts_BJqYxUSnVaXX_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
     },
     {
       "nameExplicit": false,
@@ -3129,20 +3129,20 @@
       "table": "sessions"
     },
     {
-      "columns": ["log_id", "actor_id", "collection_iri"],
+      "columns": ["delivery_id", "actor_id", "collection_iri"],
       "nameExplicit": false,
-      "name": "activity_log_actor_collections_pkey",
+      "name": "activity_delivery_actor_collections_pkey",
       "entityType": "pks",
       "schema": "public",
-      "table": "activity_log_actor_collections"
+      "table": "activity_delivery_actor_collections"
     },
     {
-      "columns": ["log_id", "actor_id"],
+      "columns": ["delivery_id", "actor_id"],
       "nameExplicit": false,
-      "name": "activity_log_actors_pkey",
+      "name": "activity_delivery_actors_pkey",
       "entityType": "pks",
       "schema": "public",
-      "table": "activity_log_actors"
+      "table": "activity_delivery_actors"
     },
     {
       "columns": ["actorId", "role"],
@@ -3187,17 +3187,17 @@
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "activity_log_attempts_pkey",
+      "name": "activity_deliveries_pkey",
       "schema": "public",
-      "table": "activity_log_attempts",
+      "table": "activity_deliveries",
       "entityType": "pks"
     },
     {
       "columns": ["id"],
       "nameExplicit": false,
-      "name": "activity_logs_pkey",
+      "name": "activity_delivery_attempts_pkey",
       "schema": "public",
-      "table": "activity_logs",
+      "table": "activity_delivery_attempts",
       "entityType": "pks"
     },
     {
@@ -3408,81 +3408,81 @@
       "table": "accounts"
     },
     {
-      "value": "\"inbox_owner\" OR \"addressed\" OR \"sender\"",
-      "name": "activity_log_actors_role_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "value": "NOT \"addressed_directly\" OR \"addressed\"",
-      "name": "activity_log_actors_addressed_directly_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "activity_log_actors"
-    },
-    {
-      "value": "\"status_code\" IS NULL OR \"status_code\" BETWEEN 100 AND 599",
-      "name": "activity_log_attempts_status_code_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
-      "value": "\"succeeded\" = (\"error\" IS NULL)",
-      "name": "activity_log_attempts_error_check",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "activity_log_attempts"
-    },
-    {
       "value": "(\"direction\" = 'inbound' AND \"status\" IN ('received', 'acknowledged', 'unverified', 'rejected')) OR (\"direction\" = 'outbound' AND \"status\" IN ('queued', 'sent', 'failed', 'permanently_failed', 'abandoned'))",
-      "name": "activity_logs_direction_status_check",
+      "name": "activity_deliveries_direction_status_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "(\"completed\" IS NULL) = (\"status\" = 'queued')",
-      "name": "activity_logs_completed_check",
+      "name": "activity_deliveries_completed_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "\"status_code\" IS NULL OR \"status_code\" BETWEEN 100 AND 599",
-      "name": "activity_logs_status_code_check",
+      "name": "activity_deliveries_status_code_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "\"direction\" <> 'outbound' OR \"verification_key_id\" IS NULL",
-      "name": "activity_logs_outbound_key_check",
+      "name": "activity_deliveries_outbound_key_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "(\"direction\" = 'inbound') = (\"verification_result\" IS NOT NULL)",
-      "name": "activity_logs_verification_result_check",
+      "name": "activity_deliveries_verification_result_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "\"verification_mechanism\" IS NULL OR (\"direction\" = 'inbound' AND \"verification_result\" NOT IN ('unattempted', 'unobserved'))",
-      "name": "activity_logs_verification_mechanism_check",
+      "name": "activity_deliveries_verification_mechanism_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
     },
     {
       "value": "(\"direction\" = 'inbound') = (\"body\" IS NOT NULL)",
-      "name": "activity_logs_body_check",
+      "name": "activity_deliveries_body_check",
       "entityType": "checks",
       "schema": "public",
-      "table": "activity_logs"
+      "table": "activity_deliveries"
+    },
+    {
+      "value": "\"inbox_owner\" OR \"addressed\" OR \"sender\"",
+      "name": "activity_delivery_actors_role_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "value": "NOT \"addressed_directly\" OR \"addressed\"",
+      "name": "activity_delivery_actors_addressed_directly_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_delivery_actors"
+    },
+    {
+      "value": "\"status_code\" IS NULL OR \"status_code\" BETWEEN 100 AND 599",
+      "name": "activity_delivery_attempts_status_code_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
+    },
+    {
+      "value": "\"succeeded\" = (\"error\" IS NULL)",
+      "name": "activity_delivery_attempts_error_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "activity_delivery_attempts"
     },
     {
       "value": "\"username\" NOT LIKE '%@%'",

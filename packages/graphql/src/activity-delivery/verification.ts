@@ -17,8 +17,8 @@
 import type { Database } from "@drfed/models";
 import { observeKeyVersion } from "@drfed/models/key";
 import type {
-  ActivityLogVerificationMechanism,
-  ActivityLogVerificationResult,
+  ActivityDeliveryVerificationMechanism,
+  ActivityDeliveryVerificationResult,
 } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import { detachSignature, exportJwk } from "@fedify/fedify";
@@ -34,11 +34,11 @@ import type {
   Report,
 } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-log"]);
+const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
 
 export interface VerificationObservation {
-  readonly mechanism: ActivityLogVerificationMechanism | null;
-  readonly result: ActivityLogVerificationResult;
+  readonly mechanism: ActivityDeliveryVerificationMechanism | null;
+  readonly result: ActivityDeliveryVerificationResult;
   readonly keyId: Uuid | null;
   readonly signedKeyIri: string | null;
   readonly detail: string | null;
@@ -46,12 +46,12 @@ export interface VerificationObservation {
 
 /** What Fedify's report says of a verification. */
 export interface Verdict {
-  readonly mechanism: ActivityLogVerificationMechanism | null;
+  readonly mechanism: ActivityDeliveryVerificationMechanism | null;
   /**
    * Whether the signature or proof verified, which is not whether Fedify took
    * it to authenticate the activity, nor whether it accepted the activity.
    */
-  readonly result: ActivityLogVerificationResult;
+  readonly result: ActivityDeliveryVerificationResult;
   readonly keyIri?: string | null;
   /**
    * The key fetches Fedify measured for the one verification the verdict is

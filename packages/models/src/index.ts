@@ -21,4 +21,4 @@ export * as schema from "./schema.ts";
 export * from "./login.ts";
 export * from "./resource.ts";
 export * from "./key.ts";
-export * from "./activity-log.ts";
+export * from "./activity-delivery.ts";

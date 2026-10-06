@@ -27,14 +27,14 @@ import {
   recordInbound,
   recordOutbound,
   settleOutbound,
-} from "@drfed/models/activity-log";
+} from "@drfed/models/activity-delivery";
 import { observeKeyVersion } from "@drfed/models/key";
 import { uuidV7 } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
 import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 
-it("enforces log constraints, key retention and outbound state transitions", async () => {
+it("enforces delivery constraints, key retention and outbound state transitions", async () => {
   const client = new PGlite();
   try {
     await migrate({ credentials: { driver: "pglite", client } });
@@ -78,11 +78,11 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     assert.equal(acknowledged.id, presetId);
     assert.equal(await receiveInbound(db, presetId), true);
     assert.equal(
-      (await db.query.activityLogs.findFirst({ where: { id: presetId } }))
+      (await db.query.activityDeliveries.findFirst({ where: { id: presetId } }))
         ?.status,
       "received",
     );
-    // Only an acknowledged inbound log is received later.
+    // Only an acknowledged inbound delivery is received later.
     assert.equal(await receiveInbound(db, presetId), false);
     assert.equal(await receiveInbound(db, inbound.id), false);
     const unparsed = await recordInbound(db, {
@@ -100,10 +100,10 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     );
     assert.equal(
       await db.$count(
-        schema.activityLogs,
+        schema.activityDeliveries,
         and(
-          eq(schema.activityLogs.id, unparsed.id),
-          isNull(schema.activityLogs.payload),
+          eq(schema.activityDeliveries.id, unparsed.id),
+          isNull(schema.activityDeliveries.payload),
         ),
       ),
       1,
@@ -118,17 +118,21 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     } as const;
     await assert.rejects(
       db
-        .insert(schema.activityLogs)
+        .insert(schema.activityDeliveries)
         .values({ ...inboundRow, verificationResult: null }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({ ...inboundRow, body: null }),
+      db
+        .insert(schema.activityDeliveries)
+        .values({ ...inboundRow, body: null }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({ ...inboundRow, completed: null }),
+      db
+        .insert(schema.activityDeliveries)
+        .values({ ...inboundRow, completed: null }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({
+      db.insert(schema.activityDeliveries).values({
         ...entry,
         id: uuidV7(),
         direction: "outbound",
@@ -145,10 +149,12 @@ it("enforces log constraints, key retention and outbound state transitions", asy
       db.delete(schema.keys).where(eq(schema.keys.id, version.keyId)),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({ ...inboundRow, status: "sent" }),
+      db
+        .insert(schema.activityDeliveries)
+        .values({ ...inboundRow, status: "sent" }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({
+      db.insert(schema.activityDeliveries).values({
         ...entry,
         id: uuidV7(),
         direction: "outbound",
@@ -157,7 +163,9 @@ it("enforces log constraints, key retention and outbound state transitions", asy
       }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogs).values({ ...inboundRow, statusCode: 600 }),
+      db
+        .insert(schema.activityDeliveries)
+        .values({ ...inboundRow, statusCode: 600 }),
     );
     const outgoing = {
       ...entry,
@@ -165,7 +173,7 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     };
     const row = await recordOutbound(db, outgoing);
     const current = (id = row.id) =>
-      db.query.activityLogs.findFirst({
+      db.query.activityDeliveries.findFirst({
         where: { id },
         with: { attempts: { orderBy: { created: "asc", id: "asc" } } },
       });
@@ -180,9 +188,9 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     assert.equal((await current())?.completed, null);
     await assert.rejects(
       db
-        .update(schema.activityLogs)
+        .update(schema.activityDeliveries)
         .set({ completed: now })
-        .where(eq(schema.activityLogs.id, row.id)),
+        .where(eq(schema.activityDeliveries.id, row.id)),
     );
     assert.equal(
       await settleOutbound(db, {
@@ -222,7 +230,7 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     assert.equal((await attempts()).length, 2);
     const [attempt] = (await current())?.attempts ?? [];
     await assert.rejects(
-      db.insert(schema.activityLogAttempts).values({
+      db.insert(schema.activityDeliveryAttempts).values({
         ...attempt!,
         id: uuidV7(),
         succeeded: true,
@@ -231,16 +239,16 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     );
     await assert.rejects(
       db
-        .insert(schema.activityLogAttempts)
+        .insert(schema.activityDeliveryAttempts)
         .values({ ...attempt!, id: uuidV7(), statusCode: 600 }),
     );
     const final = async (
       activityIri: string,
       settlement: Omit<OutboundSettlement, "activityIri" | "inboxUrl">,
     ) => {
-      const log = await recordOutbound(db, { ...outgoing, activityIri });
+      const delivery = await recordOutbound(db, { ...outgoing, activityIri });
       await settleOutbound(db, { ...outgoing, ...settlement, activityIri });
-      return log.id;
+      return delivery.id;
     };
     const abandoned = await final("https://local.example/activity/2", {
       status: "abandoned",
@@ -297,11 +305,16 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     }
     assert.deepEqual(
       (
-        await db.query.activityLogs.findMany({
+        await db.query.activityDeliveries.findMany({
           where: { activityIri: retried.activityIri },
           orderBy: { id: "asc" },
         })
-      ).map((log) => [log.id, log.status, log.statusCode, log.error]),
+      ).map((delivery) => [
+        delivery.id,
+        delivery.status,
+        delivery.statusCode,
+        delivery.error,
+      ]),
       [
         [deliveries[0]!.id, "failed", 503, "First"],
         [deliveries[1]!.id, "failed", 502, "Second"],
@@ -320,8 +333,8 @@ it("enforces log constraints, key retention and outbound state transitions", asy
     await db
       .delete(schema.instances)
       .where(eq(schema.instances.id, instanceId));
-    assert.equal(await db.$count(schema.activityLogs), 0);
-    assert.equal(await db.$count(schema.activityLogAttempts), 0);
+    assert.equal(await db.$count(schema.activityDeliveries), 0);
+    assert.equal(await db.$count(schema.activityDeliveryAttempts), 0);
     await db
       .delete(schema.keyVersions)
       .where(eq(schema.keyVersions.id, version.id));
@@ -330,7 +343,7 @@ it("enforces log constraints, key retention and outbound state transitions", asy
   }
 });
 
-it("keeps one row per log and actor and requires a role", async () => {
+it("keeps one row per delivery and actor and requires a role", async () => {
   const client = new PGlite();
   try {
     await migrate({ credentials: { driver: "pglite", client } });
@@ -413,7 +426,7 @@ it("keeps one row per log and actor and requires a role", async () => {
       created,
       completed: created,
     } as const;
-    const log = await recordInbound(db, {
+    const delivery = await recordInbound(db, {
       ...inbound,
       actorId,
       addressed: [
@@ -438,13 +451,13 @@ it("keeps one row per log and actor and requires a role", async () => {
       "https://remote.example/a",
       "https://remote.example/b",
     ]);
-    const links = await db.query.activityLogActors.findMany({
-      orderBy: { logId: "asc", actorId: "asc" },
+    const links = await db.query.activityDeliveryActors.findMany({
+      orderBy: { deliveryId: "asc", actorId: "asc" },
       with: { collections: { orderBy: { collectionIri: "asc" } } },
     });
     assert.deepEqual(
       links.map((link) => [
-        link.logId,
+        link.deliveryId,
         link.actorId,
         link.inboxOwner,
         link.addressed,
@@ -453,29 +466,30 @@ it("keeps one row per log and actor and requires a role", async () => {
         link.collections.map(({ collectionIri }) => collectionIri),
       ]),
       [
-        [log.id, actorId, true, true, true, false, [first, second]],
-        [log.id, otherId, false, true, false, false, [first]],
+        [delivery.id, actorId, true, true, true, false, [first, second]],
+        [delivery.id, otherId, false, true, false, false, [first]],
         [sent.id, actorId, false, false, false, true, []],
       ],
     );
-    // Each row copies the created of its log, which orders an actor's logs.
+    // Each row copies the created of its delivery, which orders an actor's
+    // deliveries.
     assert.deepEqual(
       links.map((link) => link.created.toString()),
-      [log, log, sent].map((row) => row.created.toString()),
+      [delivery, delivery, sent].map((row) => row.created.toString()),
     );
     await assert.rejects(
       db
-        .insert(schema.activityLogActors)
-        .values({ logId: log.id, actorId, sender: true, created }),
+        .insert(schema.activityDeliveryActors)
+        .values({ deliveryId: delivery.id, actorId, sender: true, created }),
     );
     await assert.rejects(
       db
-        .insert(schema.activityLogActors)
-        .values({ logId: sent.id, actorId: otherId, created }),
+        .insert(schema.activityDeliveryActors)
+        .values({ deliveryId: sent.id, actorId: otherId, created }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogActors).values({
-        logId: sent.id,
+      db.insert(schema.activityDeliveryActors).values({
+        deliveryId: sent.id,
         actorId: otherId,
         inboxOwner: true,
         addressedDirectly: true,
@@ -483,14 +497,14 @@ it("keeps one row per log and actor and requires a role", async () => {
       }),
     );
     await assert.rejects(
-      db.insert(schema.activityLogActorCollections).values({
-        logId: sent.id,
+      db.insert(schema.activityDeliveryActorCollections).values({
+        deliveryId: sent.id,
         actorId: otherId,
         collectionIri: first,
       }),
     );
-    // Only local actors of the log's instance, in any role.
-    const logs = await db.$count(schema.activityLogs);
+    // Only local actors of the delivery's instance, in any role.
+    const deliveries = await db.$count(schema.activityDeliveries);
     for (const refused of [
       () => recordOutbound(db, { ...outbound, actorId: strangerId }),
       () => recordOutbound(db, { ...outbound, actorId: remoteId }),
@@ -509,21 +523,23 @@ it("keeps one row per log and actor and requires a role", async () => {
     ]) {
       await assert.rejects(refused, /local actors of its instance/u);
     }
-    assert.equal(await db.$count(schema.activityLogs), logs);
+    assert.equal(await db.$count(schema.activityDeliveries), deliveries);
     const found = await db.query.actors.findFirst({
       where: { id: actorId },
       with: {
-        activityLogLinks: { orderBy: { created: "desc", logId: "desc" } },
+        activityDeliveryLinks: {
+          orderBy: { created: "desc", deliveryId: "desc" },
+        },
       },
     });
     assert.deepEqual(
-      found?.activityLogLinks.map((link) => link.logId),
-      [sent.id, log.id],
+      found?.activityDeliveryLinks.map((link) => link.deliveryId),
+      [sent.id, delivery.id],
     );
     await db
-      .delete(schema.activityLogs)
-      .where(eq(schema.activityLogs.id, log.id));
-    assert.equal(await db.$count(schema.activityLogActorCollections), 0);
+      .delete(schema.activityDeliveries)
+      .where(eq(schema.activityDeliveries.id, delivery.id));
+    assert.equal(await db.$count(schema.activityDeliveryActorCollections), 0);
   } finally {
     await client.close();
   }

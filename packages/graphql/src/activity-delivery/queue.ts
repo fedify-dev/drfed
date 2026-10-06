@@ -21,7 +21,7 @@ import {
   type OutboundSettlement,
   receiveInbound,
   settleOutbound,
-} from "@drfed/models/activity-log";
+} from "@drfed/models/activity-delivery";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
   type FederationQueueOptions,
@@ -42,7 +42,7 @@ import {
   untracked,
 } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-log"]);
+const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
 
 /** How a delivery settles, apart from which delivery it is. */
 export type Settlement = Omit<
@@ -91,8 +91,8 @@ export function failureOf(error: unknown): Failure {
 export interface QueuedAttempt {
   readonly activityIri: string;
   readonly inboxUrl: string;
-  /** The log the message belongs to, if it names one. */
-  readonly logId?: Uuid;
+  /** The delivery the message belongs to, if it names one. */
+  readonly deliveryId?: Uuid;
   failure?: Failure;
   permanent?: Failure;
   /** Fedify reported `activitypub.activity.sent` for the inbox. */
@@ -103,30 +103,32 @@ export interface QueuedAttempt {
   outcomes?: readonly string[];
 }
 
-/** The log a queued message belongs to, carried with it through retries. */
-const LOG_ID = "drfedActivityLogId";
+/**
+ * The delivery a queued message belongs to, carried with it through retries.
+ */
+const DELIVERY_ID = "drfedActivityDeliveryId";
 
 interface OutboxMessage {
   readonly type: "outbox";
   readonly activityId?: string;
   readonly inbox: string;
-  readonly [LOG_ID]?: unknown;
+  readonly [DELIVERY_ID]?: unknown;
 }
 
 interface InboxMessage {
   readonly type: "inbox";
   readonly activity?: unknown;
-  readonly [LOG_ID]?: unknown;
+  readonly [DELIVERY_ID]?: unknown;
 }
 
 const attempts = new AsyncLocalStorage<QueuedAttempt>();
 const receptions = new AsyncLocalStorage<{
   readonly activityIri: string | undefined;
-  readonly logId: Uuid;
+  readonly deliveryId: Uuid;
 }>();
 /** A delivery being run, which notes the outbox message enqueued for it. */
 export interface Delivery {
-  readonly logId: Uuid;
+  readonly deliveryId: Uuid;
   readonly inboxUrl: string;
   /** Whether an outbox message to the inbox has been enqueued. */
   enqueued: boolean;
@@ -150,14 +152,16 @@ const inboxActivityIri = (message: InboxMessage): string | undefined => {
       : undefined;
   return typeof id === "string" ? id : undefined;
 };
-const loggedIn = (message: { readonly [LOG_ID]?: unknown }) => {
-  const logId = message[LOG_ID];
-  return typeof logId === "string" && validateUuid(logId) ? logId : undefined;
+const loggedIn = (message: { readonly [DELIVERY_ID]?: unknown }) => {
+  const deliveryId = message[DELIVERY_ID];
+  return typeof deliveryId === "string" && validateUuid(deliveryId)
+    ? deliveryId
+    : undefined;
 };
 
 /**
- * Run a delivery so that the outbox messages it enqueues name its log, which
- * lets each attempt settle that log even if the activity is sent twice, and
+ * Run a delivery so that the outbox messages it enqueues name its record, which
+ * lets each attempt settle that record even if the activity is sent twice, and
  * so that the delivery knows whether one was enqueued at all.
  * @returns The result of the run.
  */
@@ -169,55 +173,61 @@ export function withDelivery<T>(
 }
 
 /**
- * The log a message being enqueued belongs to: the delivery or the inbox
+ * The delivery a message being enqueued belongs to: the delivery or the inbox
  * request enqueuing it, or, for a retry, the message being handled.
- * @returns The log ID, if any.
+ * @returns The delivery ID, if any.
  */
-function logOf(message: unknown): Uuid | undefined {
+function deliveryOf(message: unknown): Uuid | undefined {
   if (isOutbox(message)) {
     const delivery = deliveries.getStore();
     if (delivery != null && message.inbox === delivery.inboxUrl) {
       delivery.enqueued = true;
-      return delivery.logId;
+      return delivery.deliveryId;
     }
     const attempt = attempts.getStore();
     return attempt != null &&
       message.activityId === attempt.activityIri &&
       message.inbox === attempt.inboxUrl
-      ? attempt.logId
+      ? attempt.deliveryId
       : undefined;
   }
   if (isInbox(message)) {
     const reception = receptions.getStore();
     if (reception != null) {
       return inboxActivityIri(message) === reception.activityIri
-        ? reception.logId
+        ? reception.deliveryId
         : undefined;
     }
-    return tracking()?.inboundLogId;
+    return tracking()?.inboundDeliveryId;
   }
   return undefined;
 }
 
 function tag(message: unknown): unknown {
-  const logId = logOf(message);
-  return logId == null ? message : { ...(message as object), [LOG_ID]: logId };
+  const deliveryId = deliveryOf(message);
+  return deliveryId == null
+    ? message
+    : { ...(message as object), [DELIVERY_ID]: deliveryId };
 }
 
 const RECEIVED_TTL = Temporal.Duration.from({ hours: 1 });
-const receivedKey = (logId: Uuid): KvKey => [
+const receivedKey = (deliveryId: Uuid): KvKey => [
   "drfed",
-  "activityLog",
+  "activityDelivery",
   "received",
-  logId,
+  deliveryId,
 ];
 
-async function receive(db: Database, kv: KvStore, logId: Uuid): Promise<void> {
+async function receive(
+  db: Database,
+  kv: KvStore,
+  deliveryId: Uuid,
+): Promise<void> {
   try {
-    // Mark first: the inbox request may not have recorded its log yet, and it
-    // looks for the mark once it has.
-    await kv.set(receivedKey(logId), true, { ttl: RECEIVED_TTL });
-    await receiveInbound(db, logId);
+    // Mark first: the inbox request may not have recorded its delivery yet, and
+    // it looks for the mark once it has.
+    await kv.set(receivedKey(deliveryId), true, { ttl: RECEIVED_TTL });
+    await receiveInbound(db, deliveryId);
   } catch (error) {
     logger.error("Could not record a queued inbox reception: {error}", {
       error,
@@ -226,16 +236,16 @@ async function receive(db: Database, kv: KvStore, logId: Uuid): Promise<void> {
 }
 
 /**
- * Settle an inbound log recorded after the queue worker already ran its inbox
- * listener, which left a mark for it.
+ * Settle an inbound delivery recorded after the queue worker already ran its
+ * inbox listener, which left a mark for it.
  */
 export async function receivedMeanwhile(
   db: Database,
   kv: KvStore,
-  logId: Uuid,
+  deliveryId: Uuid,
 ): Promise<void> {
-  if ((await kv.get(receivedKey(logId))) === true) {
-    await receiveInbound(db, logId);
+  if ((await kv.get(receivedKey(deliveryId))) === true) {
+    await receiveInbound(db, deliveryId);
   }
 }
 
@@ -347,7 +357,7 @@ export const deliveredStatus = (
 async function settleQueued(
   db: Database,
   attempt: QueuedAttempt,
-  logId: Uuid | undefined,
+  deliveryId: Uuid | undefined,
 ): Promise<void> {
   try {
     for (const settlement of queuedSettlements(attempt)) {
@@ -356,7 +366,7 @@ async function settleQueued(
         ...settlement,
         activityIri: attempt.activityIri,
         inboxUrl: attempt.inboxUrl,
-        ...(logId == null ? {} : { id: logId }),
+        ...(deliveryId == null ? {} : { id: deliveryId }),
       });
     }
   } catch (error) {
@@ -368,14 +378,14 @@ async function handleInbox(
   db: Database,
   kv: KvStore,
   message: InboxMessage,
-  logId: Uuid,
+  deliveryId: Uuid,
   handler: (message: unknown) => Promise<void> | void,
 ): Promise<void> {
-  const reception = { activityIri: inboxActivityIri(message), logId };
+  const reception = { activityIri: inboxActivityIri(message), deliveryId };
   const { handled } = await receptions.run(reception, () =>
     trackRequest(async () => await handler(message)),
   );
-  if (handled) await receive(db, kv, logId);
+  if (handled) await receive(db, kv, deliveryId);
 }
 
 async function handle(
@@ -397,7 +407,7 @@ async function handle(
   const attempt: QueuedAttempt = {
     activityIri: message.activityId,
     inboxUrl: message.inbox,
-    ...(id == null ? {} : { logId: id }),
+    ...(id == null ? {} : { deliveryId: id }),
   };
   try {
     const { spans, outbox, responses } = await attempts.run(attempt, () =>
@@ -478,10 +488,10 @@ export function outboxQueue(
 
 /**
  * Observe what Fedify's queue workers do with each message: each delivery
- * attempt settles its outbound log, and an inbox listener run settles the
- * inbound log of the request that enqueued it.  The queues report no native
- * retrial, so that Fedify's own policy retries.  Queues shared among roles
- * stay shared.
+ * attempt settles its outbound delivery, and an inbox listener run settles the
+ * inbound delivery of the request that enqueued it.  The queues report no
+ * native retrial, so that Fedify's own policy retries.  Queues shared among
+ * roles stay shared.
  * @returns Queue options to pass to Fedify instead.
  */
 export function observeQueues(

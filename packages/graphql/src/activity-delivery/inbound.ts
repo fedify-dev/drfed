@@ -15,9 +15,9 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import { recordInbound } from "@drfed/models/activity-log";
+import { recordInbound } from "@drfed/models/activity-delivery";
 import type {
-  ActivityLogVerificationResult,
+  ActivityDeliveryVerificationResult,
   Instance,
 } from "@drfed/models/schema";
 import { type Uuid, uuidV7, validateUuid } from "@drfed/models/uuid";
@@ -38,7 +38,7 @@ import {
 } from "./tracking.ts";
 import { observeVerification } from "./verification.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-log"]);
+const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
 
 type InboundStatus = "received" | "acknowledged" | "unverified" | "rejected";
 
@@ -54,7 +54,7 @@ export function classifyInbound({
 }: {
   readonly statusCode: number | null;
   readonly handled: boolean;
-  readonly verificationResult: ActivityLogVerificationResult;
+  readonly verificationResult: ActivityDeliveryVerificationResult;
 }): InboundStatus {
   if (statusCode != null && statusCode >= 200 && statusCode < 300) {
     return handled ? "received" : "acknowledged";
@@ -249,7 +249,8 @@ export function createInboundRecorder({
 
   return {
     async fetch(request, options) {
-      // Arrival, not insertion, orders the logs: requests may finish out of order.
+      // Arrival, not insertion, orders the deliveries: requests may finish out
+      // of order.
       const created = Temporal.Now.instant();
       if (request.method !== "POST") {
         return await federation.fetch(request, options);
@@ -271,12 +272,12 @@ export function createInboundRecorder({
       };
       const payload = parseBody(body);
       // Fedify reports how it verified the request as it handles it; nothing
-      // is verified again, so the log shows Fedify's outcome and keys.
-      // Chosen now, so that a queued inbox message can name the log.
+      // is verified again, so the delivery shows Fedify's outcome and keys.
+      // Chosen now, so that a queued inbox message can name the delivery.
       const id = uuidV7();
       const { outcome, handled, ...report } = await trackSettled(
         () => federation.fetch(request, options),
-        { inboundLogId: id },
+        { inboundDeliveryId: id },
       );
       const completed = Temporal.Now.instant();
       try {

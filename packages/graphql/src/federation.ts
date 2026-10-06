@@ -51,25 +51,25 @@ import { getLogger } from "@logtape/logtape";
 import { metrics, trace } from "@opentelemetry/api";
 import { type SQL, type SQLWrapper, and, eq, sql } from "drizzle-orm";
 
-import { markQueued } from "./activity-log/outbound.ts";
+import { markQueued } from "./activity-delivery/outbound.ts";
 import {
   observeQueues,
   outboxQueue,
   reportOutboxError,
   reportPermanentFailure,
-} from "./activity-log/queue.ts";
-import { trackMetrics, trackSpans } from "./activity-log/telemetry.ts";
+} from "./activity-delivery/queue.ts";
+import { trackMetrics, trackSpans } from "./activity-delivery/telemetry.ts";
 import {
   type TrackedFederation,
   attachKv,
   markHandled,
   trackPublicKeys,
-} from "./activity-log/tracking.ts";
+} from "./activity-delivery/tracking.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
-export { createInboundRecorder } from "./activity-log/inbound.ts";
-export type { TrackedFederation } from "./activity-log/tracking.ts";
-export { deliverActivity } from "./activity-log/outbound.ts";
+export { createInboundRecorder } from "./activity-delivery/inbound.ts";
+export type { TrackedFederation } from "./activity-delivery/tracking.ts";
+export { deliverActivity } from "./activity-delivery/outbound.ts";
 
 /**
  * The vocabulary object types that DrFed serves as actors.
@@ -342,7 +342,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
  * Every registration happens on a fresh builder inside this function, so the
  * returned instance is complete and must not be mutated further.
  * The queues, if any, are observed so that each delivery attempt settles its
- * outbound log and each queued inbox listener run its inbound log.  The public-key cache and the spans and measurements
+ * outbound delivery and each queued inbox listener run its inbound delivery.  The public-key cache and the spans and measurements
  * Fedify reports are tracked so that `createInboundRecorder()` sees how each
  * inbox request was verified, and with which key.
  * @param db The database to resolve local actors from.

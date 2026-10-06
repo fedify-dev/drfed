@@ -28,68 +28,74 @@ export const relations = defineRelations(schema, (r) => ({
       to: r.keys.id,
       optional: false,
     }),
-    activityLogs: r.many.activityLogs({
+    activityDeliveries: r.many.activityDeliveries({
       from: r.keyVersions.id,
-      to: r.activityLogs.verificationKeyId,
+      to: r.activityDeliveries.verificationKeyId,
     }),
   },
-  activityLogs: {
+  activityDeliveries: {
     instance: r.one.instances({
-      from: r.activityLogs.instanceId,
+      from: r.activityDeliveries.instanceId,
       to: r.instances.id,
       optional: false,
     }),
     actor: r.one.actors({
-      from: r.activityLogs.actorId,
+      from: r.activityDeliveries.actorId,
       to: r.actors.id,
       where: { deleted: { isNull: true } },
     }),
-    actorLinks: r.many.activityLogActors({
-      from: r.activityLogs.id,
-      to: r.activityLogActors.logId,
+    actorLinks: r.many.activityDeliveryActors({
+      from: r.activityDeliveries.id,
+      to: r.activityDeliveryActors.deliveryId,
     }),
     verificationKey: r.one.keyVersions({
-      from: r.activityLogs.verificationKeyId,
+      from: r.activityDeliveries.verificationKeyId,
       to: r.keyVersions.id,
     }),
-    attempts: r.many.activityLogAttempts({
-      from: r.activityLogs.id,
-      to: r.activityLogAttempts.logId,
+    attempts: r.many.activityDeliveryAttempts({
+      from: r.activityDeliveries.id,
+      to: r.activityDeliveryAttempts.deliveryId,
     }),
   },
-  activityLogAttempts: {
-    log: r.one.activityLogs({
-      from: r.activityLogAttempts.logId,
-      to: r.activityLogs.id,
+  activityDeliveryAttempts: {
+    delivery: r.one.activityDeliveries({
+      from: r.activityDeliveryAttempts.deliveryId,
+      to: r.activityDeliveries.id,
       optional: false,
     }),
   },
-  activityLogActors: {
-    log: r.one.activityLogs({
-      from: r.activityLogActors.logId,
-      to: r.activityLogs.id,
+  activityDeliveryActors: {
+    delivery: r.one.activityDeliveries({
+      from: r.activityDeliveryActors.deliveryId,
+      to: r.activityDeliveries.id,
       optional: false,
     }),
     actor: r.one.actors({
-      from: r.activityLogActors.actorId,
+      from: r.activityDeliveryActors.actorId,
       to: r.actors.id,
       optional: false,
     }),
-    collections: r.many.activityLogActorCollections({
-      from: [r.activityLogActors.logId, r.activityLogActors.actorId],
+    collections: r.many.activityDeliveryActorCollections({
+      from: [
+        r.activityDeliveryActors.deliveryId,
+        r.activityDeliveryActors.actorId,
+      ],
       to: [
-        r.activityLogActorCollections.logId,
-        r.activityLogActorCollections.actorId,
+        r.activityDeliveryActorCollections.deliveryId,
+        r.activityDeliveryActorCollections.actorId,
       ],
     }),
   },
-  activityLogActorCollections: {
-    actorLink: r.one.activityLogActors({
+  activityDeliveryActorCollections: {
+    actorLink: r.one.activityDeliveryActors({
       from: [
-        r.activityLogActorCollections.logId,
-        r.activityLogActorCollections.actorId,
+        r.activityDeliveryActorCollections.deliveryId,
+        r.activityDeliveryActorCollections.actorId,
       ],
-      to: [r.activityLogActors.logId, r.activityLogActors.actorId],
+      to: [
+        r.activityDeliveryActors.deliveryId,
+        r.activityDeliveryActors.actorId,
+      ],
       optional: false,
     }),
   },
@@ -130,9 +136,9 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   instances: {
-    activityLogs: r.many.activityLogs({
+    activityDeliveries: r.many.activityDeliveries({
       from: r.instances.id,
-      to: r.activityLogs.instanceId,
+      to: r.activityDeliveries.instanceId,
     }),
     members: r.many.accounts({
       from: r.instances.id.through(r.instanceMembers.instanceId),
@@ -298,9 +304,9 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   actors: {
-    activityLogLinks: r.many.activityLogActors({
+    activityDeliveryLinks: r.many.activityDeliveryActors({
       from: r.actors.id,
-      to: r.activityLogActors.actorId,
+      to: r.activityDeliveryActors.actorId,
     }),
     collectionReferences: r.many.actorCollectionReferences({
       from: r.actors.id,

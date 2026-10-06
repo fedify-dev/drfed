@@ -15,8 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import { recordOutbound, settleOutbound } from "@drfed/models/activity-log";
-import type { ActivityLog } from "@drfed/models/schema";
+import {
+  recordOutbound,
+  settleOutbound,
+} from "@drfed/models/activity-delivery";
+import type { ActivityDelivery } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import type { Context, Federation } from "@fedify/fedify";
 import {
@@ -38,7 +41,7 @@ import {
 } from "./queue.ts";
 import { trackRequest } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-log"]);
+const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
 
 const queued = new WeakSet<Federation<unknown>>();
 
@@ -91,7 +94,7 @@ export function groupRecipients(
 /**
  * Deliver to explicit recipients through the current federation.
  * Each activity needs a unique IRI.  `bto` and `bcc` are removed before delivery.
- * A recipient without an ID or an inbox gets no delivery, and so no log.
+ * A recipient without an ID or an inbox gets no delivery, and so no record.
  * With a message queue, `createFederation()` settles each attempt the worker
  * makes; without one, the one attempt settles here.
  * Local actor key dispatchers must be registered before using this entry point.
@@ -128,7 +131,7 @@ export async function deliverActivity(
   );
   const results = await Promise.allSettled(
     Array.from(targets, async ([inboxUrl, group]) => {
-      let row: ActivityLog | undefined;
+      let row: ActivityDelivery | undefined;
       try {
         const payload = await delivered.toJsonLd({
           format: "compact",
@@ -175,7 +178,9 @@ export async function deliverActivity(
       // a successful delivery as failed or leave it queued.
       const send = () => ctx.sendActivity(sender, group, delivered);
       const delivery: Delivery | undefined =
-        row == null ? undefined : { logId: row.id, inboxUrl, enqueued: false };
+        row == null
+          ? undefined
+          : { deliveryId: row.id, inboxUrl, enqueued: false };
       const { spans, responses } = await trackRequest(() =>
         delivery == null ? send() : withDelivery(delivery, send),
       ).catch(async (error: unknown) => {

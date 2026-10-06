@@ -28,7 +28,7 @@ import {
   parseBody,
   recordedHeaders,
   reportedVerdict,
-} from "@drfed/graphql/activity-log";
+} from "@drfed/graphql/activity-delivery";
 import createFederation, {
   type TrackedFederation,
 } from "@drfed/graphql/federation";
@@ -138,8 +138,8 @@ async function createRecorder(
     send: (request: Request) => recorder.fetch(request, fetchOptions),
   };
 }
-const logs = (db: Database) =>
-  db.query.activityLogs.findMany({
+const findDeliveries = (db: Database) =>
+  db.query.activityDeliveries.findMany({
     orderBy: { id: "asc" },
     with: {
       verificationKey: { with: { key: true } },
@@ -187,16 +187,16 @@ it("records the key of the Linked Data Signature that verified, not of the HTTP 
       ),
     );
     assert.equal(response.status, 202);
-    const [log] = await logs(db);
-    assert.equal(log?.status, "received");
-    assert.equal(log?.verificationMechanism, "ld_signature");
-    assert.equal(log?.verificationResult, "verified");
-    assert.equal(log?.verificationKey?.key.iri, ldKeyId.href);
-    assert.equal(log?.signedKeyIri, httpKeyId.href);
+    const [delivery] = await findDeliveries(db);
+    assert.equal(delivery?.status, "received");
+    assert.equal(delivery?.verificationMechanism, "ld_signature");
+    assert.equal(delivery?.verificationResult, "verified");
+    assert.equal(delivery?.verificationKey?.key.iri, ldKeyId.href);
+    assert.equal(delivery?.signedKeyIri, httpKeyId.href);
     assert.equal(await db.$count(schema.keys), 1);
     const broken = { ...signed, id: "https://remote.example/activities/x" };
     assert.equal((await send(post(JSON.stringify(broken)))).status, 401);
-    const failed = (await logs(db))[1];
+    const failed = (await findDeliveries(db))[1];
     assert.equal(failed?.status, "unverified");
     assert.equal(failed?.verificationMechanism, "ld_signature");
     assert.equal(failed?.verificationResult, "invalid_signature");
@@ -236,13 +236,13 @@ it("records an Object Integrity Proof, and acknowledges a duplicate without rece
     );
     assert.equal((await send(post(body))).status, 202);
     assert.equal((await send(post(body))).status, 202);
-    const [first, second] = await logs(db);
-    for (const log of [first, second]) {
-      assert.equal(log?.verificationMechanism, "object_integrity_proof");
-      assert.equal(log?.verificationResult, "verified");
-      assert.equal(log?.verificationKey?.key.iri, proofKeyId.href);
-      assert.equal(log?.signedKeyIri, null);
-      assert.equal(log?.error, null);
+    const [first, second] = await findDeliveries(db);
+    for (const delivery of [first, second]) {
+      assert.equal(delivery?.verificationMechanism, "object_integrity_proof");
+      assert.equal(delivery?.verificationResult, "verified");
+      assert.equal(delivery?.verificationKey?.key.iri, proofKeyId.href);
+      assert.equal(delivery?.signedKeyIri, null);
+      assert.equal(delivery?.error, null);
     }
     assert.equal(first?.status, "received");
     assert.equal(second?.status, "acknowledged");
@@ -289,7 +289,7 @@ it("records the key of an Object Integrity Proof at an FEP-ef61 compatible ident
     // Fedify fetches the key the first time, and reads its cache the second.
     assert.equal((await send(post(body))).status, 202);
     assert.equal((await send(post(body))).status, 202);
-    const [first, second] = await logs(db);
+    const [first, second] = await findDeliveries(db);
     assert.equal(first?.status, "received");
     assert.equal(first?.verificationMechanism, "object_integrity_proof");
     assert.equal(first?.verificationResult, "verified");
@@ -345,7 +345,7 @@ it("records the key Fedify verified with, whatever a later fetch returns", async
     const accepted = await send(await signed());
     assert.equal(accepted.status, 202);
     assert.equal(fetched, 2);
-    const [refusal, acceptance] = await logs(db);
+    const [refusal, acceptance] = await findDeliveries(db);
     assert.equal(refusal?.status, "unverified");
     assert.equal(refusal?.verificationResult, "invalid_signature");
     assert.equal(refusal?.verificationKey?.publicKey.n, await modulus(first));
@@ -389,7 +389,7 @@ it("records the key Fedify verified with, even when fetching it again failed", a
     // The cached key does not verify, and fetching it again fails.
     online = false;
     assert.equal((await send(await signed("offline", rotated))).status, 401);
-    const [, refusal] = await logs(db);
+    const [, refusal] = await findDeliveries(db);
     assert.equal(refusal?.status, "unverified");
     assert.equal(refusal?.verificationResult, "key_fetch_error");
     assert.equal(
@@ -428,12 +428,12 @@ it("records a signature or proof sent to an unknown inbox as unattempted", async
       const response = await send(post(JSON.stringify(document), unknown));
       assert.equal(response.status, 404);
     }
-    const recorded = await logs(db);
+    const recorded = await findDeliveries(db);
     assert.equal(recorded.length, 2);
-    for (const log of recorded) {
-      assert.equal(log.verificationMechanism, null);
-      assert.equal(log.verificationResult, "unattempted");
-      assert.equal(log.verificationKey, null);
+    for (const delivery of recorded) {
+      assert.equal(delivery.verificationMechanism, null);
+      assert.equal(delivery.verificationResult, "unattempted");
+      assert.equal(delivery.verificationKey, null);
     }
   });
 });
@@ -470,17 +470,19 @@ it("keeps a delivery whose JSON PostgreSQL cannot store, with its octets", async
       actor: `${actorIri.href}\u0000`,
     });
     await send(post(unparsed));
-    const recorded = await logs(db);
+    const recorded = await findDeliveries(db);
     assert.deepEqual(
-      recorded.map((log) => new TextDecoder().decode(log.body ?? undefined)),
+      recorded.map((delivery) =>
+        new TextDecoder().decode(delivery.body ?? undefined),
+      ),
       [...signed, unparsed],
     );
-    for (const log of recorded) assert.equal(log.payload, null);
+    for (const delivery of recorded) assert.equal(delivery.payload, null);
     const [nul, surrogate, raw] = recorded;
-    for (const log of [nul, surrogate]) {
-      assert.equal(log?.status, "received");
-      assert.equal(log?.verificationResult, "verified");
-      assert.equal(log?.statusCode, 202);
+    for (const delivery of [nul, surrogate]) {
+      assert.equal(delivery?.status, "received");
+      assert.equal(delivery?.verificationResult, "verified");
+      assert.equal(delivery?.statusCode, 202);
     }
     assert.equal(nul?.activityIri, "https://remote.example/activities/nul");
     assert.deepEqual(
@@ -530,18 +532,21 @@ it("records a request Fedify throws on, and throws the exception again", async (
     await assert.rejects(recorder.fetch(request, fetchOptions), {
       name: "jsonld.InvalidUrl",
     });
-    const [log, ...rest] = await logs(db);
+    const [delivery, ...rest] = await findDeliveries(db);
     assert.deepEqual(rest, []);
     assert.deepEqual(
-      [log?.status, log?.statusCode, log?.responseBody],
+      [delivery?.status, delivery?.statusCode, delivery?.responseBody],
       ["unverified", null, null],
     );
-    assert.match(log?.error ?? "", /^jsonld\.InvalidUrl: /u);
-    assert.equal(new TextDecoder().decode(log?.body ?? undefined), body);
-    assert.equal(log?.activityIri, "https://remote.example/activities/thrown");
-    assert.equal(log?.verificationResult, "unattempted");
-    assert.equal(log?.signedKeyIri, httpKeyId.href);
-    assert.ok(log?.completed != null);
+    assert.match(delivery?.error ?? "", /^jsonld\.InvalidUrl: /u);
+    assert.equal(new TextDecoder().decode(delivery?.body ?? undefined), body);
+    assert.equal(
+      delivery?.activityIri,
+      "https://remote.example/activities/thrown",
+    );
+    assert.equal(delivery?.verificationResult, "unattempted");
+    assert.equal(delivery?.signedKeyIri, httpKeyId.href);
+    assert.ok(delivery?.completed != null);
   });
 });
 
@@ -588,7 +593,7 @@ it("records the key of an Object Integrity Proof that fails, and of one keyed by
     const { proof, ...expanded } = await sign("expanded");
     const full = { ...expanded, "https://w3id.org/security#proof": proof };
     assert.equal((await send(post(JSON.stringify(full)))).status, 202);
-    const [failed, verified] = await logs(db);
+    const [failed, verified] = await findDeliveries(db);
     assert.equal(failed?.verificationMechanism, "object_integrity_proof");
     assert.equal(failed?.verificationResult, "invalid_signature");
     assert.equal(failed?.verificationKey?.key.iri, proofKeyId.href);
@@ -670,13 +675,13 @@ it("tells a key that could not be fetched from a signature that did not verify",
         const id = `${mechanism}-${failure}-${index}`;
         const response = await send(await sign(id, keyIri(mechanism, failure)));
         assert.equal(response.status, 401, id);
-        const log = (await logs(db)).at(-1);
-        assert.equal(log?.status, "unverified", id);
-        assert.equal(log?.verificationMechanism, mechanism, id);
-        assert.equal(log?.verificationResult, "key_fetch_error", id);
-        assert.equal(log?.verificationKey, null, id);
+        const delivery = (await findDeliveries(db)).at(-1);
+        assert.equal(delivery?.status, "unverified", id);
+        assert.equal(delivery?.verificationMechanism, mechanism, id);
+        assert.equal(delivery?.verificationResult, "key_fetch_error", id);
+        assert.equal(delivery?.verificationKey, null, id);
         assert.equal(
-          log?.error,
+          delivery?.error,
           `keyFetchError: ${causes[mechanism][index]}`,
           id,
         );
@@ -755,7 +760,7 @@ it("records the key a signature or proof failed with, when fetching it again fai
       (await send(await proof("proof-offline", ed[1]!))).status,
       401,
     );
-    const [, , ldRefusal, proofRefusal] = await logs(db);
+    const [, , ldRefusal, proofRefusal] = await findDeliveries(db);
     for (const [refusal, mechanism, keyId] of [
       [ldRefusal, "ld_signature", ldKeyId],
       [proofRefusal, "object_integrity_proof", proofKeyId],
@@ -817,14 +822,14 @@ it("records the key each verification used, not one another found under the same
       proofKeyId,
     );
     assert.equal((await send(request)).status, 401);
-    const [log] = await logs(db);
-    assert.equal(log?.status, "unverified");
-    assert.equal(log?.verificationMechanism, "http_signature");
-    assert.equal(log?.verificationResult, "key_fetch_error");
-    assert.equal(log?.error, "keyFetchError: invalid");
-    assert.equal(log?.signedKeyIri, proofKeyId.href);
+    const [delivery] = await findDeliveries(db);
+    assert.equal(delivery?.status, "unverified");
+    assert.equal(delivery?.verificationMechanism, "http_signature");
+    assert.equal(delivery?.verificationResult, "key_fetch_error");
+    assert.equal(delivery?.error, "keyFetchError: invalid");
+    assert.equal(delivery?.signedKeyIri, proofKeyId.href);
     // The proof read the Ed25519 key; the HTTP signature found none to use.
-    assert.equal(log?.verificationKey, null);
+    assert.equal(delivery?.verificationKey, null);
     // A Linked Data Signature and the HTTP signature name one key, too.
     const [cached, rotated] = [
       await generateCryptoKeyPair(),
@@ -867,7 +872,7 @@ it("records the key each verification used, not one another found under the same
       httpKeyId,
     );
     assert.equal((await shared.send(both)).status, 401);
-    const refusal = (await logs(db)).at(-1);
+    const refusal = (await findDeliveries(db)).at(-1);
     assert.equal(refusal?.verificationMechanism, "http_signature");
     assert.equal(refusal?.verificationResult, "key_fetch_error");
     assert.equal(refusal?.signedKeyIri, httpKeyId.href);
@@ -919,18 +924,21 @@ it("records a proof that verified as verified, though it does not authenticate t
       httpKeyId,
     );
     assert.equal((await send(unsigned)).status, 401);
-    const recorded = await logs(db);
+    const recorded = await findDeliveries(db);
     assert.equal(recorded.length, 2);
-    for (const log of recorded) {
-      assert.equal(log.status, "rejected");
-      assert.equal(log.verificationMechanism, "object_integrity_proof");
-      assert.equal(log.verificationResult, "verified");
-      assert.equal(log.verificationKey?.key.iri, proofKeyId.href);
-      assert.equal(log.verificationKey?.publicKey.kty, "OKP");
-      assert.match(log.error ?? "", /did not accept them as authenticating/u);
+    for (const delivery of recorded) {
+      assert.equal(delivery.status, "rejected");
+      assert.equal(delivery.verificationMechanism, "object_integrity_proof");
+      assert.equal(delivery.verificationResult, "verified");
+      assert.equal(delivery.verificationKey?.key.iri, proofKeyId.href);
+      assert.equal(delivery.verificationKey?.publicKey.kty, "OKP");
+      assert.match(
+        delivery.error ?? "",
+        /did not accept them as authenticating/u,
+      );
     }
     assert.deepEqual(
-      recorded.map((log) => log.signedKeyIri),
+      recorded.map((delivery) => delivery.signedKeyIri),
       [null, httpKeyId.href],
     );
   });
@@ -967,7 +975,8 @@ it("receives a queued activity once the queue worker runs its listener", async (
       const controller = new AbortController();
       const start = () =>
         federation.startQueue(undefined, { signal: controller.signal });
-      // Holding the recorder back lets the worker finish before the log exists.
+      // Holding the recorder back lets the worker finish before the delivery
+      // exists.
       const { promise: held, resolve: release } = Promise.withResolvers<void>();
       const recorder = createInboundRecorder({
         db: workerFirst
@@ -1015,7 +1024,7 @@ it("receives a queued activity once the queue worker runs its listener", async (
         let status: string | undefined;
         for (let tries = 0; tries < 300 && status !== "received"; tries += 1) {
           await sleep(10);
-          status = (await db.query.activityLogs.findFirst())?.status;
+          status = (await db.query.activityDeliveries.findFirst())?.status;
         }
         assert.equal(status, "received", `worker first: ${workerFirst}`);
       } finally {
@@ -1058,7 +1067,7 @@ it("touches neither the database nor the body of a request that is not an inbox 
       assert.equal(request.bodyUsed, false);
     }
     assert.equal(queries, 0);
-    assert.equal(await db.$count(schema.activityLogs), 0);
+    assert.equal(await db.$count(schema.activityDeliveries), 0);
   });
 });
 
@@ -1080,7 +1089,7 @@ it("keeps the received octets and headers while parsing a payload for querying",
     );
     const invalidUtf8 = new Uint8Array([0x7b, 0xff, 0x7d]);
     assert.equal((await send(post(invalidUtf8))).status, 400);
-    const [duplicated, binary] = await logs(db);
+    const [duplicated, binary] = await findDeliveries(db);
     assert.equal(new TextDecoder().decode(duplicated?.body ?? undefined), body);
     assert.deepEqual(duplicated?.payload, {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -1476,7 +1485,10 @@ it("stores the canonical inbox IRI apart from the URL a request arrived at", asy
       await send(post(JSON.stringify(activity("canonical")), url));
     }
     assert.deepEqual(
-      (await logs(db)).map((log) => [log.inboxUrl, log.requestUrl]),
+      (await findDeliveries(db)).map((delivery) => [
+        delivery.inboxUrl,
+        delivery.requestUrl,
+      ]),
       [
         [inbox, arrivals[0]],
         [sharedInbox, arrivals[1]],
@@ -1510,7 +1522,7 @@ it("keeps IRIs that are not URLs out of URL fields, but in the request", async (
     const result = await (
       await query(
         {
-          query: `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 1) { edges { node {
+          query: `{ node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityDeliveries(first: 1) { edges { node {
             activityIri remoteActorIri signedKeyIri remoteHost payload rawBody requestHeaders
           } } } } } }`,
         },
@@ -1518,7 +1530,7 @@ it("keeps IRIs that are not URLs out of URL fields, but in the request", async (
       )
     ).json();
     assert.equal(result.errors, undefined, JSON.stringify(result.errors));
-    const { node } = result.data.node.activityLogs.edges[0];
+    const { node } = result.data.node.activityDeliveries.edges[0];
     assert.deepEqual(
       [node.activityIri, node.remoteActorIri, node.signedKeyIri],
       [null, null, null],
@@ -1534,7 +1546,7 @@ it("keeps IRIs that are not URLs out of URL fields, but in the request", async (
   });
 });
 
-it("orders logs by arrival, even when handling ends out of order", async () => {
+it("orders deliveries by arrival, even when handling ends out of order", async () => {
   await withTemporaryDatabase(async (db) => {
     await seedLocalActor(db);
     const kv = new MemoryKvStore();
@@ -1581,13 +1593,13 @@ it("orders logs by arrival, even when handling ends out of order", async () => {
     release();
     await slowResponse;
     const iris = async (orderBy: { created: "asc" } | { id: "asc" }) =>
-      (await db.query.activityLogs.findMany({ orderBy })).map(
-        (log) => log.activityIri,
+      (await db.query.activityDeliveries.findMany({ orderBy })).map(
+        (delivery) => delivery.activityIri,
       );
-    // Both the time and the ID of a log are chosen as its request arrives.
+    // Both the time and the ID of a delivery are chosen as its request arrives.
     assert.deepEqual(await iris({ created: "asc" }), [slow.id, fast.id]);
     assert.deepEqual(await iris({ id: "asc" }), [slow.id, fast.id]);
-    const [first, second] = await db.query.activityLogs.findMany({
+    const [first, second] = await db.query.activityDeliveries.findMany({
       orderBy: { created: "asc" },
     });
     assert.ok(Temporal.Instant.compare(first!.completed!, first!.created) >= 0);
@@ -1597,7 +1609,7 @@ it("orders logs by arrival, even when handling ends out of order", async () => {
   });
 });
 
-it("relates a log to every local actor it concerns, once", async () => {
+it("relates a delivery to every local actor it concerns, once", async () => {
   await withTestHarness(async ({ db, post: query }) => {
     const auth = await seedAuthenticatedLocalInstance(db);
     await seedLocalActor(db);
@@ -1630,12 +1642,12 @@ it("relates a log to every local actor it concerns, once", async () => {
     for (const [id, url, extra] of deliveries) {
       await send(post(JSON.stringify(activity(id, extra)), url));
     }
-    const rows = await logs(db);
+    const rows = await findDeliveries(db);
     assert.deepEqual(
-      rows.map((log) => [
-        log.activityIri?.split("/").at(-1),
-        log.actorId,
-        log.actorLinks.map((link) => [
+      rows.map((delivery) => [
+        delivery.activityIri?.split("/").at(-1),
+        delivery.actorId,
+        delivery.actorLinks.map((link) => [
           link.actorId,
           link.inboxOwner,
           link.addressed,
@@ -1669,8 +1681,8 @@ it("relates a log to every local actor it concerns, once", async () => {
         await query(
           {
             query: `{
-              actor: node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityLogs(first: 20) { edges { addressedDirectly viaCollections node { activityIri } } } } }
-              instance: node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 20) { edges { node { activityIri actor { uuid } } } } } }
+              actor: node(id: "${globalId("Actor", localActorId)}") { ... on Actor { activityDeliveries(first: 20) { edges { addressedDirectly viaCollections node { activityIri } } } } }
+              instance: node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityDeliveries(first: 20) { edges { node { activityIri actor { uuid } } } } } }
             }`,
           },
           auth,
@@ -1684,7 +1696,7 @@ it("relates a log to every local actor it concerns, once", async () => {
     }) =>
       connection.edges.map((edge) => edge.node.activityIri.split("/").at(-1));
     const before = await read();
-    assert.deepEqual(names(before.actor.activityLogs), [
+    assert.deepEqual(names(before.actor.activityDeliveries), [
       "both",
       "members",
       "array",
@@ -1693,7 +1705,7 @@ it("relates a log to every local actor it concerns, once", async () => {
       "own",
     ]);
     assert.deepEqual(
-      before.actor.activityLogs.edges
+      before.actor.activityDeliveries.edges
         .slice(0, 2)
         .map(
           (edge: { addressedDirectly: boolean; viaCollections: string[] }) => [
@@ -1706,9 +1718,12 @@ it("relates a log to every local actor it concerns, once", async () => {
         [false, [followers]],
       ],
     );
-    assert.equal(before.instance.activityLogs.edges.length, deliveries.length);
     assert.equal(
-      before.instance.activityLogs.edges.at(-1).node.actor.uuid,
+      before.instance.activityDeliveries.edges.length,
+      deliveries.length,
+    );
+    assert.equal(
+      before.instance.activityDeliveries.edges.at(-1).node.actor.uuid,
       localActorId,
     );
     await db
@@ -1717,8 +1732,14 @@ it("relates a log to every local actor it concerns, once", async () => {
       .where(eq(schema.actors.id, localActorId));
     const after = await read();
     assert.equal(after.actor, null);
-    assert.equal(after.instance.activityLogs.edges.length, deliveries.length);
-    assert.equal(after.instance.activityLogs.edges.at(-1).node.actor, null);
+    assert.equal(
+      after.instance.activityDeliveries.edges.length,
+      deliveries.length,
+    );
+    assert.equal(
+      after.instance.activityDeliveries.edges.at(-1).node.actor,
+      null,
+    );
   });
 });
 
@@ -1753,7 +1774,7 @@ it("exposes what was observed, and pages through the versions of a key", async (
     const result = await (
       await query(
         {
-          query: `query($after: String) { node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityLogs(first: 1) { edges { node {
+          query: `query($after: String) { node(id: "${globalId("Instance", localInstanceId)}") { ... on Instance { activityDeliveries(first: 1) { edges { node {
             ${fields}
             verificationKey { key { versions(first: 2, after: $after) { edges { node { uuid fingerprint } } pageInfo { hasNextPage endCursor } } } }
           } } } } } }`,
@@ -1762,7 +1783,7 @@ it("exposes what was observed, and pages through the versions of a key", async (
       )
     ).json();
     assert.equal(result.errors, undefined, JSON.stringify(result.errors));
-    const { node } = result.data.node.activityLogs.edges[0];
+    const { node } = result.data.node.activityDeliveries.edges[0];
     assert.equal(node.status, "acknowledged");
     assert.equal(node.verificationMechanism, "http_signature");
     assert.equal(node.verificationResult, "verified");
@@ -1800,7 +1821,7 @@ it("exposes what was observed, and pages through the versions of a key", async (
     });
     const anonymous = await (
       await query({
-        query: `{ node(id: "${Buffer.from(`ActivityLog:${node.uuid}`).toString("base64")}") { ... on ActivityLog { ${fields} } } }`,
+        query: `{ node(id: "${Buffer.from(`ActivityDelivery:${node.uuid}`).toString("base64")}") { ... on ActivityDelivery { ${fields} } } }`,
       })
     ).json();
     assert.ok(anonymous.errors?.length);
