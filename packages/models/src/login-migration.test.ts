@@ -64,7 +64,11 @@ it("upgrades hashed challenges while preserving accounts and sessions", async ()
       [uuidV7(), accountId, "b".repeat(64), "c".repeat(64)],
     );
     const accounts = (await client.query("SELECT * FROM accounts")).rows;
-    const sessions = (await client.query("SELECT * FROM sessions")).rows;
+    const sessions = (
+      await client.query(
+        'SELECT id, "accountId" AS account_id, "tokenHash" AS token_hash, created, expires FROM sessions',
+      )
+    ).rows;
     await migrate({ credentials: { driver: "pglite", client } });
     assert.deepEqual(
       (await client.query("SELECT * FROM accounts")).rows,
@@ -80,7 +84,7 @@ it("upgrades hashed challenges while preserving accounts and sessions", async ()
     );
     const id = uuidV7();
     await client.query(
-      'INSERT INTO login_challenges (id, "accountId", code) VALUES ($1, $2, $3)',
+      "INSERT INTO login_challenges (id, account_id, code) VALUES ($1, $2, $3)",
       [id, accountId, "abc123"],
     );
     const row = (
