@@ -17,7 +17,7 @@
 import type { Database, schema } from "@drfed/models";
 import type { Actor, Resource } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
-import type { Context, FederationBuilder } from "@fedify/fedify";
+import type { ActorKeyPair, Context, FederationBuilder } from "@fedify/fedify";
 import {
   Application,
   Endpoints,
@@ -29,6 +29,7 @@ import {
   Tombstone,
 } from "@fedify/vocab";
 
+import { ensureActorKeyPairs } from "./actor-key.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
 /**
@@ -113,10 +114,19 @@ export function registerActorDispatcher(
       if (actor.deleted != null) {
         return new Tombstone({ id: ctx.getActorUri(identifier) });
       }
-      return toActorObject(ctx, identifier, actor);
+      const keyContext = ctx.federation.createContext(
+        new URL(actor.resource.iri),
+        ctx.data,
+      );
+      const keys = await keyContext.getActorKeyPairs(actor.id);
+      if (keys.length !== 2) {
+        throw new Error("Could not load actor signing keys.");
+      }
+      return toActorObject(ctx, identifier, actor, keys);
     })
-    // FIXME: https://github.com/fedify-dev/drfed/issues/87
-    .setKeyPairsDispatcher(() => [])
+    .setKeyPairsDispatcher((ctx, identifier) =>
+      ensureActorKeyPairs(db, ctx, identifier),
+    )
     .mapHandle(async (ctx, username) => {
       const actor = await db.query.actors.findFirst({
         where: {
@@ -128,7 +138,6 @@ export function registerActorDispatcher(
       });
       return actor?.id ?? null;
     });
-  // FIXME: https://github.com/fedify-dev/drfed/issues/87
 }
 
 // Whether a sanction is *currently* active is always determined by comparing
@@ -147,9 +156,12 @@ function toActorObject(
   ctx: Context<unknown>,
   identifier: string,
   actor: StoredActor,
+  keys: ActorKeyPair[],
 ): ActorObject {
   return actorConstructors[actor.type]({
     id: new URL(actor.resource.iri),
+    publicKey: keys[0]!.cryptographicKey,
+    assertionMethods: keys.map((key) => key.multikey),
     preferredUsername: actor.username,
     name: actor.name,
     summary: actor.bioHtml,

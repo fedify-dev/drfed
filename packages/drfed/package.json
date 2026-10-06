@@ -53,6 +53,10 @@
     "./serving": {
       "types": "./dist/serving.d.mts",
       "default": "./dist/serving.mjs"
+    },
+    "./query-logger": {
+      "types": "./dist/query-logger.d.mts",
+      "default": "./dist/query-logger.mjs"
     }
   },
   "files": [
@@ -67,7 +71,8 @@
     "entry": [
       "src/index.ts",
       "src/valueparser.ts",
-      "src/serving.ts"
+      "src/serving.ts",
+      "src/query-logger.ts"
     ],
     "dts": {
       "sourcemap": true,

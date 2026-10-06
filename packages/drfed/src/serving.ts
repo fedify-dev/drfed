@@ -95,11 +95,15 @@ export function createFetchHandler(
     }
     switch (classifyHost(url, rootOrigin)) {
       case "instance":
-        return await federation.fetch(request, {
-          onNotFound: notFound,
-          onNotAcceptable: notFound,
-          contextData: undefined,
-        });
+        try {
+          return await federation.fetch(request, {
+            onNotFound: notFound,
+            onNotAcceptable: notFound,
+            contextData: undefined,
+          });
+        } catch {
+          return new Response("Internal server error", { status: 500 });
+        }
       case "misdirected":
         // Below the root domain but deeper than the single label an instance
         // occupies, so nothing here will ever answer.  Saying so is more use

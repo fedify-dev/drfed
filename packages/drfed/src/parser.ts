@@ -16,7 +16,6 @@
 
 import { relations, schema } from "@drfed/models";
 import { PGlite } from "@electric-sql/pglite";
-import { getLogger } from "@logtape/drizzle-orm";
 import { merge, object, or } from "@optique/core/constructs";
 import { message, optionNames } from "@optique/core/message";
 import { map, multiple, optional, withDefault } from "@optique/core/modifiers";
@@ -31,6 +30,7 @@ import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
+import { privateKeySafeLogger } from "./query-logger.ts";
 import { rootOrigin } from "./valueparser.ts";
 
 const pgliteParser = map(
@@ -54,7 +54,7 @@ const pgliteParser = map(
         client,
         relations,
         schema,
-        logger: getLogger(),
+        logger: privateKeySafeLogger(),
       }),
     };
   },
@@ -80,7 +80,7 @@ const postgresParser = map(
         client,
         relations,
         schema,
-        logger: getLogger(),
+        logger: privateKeySafeLogger(),
       }),
     };
   },

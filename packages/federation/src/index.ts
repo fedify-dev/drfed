@@ -35,6 +35,7 @@ import {
   attachKv,
   trackPublicKeys,
 } from "./activity-delivery/tracking.ts";
+import { attachActorKeyTask, registerActorKeyTask } from "./actor-key-task.ts";
 import { registerActorDispatcher } from "./actor.ts";
 import { registerCollectionDispatchers } from "./collection.ts";
 import { registerInboxListeners } from "./inbox.ts";
@@ -42,6 +43,7 @@ import { registerObjectDispatchers } from "./object-dispatchers.ts";
 
 export { createInboundRecorder } from "./activity-delivery/inbound.ts";
 export type { TrackedFederation } from "./activity-delivery/tracking.ts";
+export { enqueueActorKeyGeneration } from "./actor-key-task.ts";
 export { deliverActivity } from "./activity-delivery/outbound.ts";
 
 /**
@@ -55,6 +57,7 @@ export { deliverActivity } from "./activity-delivery/outbound.ts";
 export function buildFederation(db: Database): FederationBuilder<unknown> {
   const builder = createFederationBuilder<unknown>();
   registerActorDispatcher(builder, db);
+  registerActorKeyTask(builder, db);
   registerInboxListeners(builder);
   registerObjectDispatchers(builder, db);
   registerCollectionDispatchers(builder, db);
@@ -80,7 +83,8 @@ export default async function createFederation(
   db: Database,
   options: FederationOptions<unknown>,
 ): Promise<TrackedFederation> {
-  const federation = await buildFederation(db).build({
+  const builder = buildFederation(db);
+  const federation = await builder.build({
     ...options,
     kv: trackPublicKeys(
       options.kv,
@@ -102,5 +106,12 @@ export default async function createFederation(
   });
   if (outboxQueue(options.queue) != null) markQueued(federation);
   attachKv(federation, options.kv);
+  attachActorKeyTask(
+    builder,
+    federation,
+    options.queue != null &&
+      "task" in options.queue &&
+      options.queue.task != null,
+  );
   return federation as TrackedFederation;
 }

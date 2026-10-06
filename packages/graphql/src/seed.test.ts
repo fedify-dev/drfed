@@ -26,6 +26,7 @@ import {
 } from "@drfed/models";
 import { type AddressingInput, PUBLIC_IRI } from "@drfed/models/resource";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
+import { exportJwk, generateCryptoKeyPair } from "@fedify/fedify";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 
 import { hashSecret } from "./auth/hash.ts";
@@ -81,26 +82,33 @@ export async function seedAuthenticatedLocalInstance(
   return { headers: { authorization: `Bearer ${accessToken}` } };
 }
 
-export async function seedLocalActor(db: Database): Promise<void> {
+export async function seedLocalActor(
+  db: Database,
+  options: { keys?: boolean } = {},
+): Promise<void> {
   await seedLocalInstance(db);
   await db.insert(schema.localActors).values({
     id: localActorId,
     avatar: "avatar.png",
     header: "header.png",
   });
-  await seedActors(db, {
-    id: localActorId,
-    localId: localActorId,
-    instanceId: localInstanceId,
-    type: "Person",
-    username: "alice",
-    iri: `https://test-instance.drfed.org/users/${localActorId}`,
-    inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
-    avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
-    headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
-    profileUrl: "https://test-instance.drfed.org/@alice",
-    created,
-  });
+  await seedActors(
+    db,
+    {
+      id: localActorId,
+      localId: localActorId,
+      instanceId: localInstanceId,
+      type: "Person",
+      username: "alice",
+      iri: `https://test-instance.drfed.org/users/${localActorId}`,
+      inboxUrl: `https://test-instance.drfed.org/users/${localActorId}/inbox`,
+      avatarUrl: `https://test-instance.drfed.org/users/${localActorId}/avatar/avatar.png`,
+      headerUrl: `https://test-instance.drfed.org/users/${localActorId}/header/header.png`,
+      profileUrl: "https://test-instance.drfed.org/@alice",
+      created,
+    },
+    options,
+  );
 }
 
 export async function seedLocalInstance(
@@ -153,6 +161,7 @@ type ActorSeed = PgInsertValue<typeof schema.actors> & {
 export async function seedActors(
   db: Database,
   values: ActorSeed | ActorSeed[],
+  options: { keys?: boolean } = {},
 ): Promise<void> {
   for (const { iri, ...actor } of Array.isArray(values) ? values : [values]) {
     await promoteResource(
@@ -188,6 +197,9 @@ export async function seedActors(
       },
       actor.id,
     );
+    if (actor.localId != null && options.keys !== false) {
+      await seedActorKeys(db, actor.localId as Uuid);
+    }
   }
 }
 type ObjectSeed = PgInsertValue<typeof schema.objects> & {
@@ -252,4 +264,46 @@ export async function seedObjects(
       object.id,
     );
   }
+}
+
+let fixtureKeys:
+  | Promise<
+      {
+        type: "RSASSA-PKCS1-v1_5" | "Ed25519";
+        publicKey: JsonWebKey;
+        privateKey: JsonWebKey;
+      }[]
+    >
+  | undefined;
+/** In-memory synthetic fixture material; generation-specific tests opt out. */
+export async function seedActorKeys(
+  db: Database,
+  localId: Uuid,
+): Promise<void> {
+  fixtureKeys ??= (async () => {
+    const rsa = await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    );
+    const ed = await generateCryptoKeyPair("Ed25519");
+    return await Promise.all(
+      [rsa, ed].map(async (pair) => ({
+        type: pair.privateKey.algorithm.name as "RSASSA-PKCS1-v1_5" | "Ed25519",
+        publicKey: await exportJwk(pair.publicKey),
+        privateKey: await exportJwk(pair.privateKey),
+      })),
+    );
+  })();
+  await db
+    .insert(schema.localActorKeys)
+    .values(
+      (await fixtureKeys).map((pair) => ({ ...pair, localActorId: localId })),
+    )
+    .onConflictDoNothing();
 }
