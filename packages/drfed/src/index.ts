@@ -17,10 +17,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
+import createFederation, { createInboundRecorder } from "@drfed/federation";
 import { createYogaServer } from "@drfed/graphql";
-import createFederation, {
-  createInboundRecorder,
-} from "@drfed/graphql/federation";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
 import { PgliteKvStore } from "@fedify/pglite";

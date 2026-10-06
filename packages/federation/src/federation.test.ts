@@ -19,8 +19,7 @@
 
 import assert from "node:assert/strict";
 
-import { createYogaServer } from "@drfed/graphql";
-import createFederation, { buildFederation } from "@drfed/graphql/federation";
+import createFederation, { buildFederation } from "@drfed/federation";
 import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
@@ -29,17 +28,31 @@ import { Object as APObject, Create } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq, sql } from "drizzle-orm";
 
-import { withTemporaryDatabase, withTestHarness } from "./harness.test.ts";
+import { withFederation, withTemporaryDatabase } from "./harness.test.ts";
 import {
-  globalId,
   localActorId,
   remoteActorId,
   seedActors,
-  seedAuthenticatedLocalInstance,
   seedLocalActor,
   seedObjects,
   seedRemoteActor,
 } from "./seed.test.ts";
+
+const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+const createIri = (id: string) =>
+  `https://test-instance.drfed.org/ap/creates/${id}`;
+const accept = { accept: "application/activity+json" };
+
+function values(id: string) {
+  return {
+    id: id as Uuid,
+    activityId: uuid(),
+    actorId: localActorId as Uuid,
+    iri: `${actorIri}/${id}`,
+    type: "Note" as const,
+    contentHtml: "<p>Hello</p>",
+  };
+}
 
 const origin = new URL("https://drfed.test");
 const activityJson = "application/activity+json";
@@ -174,37 +187,42 @@ describe("createFederation()", () => {
       assert.notEqual(first, second);
     });
   });
-});
 
-describe("createYogaServer()", () => {
-  it("does not mutate the federation instance", async () => {
-    await withTestHarness(({ db, mailer, federation }) => {
-      assert.doesNotThrow(() =>
-        createYogaServer(db, federation, {
-          mailer,
-          loginOrigins: new Set(["https://drfed.test"]),
-          rootOrigin: new URL("https://drfed.test"),
-        }),
-      );
+  it("keeps the database of each federation it builds", async () => {
+    // Two databases hold an actor under the same identifier and host, so only
+    // the database each federation was built from tells their answers apart.
+    // Both federations are built before either serves a request, which is
+    // what a builder shared across calls would get wrong.
+    await withTemporaryDatabase(async (first) => {
+      await withTemporaryDatabase(async (second) => {
+        for (const [db, name] of [
+          [first, "First"],
+          [second, "Second"],
+        ] as const) {
+          await seedLocalActor(db);
+          await db
+            .update(schema.actors)
+            .set({ name })
+            .where(eq(schema.actors.id, localActorId));
+        }
+        const federations = [
+          await createFederation(first, { kv: new MemoryKvStore() }),
+          await createFederation(second, { kv: new MemoryKvStore() }),
+        ];
+        const names = [];
+        for (const federation of federations) {
+          const response = await federation.fetch(
+            new Request(actorIri, { headers: accept }),
+            { contextData: undefined },
+          );
+          assert.equal(response.status, 200);
+          names.push((await response.json()).name);
+        }
+        assert.deepEqual(names, ["First", "Second"]);
+      });
     });
   });
 });
-
-const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
-const createIri = (id: string) =>
-  `https://test-instance.drfed.org/ap/creates/${id}`;
-const accept = { accept: "application/activity+json" };
-
-function values(id: string) {
-  return {
-    id: id as Uuid,
-    activityId: uuid(),
-    actorId: localActorId as Uuid,
-    iri: `${actorIri}/${id}`,
-    type: "Note" as const,
-    contentHtml: "<p>Hello</p>",
-  };
-}
 
 describe("ActivityPub resource origin spelling", () => {
   for (const resource of ["object", "Create", "Tombstone"] as const) {
@@ -213,7 +231,7 @@ describe("ActivityPub resource origin spelling", () => {
       "http://test-instance.drfed.org",
     ]) {
       it(`serves ${resource} from ${requestOrigin} with its stored canonical IRI`, async () => {
-        await withTestHarness(async ({ db, federation }) => {
+        await withFederation(async ({ db, federation }) => {
           await seedLocalActor(db);
           const object = values(uuid());
           const deleted =
@@ -247,7 +265,7 @@ describe("ActivityPub resource origin spelling", () => {
 describe("ActivityPub objects", () => {
   for (const publicProperty of ["to", "cc"] as const) {
     it(`serves ${publicProperty} Public objects with contentMap and recipients`, async () => {
-      await withTestHarness(async ({ db, federation }) => {
+      await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
         await seedObjects(db, {
@@ -290,7 +308,7 @@ describe("ActivityPub objects", () => {
   }
   for (const deleted of [null, Temporal.Instant.from("2026-09-06T12:00:00Z")]) {
     it(`does not serve followers-only objects (deleted: ${deleted != null})`, async () => {
-      await withTestHarness(async ({ db, federation }) => {
+      await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
         await seedObjects(db, {
@@ -311,7 +329,7 @@ describe("ActivityPub objects", () => {
     });
   }
   it("serves Articles and tombstones", async () => {
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
       await seedObjects(db, { ...object, type: "Article" });
@@ -348,7 +366,7 @@ describe("ActivityPub objects", () => {
     "deletedActor",
   ] as const) {
     it(`rejects ${scenario} object requests`, async () => {
-      await withTestHarness(async ({ db, federation }) => {
+      await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         await seedRemoteActor(db);
         const object = values(uuid());
@@ -385,7 +403,7 @@ describe("ActivityPub objects", () => {
 describe("ActivityPub Create activities", () => {
   for (const publicProperty of ["to", "cc"] as const) {
     it(`serves Create activities for ${publicProperty} Public objects`, async () => {
-      await withTestHarness(async ({ db, federation }) => {
+      await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         const object = values(uuid());
         await seedObjects(db, {
@@ -432,7 +450,7 @@ describe("ActivityPub Create activities", () => {
     "deletedActor",
   ] as const) {
     it(`rejects ${scenario} Create requests`, async () => {
-      await withTestHarness(async ({ db, federation }) => {
+      await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         await seedRemoteActor(db);
         const object = values(uuid());
@@ -466,7 +484,7 @@ describe("ActivityPub Create activities", () => {
     });
   }
   it("rejects Create requests from another host", async () => {
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
       await seedObjects(db, object);
@@ -488,7 +506,7 @@ describe("ActivityPub Create activities", () => {
 describe("ActivityPub outbox", () => {
   it("paginates Create activities while excluding followers-only and deleted objects", async () => {
     // oxlint-disable-next-line max-statements
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 23 }, () => uuid());
       const activityIds = ids.map(() => uuid());
@@ -563,7 +581,7 @@ describe("ActivityPub outbox", () => {
     });
   });
   it("orders UUIDv4 backfills by publication and retains microseconds across pages", async () => {
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const objects = Array.from({ length: 24 }, () => uuid());
       for (const [index, id] of objects.entries()) {
@@ -614,7 +632,7 @@ describe("ActivityPub outbox", () => {
     });
   });
   it("serves an empty outbox", async () => {
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const response = await federation.fetch(
         new Request(`${actorIri}/outbox?cursor=`, { headers: accept }),
@@ -629,65 +647,9 @@ describe("ActivityPub outbox", () => {
   });
 });
 
-const createMutation = `mutation Create($actor: ID!, $addressing: AddressingInput!) {
-  createObject(actor: $actor, contentHtml: "<p>Hello</p>", addressing: $addressing) {
-    ... on Object { uuid }
-    ... on CreateObjectError { errorType: type message }
-  }
-}`;
-
-// Regression tests for
-// https://github.com/fedify-dev/drfed/pull/73#discussion_r4005163252:
-// The outbox counter must match its page predicate rather than a stored count.
-describe("ActivityPub outbox totalItems", () => {
-  for (const scenario of ["followers", "deleted"] as const) {
-    it(`does not count ${scenario} objects that outbox pages never return`, async () => {
-      await withTestHarness(async ({ db, federation, post }) => {
-        const auth = await seedAuthenticatedLocalInstance(db);
-        await seedLocalActor(db);
-        const body = await (
-          await post(
-            {
-              query: createMutation,
-              variables: {
-                actor: globalId("Actor", localActorId),
-                addressing:
-                  scenario === "followers"
-                    ? { to: [`${actorIri}/followers`] }
-                    : { to: [PUBLIC_IRI] },
-              },
-            },
-            auth,
-          )
-        ).json();
-        assert.equal(body.errors, undefined);
-        assert.equal(body.data.createObject.errorType, undefined);
-        if (scenario === "deleted") {
-          await db
-            .update(schema.objects)
-            .set({ deleted: Temporal.Now.instant() })
-            .where(eq(schema.objects.id, body.data.createObject.uuid));
-        }
-        const fetchJson = async (iri: string) => {
-          const response = await federation.fetch(
-            new Request(iri, { headers: accept }),
-            { contextData: undefined },
-          );
-          assert.equal(response.status, 200);
-          return await response.json();
-        };
-        const page = await fetchJson(`${actorIri}/outbox?cursor=`);
-        assert.deepEqual(page.orderedItems ?? [], []);
-        const collection = await fetchJson(`${actorIri}/outbox`);
-        assert.equal(collection.totalItems, 0);
-      });
-    });
-  }
-});
-
 describe("stored collection membership and independent activity addressing", () => {
   it("serves stored Create IRIs and uses activity addressing for outbox and Create", async () => {
-    await withTestHarness(async ({ db, federation }) => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const object = values(uuid());
       await seedObjects(db, object);
@@ -723,8 +685,8 @@ describe("stored collection membership and independent activity addressing", () 
       assert.ok(rows.length > 0);
     });
   });
-  it("reads collection_items for followers, following, featured and GraphQL items", async () => {
-    await withTestHarness(async ({ db, federation, post }) => {
+  it("reads collection_items for followers, following and featured", async () => {
+    await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       await seedRemoteActor(db);
       const fetch = (iri: string) =>
@@ -752,19 +714,6 @@ describe("stored collection membership and independent activity addressing", () 
           "https://remote.example.com/users/bob",
         );
       }
-      const body = await (
-        await post({
-          query: `query($id: ID!) { node(id: $id) { ... on Actor { followers { resource { kind } totalCount items(first: 1) { edges { cursor node { kind iri detail { ... on Actor { username } } } } pageInfo { hasNextPage } } } } } }`,
-          variables: { id: globalId("Actor", localActorId) },
-        })
-      ).json();
-      assert.equal(body.errors, undefined);
-      assert.equal(body.data.node.followers.totalCount, 1);
-      assert.deepEqual(body.data.node.followers.items.edges[0].node, {
-        kind: "actor",
-        iri: "https://remote.example.com/users/bob",
-        detail: { username: "bob" },
-      });
     });
   });
 });

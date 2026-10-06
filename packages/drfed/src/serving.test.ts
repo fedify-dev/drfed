@@ -21,9 +21,7 @@ import {
   findStrandedInstances,
   warnAboutStrandedInstances,
 } from "@drfed/drfed/serving";
-import createFederation, {
-  createInboundRecorder,
-} from "@drfed/graphql/federation";
+import createFederation, { createInboundRecorder } from "@drfed/federation";
 import { migrate, relations, schema } from "@drfed/models";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";

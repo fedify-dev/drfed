@@ -18,11 +18,11 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
+import createFederation from "@drfed/federation";
 import {
   deliverActivity,
   groupRecipients,
-} from "@drfed/graphql/activity-delivery";
-import createFederation from "@drfed/graphql/federation";
+} from "@drfed/federation/activity-delivery";
 import type { Database } from "@drfed/models";
 import {
   type Context,

@@ -64,6 +64,9 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
 
  -  *packages/drfed* is the main application package.  It exports the
     `drfed-server` binary from *bin/drfed-server.mjs*.
+ -  *packages/federation* registers the ActivityPub dispatchers and inbox
+    listeners with Fedify, serializes stored objects and activities, and
+    owns the instance host rules.
  -  *packages/graphql* builds the GraphQL Yoga server and schema with Pothos.
  -  *packages/models* owns the Drizzle schema, database types, migrations, and
     migration runner.
@@ -72,19 +75,22 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
  -  *packages/models/drizzle* contains generated Drizzle migration files.
 
 Keep package boundaries clear.  Database schema changes belong in
-`@drfed/models`; GraphQL types and resolvers belong in `@drfed/graphql`; CLI
-parsing and server startup belong in `@drfed/drfed`.
+`@drfed/models`; ActivityPub handlers and vocabulary serialization belong in
+`@drfed/federation`; GraphQL types and resolvers belong in `@drfed/graphql`;
+CLI parsing and server startup belong in `@drfed/drfed`.  `@drfed/federation`
+must not depend on `@drfed/graphql`.
 
 
 Packages
 --------
 
-| Package            | npm name         | Description                                     |
-| ------------------ | ---------------- | ----------------------------------------------- |
-| *packages/drfed*   | `@drfed/drfed`   | CLI binary, server startup, and HTTP serving    |
-| *packages/graphql* | `@drfed/graphql` | GraphQL schema and Yoga server (Pothos + Relay) |
-| *packages/models*  | `@drfed/models`  | Drizzle schema, relations, and migration runner |
-| *packages/web*     | `@drfed/web`     | SolidStart frontend web app.                    |
+| Package               | npm name            | Description                                     |
+| --------------------- | ------------------- | ----------------------------------------------- |
+| *packages/drfed*      | `@drfed/drfed`      | CLI binary, server startup, and HTTP serving    |
+| *packages/federation* | `@drfed/federation` | ActivityPub dispatchers, listeners, and origins |
+| *packages/graphql*    | `@drfed/graphql`    | GraphQL schema and Yoga server (Pothos + Relay) |
+| *packages/models*     | `@drfed/models`     | Drizzle schema, relations, and migration runner |
+| *packages/web*        | `@drfed/web`        | SolidStart frontend web app.                    |
 
 Each package has its own *README.md* with a more detailed breakdown.
 
@@ -346,6 +352,38 @@ Review generated SQL before committing it.  Drizzle migration files under
 installed users.
 
 
+Federation changes
+------------------
+
+The ActivityPub layer lives in *packages/federation*.
+
+ -  *src/index.ts* exports `buildFederation()`, which creates a fresh Fedify
+    builder and registers every dispatcher and listener on it, and
+    `createFederation()`, which builds it with the given Fedify options.
+ -  *src/actor.ts*, *src/object-dispatchers.ts*, *src/collection.ts*, and
+    *src/inbox.ts* each register one group of handlers on the builder they
+    are given.  Do not register anything on a module-level builder.
+ -  *src/object.ts* holds the query selections and serializers for stored
+    objects and activities.  GraphQL mutations use the same serializers to
+    build the JSON-LD documents they store, so that stored documents and
+    ActivityPub responses never diverge.
+ -  *src/origin.ts* holds the instance host rules; see below.
+
+Activity delivery observations live in `activity_deliveries`, independently
+of the ActivityPub `activities` resources, and *src/activity-delivery/* holds
+the code that records them.  The federation HTTP surface must pass through
+`createInboundRecorder` with a federation made by `createFederation`, which
+tracks the public keys, spans and measurements Fedify reports for each
+request, and the deployment's root origin.  Keep the public-key cache
+serialization compatible with the installed Fedify version,
+and read only the spans, events and metrics Fedify documents in its
+OpenTelemetry manual; never verify a request again.  Inbox listeners must call
+`markHandled()`, which is how a delivery tells a received activity from an
+acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
+federation through `createFederation`, which observes the outbox queue so that
+each attempt Fedify's worker makes settles its delivery.
+
+
 GraphQL changes
 ---------------
 
@@ -362,20 +400,9 @@ When adding a new object or field, follow the existing `builder.drizzleNode()`
 and `t.drizzleField()` patterns.  Keep resolver database access through
 `ctx.db`.
 
-Activity delivery observations live in `activity_deliveries`, independently
-of the ActivityPub `activities` resources.  The federation HTTP surface must
-pass through `createInboundRecorder` with a federation made by
-`createFederation`, which tracks the public keys, spans and measurements Fedify
-reports for each request, and the deployment's root origin.  Keep the
-public-key cache serialization compatible with the installed Fedify version,
-and read only the spans, events and metrics Fedify documents in its
-OpenTelemetry manual; never verify a request again.  Inbox listeners must call
-`markHandled()`, which is how a delivery tells a received activity from an
-acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
-federation through `createFederation`, which observes the outbox queue so that
-each attempt Fedify's worker makes settles its delivery.  Delivery contents are
-private to local instance members and administrators, including Relay node
-lookups.
+The GraphQL types for activity deliveries live in
+*src/activity-delivery/entry.ts*.  Delivery contents are private to local
+instance members and administrators, including Relay node lookups.
 
 
 CLI and server changes
@@ -410,8 +437,8 @@ Requests are routed by the authority they arrive on, in
 is an instance and serves ActivityPub only; the root origin and every other
 authority serve GraphQL and never answer as an instance; anything deeper under
 the root domain is answered 421, and an unusable `Host` header 400.  The
-classification itself lives in *packages/graphql/src/origin.ts* alongside the
-functions that compose an instance's authority, so that the two can never
+classification itself lives in *packages/federation/src/origin.ts* alongside
+the functions that compose an instance's authority, so that the two can never
 disagree about what an instance host looks like.  Anything that changes how a
 host is composed or compared belongs there, not in the server.
 

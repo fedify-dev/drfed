@@ -1,0 +1,7 @@
+{
+  "extends": "./packages/federation/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./packages/federation/node_modules/@types"]
+  },
+  "include": ["packages/federation/src/**/*.ts"]
+}

@@ -13,9 +13,9 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+import createFederation from "@drfed/federation";
 import { createYogaServer } from "@drfed/graphql";
 import type { ServerContext, UserContext } from "@drfed/graphql/builder";
-import createFederation from "@drfed/graphql/federation";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PGlite } from "@electric-sql/pglite";
 import { type Federation, MemoryKvStore } from "@fedify/fedify";

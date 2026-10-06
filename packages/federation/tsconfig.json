@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["DOM", "ESNEXT"],
+    "types": ["node"],
+    "paths": {
+      "@drfed/models": ["../models/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

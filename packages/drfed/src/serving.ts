@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { canonicalizeAuthority, classifyHost } from "@drfed/graphql/origin";
+import { canonicalizeAuthority, classifyHost } from "@drfed/federation/origin";
 import type { Database } from "@drfed/models";
 import { getLogger } from "@logtape/logtape";
 

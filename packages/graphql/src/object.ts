@@ -15,6 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
+  activitySelection,
+  objectSelection,
+  toCreate,
+  toObject,
+} from "@drfed/federation/object";
+import {
   addActorCollectionItem,
   lockActorCollection,
   promoteResource,
@@ -29,12 +35,6 @@ import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
-import {
-  activitySelection,
-  objectSelection,
-  toCreate,
-  toObject,
-} from "./federation.ts";
 import {
   Activity,
   ActivityType,

@@ -62,10 +62,6 @@
       "types": "./dist/classification.d.mts",
       "default": "./dist/classification.mjs"
     },
-    "./federation": {
-      "types": "./dist/federation.d.mts",
-      "default": "./dist/federation.mjs"
-    },
     "./instance": {
       "types": "./dist/instance.d.mts",
       "default": "./dist/instance.mjs"
@@ -77,10 +73,6 @@
     "./object": {
       "types": "./dist/object.d.mts",
       "default": "./dist/object.mjs"
-    },
-    "./origin": {
-      "types": "./dist/origin.d.mts",
-      "default": "./dist/origin.mjs"
     },
     "./activity-delivery": {
       "types": "./dist/activity-delivery/entry.d.mts",
@@ -98,11 +90,9 @@
       "src/actor.ts",
       "src/builder.ts",
       "src/classification.ts",
-      "src/federation.ts",
       "src/instance.ts",
       "src/schema.ts",
       "src/object.ts",
-      "src/origin.ts",
       "src/activity-delivery/entry.ts"
     ],
     "dts": {
@@ -123,6 +113,7 @@
     "typescript": "catalog:"
   },
   "dependencies": {
+    "@drfed/federation": "workspace:*",
     "@drfed/models": "workspace:*",
     "@faker-js/faker": "catalog:",
     "@fedify/uri-template": "^2.3.1",
@@ -130,7 +121,6 @@
     "@fedify/vocab": "catalog:",
     "@logtape/graphql-yoga": "catalog:",
     "@logtape/logtape": "catalog:",
-    "@opentelemetry/api": "^1.9.1",
     "@pothos/core": "^4.13.0",
     "@pothos/plugin-drizzle": "^0.17.4",
     "@pothos/plugin-errors": "^4.9.1",

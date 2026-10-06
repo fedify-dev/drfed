@@ -23,8 +23,8 @@ Usage
 -----
 
 ~~~~ ts
+import createFederation, { createInboundRecorder } from "@drfed/federation";
 import { createYogaServer } from "@drfed/graphql";
-import createFederation, { createInboundRecorder } from "@drfed/graphql/federation";
 
 const federation = await createFederation(db, { kv });
 const recordedInbox = createInboundRecorder({ db, federation, rootOrigin });
@@ -37,11 +37,13 @@ serve({
 });
 ~~~~
 
-`createFederation` builds a Fedify `Federation` with every DrFed dispatcher
-registered.  `createYogaServer` accepts a Drizzle database instance, that
-federation, and server options, and returns a GraphQL Yoga server
-ready to handle HTTP requests.  The federation is stored in the resolver
-context as is; `createYogaServer` never registers anything on it.
+`createFederation`, from [`@drfed/federation`], builds a Fedify `Federation`
+with every DrFed dispatcher registered.  `createYogaServer` accepts a Drizzle
+database instance, that federation, and server options, and returns a GraphQL
+Yoga server ready to handle HTTP requests.  The federation is stored in the
+resolver context as is; `createYogaServer` never registers anything on it.
+
+[`@drfed/federation`]: https://github.com/fedify-dev/drfed/tree/main/packages/federation
 
 
 Activity deliveries
@@ -62,7 +64,8 @@ delivery, whose `actor` is null, still explains why it is in the actor's feed.
 `ActivityDelivery.attempts` is a connection, oldest attempt first.
 
 Wrap the federation HTTP surface with `createInboundRecorder`, passing a
-federation made by `createFederation` and the root origin.  Every inbox `POST`
+federation made by `createFederation` and the root origin; both come from
+[`@drfed/federation`].  Every inbox `POST`
 is recorded, whether or not its body is JSON; recording errors never replace
 federation responses.  A request Fedify throws on is recorded too, with the
 exception in `error` and no `statusCode`, and the exception is thrown again.
@@ -123,26 +126,26 @@ An inbound delivery keeps:
 rotation times or evidence of continuous use.  `Key` and `KeyVersion` hold
 public material only and are readable by any authenticated viewer.
 
-`deliverActivity` is the outbound entry point for explicit recipients once
-local actor keys are available (#87).  It removes `bto` and `bcc` before
-delivery, records one row per destination inbox with every recipient sharing
-it in `recipientIris`, and settles each delivery independently.  A recipient
-without an ID or an inbox is left out, because Fedify does not deliver to it.
-The recorded `payload` is the document before signing.  `attempts` keeps every
-attempt that ended, with the status the remote inbox answered, read from the
-responses `fetch()` publishes on `diagnostics_channel`, and the causes of
-network errors.  When the inbox redirects a delivery, the status is the one
-the redirects ended with, whether Fedify followed them, as it does when it
-signs the request, or `fetch()` did.  With a message queue, `createFederation`
-observes Fedify's outbox worker, and each queued message carries the delivery
-it belongs to.  A delivery becomes `sent` when Fedify reports
-`activitypub.activity.sent` for its inbox, stays `failed` while it is retried,
-and ends `permanently_failed`, or `abandoned` when Fedify measures it abandoned
-after its retries ran out.  A delivery Fedify returns from without sending to
-the inbox, or without enqueuing a message to it, is `permanently_failed` with
-no attempt, since Fedify makes none.  The queue is handed to Fedify as one
-without native retries, so that every retry follows Fedify's policy and is
-recorded.  Activity resource persistence (#88),
+`deliverActivity`, also from [`@drfed/federation`], is the outbound entry point
+for explicit recipients once local actor keys are available (#87).  It removes
+`bto` and `bcc` before delivery, records one row per destination inbox with
+every recipient sharing it in `recipientIris`, and settles each delivery
+independently.  A recipient without an ID or an inbox is left out, because
+Fedify does not deliver to it. The recorded `payload` is the document before
+signing.  `attempts` keeps every attempt that ended, with the status the remote
+inbox answered, read from the responses `fetch()` publishes on
+`diagnostics_channel`, and the causes of network errors.  When the inbox
+redirects a delivery, the status is the one the redirects ended with, whether
+Fedify followed them, as it does when it signs the request, or `fetch()` did.
+With a message queue, `createFederation` observes Fedify's outbox worker, and
+each queued message carries the delivery it belongs to.  A delivery becomes
+`sent` when Fedify reports `activitypub.activity.sent` for its inbox, stays
+`failed` while it is retried, and ends `permanently_failed`, or `abandoned`
+when Fedify measures it abandoned after its retries ran out.  A delivery Fedify
+returns from without sending to the inbox, or without enqueuing a message to
+it, is `permanently_failed` with no attempt, since Fedify makes none.  The
+queue is handed to Fedify as one without native retries, so that every retry
+follows Fedify's policy and is recorded.  Activity resource persistence (#88),
 retention policies, and the activity-log UI (#13) are separate.
 
 URL fields hold only values that parse as URLs, and no text field holds
@@ -151,3 +154,20 @@ U+0000; anything else a remote server sent stays in `rawBody` and
 `responseBody` keep what a remote server answered with U+FFFD for each U+0000.
 Deliveries are ordered by `created`, which for an inbound delivery is when the
 request arrived; `completed` is when DrFed answered it.
+
+
+Moved exports
+-------------
+
+The ActivityPub code that used to live in this package moved to
+[`@drfed/federation`], which does not depend on GraphQL:
+
+| Previous import                                        | Replacement                           |
+| ------------------------------------------------------ | ------------------------------------- |
+| `@drfed/graphql/federation` (factory functions)        | `@drfed/federation`                   |
+| `@drfed/graphql/federation` (selections, serializers)  | `@drfed/federation/object`            |
+| `@drfed/graphql/origin`                                | `@drfed/federation/origin`            |
+| `@drfed/graphql/activity-delivery` (runtime functions) | `@drfed/federation/activity-delivery` |
+
+`@drfed/graphql/activity-delivery` now holds only the GraphQL types for
+activity deliveries.

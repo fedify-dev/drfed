@@ -20,16 +20,14 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
+import createFederation, { type TrackedFederation } from "@drfed/federation";
 import {
   classifyInbound,
   createInboundRecorder,
   createKeyCache,
   deliverActivity,
   describeActivity,
-} from "@drfed/graphql/activity-delivery";
-import createFederation, {
-  type TrackedFederation,
-} from "@drfed/graphql/federation";
+} from "@drfed/federation/activity-delivery";
 import { schema } from "@drfed/models";
 import {
   recordInbound,

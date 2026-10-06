@@ -1,7 +1,7 @@
 {
-  "name": "@drfed/drfed",
+  "name": "@drfed/federation",
   "version": "0.1.0",
-  "description": "The main entrypoint program for DrFed.",
+  "description": "ActivityPub federation for DrFed.",
   "keywords": [
     "ActivityPub",
     "fediverse",
@@ -46,32 +46,33 @@
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
     },
-    "./valueparser": {
-      "types": "./dist/valueparser.d.mts",
-      "default": "./dist/valueparser.mjs"
+    "./activity-delivery": {
+      "types": "./dist/activity-delivery.d.mts",
+      "default": "./dist/activity-delivery.mjs"
     },
-    "./serving": {
-      "types": "./dist/serving.d.mts",
-      "default": "./dist/serving.mjs"
+    "./object": {
+      "types": "./dist/object.d.mts",
+      "default": "./dist/object.mjs"
+    },
+    "./origin": {
+      "types": "./dist/origin.d.mts",
+      "default": "./dist/origin.mjs"
     }
   },
   "files": [
-    "bin/",
     "dist/",
     "README.md"
   ],
-  "bin": {
-    "drfed-server": "bin/drfed-server.mjs"
-  },
   "tsdown": {
     "entry": [
       "src/index.ts",
-      "src/valueparser.ts",
-      "src/serving.ts"
+      "src/activity-delivery.ts",
+      "src/object.ts",
+      "src/origin.ts"
     ],
     "dts": {
       "sourcemap": true,
-      "tsconfig": "../../tsconfig.drfed.json"
+      "tsconfig": "../../tsconfig.federation.json"
     },
     "sourcemap": true
   },
@@ -80,29 +81,18 @@
     "test": "node --test"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "catalog:",
     "@logtape/testing-node": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"
   },
   "dependencies": {
-    "@drfed/federation": "workspace:*",
-    "@drfed/graphql": "workspace:*",
     "@drfed/models": "workspace:*",
-    "@electric-sql/pglite": "catalog:",
     "@fedify/fedify": "catalog:",
-    "@fedify/pglite": "catalog:",
-    "@fedify/postgres": "catalog:",
-    "@logtape/drizzle-orm": "catalog:",
+    "@fedify/vocab": "catalog:",
     "@logtape/logtape": "catalog:",
-    "@optique/core": "catalog:",
-    "@optique/logtape": "catalog:",
-    "@optique/run": "catalog:",
-    "@upyo/logtape": "catalog:",
-    "@upyo/smtp": "catalog:",
-    "drizzle-orm": "catalog:",
-    "graphql": "catalog:",
-    "postgres": "catalog:",
-    "srvx": "^0.11.16"
+    "@opentelemetry/api": "^1.9.1",
+    "drizzle-orm": "catalog:"
   }
 }
