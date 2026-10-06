@@ -110,7 +110,6 @@ export function ActivityLogTimeline(props: {
           viewport = element;
         }}
         aria-label="Activity log history"
-        // Keyboard users must be able to focus and scroll this region.
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         class={styles.timeline}
