@@ -46,8 +46,8 @@ export function ActivityLogTimeline(props: {
         cursor: { type: "String" }
       )
       @refetchable(queryName: "ActivityLogTimelinePaginationQuery") {
-        activityLogs(first: $count, after: $cursor)
-          @connection(key: "ActivityLogTimeline_activityLogs") {
+        activityDeliveries(first: $count, after: $cursor)
+          @connection(key: "ActivityLogTimeline_activityDeliveries") {
           edges {
             node {
               id
@@ -61,7 +61,7 @@ export function ActivityLogTimeline(props: {
     () => props.$instance,
   );
   const entries = createMemo(() =>
-    (data()?.activityLogs.edges ?? []).toReversed(),
+    (data()?.activityDeliveries.edges ?? []).toReversed(),
   );
   const [failed, setFailed] = createSignal(false);
   let viewport: HTMLElement | undefined;

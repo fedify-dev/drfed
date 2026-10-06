@@ -31,7 +31,7 @@ import styles from "~/styles/activity-log.module.css";
 export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
   const data = createFragment(
     graphql`
-      fragment ActivityLogBox_log on ActivityLog @throwOnFieldError {
+      fragment ActivityLogBox_log on ActivityDelivery @throwOnFieldError {
         direction
         type
         objectType
