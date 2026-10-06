@@ -101,7 +101,16 @@ export function createFetchHandler(
             onNotAcceptable: notFound,
             contextData: undefined,
           });
-        } catch {
+        } catch (error) {
+          // Error messages, names and causes can contain private key material.
+          getLogger(["drfed", "serving"]).error(
+            "Federation request {method} {path} failed ({errorType}).",
+            {
+              method: request.method,
+              path: url.pathname,
+              errorType: error instanceof Error ? "Error" : typeof error,
+            },
+          );
           return new Response("Internal server error", { status: 500 });
         }
       case "misdirected":
