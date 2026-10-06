@@ -55,6 +55,7 @@
     "nitro": "3.0.260610-beta",
     "relay-runtime": "^21.0.1",
     "seroval": "1.5.4",
+    "shiki": "4.4.1",
     "solid-js": "^1.9.5",
     "solid-relay": "1.0.0-beta.29",
     "valibot": "1.4.2",

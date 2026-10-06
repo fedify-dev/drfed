@@ -19,6 +19,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { createFragment } from "solid-relay";
 
 import type { ActivityLogBox_log$key } from "./__generated__/ActivityLogBox_log.graphql.ts";
+import { ActivityLogSource } from "./ActivityLogSource.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 
 import styles from "~/styles/activity-log.module.css";
@@ -127,9 +128,10 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
               fallback={<p>No source recorded.</p>}
             >
               <CopyButton value={source() ?? ""} label="activity source" />
-              <pre class={styles.source}>
-                <code>{source()}</code>
-              </pre>
+              <ActivityLogSource
+                source={source() ?? ""}
+                json={log().payload != undefined}
+              />
             </Show>
           </Show>
         </details>
