@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
 .timeline {
+  position: relative;
   height: 40rem;
   overflow: auto;
   overflow-anchor: none;
