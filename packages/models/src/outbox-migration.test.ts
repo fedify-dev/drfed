@@ -56,28 +56,27 @@ it("backfills local outbox chronology and preserves other collection positions",
     await migrateBaseline(drizzle({ client }), { migrationsFolder: baseline });
     const db = drizzle({ client, schema, relations });
     const instanceId = uuidV7();
-    await db
-      .insert(schema.instances)
-      .values({ id: instanceId, host: "migration.example" });
+    await client.query("INSERT INTO instances (id, host) VALUES ($1, $2)", [
+      instanceId,
+      "migration.example",
+    ]);
     const actorId = uuidV7();
     const remoteId = uuidV7();
-    await db.insert(schema.localActors).values({ id: actorId });
+    await client.query("INSERT INTO local_actors (id) VALUES ($1)", [actorId]);
     for (const id of [actorId, remoteId]) {
-      await promoteResource(
-        db,
-        `https://migration.example/actors/${id}`,
-        "actor",
-        async (tx, row) => {
-          await tx.insert(schema.actors).values({
-            id: row.id,
-            localId: id === actorId ? id : null,
-            instanceId,
-            type: "Person",
-            username: id,
-            inboxUrl: `https://migration.example/actors/${id}/inbox`,
-          });
-        },
-        id,
+      await client.query(
+        "INSERT INTO resources (id, iri, kind) VALUES ($1, $2, 'actor')",
+        [id, `https://migration.example/actors/${id}`],
+      );
+      await client.query(
+        `INSERT INTO actors (id, "localId", "instanceId", type, username, "inboxUrl") VALUES ($1, $2, $3, 'Person', $4, $5)`,
+        [
+          id,
+          id === actorId ? id : null,
+          instanceId,
+          id,
+          `https://migration.example/actors/${id}/inbox`,
+        ],
       );
     }
     const outboxId = uuidV7();
@@ -88,53 +87,51 @@ it("backfills local outbox chronology and preserves other collection positions",
       [remoteOutboxId, remoteId, "outbox"],
       [featuredId, actorId, "featured"],
     ] as const) {
-      await promoteResource(
-        db,
-        `https://migration.example/collections/${id}`,
-        "collection",
-        async (tx, row) => {
-          await tx
-            .insert(schema.collections)
-            .values({ id: row.id, ownerActorId, type: "OrderedCollection" });
-          await tx
-            .insert(schema.actorCollectionReferences)
-            .values({ actorId: ownerActorId, role, collectionId: row.id });
-        },
-        id,
+      await client.query(
+        "INSERT INTO resources (id, iri, kind) VALUES ($1, $2, 'collection')",
+        [id, `https://migration.example/collections/${id}`],
+      );
+      await client.query(
+        `INSERT INTO collections (id, "ownerActorId", type) VALUES ($1, $2, 'OrderedCollection')`,
+        [id, ownerActorId],
+      );
+      await client.query(
+        'INSERT INTO actor_collection_references ("actorId", role, "collectionId") VALUES ($1, $2, $3)',
+        [ownerActorId, role, id],
       );
     }
     const ids = [uuidV7(), uuidV7(), uuidV7()] as const;
     for (const [index, id] of ids.entries()) {
-      await promoteResource(
-        db,
-        `https://migration.example/activities/${id}`,
-        "activity",
-        async (tx, row) => {
-          await tx.insert(schema.activities).values({
-            id: row.id,
-            actorId,
-            type: "Create",
-            published: Temporal.Instant.from(
-              index === 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z",
-            ),
-          });
-        },
-        id,
+      await client.query(
+        "INSERT INTO resources (id, iri, kind) VALUES ($1, $2, 'activity')",
+        [id, `https://migration.example/activities/${id}`],
       );
-      await db.insert(schema.collectionItems).values([
-        {
-          collectionId: outboxId,
-          itemId: id,
-          position: index === 0 ? -99 : null,
-        },
-        { collectionId: remoteOutboxId, itemId: id, position: null },
-        { collectionId: featuredId, itemId: id, position: index },
-      ]);
+      await client.query(
+        `INSERT INTO activities (id, "actorId", type, published) VALUES ($1, $2, 'Create', $3)`,
+        [
+          id,
+          actorId,
+          index === 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z",
+        ],
+      );
+      await client.query(
+        'INSERT INTO collection_items ("collectionId", "itemId", position) VALUES ($1, $4, $5), ($2, $4, NULL), ($3, $4, $6)',
+        [
+          outboxId,
+          remoteOutboxId,
+          featuredId,
+          id,
+          index === 0 ? -99 : null,
+          index,
+        ],
+      );
     }
-    const otherItems = await db.query.collectionItems.findMany({
-      where: { collectionId: { ne: outboxId } },
-      orderBy: { collectionId: "asc", itemId: "asc" },
-    });
+    const otherItems = (
+      await client.query(
+        'SELECT "collectionId" AS collection_id, "itemId" AS item_id, position, observed FROM collection_items WHERE "collectionId" <> $1 ORDER BY "collectionId", "itemId"',
+        [outboxId],
+      )
+    ).rows;
     await migrate({ credentials: { driver: "pglite", client } });
     const ordered = await db.query.collectionItems.findMany({
       where: { collectionId: outboxId },
@@ -147,10 +144,12 @@ it("backfills local outbox chronology and preserves other collection positions",
       { itemId: ids[0], position: -1 },
     ]);
     assert.deepEqual(
-      await db.query.collectionItems.findMany({
-        where: { collectionId: { ne: outboxId } },
-        orderBy: { collectionId: "asc", itemId: "asc" },
-      }),
+      (
+        await client.query(
+          "SELECT * FROM collection_items WHERE collection_id <> $1 ORDER BY collection_id, item_id",
+          [outboxId],
+        )
+      ).rows,
       otherItems,
     );
     const newest = uuidV7();

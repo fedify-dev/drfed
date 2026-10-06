@@ -206,9 +206,9 @@ it("indexes activities by referenced object in connection order", async () => {
     const definitions = rows.map((row) => row.indexdef);
     assert.ok(
       definitions.some((definition) =>
-        /\("objectId", published, id\)$/u.test(definition),
+        /\(object_id, published, id\)$/u.test(definition),
       ),
-      `No (objectId, published, id) index on activities:\n${definitions.join("\n")}`,
+      `No (object_id, published, id) index on activities:\n${definitions.join("\n")}`,
     );
   } finally {
     await client.close();

@@ -86,7 +86,7 @@ export type NewAccount = typeof accounts.$inferInsert;
  */
 export const instances = pgTable("instances", {
   id: uuid().$type<Uuid>().primaryKey(),
-  localId: uuid()
+  localId: uuid("local_id")
     .$type<Uuid>()
     .references(() => localInstances.id, {
       onDelete: "cascade",
@@ -99,9 +99,9 @@ export const instances = pgTable("instances", {
   // port.  Both locally composed `<slug>.<root domain>` names and remote
   // hosts discovered from the fediverse live here.
   host: varchar({ length: 259 }).notNull().unique(),
-  nodeInfoUrl: text(),
+  nodeInfoUrl: text("node_info_url"),
   software: text(),
-  softwareVersion: text(),
+  softwareVersion: text("software_version"),
 });
 
 export type Instance = typeof instances.$inferSelect;
@@ -113,7 +113,7 @@ export const localInstances = pgTable(
     id: uuid().$type<Uuid>().primaryKey(),
     slug: varchar({ length: 63 }).notNull().unique(),
     expires: instant().notNull(),
-    maxActors: integer().notNull().default(10),
+    maxActors: integer("max_actors").notNull().default(10),
   },
   (table) => [
     // Keep this in agreement with `isValidSlug()` in ./slug.ts.  A slug
@@ -141,11 +141,11 @@ export type NewLocalInstance = typeof localInstances.$inferInsert;
 export const instanceMembers = pgTable(
   "instance_members",
   {
-    accountId: uuid()
+    accountId: uuid("account_id")
       .$type<Uuid>()
       .notNull()
       .references(() => accounts.id),
-    instanceId: uuid()
+    instanceId: uuid("instance_id")
       .$type<Uuid>()
       .notNull()
       .references(() => instances.id),
@@ -176,7 +176,7 @@ export const LOGIN_CHALLENGE_CODE_LENGTH = 6;
  */
 export const loginChallenges = pgTable("login_challenges", {
   id: uuid().$type<Uuid>().primaryKey(),
-  accountId: uuid()
+  accountId: uuid("account_id")
     .$type<Uuid>()
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
@@ -197,11 +197,11 @@ export type NewLoginChallenge = typeof loginChallenges.$inferInsert;
  */
 export const sessions = pgTable("sessions", {
   id: uuid().$type<Uuid>().primaryKey(),
-  accountId: uuid()
+  accountId: uuid("account_id")
     .$type<Uuid>()
     .notNull()
     .references(() => accounts.id, { onDelete: "cascade" }),
-  tokenHash: varchar({ length: 64 }).notNull().unique(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
   created: instant().notNull().default(currentTimestamp),
   expires: instant()
     .notNull()
@@ -249,25 +249,30 @@ export const actors = pgTable(
       .$type<Uuid>()
       .primaryKey()
       .references(() => resources.id, { onDelete: "cascade" }),
-    localId: uuid()
+    localId: uuid("local_id")
       .$type<Uuid>()
       .unique()
       .references(() => localActors.id, { onDelete: "cascade" }),
     type: actorTypeEnum().notNull(),
     username: text().notNull(),
-    instanceId: uuid()
+    instanceId: uuid("instance_id")
       .$type<Uuid>()
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
     document: json(),
-    inboxUrl: text().notNull(),
-    profileUrl: text(),
-    avatarUrl: text(),
-    headerUrl: text(),
+    inboxUrl: text("inbox_url").notNull(),
+    profileUrl: text("profile_url"),
+    avatarUrl: text("avatar_url"),
+    headerUrl: text("header_url"),
     name: text(),
-    bioHtml: text(),
-    automaticallyApprovesFollowers: boolean().notNull().default(false),
-    fieldHtmls: jsonb().$type<Record<string, string>>().notNull().default({}),
+    bioHtml: text("bio_html"),
+    automaticallyApprovesFollowers: boolean("automatically_approves_followers")
+      .notNull()
+      .default(false),
+    fieldHtmls: jsonb("field_htmls")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
     emojis: jsonb().$type<Record<string, string>>().notNull().default({}),
     tags: jsonb().$type<Record<string, string>>().notNull().default({}),
     sensitive: boolean().notNull().default(false),
@@ -281,8 +286,8 @@ export const actors = pgTable(
     // comparing against the current time (lazy expiry; no cron):
     // Temporal.Instant.compare(suspended, now) <= 0 AND (suspendedUntil IS NULL OR Temporal.Instant.compare(suspendedUntil, now) > 0).
     suspended: instant(),
-    suspendedUntil: instant(),
-    successorId: uuid()
+    suspendedUntil: instant("suspended_until"),
+    successorId: uuid("successor_id")
       .$type<Uuid>()
       .references((): AnyPgColumn => actors.id, {
         onDelete: "set null",
@@ -291,8 +296,8 @@ export const actors = pgTable(
       .array()
       .notNull()
       .default(sql`(ARRAY[]::text[])`),
-    followingCount: integer().notNull().default(0),
-    followersCount: integer().notNull().default(0),
+    followingCount: integer("following_count").notNull().default(0),
+    followersCount: integer("followers_count").notNull().default(0),
     updated: instant()
       .notNull()
       .default(currentTimestamp)
@@ -342,7 +347,7 @@ export const objects = pgTable(
       .$type<Uuid>()
       .primaryKey()
       .references(() => resources.id, { onDelete: "cascade" }),
-    actorId: uuid()
+    actorId: uuid("actor_id")
       .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
@@ -351,7 +356,7 @@ export const objects = pgTable(
     url: text(),
     name: text(),
     summary: text(),
-    contentHtml: text().notNull(),
+    contentHtml: text("content_html").notNull(),
     language: varchar({ length: 35 }),
     sensitive: boolean().notNull().default(false),
     published: instant().notNull().default(currentTimestamp),
@@ -399,10 +404,10 @@ export const collections = pgTable("collections", {
    * the owner cascades to the collection and all references. Soft deletion
    * hides the collection and every actor's reference to it from GraphQL.
    */
-  ownerActorId: uuid()
+  ownerActorId: uuid("owner_actor_id")
     .$type<Uuid>()
     .references(() => actors.id, { onDelete: "cascade" }),
-  totalItems: integer(),
+  totalItems: integer("total_items"),
   document: json(),
   updated: instant()
     .notNull()
@@ -415,12 +420,12 @@ export type Collection = typeof collections.$inferSelect;
 export const actorCollectionReferences = pgTable(
   "actor_collection_references",
   {
-    actorId: uuid()
+    actorId: uuid("actor_id")
       .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
     role: collectionRoleEnum().notNull(),
-    collectionId: uuid()
+    collectionId: uuid("collection_id")
       .$type<Uuid>()
       .notNull()
       .references(() => collections.id, { onDelete: "cascade" }),
@@ -434,11 +439,11 @@ export const actorCollectionReferences = pgTable(
 export const collectionItems = pgTable(
   "collection_items",
   {
-    collectionId: uuid()
+    collectionId: uuid("collection_id")
       .$type<Uuid>()
       .notNull()
       .references(() => collections.id, { onDelete: "cascade" }),
-    itemId: uuid()
+    itemId: uuid("item_id")
       .$type<Uuid>()
       .notNull()
       .references(() => resources.id, { onDelete: "cascade" }),
@@ -460,11 +465,11 @@ export const activities = pgTable(
       .primaryKey()
       .references(() => resources.id, { onDelete: "cascade" }),
     type: activityTypeEnum().notNull(),
-    actorId: uuid()
+    actorId: uuid("actor_id")
       .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
-    objectId: uuid()
+    objectId: uuid("object_id")
       .$type<Uuid>()
       .references(() => resources.id, { onDelete: "cascade" }),
     published: instant().notNull(),
@@ -495,13 +500,13 @@ export const addressing = pgTable(
   "addressing",
   {
     id: uuid().$type<Uuid>().primaryKey(),
-    sourceId: uuid()
+    sourceId: uuid("source_id")
       .$type<Uuid>()
       .notNull()
       .references(() => resources.id, { onDelete: "cascade" }),
     property: addressingPropertyEnum().notNull(),
     position: integer().notNull(),
-    targetId: uuid()
+    targetId: uuid("target_id")
       .$type<Uuid>()
       .notNull()
       .references(() => resources.id, { onDelete: "restrict" }),
