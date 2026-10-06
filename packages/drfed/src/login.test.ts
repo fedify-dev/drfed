@@ -54,6 +54,8 @@ it("normalizes CLI login origins and preserves the allowlist", async () => {
       "--login-origin=http://[::1]:3000",
     ],
     {
+      timeout: 120_000,
+      killSignal: "SIGKILL",
       env: { PATH: process.env.PATH ?? "" },
       stdio: ["ignore", "pipe", "pipe"],
     },
