@@ -42,7 +42,7 @@ import {
   untracked,
 } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
+const logger = getLogger(["drfed", "federation", "activity-delivery"]);
 
 /** How a delivery settles, apart from which delivery it is. */
 export type Settlement = Omit<

@@ -27,7 +27,7 @@ silent = "stdout"
 
 [tasks."build:server"]
 description = "Build the project except web"
-run = "pnpm --parallel -F @drfed/graphql -F @drfed/models -F @drfed/drfed build"
+run = "pnpm --parallel -F @drfed/federation -F @drfed/graphql -F @drfed/models -F @drfed/drfed build"
 silent = "stdout"
 
 [tasks."build:web"]

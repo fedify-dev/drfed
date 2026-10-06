@@ -38,7 +38,7 @@ import {
 } from "./tracking.ts";
 import { observeVerification } from "./verification.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
+const logger = getLogger(["drfed", "federation", "activity-delivery"]);
 
 type InboundStatus = "received" | "acknowledged" | "unverified" | "rejected";
 

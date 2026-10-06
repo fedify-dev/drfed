@@ -21,11 +21,11 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import createFederation from "@drfed/federation";
 import {
   deliverActivity,
   queuedSettlements,
-} from "@drfed/graphql/activity-delivery";
-import createFederation from "@drfed/graphql/federation";
+} from "@drfed/federation/activity-delivery";
 import type { Database } from "@drfed/models";
 import {
   type Context,

@@ -2,8 +2,9 @@
 ============
 
 The main application package for [DrFed], a web-based platform for developing
-and debugging ActivityPub apps.  It wires together the database layer, GraphQL
-server, and HTTP server, and exposes the `drfed-server` CLI binary.
+and debugging ActivityPub apps.  It wires together the database layer,
+ActivityPub federation, GraphQL server, and HTTP server, and exposes the
+`drfed-server` CLI binary.
 
 [DrFed]: https://drfed.org/
 

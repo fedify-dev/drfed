@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { activitySelection, objectSelection } from "@drfed/federation/object";
 import { type Database, schema } from "@drfed/models";
 import type { Resource as ResourceRow } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
@@ -28,7 +29,6 @@ import {
   classifyMastodon,
   classifyMisskey,
 } from "./classification.ts";
-import { activitySelection, objectSelection } from "./federation.ts";
 
 export const ResourceKind = builder.enumType("ResourceKind", {
   values: schema.resourceKindEnum.enumValues,

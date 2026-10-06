@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 
+import createFederation, { type TrackedFederation } from "@drfed/federation";
 import {
   type ObservedKeyFetch,
   type ObservedSpan,
@@ -28,11 +29,8 @@ import {
   parseBody,
   recordedHeaders,
   reportedVerdict,
-} from "@drfed/graphql/activity-delivery";
-import createFederation, {
-  type TrackedFederation,
-} from "@drfed/graphql/federation";
-import { instanceUrl } from "@drfed/graphql/origin";
+} from "@drfed/federation/activity-delivery";
+import { instanceUrl } from "@drfed/federation/origin";
 import { type Database, addActorCollectionItem, schema } from "@drfed/models";
 import {
   type FederationFetchOptions,

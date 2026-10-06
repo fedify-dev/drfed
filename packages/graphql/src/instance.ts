@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { instanceHost } from "@drfed/federation/origin";
 import { schema } from "@drfed/models";
 import { isValidSlug } from "@drfed/models/slug";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
@@ -21,7 +22,6 @@ import { DrizzleQueryError } from "drizzle-orm";
 import { eq } from "drizzle-orm/sql/expressions";
 
 import builder, { type DrFedObjectRef } from "./builder.ts";
-import { instanceHost } from "./origin.ts";
 
 const InstanceRef = builder.drizzleNode("instances", {
   name: "Instance",

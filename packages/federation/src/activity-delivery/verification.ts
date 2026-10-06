@@ -34,7 +34,7 @@ import type {
   Report,
 } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
+const logger = getLogger(["drfed", "federation", "activity-delivery"]);
 
 export interface VerificationObservation {
   readonly mechanism: ActivityDeliveryVerificationMechanism | null;

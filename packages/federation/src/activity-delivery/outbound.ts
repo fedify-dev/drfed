@@ -41,7 +41,7 @@ import {
 } from "./queue.ts";
 import { trackRequest } from "./tracking.ts";
 
-const logger = getLogger(["drfed", "graphql", "activity-delivery"]);
+const logger = getLogger(["drfed", "federation", "activity-delivery"]);
 
 const queued = new WeakSet<Federation<unknown>>();
 

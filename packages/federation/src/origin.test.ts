@@ -22,7 +22,7 @@ import {
   classifyHost,
   instanceHost,
   instanceOrigin,
-} from "@drfed/graphql/origin";
+} from "@drfed/federation/origin";
 import { describe, it } from "@logtape/testing-node/autoload";
 
 const production = new URL("https://drfed.net");

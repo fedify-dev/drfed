@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { canonicalHostname } from "@drfed/federation/origin";
 import type { Database } from "@drfed/models";
 import type { Federation } from "@fedify/fedify";
 import { getYogaLogger } from "@logtape/graphql-yoga";
@@ -28,7 +29,6 @@ import {
 
 import { hashSecret } from "./auth/hash.ts";
 import type { ServerContext, UserContext } from "./builder.ts";
-import { canonicalHostname } from "./origin.ts";
 import { schema } from "./schema.ts";
 /**
  * Options for Yoga server.
@@ -65,7 +65,7 @@ export interface YogaServerOptions {
  * @param {Database} db The database instance.
  * @param {Federation<unknown>} federation The federation instance.  It must
  *        already have every dispatcher registered (see `createFederation()`
- *        in `@drfed/graphql/federation`); this function only stores it in
+ *        in `@drfed/federation`); this function only stores it in
  *        the resolver context and never mutates it, so the same instance can
  *        be shared by several servers.
  * @param {YogaServerOptions} rawOptions Options for server.
