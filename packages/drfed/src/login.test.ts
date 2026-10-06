@@ -25,7 +25,6 @@ import process from "node:process";
 import { it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-const serverTimeout = 30_000;
 const requestTimeout = 5_000;
 const binary = fileURLToPath(
   new URL("../bin/drfed-server.mjs", import.meta.url),
@@ -56,8 +55,6 @@ it("normalizes CLI login origins and preserves the allowlist", async () => {
     ],
     {
       env: { PATH: process.env.PATH ?? "" },
-      timeout: serverTimeout,
-      killSignal: "SIGKILL",
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -75,7 +72,10 @@ it("normalizes CLI login origins and preserves the allowlist", async () => {
   child.once("error", ready.reject);
   child.once("close", (code, signal) => {
     ready.reject(
-      new Error(`CLI exited before listening (${code}, ${signal}): ${stderr}`),
+      new Error(
+        `CLI exited before listening (${code}, ${signal})\n` +
+          `stdout:\n${stdout}\nstderr:\n${stderr}`,
+      ),
     );
     closed.resolve();
   });
