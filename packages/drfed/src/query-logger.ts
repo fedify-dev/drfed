@@ -26,7 +26,7 @@ export function privateKeySafeLogger(
   const logger = getLogger(["drfed", "database"]);
   return {
     logQuery(query, params) {
-      if (query.includes("local_actor_keys")) {
+      if (query.toLowerCase().includes("local_actor_keys")) {
         logger.debug("Query: {query}", { query });
       } else delegate.logQuery(query, params);
     },

@@ -30,6 +30,12 @@ it("never forwards key parameters to the ordinary SQL logger", () => {
     "PRIVATE_SECRET",
   ]);
   logger.logQuery('select * from "local_actor_keys"', []);
+  logger.logQuery("INSERT INTO LOCAL_ACTOR_KEYS VALUES ($1)", [
+    "PRIVATE_SECRET",
+  ]);
+  logger.logQuery("insert into Local_Actor_Keys values ($1)", [
+    "PRIVATE_SECRET",
+  ]);
   assert.deepEqual(calls, []);
   logger.logQuery("select $1", [42]);
   assert.deepEqual(calls, [["select $1", [42]]]);
