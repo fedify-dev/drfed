@@ -77,6 +77,8 @@ async function readPairs(rows: LocalActorKey[]): Promise<CryptoKeyPair[]> {
 /**
  * Load durable local actor keys, generating missing pairs on first use.
  * Deleted actors retain existing complete pairs for signing their Delete.
+ * Invalid persisted pairs fail closed and are never replaced automatically.
+ * See the package README's signing key recovery procedure before repairing rows.
  * @returns Persisted pairs, or an empty array for an unavailable actor.
  * The optional generator is a test seam; production uses Fedify's defaults.
  */
