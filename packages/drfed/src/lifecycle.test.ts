@@ -17,14 +17,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type Server, connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { it } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binary = fileURLToPath(
   new URL("../bin/drfed-server.mjs", import.meta.resolve("@drfed/drfed")),
@@ -42,10 +42,11 @@ async function closeServer(server: Server) {
   server.close();
   await closed;
 }
-function startServer(port: number, dataPath: string) {
+function startServer(port: number, dataPath: string, preload?: string) {
   const child = spawn(
     process.execPath,
     [
+      ...(preload == null ? [] : ["--import", pathToFileURL(preload).href]),
       binary,
       "--root-origin=http://drfed.test",
       "--login-origin=http://drfed.test",
@@ -85,6 +86,37 @@ it("preserves a listen error when server startup fails", async () => {
     const [code] = await waitForExit(run);
     assert.equal(code, 1);
     assert.match(run.stderr(), /EADDRINUSE/u);
+  } finally {
+    run.child.kill("SIGKILL");
+    await closeServer(server);
+    await rm(dataPath, { recursive: true, force: true });
+  }
+});
+
+it("preserves a listen error when database cleanup rejects", async () => {
+  const { server, port } = await reservePort();
+  const dataPath = await mkdtemp(join(tmpdir(), "drfed-cleanup-"));
+  const preload = join(dataPath, "cleanup-failure.mjs");
+  await writeFile(
+    preload,
+    `import { PGlite } from ${JSON.stringify(import.meta.resolve("@electric-sql/pglite"))};
+const close = PGlite.prototype.close;
+PGlite.prototype.close = async function () {
+  await close.call(this);
+  throw new Error("PRIVATE_CLEANUP_ERROR");
+};
+`,
+  );
+  const run = startServer(port, dataPath, preload);
+  try {
+    const [code] = await waitForExit(run);
+    assert.equal(code, 1);
+    assert.match(run.stderr(), /EADDRINUSE/u);
+    assert.match(
+      run.stderr(),
+      /Database cleanup after startup failure failed/u,
+    );
+    assert.doesNotMatch(run.stderr(), /PRIVATE_CLEANUP_ERROR/u);
   } finally {
     run.child.kill("SIGKILL");
     await closeServer(server);

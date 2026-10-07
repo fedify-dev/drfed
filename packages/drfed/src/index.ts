@@ -130,10 +130,22 @@ async function runServer(options: ServerOptions) {
     process.off("SIGTERM", shutdown);
     workerAbort.abort();
     await Promise.all([server.close(), worker]);
-    if (mailer instanceof SmtpTransport) mailer.closeAllConnections();
-    await ("driver" in credentials
-      ? credentials.client.close()
-      : credentials.client.end());
+    try {
+      if (mailer instanceof SmtpTransport) await mailer.closeAllConnections();
+    } catch {
+      getLogger(["drfed", "server"]).error(
+        "Mailer cleanup after startup failure failed.",
+      );
+    }
+    try {
+      await ("driver" in credentials
+        ? credentials.client.close()
+        : credentials.client.end());
+    } catch {
+      getLogger(["drfed", "server"]).error(
+        "Database cleanup after startup failure failed.",
+      );
+    }
     throw new Error("Could not start the server.", { cause: error });
   }
 }
