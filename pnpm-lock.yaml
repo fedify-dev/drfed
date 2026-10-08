@@ -13,17 +13,17 @@ catalogs:
       specifier: ^10.5.0
       version: 10.5.0
     '@fedify/fedify':
-      specifier: 2.4.0
-      version: 2.4.0
+      specifier: 2.4.1
+      version: 2.4.1
     '@fedify/pglite':
-      specifier: 2.4.0
-      version: 2.4.0
+      specifier: 2.4.1
+      version: 2.4.1
     '@fedify/postgres':
-      specifier: 2.4.0
-      version: 2.4.0
+      specifier: 2.4.1
+      version: 2.4.1
     '@fedify/vocab':
-      specifier: 2.4.0
-      version: 2.4.0
+      specifier: 2.4.1
+      version: 2.4.1
     '@logtape/drizzle-orm':
       specifier: ^2.2.2
       version: 2.2.2
@@ -118,13 +118,13 @@ importers:
         version: 0.5.3
       '@fedify/fedify':
         specifier: 'catalog:'
-        version: 2.4.0
+        version: 2.4.1
       '@fedify/pglite':
         specifier: 'catalog:'
-        version: 2.4.0(@electric-sql/pglite@0.5.3)(@fedify/fedify@2.4.0)
+        version: 2.4.1(@electric-sql/pglite@0.5.3)(@fedify/fedify@2.4.1)
       '@fedify/postgres':
         specifier: 'catalog:'
-        version: 2.4.0(@fedify/fedify@2.4.0)(postgres@3.4.9)
+        version: 2.4.1(@fedify/fedify@2.4.1)(postgres@3.4.9)
       '@logtape/drizzle-orm':
         specifier: 'catalog:'
         version: 2.2.2(@logtape/logtape@2.3.0-dev.840)
@@ -179,10 +179,10 @@ importers:
         version: link:../models
       '@fedify/fedify':
         specifier: 'catalog:'
-        version: 2.4.0
+        version: 2.4.1
       '@fedify/vocab':
         specifier: 'catalog:'
-        version: 2.4.0
+        version: 2.4.1
       '@logtape/logtape':
         specifier: 'catalog:'
         version: 2.3.0-dev.840
@@ -222,13 +222,13 @@ importers:
         version: 10.5.0
       '@fedify/fedify':
         specifier: 'catalog:'
-        version: 2.4.0
+        version: 2.4.1
       '@fedify/uri-template':
         specifier: ^2.3.1
         version: 2.3.1
       '@fedify/vocab':
         specifier: 'catalog:'
-        version: 2.4.0
+        version: 2.4.1
       '@logtape/graphql-yoga':
         specifier: 'catalog:'
         version: 2.3.0-dev.840(@logtape/logtape@2.3.0-dev.840)(graphql-yoga@5.21.2(graphql@16.14.2))(graphql@16.14.2)
@@ -886,44 +886,44 @@ packages:
   '@fastify/busboy@3.2.2':
     resolution: {integrity: sha512-yXSS27qPExaXeuLvMRMXOLtpipzfQYNjG3FkunDWKGfMYjKuhFXko9CVzqxm8jcF+lmtS9Fd89QNdh9XDjnbNg==}
 
-  '@fedify/fedify@2.4.0':
-    resolution: {integrity: sha512-XlR202zMU5+tiISyU48cxe23IU9xXHVPunO+apSSgBgl922JnMNErM/l23HmHEMAtiFiRgiXG+AqC75ZxppWtw==}
+  '@fedify/fedify@2.4.1':
+    resolution: {integrity: sha512-MxrEClHitiJn6RKLHrVtgY0dMHomFY4LT0/Ec7fuYMcr0aIlC9FnuiuqGn8AUqMKQaGzzdGE6RqRDfaL/jRhHA==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/pglite@2.4.0':
-    resolution: {integrity: sha512-kTOfxuWQe9FrKz0LYsGOPallpWSOt/aXTOOivgcKidlbOYXT0JnKG8ftmjVNram2vq0cJGHYNev4pWUYX8pO2Q==}
+  '@fedify/pglite@2.4.1':
+    resolution: {integrity: sha512-ktCW/13X/V5qChjIxK99d2NmrXtWY+5GzldryXn8yqd9jJhAxLX8g2UEJXPcEXE/pnI7+d9oMODCOSfvvEH5Uw==}
     peerDependencies:
       '@electric-sql/pglite': ^0.5.8
-      '@fedify/fedify': ^2.4.0
+      '@fedify/fedify': ^2.4.1
 
-  '@fedify/postgres@2.4.0':
-    resolution: {integrity: sha512-U4E0GKiEXvmpcNk6/97jGhzt+JxxjALlkH0+OPwgcQ6eatVSLKzvVyJ/8a2wRUHHIkgCFo7LO9tLZ+x7GGqxXg==}
+  '@fedify/postgres@2.4.1':
+    resolution: {integrity: sha512-zVjK7UHoWWWnbaA8LSXn8ppHYl+BD7bTGz+XU0JeonGtCXXgfNTjAWp3jXQXJInuU2vlW1Iw0QHqw2BB6bXReA==}
     peerDependencies:
-      '@fedify/fedify': ^2.4.0
+      '@fedify/fedify': ^2.4.1
       postgres: ^3.4.7
 
   '@fedify/uri-template@2.3.1':
     resolution: {integrity: sha512-322xch1WhasP/vjH4yDPA1RnYwI6tlG72aH7fCpdFge8IC845urKEMET9LzJ2G5HfeCKAXPAcaZZEx9FXnTNrg==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/uri-template@2.4.0':
-    resolution: {integrity: sha512-PvYHcbqR/RKjU59RcdIqSWAVfXmpsJ1T+xTfk3zNxJWB/niB4T1MeFPQd5c4x4I6yZ2iQlqdvLCE8v3w0NLXIQ==}
+  '@fedify/uri-template@2.4.1':
+    resolution: {integrity: sha512-x/vAXi7gWY5jx7EOPi/2Scs26Dgd8+4FX2YIi58TzCiXBOup2LvB8s8Mo7GePjP8n0B6AujGtHWij3QRAxbRcg==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/vocab-runtime@2.4.0':
-    resolution: {integrity: sha512-UW5PCEUNsDFBt70OZCquprAbz5wl5s3GEaaDV8NbpReytAmSsY8GWiXJee2t5yqcIzJCmCgF4stJ/k9oX76jwA==}
+  '@fedify/vocab-runtime@2.4.1':
+    resolution: {integrity: sha512-MB6tJMWST47nsmXon5x48EfiKxcPAmnwKFMdTwZhYnbBuQEIME5nbwnriazeQVltRSzDQjS8cpPiMWOILOChaw==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/vocab-tools@2.4.0':
-    resolution: {integrity: sha512-7oKOSjfu3QGROwZwblNDL3vtAv4pnhuUPnbwGmvzfEoKPvzHztbXNAFI+cP7I4gtsSac1e/phudR2scoazPB5Q==}
+  '@fedify/vocab-tools@2.4.1':
+    resolution: {integrity: sha512-LC9lirhF0WKuGnBWon0y3SLyFrWcbR/EMjDoGEYSjuzdD/NHR2uDVHe4RvjtfRvTU7ufiAG121Nk8JESkv3/Hw==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/vocab@2.4.0':
-    resolution: {integrity: sha512-3SRaSi+/Qp8CLR9MWE9qqQUrIZKhnGBoNSTmhvhxkopBk9nms94zYZXsFiQMpv9rdYz3xwJbs8mcI5yqvLX8vg==}
+  '@fedify/vocab@2.4.1':
+    resolution: {integrity: sha512-s4tTVak2cJ4EjA9QobJOcz7FxSB4ikrSCnADrTRQU+fYb0f56N2Owui3Na7iZ2q+qceMeUPh2FLlcb01So+3Uw==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
-  '@fedify/webfinger@2.4.0':
-    resolution: {integrity: sha512-wXdY9nbnbNMzDcuSfymx6pddvE8Ikm+YbamKm/JA0il1Z3xdnuBEdAN4BgQ/aKnW8vhCyqw4jjXp9UZUNPMD6Q==}
+  '@fedify/webfinger@2.4.1':
+    resolution: {integrity: sha512-sTCrNBnHQiR005xZL0H7+wNFghLtNq5sHmU9nKNEl8mxvQaSLoLTBLmuZIOeW57uBPc7ewlUw8vYKe/X8aW3Lw==}
     engines: {bun: '>=1.1.0', deno: '>=2.0.0', node: '>=22.0.0'}
 
   '@floating-ui/core@1.8.0':
@@ -4378,12 +4378,12 @@ snapshots:
 
   '@fastify/busboy@3.2.2': {}
 
-  '@fedify/fedify@2.4.0':
+  '@fedify/fedify@2.4.1':
     dependencies:
-      '@fedify/uri-template': 2.4.0
-      '@fedify/vocab': 2.4.0
-      '@fedify/vocab-runtime': 2.4.0
-      '@fedify/webfinger': 2.4.0
+      '@fedify/uri-template': 2.4.1
+      '@fedify/vocab': 2.4.1
+      '@fedify/vocab-runtime': 2.4.1
+      '@fedify/webfinger': 2.4.1
       '@logtape/logtape': 2.3.2
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
@@ -4400,26 +4400,26 @@ snapshots:
       temporal-polyfill: 1.0.4
       urlpattern-polyfill: 10.1.0
 
-  '@fedify/pglite@2.4.0(@electric-sql/pglite@0.5.3)(@fedify/fedify@2.4.0)':
+  '@fedify/pglite@2.4.1(@electric-sql/pglite@0.5.3)(@fedify/fedify@2.4.1)':
     dependencies:
       '@electric-sql/pglite': 0.5.3
-      '@fedify/fedify': 2.4.0
+      '@fedify/fedify': 2.4.1
       '@logtape/logtape': 2.3.2
       '@types/emscripten': 1.41.6
       temporal-polyfill: 1.0.4
 
-  '@fedify/postgres@2.4.0(@fedify/fedify@2.4.0)(postgres@3.4.9)':
+  '@fedify/postgres@2.4.1(@fedify/fedify@2.4.1)(postgres@3.4.9)':
     dependencies:
-      '@fedify/fedify': 2.4.0
+      '@fedify/fedify': 2.4.1
       '@logtape/logtape': 2.3.2
       postgres: 3.4.9
       temporal-polyfill: 1.0.4
 
   '@fedify/uri-template@2.3.1': {}
 
-  '@fedify/uri-template@2.4.0': {}
+  '@fedify/uri-template@2.4.1': {}
 
-  '@fedify/vocab-runtime@2.4.0':
+  '@fedify/vocab-runtime@2.4.1':
     dependencies:
       '@js-temporal/polyfill': 0.5.1
       '@logtape/logtape': 2.3.2
@@ -4430,18 +4430,18 @@ snapshots:
       jsonld: 9.0.0
       pkijs: 3.4.0
 
-  '@fedify/vocab-tools@2.4.0':
+  '@fedify/vocab-tools@2.4.1':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       byte-encodings: 1.0.11
       es-toolkit: 1.46.1
       yaml: 2.9.0
 
-  '@fedify/vocab@2.4.0':
+  '@fedify/vocab@2.4.1':
     dependencies:
-      '@fedify/vocab-runtime': 2.4.0
-      '@fedify/vocab-tools': 2.4.0
-      '@fedify/webfinger': 2.4.0
+      '@fedify/vocab-runtime': 2.4.1
+      '@fedify/vocab-tools': 2.4.1
+      '@fedify/webfinger': 2.4.1
       '@logtape/logtape': 2.3.2
       '@multiformats/base-x': 4.0.1
       '@opentelemetry/api': 1.9.1
@@ -4451,9 +4451,9 @@ snapshots:
       pkijs: 3.4.0
       temporal-polyfill: 1.0.4
 
-  '@fedify/webfinger@2.4.0':
+  '@fedify/webfinger@2.4.1':
     dependencies:
-      '@fedify/vocab-runtime': 2.4.0
+      '@fedify/vocab-runtime': 2.4.1
       '@logtape/logtape': 2.3.2
       '@opentelemetry/api': 1.9.1
       es-toolkit: 1.46.1

@@ -33,7 +33,6 @@ import { trackMetrics, trackSpans } from "./activity-delivery/telemetry.ts";
 import {
   type TrackedFederation,
   attachKv,
-  trackPublicKeys,
 } from "./activity-delivery/tracking.ts";
 import { attachActorKeyTask, registerActorKeyTask } from "./actor-key-task.ts";
 import { registerActorDispatcher } from "./actor.ts";
@@ -71,9 +70,8 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
  * returned instance is complete and must not be mutated further.
  * The queues, if any, are observed so that each delivery attempt settles its
  * outbound delivery and each queued inbox listener run its inbound delivery.
- * The public-key cache and the spans and measurements Fedify reports are
- * tracked so that `createInboundRecorder()` sees how each inbox request was
- * verified, and with which key.
+ * The inbox completion report supplies verification evidence to
+ * `createInboundRecorder()`. Outbound spans and measurements remain tracked.
  * @param db The database to resolve local actors from.
  * @param options Options for the underlying Fedify `Federation`, such as
  *                the `kv` store.
@@ -86,10 +84,6 @@ export default async function createFederation(
   const builder = buildFederation(db);
   const federation = await builder.build({
     ...options,
-    kv: trackPublicKeys(
-      options.kv,
-      options.kvPrefixes?.publicKey ?? ["_fedify", "publicKey"],
-    ),
     tracerProvider: trackSpans(
       options.tracerProvider ?? trace.getTracerProvider(),
     ),

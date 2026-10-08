@@ -21,14 +21,10 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import createFederation, { type TrackedFederation } from "@drfed/federation";
 import {
-  type ObservedKeyFetch,
-  type ObservedSpan,
   createInboundRecorder,
   declaredKeyId,
-  hasLdSignature,
   parseBody,
   recordedHeaders,
-  reportedVerdict,
 } from "@drfed/federation/activity-delivery";
 import { instanceUrl } from "@drfed/federation/origin";
 import { type Database, addActorCollectionItem, schema } from "@drfed/models";
@@ -177,7 +173,6 @@ it("records the key of the Linked Data Signature that verified, not of the HTTP 
     const signed = await signJsonLd(activity("ld"), ld.privateKey, ldKeyId, {
       contextLoader,
     });
-    assert.ok(hasLdSignature(signed));
     const response = await send(
       await signRequest(
         post(JSON.stringify(signed)),
@@ -667,9 +662,24 @@ it("tells a key that could not be fetched from a signature that did not verify",
     };
     // Fedify names why an HTTP signature's key was not fetched itself.
     const causes = {
-      ld_signature: ["network_error", "cached", "410", "invalid"],
-      object_integrity_proof: ["network_error", "cached", "410", "invalid"],
-      http_signature: ["TypeError", "TypeError", "410", "invalid"],
+      ld_signature: [
+        "TypeError: offline",
+        "TypeError: offline",
+        "410",
+        "invalidSignature",
+      ],
+      object_integrity_proof: [
+        "TypeError: offline",
+        "TypeError: offline",
+        "410",
+        "invalidSignature",
+      ],
+      http_signature: [
+        "TypeError: offline",
+        "TypeError: offline",
+        "410",
+        "invalidSignature",
+      ],
     };
     for (const mechanism of [
       "ld_signature",
@@ -690,11 +700,17 @@ it("tells a key that could not be fetched from a signature that did not verify",
         const delivery = (await findDeliveries(db)).at(-1);
         assert.equal(delivery?.status, "unverified", id);
         assert.equal(delivery?.verificationMechanism, mechanism, id);
-        assert.equal(delivery?.verificationResult, "key_fetch_error", id);
+        assert.equal(
+          delivery?.verificationResult,
+          failure === "invalid" ? "invalid_signature" : "key_fetch_error",
+          id,
+        );
         assert.equal(delivery?.verificationKey, null, id);
         assert.equal(
           delivery?.error,
-          `keyFetchError: ${causes[mechanism][index]}`,
+          failure === "invalid"
+            ? "invalidSignature"
+            : `keyFetchError: ${causes[mechanism][index]}`,
           id,
         );
       }
@@ -779,7 +795,7 @@ it("records the key a signature or proof failed with, when fetching it again fai
     ] as const) {
       assert.equal(refusal?.verificationMechanism, mechanism);
       assert.equal(refusal?.verificationResult, "key_fetch_error");
-      assert.equal(refusal?.error, "keyFetchError: network_error");
+      assert.equal(refusal?.error, "keyFetchError: TypeError: offline");
       assert.equal(refusal?.verificationKey?.key.iri, keyId.href);
     }
     assert.equal(
@@ -837,8 +853,8 @@ it("records the key each verification used, not one another found under the same
     const [delivery] = await findDeliveries(db);
     assert.equal(delivery?.status, "unverified");
     assert.equal(delivery?.verificationMechanism, "http_signature");
-    assert.equal(delivery?.verificationResult, "key_fetch_error");
-    assert.equal(delivery?.error, "keyFetchError: invalid");
+    assert.equal(delivery?.verificationResult, "invalid_signature");
+    assert.equal(delivery?.error, "invalidSignature");
     assert.equal(delivery?.signedKeyIri, proofKeyId.href);
     // The proof read the Ed25519 key; the HTTP signature found none to use.
     assert.equal(delivery?.verificationKey, null);
@@ -944,10 +960,7 @@ it("records a proof that verified as verified, though it does not authenticate t
       assert.equal(delivery.verificationResult, "verified");
       assert.equal(delivery.verificationKey?.key.iri, proofKeyId.href);
       assert.equal(delivery.verificationKey?.publicKey.kty, "OKP");
-      assert.match(
-        delivery.error ?? "",
-        /did not accept them as authenticating/u,
-      );
+      assert.match(delivery.error ?? "", /uncoveredAttribution/u);
     }
     assert.deepEqual(
       recorded.map((delivery) => delivery.signedKeyIri),
@@ -1130,7 +1143,8 @@ it("keeps the received octets and headers while parsing a payload for querying",
     assert.deepEqual(new Uint8Array(binary?.body ?? []), invalidUtf8);
     assert.equal(binary?.statusCode, 400);
     assert.equal(binary?.status, "unverified");
-    assert.equal(binary?.responseBody, binary?.error);
+    assert.equal(binary?.responseBody, "Invalid JSON.");
+    assert.equal(binary?.error, "invalidJson");
   });
   assert.equal(parseBody(new TextEncoder().encode("nope")), undefined);
   assert.equal(parseBody(new TextEncoder().encode("null")), null);
@@ -1151,349 +1165,6 @@ it("keeps the received octets and headers while parsing a payload for querying",
     "urn:k",
   );
   assert.equal(declaredKeyId(new Headers({ authorization: "Bearer x" })), null);
-});
-
-it("reads the verification out of what Fedify reports", () => {
-  const span = (
-    name: string,
-    attributes: Record<string, unknown> = {},
-    { failed = false, events = [] as ObservedSpan["events"] } = {},
-  ): ObservedSpan => ({
-    name,
-    attributes: new Map(Object.entries(attributes)),
-    events,
-    failed,
-  });
-  const measured = (
-    kind: string,
-    result: string,
-    keyFetches: readonly ObservedKeyFetch[] = [],
-  ) => ({ kind, result, keyFetches });
-  const none = { ldKeyIri: null, proofMethods: [] };
-  const proofKey = proofKeyId.href;
-  const noSignature = span("http_signatures.verify", {
-    "http_signatures.verified": false,
-    "http_signatures.failure_reason": "noSignature",
-  });
-  // Answered before verifying, e.g. a body that is not JSON.
-  assert.deepEqual(reportedVerdict({ spans: [], verifications: [] }, none), {
-    mechanism: null,
-    result: "unattempted",
-  });
-  // Linked Data Signatures verified, even if the activity then did not parse.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span("ld_signatures.verify", {
-            "ld_signatures.key_id": ldKeyId.href,
-          }),
-        ],
-        verifications: [measured("linked_data", "verified")],
-      },
-      none,
-    ),
-    {
-      mechanism: "ld_signature",
-      result: "verified",
-      keyIri: ldKeyId.href,
-      keyFetches: [],
-      detail: null,
-    },
-  );
-  // A proof that failed before HTTP signatures were found missing.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span(
-            "object_integrity_proofs.verify",
-            { "object_integrity_proofs.key_id": proofKey },
-            { failed: true },
-          ),
-          noSignature,
-        ],
-        verifications: [
-          measured("object_integrity", "rejected"),
-          measured("http", "missing"),
-        ],
-      },
-      none,
-    ),
-    {
-      mechanism: "object_integrity_proof",
-      result: "invalid_signature",
-      keyIri: proofKey,
-      keyFetches: [],
-      detail: null,
-    },
-  );
-  // Answered before verifying, a signature or proof carried was not tried.
-  assert.deepEqual(
-    reportedVerdict(
-      { spans: [], verifications: [] },
-      { ldKeyIri: ldKeyId.href, proofMethods: [proofKey] },
-    ),
-    { mechanism: null, result: "unattempted" },
-  );
-  // A proof Fedify gave up on without a report counts as tried once it went
-  // on to HTTP signatures.
-  assert.deepEqual(
-    reportedVerdict(
-      { spans: [noSignature], verifications: [measured("http", "missing")] },
-      { ldKeyIri: null, proofMethods: [null, proofKey] },
-    ),
-    {
-      mechanism: "object_integrity_proof",
-      result: "invalid_signature",
-      keyIri: proofKey,
-      keyFetches: [],
-      detail: null,
-    },
-  );
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span("http_signatures.verify", {
-            "http_signatures.verified": false,
-            "http_signatures.failure_reason": "keyFetchError",
-            "http_signatures.key_id": httpKeyId.href,
-            "http_signatures.key_fetch_status": 410,
-          }),
-        ],
-        verifications: [measured("http", "rejected")],
-      },
-      none,
-    ),
-    {
-      mechanism: "http_signature",
-      result: "key_fetch_error",
-      keyIri: httpKeyId.href,
-      keyFetches: [],
-      detail: "keyFetchError: 410",
-    },
-  );
-  // No usable key came back, so nothing was checked: Fedify counted why.
-  const fetched = (
-    result: string,
-    lookup: string,
-    statusCode?: number,
-  ): ObservedKeyFetch => ({
-    result,
-    lookup: { result: lookup, statusCode: statusCode ?? null },
-    keys: new Map(),
-  });
-  const ldSpan = span("ld_signatures.verify", {
-    "ld_signatures.key_id": ldKeyId.href,
-  });
-  for (const [keyFetches, result, detail] of [
-    [[fetched("error", "network_error")], "key_fetch_error", "network_error"],
-    [[fetched("error", "error", 503)], "key_fetch_error", "503"],
-    [[fetched("error", "not_found", 404)], "key_fetch_error", "404"],
-    [[fetched("error", "invalid")], "key_fetch_error", "invalid"],
-    // The record of an earlier failure, found in the cache.
-    [[fetched("error", "hit")], "key_fetch_error", "cached"],
-    [
-      [{ result: "error", lookup: null, keys: new Map() }],
-      "key_fetch_error",
-      "error",
-    ],
-    // The cached key did not verify, and fetching it again failed.
-    [
-      [fetched("hit", "hit"), fetched("error", "network_error")],
-      "key_fetch_error",
-      "network_error",
-    ],
-    // The cached key did not verify, nor did the one fetched again.
-    [
-      [fetched("hit", "hit"), fetched("fetched", "fetched")],
-      "invalid_signature",
-      null,
-    ],
-    [[], "invalid_signature", null],
-  ] as const) {
-    assert.deepEqual(
-      reportedVerdict(
-        {
-          spans: [ldSpan, noSignature],
-          verifications: [
-            measured("linked_data", "rejected", keyFetches),
-            measured("http", "missing"),
-          ],
-        },
-        none,
-      ),
-      {
-        mechanism: "ld_signature",
-        result,
-        keyIri: ldKeyId.href,
-        keyFetches,
-        detail: detail == null ? null : `keyFetchError: ${detail}`,
-      },
-    );
-  }
-  // Fedify stops at the first proof that fails: the fetch of the last counts.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [noSignature],
-        verifications: [
-          measured("object_integrity", "verified", [
-            fetched("fetched", "fetched"),
-          ]),
-          measured("object_integrity", "rejected", [
-            fetched("error", "error", 500),
-          ]),
-          measured("http", "missing"),
-        ],
-      },
-      { ldKeyIri: null, proofMethods: [proofKey] },
-    ),
-    {
-      mechanism: "object_integrity_proof",
-      result: "key_fetch_error",
-      keyIri: proofKey,
-      keyFetches: [fetched("error", "error", 500)],
-      detail: "keyFetchError: 500",
-    },
-  );
-  // A proof that verified without authenticating the activity is no proof that
-  // failed, whatever Fedify found of the HTTP signature it went on to.
-  const verifiedProof = span("object_integrity_proofs.verify", {
-    "object_integrity_proofs.key_id": proofKey,
-  });
-  const proofMeasured = measured("object_integrity", "verified", [
-    fetched("hit", "hit"),
-  ]);
-  const proven = { ldKeyIri: null, proofMethods: [proofKey] };
-  for (const [http, httpMeasured] of [
-    [noSignature, measured("http", "missing")],
-    [
-      span("http_signatures.verify", {
-        "http_signatures.verified": false,
-        "http_signatures.failure_reason": "invalidSignature",
-        "http_signatures.key_id": httpKeyId.href,
-      }),
-      measured("http", "rejected", [fetched("error", "invalid")]),
-    ],
-  ] as const) {
-    const { detail, ...verdict } = reportedVerdict(
-      {
-        spans: [verifiedProof, http],
-        verifications: [proofMeasured, httpMeasured],
-      },
-      proven,
-    );
-    assert.deepEqual(verdict, {
-      mechanism: "object_integrity_proof",
-      result: "verified",
-      keyIri: proofKey,
-      keyFetches: [fetched("hit", "hit")],
-    });
-    assert.match(detail ?? "", /did not accept them as authenticating/u);
-  }
-  // An HTTP signature that then verified is the verdict, with its own fetches.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          verifiedProof,
-          span("http_signatures.verify", {
-            "http_signatures.verified": true,
-            "http_signatures.key_id": httpKeyId.href,
-          }),
-        ],
-        verifications: [
-          proofMeasured,
-          measured("http", "verified", [fetched("fetched", "fetched")]),
-        ],
-      },
-      proven,
-    ),
-    {
-      mechanism: "http_signature",
-      result: "verified",
-      keyIri: httpKeyId.href,
-      keyFetches: [fetched("fetched", "fetched")],
-    },
-  );
-  // Fedify calls a key document without a key an invalid signature.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span("http_signatures.verify", {
-            "http_signatures.verified": false,
-            "http_signatures.failure_reason": "invalidSignature",
-            "http_signatures.key_id": httpKeyId.href,
-          }),
-        ],
-        verifications: [
-          measured("http", "rejected", [fetched("error", "invalid")]),
-        ],
-      },
-      none,
-    ),
-    {
-      mechanism: "http_signature",
-      result: "key_fetch_error",
-      keyIri: httpKeyId.href,
-      keyFetches: [fetched("error", "invalid")],
-      detail: "keyFetchError: invalid",
-    },
-  );
-  // HTTP signature verification that threw.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span(
-            "http_signatures.verify",
-            { "http_signatures.key_id": httpKeyId.href },
-            { failed: true },
-          ),
-        ],
-        verifications: [measured("http", "error")],
-      },
-      none,
-    ),
-    {
-      mechanism: "http_signature",
-      result: "invalid_signature",
-      keyIri: httpKeyId.href,
-      keyFetches: [],
-      detail: "Fedify could not verify the HTTP signature.",
-    },
-  );
-  // Fedify accepts an activity naming no actor, having nothing to verify.
-  assert.deepEqual(
-    reportedVerdict(
-      {
-        spans: [
-          span(
-            "activitypub.inbox",
-            {},
-            {
-              events: [
-                {
-                  name: "activitypub.activity.received",
-                  attributes: {
-                    "activitypub.activity.verified": true,
-                    "ld_signatures.verified": false,
-                    "http_signatures.verified": false,
-                  },
-                },
-              ],
-            },
-          ),
-        ],
-        verifications: [],
-      },
-      none,
-    ),
-    { mechanism: null, result: "no_signature" },
-  );
 });
 
 it("stores the canonical inbox IRI apart from the URL a request arrived at", async () => {
@@ -1853,5 +1524,187 @@ it("exposes what was observed, and pages through the versions of a key", async (
     ).json();
     assert.ok(anonymous.errors?.length);
     assert.equal(anonymous.data?.node ?? null, null);
+  });
+});
+
+it("records a valid Linked Data signature with wrong attribution, and successful HTTP fallback", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const ld = await generateCryptoKeyPair();
+    const http = await generateCryptoKeyPair();
+    const bob = new URL("https://remote.example/users/bob");
+    const keys = new Map([
+      [
+        ldKeyId.href,
+        new CryptographicKey({
+          id: ldKeyId,
+          owner: actorIri,
+          publicKey: ld.publicKey,
+        }),
+      ],
+      [
+        httpKeyId.href,
+        new CryptographicKey({
+          id: httpKeyId,
+          owner: bob,
+          publicKey: http.publicKey,
+        }),
+      ],
+    ]);
+    const loader = keyLoader(keys);
+    const { contextLoader, send } = await createRecorder(db, keys, {
+      documentLoader: async (url) =>
+        url === bob.href
+          ? {
+              documentUrl: url,
+              contextUrl: null,
+              document: await new Person({
+                id: bob,
+                publicKeys: [keys.get(httpKeyId.href)!],
+              }).toJsonLd(),
+            }
+          : await loader(url),
+    });
+    const signed = await signJsonLd(
+      activity("wrong-ld-owner", { actor: bob.href }),
+      ld.privateKey,
+      ldKeyId,
+      { contextLoader },
+    );
+    assert.equal((await send(post(JSON.stringify(signed)))).status, 401);
+    const [refused] = await findDeliveries(db);
+    assert.equal(refused?.verificationMechanism, "ld_signature");
+    assert.equal(refused?.verificationResult, "verified");
+    assert.equal(refused?.status, "rejected");
+    assert.equal(refused?.verificationKey?.key.iri, ldKeyId.href);
+    assert.match(refused?.error ?? "", /uncoveredAttribution/u);
+    const fallback = await signRequest(
+      post(JSON.stringify(signed)),
+      http.privateKey,
+      httpKeyId,
+    );
+    assert.equal((await send(fallback)).status, 202);
+    const accepted = (await findDeliveries(db)).at(-1);
+    assert.equal(accepted?.verificationMechanism, "http_signature");
+    assert.equal(accepted?.verificationResult, "verified");
+    assert.equal(accepted?.verificationKey?.key.iri, httpKeyId.href);
+    assert.equal(accepted?.status, "received");
+    assert.equal(accepted?.error, null);
+  });
+});
+
+it("isolates completion reports for concurrent requests with different verification keys", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const first = await generateCryptoKeyPair();
+    const second = await generateCryptoKeyPair();
+    const { send } = await createRecorder(
+      db,
+      new Map([
+        [
+          httpKeyId.href,
+          new CryptographicKey({
+            id: httpKeyId,
+            owner: actorIri,
+            publicKey: first.publicKey,
+          }),
+        ],
+        [
+          ldKeyId.href,
+          new CryptographicKey({
+            id: ldKeyId,
+            owner: actorIri,
+            publicKey: second.publicKey,
+          }),
+        ],
+      ]),
+    );
+    const requests = await Promise.all([
+      signRequest(
+        post(JSON.stringify(activity("parallel-first"))),
+        first.privateKey,
+        httpKeyId,
+      ),
+      signRequest(
+        post(JSON.stringify(activity("parallel-second"))),
+        second.privateKey,
+        ldKeyId,
+      ),
+    ]);
+    const responses = await Promise.all(requests.map(send));
+    assert.deepEqual(
+      responses.map((response) => response.status),
+      [202, 202],
+    );
+    const deliveries = await findDeliveries(db);
+    assert.equal(deliveries.length, 2);
+    const byIri = new Map(
+      deliveries.map((delivery) => [delivery.activityIri, delivery]),
+    );
+    assert.equal(
+      byIri.get(activity("parallel-first").id)?.verificationKey?.key.iri,
+      httpKeyId.href,
+    );
+    assert.equal(
+      byIri.get(activity("parallel-second").id)?.verificationKey?.key.iri,
+      ldKeyId.href,
+    );
+  });
+});
+
+it("records bypassed unsigned requests without claiming cryptographic verification", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const federation = await createFederation(db, {
+      kv: new MemoryKvStore(),
+      skipSignatureVerification: true,
+    });
+    const recorder = createInboundRecorder({ db, federation, rootOrigin });
+    assert.equal(
+      (
+        await recorder.fetch(
+          post(JSON.stringify(activity("bypass"))),
+          fetchOptions,
+        )
+      ).status,
+      202,
+    );
+    const [delivery] = await findDeliveries(db);
+    assert.equal(delivery?.status, "received");
+    assert.equal(delivery?.verificationResult, "no_signature");
+    assert.equal(delivery?.verificationMechanism, null);
+    assert.equal(delivery?.verificationKeyId, null);
+  });
+});
+
+it("keeps a successfully handled delivery when recording its verification key fails", async () => {
+  await withTemporaryDatabase(async (db) => {
+    await seedLocalActor(db);
+    const pair = await generateCryptoKeyPair();
+    const { send } = await createRecorder(
+      db,
+      new Map([
+        [
+          httpKeyId.href,
+          new CryptographicKey({
+            id: httpKeyId,
+            owner: actorIri,
+            publicKey: pair.publicKey,
+          }),
+        ],
+      ]),
+    );
+    await db.execute("DROP TABLE keys CASCADE");
+    const request = await signRequest(
+      post(JSON.stringify(activity("observation-failed"))),
+      pair.privateKey,
+      httpKeyId,
+    );
+    assert.equal((await send(request)).status, 202);
+    const [delivery] = await db.query.activityDeliveries.findMany();
+    assert.equal(delivery?.status, "received");
+    assert.equal(delivery?.verificationResult, "unobserved");
+    assert.equal(delivery?.verificationMechanism, null);
+    assert.match(delivery?.error ?? "", /Verification observation failed/u);
   });
 });

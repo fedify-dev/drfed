@@ -28,25 +28,12 @@ import {
   type TracerProvider,
 } from "@opentelemetry/api";
 
-import {
-  type ObservedKeyFetch,
-  type ObservedKeyLookup,
-  type ObservedSpan,
-  type Tracked,
-  tracking,
-} from "./tracking.ts";
+import { type ObservedSpan, type Tracked, tracking } from "./tracking.ts";
 
 /** The spans whose attributes and events Fedify documents as its report. */
 const REPORTED_SPANS: ReadonlySet<string> = new Set([
-  "activitypub.inbox",
   "activitypub.send_activity",
-  "http_signatures.verify",
-  "ld_signatures.verify",
-  "object_integrity_proofs.verify",
 ]);
-const SIGNATURE_METRIC = "activitypub.signature.verification.duration";
-const KEY_FETCH_METRIC = "activitypub.signature.key_fetch.duration";
-const KEY_LOOKUP_METRIC = "activitypub.key.lookup";
 const OUTBOX_METRIC = "activitypub.outbox.activity";
 
 const bindTo = (target: object, property: string | symbol): unknown => {
@@ -144,81 +131,15 @@ const text = (value: unknown): string =>
 /** What a measurement adds to the tracked run it was made in. */
 type Note = (state: Tracked, attributes: Attributes | undefined) => void;
 
-/**
- * The key lookup and fetches Fedify measured whose verification it has not
- * measured yet.  It reads and writes the public-key cache and counts a lookup,
- * then measures the fetch that made them, and then the verification that
- * fetched.
- */
-interface Pending {
-  lookup: ObservedKeyLookup | null;
-  fetches: { readonly kind: string; readonly fetch: ObservedKeyFetch }[];
-}
-
-const pending = new WeakMap<Tracked, Pending>();
-
-function pendingOf(state: Tracked): Pending {
-  const known = pending.get(state);
-  if (known != null) return known;
-  const created: Pending = { lookup: null, fetches: [] };
-  pending.set(state, created);
-  return created;
-}
-
-const noteKeyLookup: Note = (state, attributes) => {
-  const status = attributes?.["http.response.status_code"];
-  pendingOf(state).lookup = {
-    result: text(attributes?.["activitypub.lookup.result"]),
-    statusCode: typeof status === "number" ? status : null,
-  };
-};
-
-const noteKeyFetch: Note = (state, attributes) => {
-  const waiting = pendingOf(state);
-  waiting.fetches.push({
-    kind: text(attributes?.["activitypub.signature.kind"]),
-    fetch: {
-      result: text(attributes?.["activitypub.signature.key_fetch.result"]),
-      lookup: waiting.lookup,
-      keys: state.keys,
-    },
-  });
-  waiting.lookup = null;
-  state.keys = new Map();
-};
-
-const noteVerification: Note = (state, attributes) => {
-  const waiting = pendingOf(state);
-  const kind = text(attributes?.["activitypub.signature.kind"]);
-  state.verifications.push({
-    kind,
-    result: text(attributes?.["activitypub.signature.result"]),
-    keyFetches: waiting.fetches
-      .filter((fetched) => fetched.kind === kind)
-      .map(({ fetch }) => fetch),
-  });
-  waiting.fetches = waiting.fetches.filter((fetched) => fetched.kind !== kind);
-};
-
 const noteOutbox: Note = (state, attributes) => {
   state.outbox.push(text(attributes?.["activitypub.processing.result"]));
 };
 
 /** The instruments whose measurements the tracked run keeps, by how made. */
 const NOTES = {
-  createHistogram: {
-    method: "record",
-    notes: new Map([
-      [SIGNATURE_METRIC, noteVerification],
-      [KEY_FETCH_METRIC, noteKeyFetch],
-    ]),
-  },
   createCounter: {
     method: "add",
-    notes: new Map([
-      [OUTBOX_METRIC, noteOutbox],
-      [KEY_LOOKUP_METRIC, noteKeyLookup],
-    ]),
+    notes: new Map([[OUTBOX_METRIC, noteOutbox]]),
   },
 } as const;
 
@@ -246,7 +167,7 @@ function observeInstrument<T extends Counter | Histogram>(
 function observeMeter(meter: Meter): Meter {
   return new Proxy(meter, {
     get(target, property) {
-      if (property !== "createHistogram" && property !== "createCounter") {
+      if (property !== "createCounter") {
         return bindTo(target, property);
       }
       const { method, notes } = NOTES[property];
@@ -266,9 +187,8 @@ function observeMeter(meter: Meter): Meter {
 }
 
 /**
- * Let `trackRequest()` see the signature verifications, with the key fetches
- * each made and the keys `trackPublicKeys()` saw each bring, and the outbox
- * outcomes Fedify measures, while passing them on to `provider` unchanged.
+ * Let `trackRequest()` see the outbox outcomes Fedify measures, while
+ * passing them on to `provider` unchanged.
  * @returns A meter provider to give Fedify instead.
  */
 export function trackMetrics(provider: MeterProvider): MeterProvider {

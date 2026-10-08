@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-export { createKeyCache } from "./activity-delivery/keycache.ts";
 export {
   classifyInbound,
   createInboundRecorder,
@@ -24,9 +23,7 @@ export {
 export { describeActivity } from "./activity-delivery/describe.ts";
 export {
   declaredKeyId,
-  hasLdSignature,
-  proofMethods,
-  reportedVerdict,
+  summarizeVerification,
 } from "./activity-delivery/verification.ts";
 export {
   deliverActivity,
@@ -34,7 +31,6 @@ export {
 } from "./activity-delivery/outbound.ts";
 export { failureOf, queuedSettlements } from "./activity-delivery/queue.ts";
 export type {
-  ObservedKeyFetch,
   ObservedSpan,
   TrackedFederation,
 } from "./activity-delivery/tracking.ts";

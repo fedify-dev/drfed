@@ -22,7 +22,6 @@ import type {
 } from "@drfed/models/schema";
 import { type Uuid, uuidV7, validateUuid } from "@drfed/models/uuid";
 import type { FederationFetchOptions } from "@fedify/fedify";
-import type { DocumentLoader } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 
 import { canonicalizeAuthority, instanceUrl } from "../origin.ts";
@@ -152,12 +151,10 @@ export function createInboundRecorder({
       readonly id: Uuid;
       readonly body: Uint8Array;
       readonly payload: unknown;
-      readonly report: Pick<Report, "spans" | "verifications">;
+      readonly report: Pick<Report, "inboxReport">;
       readonly outcome: PromiseSettledResult<Response>;
       readonly handled: boolean;
-      readonly loaders: Parameters<typeof parseActivity>[1] & {
-        readonly contextLoader: DocumentLoader;
-      };
+      readonly loaders: Parameters<typeof parseActivity>[1];
       readonly created: Temporal.Instant;
       readonly completed: Temporal.Instant;
     },
@@ -178,9 +175,7 @@ export function createInboundRecorder({
     const verification = await observeVerification(
       db,
       request.headers,
-      payload,
-      report,
-      loaders.contextLoader,
+      report.inboxReport,
     );
     const owner =
       identifier != null && validateUuid(identifier)
@@ -233,9 +228,11 @@ export function createInboundRecorder({
       error:
         outcome.status === "rejected"
           ? describeError(outcome.reason)
-          : status === "unverified" || status === "rejected"
-            ? (verification.detail ?? (responseBody || null))
-            : null,
+          : verification.result === "unobserved"
+            ? verification.detail
+            : status === "unverified" || status === "rejected"
+              ? (verification.detail ?? (responseBody || null))
+              : null,
       payload,
       created,
       completed,
