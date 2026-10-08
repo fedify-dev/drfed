@@ -59,6 +59,26 @@ root.  The GraphQL fields that read these records are documented in
 [`@drfed/graphql`]: https://github.com/fedify-dev/drfed/tree/main/packages/graphql
 
 
+Signing key recovery
+--------------------
+
+Invalid JWKs in `local_actor_keys` cause key loading to fail.  DrFed does not
+replace them automatically, since doing so would change the actor's published
+keys.
+
+Stop the server and back up the database before repairing a row.  Restore the
+matching public/private JWK pair from a known-good backup, keeping its
+`local_actor_id` and `type`.  Restart and fetch the actor document to confirm
+that `publicKey` and `assertionMethods` publish the expected keys.
+
+If the original pair cannot be recovered, replacing it is an explicit key
+rotation.  DrFed has no rotation command or remote-cache invalidation workflow.
+Before resuming signing, an operator must deliberately install and validate a
+matching replacement pair for the same key type and verify the updated actor
+document.  Remote servers may still cache the old public key; plan for that
+transition.  Do not delete the row merely to trigger first-use generation.
+
+
 Logging
 -------
 

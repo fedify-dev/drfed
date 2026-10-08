@@ -19,6 +19,7 @@
 // Keep dependent database writes and observations sequential.
 // oxlint-disable no-await-in-loop
 
+import { enqueueActorKeyGeneration } from "@drfed/federation";
 import { type Database, promoteResource, schema } from "@drfed/models";
 import { type CollectionRole, actorTypeEnum } from "@drfed/models/schema";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
@@ -284,7 +285,8 @@ builder.mutationFields((t) => ({
       // Relay decodes global IDs as strings; Instance uses UUID identifiers.
       const targetInstanceId = instanceId as Uuid;
 
-      return await ctx.db.transaction(async (tx) => {
+      let createdOrigin: URL | undefined;
+      const result = await ctx.db.transaction(async (tx) => {
         // Find the instance that the account is included
         const [instance] = await tx
           .select({
@@ -346,6 +348,7 @@ builder.mutationFields((t) => ({
           };
         }
         // Create actors
+        createdOrigin = new URL(instanceUrl);
         const fedCtx = ctx.federation.createContext(
           new URL(instanceUrl),
           undefined,
@@ -403,6 +406,13 @@ builder.mutationFields((t) => ({
         }
         return { actors: createdActors };
       });
+      if ("actors" in result && createdOrigin != null) {
+        await enqueueActorKeyGeneration(
+          ctx.federation.createContext(createdOrigin, undefined),
+          result.actors.map((actor) => actor.id),
+        );
+      }
+      return result;
     },
   }),
 }));

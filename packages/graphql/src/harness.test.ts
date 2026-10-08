@@ -18,7 +18,11 @@ import { createYogaServer } from "@drfed/graphql";
 import type { ServerContext, UserContext } from "@drfed/graphql/builder";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PGlite } from "@electric-sql/pglite";
-import { type Federation, MemoryKvStore } from "@fedify/fedify";
+import {
+  type Federation,
+  type FederationOptions,
+  MemoryKvStore,
+} from "@fedify/fedify";
 import { getLogger } from "@logtape/logtape";
 import { MockTransport } from "@upyo/mock";
 import { drizzle } from "drizzle-orm/pglite";
@@ -191,10 +195,14 @@ export async function withTestHarness<T>(
   rootOrigin: URL = new URL("https://drfed.org"),
   loginOrigins: ReadonlySet<string> = new Set(["https://drfed.test"]),
   emailFrom?: string,
+  federationOptions: Pick<FederationOptions<unknown>, "queue"> = {},
 ): Promise<Awaited<T>> {
   return await withTemporaryDatabase(async (db) => {
     const mailer = new MockTransport();
-    const federation = await createFederation(db, { kv: new MemoryKvStore() });
+    const federation = await createFederation(db, {
+      kv: new MemoryKvStore(),
+      ...federationOptions,
+    });
     const yoga = createYogaServer(db, federation, {
       mailer,
       rootOrigin,

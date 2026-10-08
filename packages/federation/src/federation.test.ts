@@ -19,11 +19,20 @@
 
 import assert from "node:assert/strict";
 
-import createFederation, { buildFederation } from "@drfed/federation";
+import createFederation, {
+  buildFederation,
+  enqueueActorKeyGeneration,
+} from "@drfed/federation";
+import { ensureActorKeyPairs } from "@drfed/federation/actor-key";
+import { KeyGenerationQueue } from "@drfed/federation/task-queue";
 import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
-import { MemoryKvStore } from "@fedify/fedify";
+import {
+  MemoryKvStore,
+  exportJwk,
+  generateCryptoKeyPair,
+} from "@fedify/fedify";
 import { Object as APObject, Create } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq, sql } from "drizzle-orm";
@@ -32,6 +41,7 @@ import { withFederation, withTemporaryDatabase } from "./harness.test.ts";
 import {
   localActorId,
   remoteActorId,
+  seedActorKeys,
   seedActors,
   seedLocalActor,
   seedObjects,
@@ -717,3 +727,346 @@ describe("stored collection membership and independent activity addressing", () 
     });
   });
 });
+
+describe("durable actor signing keys", () => {
+  it("generates keys on first use and publishes only their public forms", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      assert.equal(await db.$count(schema.localActorKeys), 0);
+      const response = await federation.fetch(
+        new Request(actorIri, { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.publicKey.id, `${actorIri}#main-key`);
+      assert.equal(body.assertionMethod.length, 2);
+      assert.ok(body.publicKey.publicKeyPem);
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const first = await ctx.getActorKeyPairs(localActorId);
+      assert.deepEqual(
+        first.map((pair) => pair.privateKey.algorithm.name),
+        ["RSASSA-PKCS1-v1_5", "Ed25519"],
+      );
+      const saved = await db.select().from(schema.localActorKeys);
+      assert.equal(saved.length, 2);
+      assert.equal(
+        JSON.stringify(body).includes(saved[0]!.privateKey["d"]!),
+        false,
+      );
+      const fresh = await createFederation(db, { kv: new MemoryKvStore() });
+      const again = await fresh
+        .createContext(new URL(actorIri), undefined)
+        .getActorKeyPairs(localActorId);
+      assert.deepEqual(
+        await crypto.subtle.exportKey("jwk", first[0]!.publicKey),
+        await crypto.subtle.exportKey("jwk", again[0]!.publicKey),
+      );
+      assert.deepEqual(await db.select().from(schema.localActorKeys), saved);
+    });
+  });
+  it("publishes canonical key ownership for uppercase UUID requests", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const id = "abcdefab-cdef-4abc-8def-abcdefabcdef" as Uuid;
+      await db.insert(schema.localActors).values({ id });
+      const iri = `https://test-instance.drfed.org/users/${id}`;
+      await seedActors(db, {
+        id,
+        localId: id,
+        iri,
+        instanceId: "00000000-0000-4000-8000-000000000101" as Uuid,
+        type: "Person",
+        username: "uppercase-test",
+        inboxUrl: `${iri}/inbox`,
+        created: Temporal.Now.instant(),
+      });
+      const response = await federation.fetch(
+        new Request(iri.replace(id, id.toUpperCase()), { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      assert.equal(body.id, iri);
+      assert.equal(body.publicKey.owner, iri);
+      assert.equal(body.publicKey.id, `${iri}#main-key`);
+      for (const key of body.assertionMethod) assert.equal(key.controller, iri);
+    });
+  });
+  for (const requestOrigin of [
+    "https://test-instance.drfed.org.",
+    "https://test-instance.drfed.org:443",
+    "http://test-instance.drfed.org",
+    "http://test-instance.drfed.org:443",
+  ]) {
+    it(`publishes stored key ownership when requested from ${requestOrigin}`, async () => {
+      await withFederation(async ({ db, federation }) => {
+        await seedLocalActor(db);
+        const response = await federation.fetch(
+          new Request(new URL(new URL(actorIri).pathname, requestOrigin), {
+            headers: accept,
+          }),
+          { contextData: undefined },
+        );
+        assert.equal(response.status, 200);
+        const body = await response.json();
+        assert.equal(body.id, actorIri);
+        assert.equal(body.publicKey.owner, actorIri);
+        assert.equal(body.publicKey.id, `${actorIri}#main-key`);
+        assert.deepEqual(
+          body.assertionMethod.map((key: { id: string }) => key.id),
+          [`${actorIri}#multikey-1`, `${actorIri}#multikey-2`],
+        );
+        for (const key of body.assertionMethod) {
+          assert.equal(key.controller, actorIri);
+        }
+      });
+    });
+  }
+  it("preserves stored keys when repairing a missing kind and when deleted", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const [rsa] = await db
+        .select()
+        .from(schema.localActorKeys)
+        .where(eq(schema.localActorKeys.type, "RSASSA-PKCS1-v1_5"));
+      await db
+        .delete(schema.localActorKeys)
+        .where(eq(schema.localActorKeys.type, "Ed25519"));
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      assert.equal(
+        (await ensureActorKeyPairs(db, ctx, localActorId)).length,
+        2,
+      );
+      assert.deepEqual(
+        (
+          await db
+            .select()
+            .from(schema.localActorKeys)
+            .where(eq(schema.localActorKeys.type, "RSASSA-PKCS1-v1_5"))
+        )[0],
+        rsa,
+      );
+      await db
+        .update(schema.actors)
+        .set({ deleted: Temporal.Now.instant() })
+        .where(eq(schema.actors.id, localActorId));
+      assert.equal(
+        (await ensureActorKeyPairs(db, ctx, localActorId)).length,
+        2,
+      );
+      await db
+        .delete(schema.localActorKeys)
+        .where(eq(schema.localActorKeys.type, "Ed25519"));
+      assert.deepEqual(await ensureActorKeyPairs(db, ctx, localActorId), []);
+      assert.equal(await db.$count(schema.localActorKeys), 1);
+    });
+  });
+  for (const deletion of ["soft", "hard", "actor row"] as const) {
+    it(`does not persist keys when ${deletion} deletion happens during generation`, async () => {
+      await withFederation(async ({ db, federation }) => {
+        await seedLocalActor(db, { keys: false });
+        const ctx = federation.createContext(new URL(actorIri), undefined);
+        let deleted = false;
+        const pairs = await ensureActorKeyPairs(
+          db,
+          ctx,
+          localActorId,
+          async (type) => {
+            if (!deleted) {
+              deleted = true;
+              if (deletion === "soft") {
+                await db
+                  .update(schema.actors)
+                  .set({ deleted: Temporal.Now.instant() })
+                  .where(eq(schema.actors.id, localActorId));
+              } else if (deletion === "hard") {
+                await db
+                  .delete(schema.localActors)
+                  .where(eq(schema.localActors.id, localActorId));
+              } else {
+                await db
+                  .delete(schema.actors)
+                  .where(eq(schema.actors.id, localActorId));
+              }
+            }
+            return await generateCryptoKeyPair(type);
+          },
+        );
+        assert.deepEqual(pairs, []);
+        assert.equal(await db.$count(schema.localActorKeys), 0);
+      });
+    });
+  }
+  it("rejects missing, remote and wrong-host actors without storing keys", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      await seedRemoteActor(db);
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      assert.deepEqual(await ensureActorKeyPairs(db, ctx, "invalid"), []);
+      assert.deepEqual(await ensureActorKeyPairs(db, ctx, uuid()), []);
+      assert.deepEqual(await ensureActorKeyPairs(db, ctx, remoteActorId), []);
+      assert.deepEqual(
+        await ensureActorKeyPairs(
+          db,
+          federation.createContext(new URL("https://other.example"), undefined),
+          localActorId,
+        ),
+        [],
+      );
+      assert.equal(await db.$count(schema.localActorKeys), 0);
+    });
+  });
+  it("uses the local row identity and enforces key storage constraints", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      const localId = uuid();
+      await db.insert(schema.localActors).values({ id: localId });
+      await db
+        .update(schema.actors)
+        .set({ localId })
+        .where(eq(schema.actors.id, localActorId));
+      await seedActorKeys(db, localId);
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      assert.equal(
+        (await ensureActorKeyPairs(db, ctx, localActorId)).length,
+        2,
+      );
+      const [row] = await db.select().from(schema.localActorKeys);
+      assert.equal(row!.localActorId, localId);
+      await assert.rejects(db.insert(schema.localActorKeys).values(row!));
+      await assert.rejects(
+        db.update(schema.localActorKeys).set({
+          publicKey: { ...row!.publicKey, d: "secret" } as NonNullable<
+            typeof row
+          >["publicKey"],
+        }),
+      );
+      await db
+        .delete(schema.localActors)
+        .where(eq(schema.localActors.id, localId));
+      assert.equal(await db.$count(schema.localActorKeys), 0);
+      assert.deepEqual(await ensureActorKeyPairs(db, ctx, localActorId), []);
+    });
+  });
+  it("coalesces generation and returns a competing persisted winner", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let count = 0;
+      const candidates: Record<string, unknown> = {};
+      const candidate = async (type?: "RSASSA-PKCS1-v1_5" | "Ed25519") => {
+        count += 1;
+        entered.resolve();
+        await release.promise;
+        const pair = await generateCryptoKeyPair(type);
+        candidates[type!] = await exportJwk(pair.publicKey);
+        return pair;
+      };
+      const first = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+      const second = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+      await entered.promise;
+      await seedActorKeys(db, localActorId);
+      release.resolve();
+      const [one, two] = await Promise.all([first, second]);
+      assert.equal(count, 2);
+      assert.equal(one, two);
+      assert.equal(one.length, 2);
+      const rows = await db.select().from(schema.localActorKeys);
+      assert.equal(rows.length, 2);
+      for (const pair of one) {
+        const type = pair.publicKey.algorithm.name;
+        const stored = rows.find((row) => row.type === type)!;
+        assert.deepEqual(await exportJwk(pair.publicKey), stored.publicKey);
+        assert.deepEqual(await exportJwk(pair.privateKey), stored.privateKey);
+        assert.notDeepEqual(candidates[type], stored.publicKey);
+      }
+    });
+  });
+  it("sanitizes failures and clears failed in-flight generation", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      await assert.rejects(
+        ensureActorKeyPairs(db, ctx, localActorId, () =>
+          Promise.reject(new Error("PRIVATE_SECRET")),
+        ),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message === "Could not load actor signing keys." &&
+          error.cause == null,
+      );
+      assert.equal(await db.$count(schema.localActorKeys), 0);
+      await seedActorKeys(db, localActorId);
+      assert.equal(
+        (await ensureActorKeyPairs(db, ctx, localActorId)).length,
+        2,
+      );
+      await db
+        .update(schema.localActorKeys)
+        .set({ privateKey: { kty: "RSA", d: "PRIVATE_SECRET" } });
+      await assert.rejects(
+        ensureActorKeyPairs(db, ctx, localActorId),
+        /Could not load actor signing keys/u,
+      );
+    });
+  });
+  it("prewarms through real task dispatch for each federation's own handle", async () => {
+    await withTemporaryDatabase(async (db) => {
+      await seedLocalActor(db, { keys: false });
+      const queue = new KeyGenerationQueue();
+      const federation = await createFederation(db, {
+        kv: new MemoryKvStore(),
+        queue: { task: queue },
+        manuallyStartQueue: true,
+        taskQueueResolution: "strict",
+      });
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      await enqueueActorKeyGeneration(ctx, [localActorId]);
+      assert.equal((await queue.getDepth()).queued, 1);
+      const abort = new AbortController();
+      const worker = federation.startQueue(undefined, {
+        queue: "task",
+        signal: abort.signal,
+      });
+      try {
+        await assertEventually(
+          async () => (await db.$count(schema.localActorKeys)) === 2,
+        );
+        await enqueueActorKeyGeneration(ctx, [localActorId]);
+      } finally {
+        abort.abort();
+        await worker;
+      }
+      const otherQueue = new KeyGenerationQueue();
+      const other = await createFederation(db, {
+        kv: new MemoryKvStore(),
+        queue: { task: otherQueue },
+        manuallyStartQueue: true,
+      });
+      await enqueueActorKeyGeneration(
+        other.createContext(new URL(actorIri), undefined),
+        [localActorId],
+      );
+      assert.equal((await otherQueue.getDepth()).queued, 1);
+      const noQueue = await createFederation(db, { kv: new MemoryKvStore() });
+      await enqueueActorKeyGeneration(
+        noQueue.createContext(new URL(actorIri), undefined),
+        [localActorId],
+      );
+    });
+  });
+});
+async function assertEventually(check: () => Promise<boolean>): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    // oxlint-disable-next-line no-await-in-loop
+    if (await check()) return;
+    // oxlint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+  }
+  assert.fail("Background task did not finish.");
+}

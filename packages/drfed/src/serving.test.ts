@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import assert from "node:assert/strict";
+import { it } from "node:test";
 
 import {
   createFetchHandler,
@@ -26,7 +27,8 @@ import { migrate, relations, schema } from "@drfed/models";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
 import { MemoryKvStore } from "@fedify/fedify";
-import { describe, it } from "@logtape/testing-node/autoload";
+import { type LogRecord, withConfig } from "@logtape/logtape";
+import { describe } from "@logtape/testing-node/autoload";
 import { drizzle } from "drizzle-orm/pglite";
 
 const rootOrigin = new URL("https://drfed.net");
@@ -293,4 +295,61 @@ it("records inbox requests only on the instance surface", async () => {
   } finally {
     await client.close();
   }
+});
+
+it("logs federation failures without secrets and continues serving", async () => {
+  const records: LogRecord[] = [];
+  await withConfig(
+    {
+      sinks: { capture: (record) => records.push(record) },
+      loggers: [{ category: ["drfed", "serving"], sinks: ["capture"] }],
+    },
+    async () => {
+      let broken = true;
+      const fetch = createFetchHandler({
+        rootOrigin,
+        federation: {
+          fetch() {
+            if (broken) {
+              const error = new Error("PRIVATE_SECRET", {
+                cause: { privateKey: "PRIVATE_CAUSE" },
+              });
+              error.name = "PRIVATE_NAME";
+              throw error;
+            }
+            return Promise.resolve(new Response("ok"));
+          },
+        },
+        serveControlSurface: () => new Response("graphql"),
+      });
+      // Check the two request paths sequentially.
+      // oxlint-disable no-await-in-loop
+      for (const method of ["GET", "POST"]) {
+        const response = await fetch(
+          new Request(
+            "https://demo.drfed.net/users/x/inbox?token=PRIVATE_QUERY",
+            { method },
+          ),
+        );
+        assert.equal(response.status, 500);
+        assert.equal(await response.text(), "Internal server error");
+      }
+      broken = false;
+      assert.equal(
+        (await fetch(new Request("https://demo.drfed.net/users/x"))).status,
+        200,
+      );
+      assert.equal(records.length, 2);
+      for (const [index, record] of records.entries()) {
+        assert.equal(record.level, "error");
+        assert.deepEqual(record.category, ["drfed", "serving"]);
+        assert.deepEqual(record.properties, {
+          method: ["GET", "POST"][index],
+          path: "/users/x/inbox",
+          errorType: "Error",
+        });
+      }
+      assert.ok(!JSON.stringify(records).includes("PRIVATE_"));
+    },
+  );
 });

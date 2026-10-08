@@ -18,12 +18,13 @@ import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import createFederation, { createInboundRecorder } from "@drfed/federation";
+import { KeyGenerationQueue } from "@drfed/federation/task-queue";
 import { createYogaServer } from "@drfed/graphql";
 import { schema } from "@drfed/graphql/schema";
 import { migrate } from "@drfed/models";
 import { PgliteKvStore } from "@fedify/pglite";
 import { PostgresKvStore } from "@fedify/postgres";
-import { configure, getConsoleSink } from "@logtape/logtape";
+import { configure, getConsoleSink, getLogger } from "@logtape/logtape";
 import { createLoggingConfig } from "@optique/logtape";
 import { run } from "@optique/run";
 import { SmtpTransport } from "@upyo/smtp";
@@ -50,8 +51,21 @@ async function runServer(options: ServerOptions) {
       : new PostgresKvStore(credentials.client);
   const federation = await createFederation(options.drizzle.db, {
     kv,
+    queue: { task: new KeyGenerationQueue() },
+    taskQueueResolution: "strict",
+    manuallyStartQueue: true,
     allowPrivateAddress: true,
   });
+  const workerAbort = new AbortController();
+  // oxlint-disable promise/prefer-await-to-then
+  const worker = federation
+    .startQueue(undefined, { queue: "task", signal: workerAbort.signal })
+    .catch(() => {
+      getLogger(["drfed", "server"]).error(
+        "Actor key worker stopped unexpectedly.",
+      );
+    });
+  // oxlint-enable promise/prefer-await-to-then
   const { emailFrom, mailer, rootOrigin, loginOrigins } = options;
 
   const yogaServer = createYogaServer(options.drizzle.db, federation, {
@@ -73,23 +87,67 @@ async function runServer(options: ServerOptions) {
     }),
     hostname: options.address.host,
     manual: true,
+    gracefulShutdown: false,
     port: options.address.port,
   });
+  let closing = false;
   function shutdown() {
-    if (mailer instanceof SmtpTransport) {
-      mailer.closeAllConnections();
+    if (closing) {
+      process.exit(1);
     }
-    // oxlint-disable-next-line promise/catch-or-return promise/prefer-await-to-then
-    server.close().then(async () => {
+    closing = true;
+    const deadline = setTimeout(() => process.exit(1), 10_000);
+    const requests = server.close();
+    const forceClose = setTimeout(() => {
+      // A stalled upload must not prevent database cleanup on shutdown.
+      // oxlint-disable-next-line promise/prefer-await-to-then
+      void server.close(true).catch(() => process.exit(1));
+    }, 5000);
+    workerAbort.abort();
+    // The task worker awaits its active handler before resolving.
+    // oxlint-disable promise/prefer-await-to-then
+    Promise.all([requests, worker])
+      .then(async () => {
+        clearTimeout(forceClose);
+        if (mailer instanceof SmtpTransport) mailer.closeAllConnections();
+        await ("driver" in credentials
+          ? credentials.client.close()
+          : credentials.client.end());
+        clearTimeout(deadline);
+        process.exit(0);
+      })
+      .catch(() => {
+        process.exit(1);
+      });
+  }
+  // oxlint-enable promise/prefer-await-to-then
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  try {
+    await server.serve();
+  } catch (error) {
+    process.off("SIGINT", shutdown);
+    process.off("SIGTERM", shutdown);
+    workerAbort.abort();
+    await Promise.all([server.close(), worker]);
+    try {
+      if (mailer instanceof SmtpTransport) await mailer.closeAllConnections();
+    } catch {
+      getLogger(["drfed", "server"]).error(
+        "Mailer cleanup after startup failure failed.",
+      );
+    }
+    try {
       await ("driver" in credentials
         ? credentials.client.close()
         : credentials.client.end());
-      process.exit(0);
-    });
+    } catch {
+      getLogger(["drfed", "server"]).error(
+        "Database cleanup after startup failure failed.",
+      );
+    }
+    throw new Error("Could not start the server.", { cause: error });
   }
-  process.once("SIGINT", shutdown);
-  process.once("SIGTERM", shutdown);
-  await server.serve();
 }
 
 async function runSchemaGenerator(

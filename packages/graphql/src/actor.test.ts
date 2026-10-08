@@ -20,6 +20,7 @@
 
 import assert from "node:assert/strict";
 
+import { KeyGenerationQueue } from "@drfed/federation/task-queue";
 import { schema } from "@drfed/models";
 import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { faker } from "@faker-js/faker";
@@ -195,6 +196,7 @@ describe("Mutation.generateActors", () => {
         ),
       );
 
+      assert.equal(await db.$count(schema.localActorKeys), 0);
       const actors = await db.select().from(schema.actors);
       assert.equal(actors.length, 2);
       assert.equal(username.mock.callCount(), 3);
@@ -226,6 +228,64 @@ describe("Mutation.generateActors", () => {
         new Set(actors.map(({ localId }) => localId)),
       );
     });
+  });
+
+  it("schedules only committed actors and survives a failed prewarm enqueue", async (test) => {
+    const queue = new KeyGenerationQueue();
+    await withTestHarness(
+      async ({ db, post, federation }) => {
+        const auth = await seedAuthenticatedLocalInstance(db);
+        let observedActors: number | undefined;
+        let observedKeys: number | undefined;
+        const enqueue = test.mock.method(queue, "enqueueMany", async () => {
+          observedActors = await db.$count(schema.actors);
+          observedKeys = await db.$count(schema.localActorKeys);
+          throw new Error("Expendable queue unavailable.");
+        });
+        const response = await post(
+          {
+            query: generateActorsMutation,
+            variables: {
+              instance: globalId("Instance", localInstanceId),
+              size: 2,
+            },
+          },
+          auth,
+        );
+        const body = await response.json();
+        assert.equal(body.errors, undefined);
+        assert.equal(
+          body.data.generateActors.resultType,
+          "CreateActorsSuccess",
+        );
+        assert.equal(enqueue.mock.callCount(), 1);
+        assert.equal(observedActors, 2);
+        assert.equal(observedKeys, 0);
+        const actor = body.data.generateActors.actors[0];
+        const context = federation.createContext(new URL(actor.iri), undefined);
+        assert.equal((await context.getActorKeyPairs(actor.uuid)).length, 2);
+        assert.equal(await db.$count(schema.localActorKeys), 2);
+        const rejected = await post(
+          {
+            query: generateActorsMutation,
+            variables: {
+              instance: globalId("Instance", localInstanceId),
+              size: 10000,
+            },
+          },
+          auth,
+        );
+        assert.equal(
+          (await rejected.json()).data.generateActors.resultType,
+          "CreateActorsError",
+        );
+        assert.equal(enqueue.mock.callCount(), 1);
+      },
+      undefined,
+      undefined,
+      undefined,
+      { queue: { task: queue } },
+    );
   });
 
   it("builds actor URIs from the stored host and the root scheme", async () => {

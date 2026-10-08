@@ -129,6 +129,7 @@ async function createRecorder(
     kv,
     contextLoaderFactory: () => contextLoader,
     documentLoaderFactory: () => documentLoader,
+    authenticatedDocumentLoaderFactory: () => documentLoader,
   });
   const recorder = createInboundRecorder({ db, federation, rootOrigin });
   return {
@@ -507,6 +508,19 @@ it("records a request Fedify throws on, and throws the exception again", async (
           ? Promise.reject(new TypeError("offline"))
           : contextLoader(url, options),
       documentLoaderFactory: () =>
+        keyLoader(
+          new Map([
+            [
+              httpKeyId.href,
+              new CryptographicKey({
+                id: httpKeyId,
+                owner: actorIri,
+                publicKey: pair.publicKey,
+              }),
+            ],
+          ]),
+        ),
+      authenticatedDocumentLoaderFactory: () =>
         keyLoader(
           new Map([
             [
@@ -957,6 +971,19 @@ it("receives a queued activity once the queue worker runs its listener", async (
         manuallyStartQueue: true,
         contextLoaderFactory: () => contextLoader,
         documentLoaderFactory: () =>
+          keyLoader(
+            new Map([
+              [
+                proofKeyId.href,
+                new Multikey({
+                  id: proofKeyId,
+                  controller: actorIri,
+                  publicKey: pair.publicKey,
+                }),
+              ],
+            ]),
+          ),
+        authenticatedDocumentLoaderFactory: () =>
           keyLoader(
             new Map([
               [
@@ -1555,6 +1582,8 @@ it("orders deliveries by arrival, even when handling ends out of order", async (
       kv,
       contextLoaderFactory: () => contextLoader,
       documentLoaderFactory: () => () =>
+        Promise.reject(new TypeError("offline")),
+      authenticatedDocumentLoaderFactory: () => () =>
         Promise.reject(new TypeError("offline")),
     });
     const { promise: reached, resolve: enter } = Promise.withResolvers<void>();

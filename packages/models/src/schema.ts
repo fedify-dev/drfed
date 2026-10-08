@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { webcrypto } from "node:crypto";
+
 import { desc, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
@@ -336,6 +338,36 @@ export const localActors = pgTable("local_actors", {
 
 export type LocalActor = typeof localActors.$inferSelect;
 export type NewLocalActor = typeof localActors.$inferInsert;
+
+/** Signing algorithms available to local actors. */
+export const localActorKeyTypeEnum = pgEnum("local_actor_key_type", [
+  "RSASSA-PKCS1-v1_5",
+  "Ed25519",
+]);
+export type LocalActorKeyType =
+  (typeof localActorKeyTypeEnum.enumValues)[number];
+/** Private signing material; never expose this table through GraphQL. */
+export const localActorKeys = pgTable(
+  "local_actor_keys",
+  {
+    localActorId: uuid("local_actor_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => localActors.id, { onDelete: "cascade" }),
+    type: localActorKeyTypeEnum().notNull(),
+    publicKey: jsonb("public_key").$type<PublicJwk>().notNull(),
+    privateKey: jsonb("private_key").$type<webcrypto.JsonWebKey>().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.localActorId, table.type] }),
+    check(
+      "local_actor_keys_public_key_check",
+      sql`jsonb_typeof(${table.publicKey}) = 'object' AND NOT (${table.publicKey} ?| array['d','p','q','dp','dq','qi','oth','k'])`,
+    ),
+  ],
+);
+export type LocalActorKey = typeof localActorKeys.$inferSelect;
+export type NewLocalActorKey = typeof localActorKeys.$inferInsert;
 
 export const objectTypeEnum = pgEnum("object_type", ["Article", "Note"]);
 export type ObjectType = (typeof objectTypeEnum.enumValues)[number];

@@ -129,6 +129,7 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
       kv,
       contextLoaderFactory: () => contextLoader,
       documentLoaderFactory: () => documentLoader,
+      authenticatedDocumentLoaderFactory: () => documentLoader,
     });
     const recorder = createInboundRecorder({ db, federation, rootOrigin });
     const send = async (
@@ -263,6 +264,8 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       kv,
       contextLoaderFactory: () => contextLoader,
       documentLoaderFactory: () => () =>
+        Promise.reject(new TypeError("offline")),
+      authenticatedDocumentLoaderFactory: () => () =>
         Promise.reject(new TypeError("offline")),
     });
     const recorder = createInboundRecorder({ db, federation, rootOrigin });

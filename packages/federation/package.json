@@ -57,6 +57,14 @@
     "./origin": {
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
+    },
+    "./actor-key": {
+      "types": "./dist/actor-key.d.mts",
+      "default": "./dist/actor-key.mjs"
+    },
+    "./task-queue": {
+      "types": "./dist/task-queue.d.mts",
+      "default": "./dist/task-queue.mjs"
     }
   },
   "files": [
@@ -68,7 +76,9 @@
       "src/index.ts",
       "src/activity-delivery.ts",
       "src/object.ts",
-      "src/origin.ts"
+      "src/origin.ts",
+      "src/actor-key.ts",
+      "src/task-queue.ts"
     ],
     "dts": {
       "sourcemap": true,
