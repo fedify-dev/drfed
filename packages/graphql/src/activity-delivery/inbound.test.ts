@@ -1695,16 +1695,25 @@ it("keeps a successfully handled delivery when recording its verification key fa
       ]),
     );
     await db.execute("DROP TABLE keys CASCADE");
-    const request = await signRequest(
+    const firstSignature = await signRequest(
       post(JSON.stringify(activity("observation-failed"))),
       pair.privateKey,
-      httpKeyId,
+      ldKeyId,
+      { spec: "rfc9421", rfc9421: { label: "missing" } },
     );
+    const request = await signRequest(
+      firstSignature,
+      pair.privateKey,
+      httpKeyId,
+      { spec: "rfc9421", rfc9421: { label: "valid" } },
+    );
+    assert.equal(declaredKeyId(request.headers), ldKeyId.href);
     assert.equal((await send(request)).status, 202);
     const [delivery] = await db.query.activityDeliveries.findMany();
     assert.equal(delivery?.status, "received");
     assert.equal(delivery?.verificationResult, "unobserved");
     assert.equal(delivery?.verificationMechanism, null);
+    assert.equal(delivery?.signedKeyIri, httpKeyId.href);
     assert.match(delivery?.error ?? "", /Verification observation failed/u);
   });
 });

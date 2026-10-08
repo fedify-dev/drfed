@@ -267,8 +267,9 @@ export async function observeVerification(
   headers: Headers,
   report: InboxRequestReport | undefined,
 ): Promise<VerificationObservation> {
+  let summary: VerificationSummary | undefined;
   try {
-    const summary = summarizeVerification(report, headers);
+    summary = summarizeVerification(report, headers);
     const version =
       summary.key == null || summary.keyIri == null
         ? null
@@ -289,7 +290,8 @@ export async function observeVerification(
       mechanism: null,
       result: "unobserved",
       keyId: null,
-      signedKeyIri: declaredKeyId(headers),
+      signedKeyIri:
+        summary == null ? declaredKeyId(headers) : summary.signedKeyIri,
       detail: `Verification observation failed: ${describeError(error)}`,
     };
   }
