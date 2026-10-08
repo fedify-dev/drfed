@@ -373,11 +373,10 @@ Activity delivery observations live in `activity_deliveries`, independently
 of the ActivityPub `activities` resources, and *src/activity-delivery/* holds
 the code that records them.  The federation HTTP surface must pass through
 `createInboundRecorder` with a federation made by `createFederation`, which
-tracks the public keys, spans and measurements Fedify reports for each
-request, and the deployment's root origin.  Keep the public-key cache
-serialization compatible with the installed Fedify version,
-and read only the spans, events and metrics Fedify documents in its
-OpenTelemetry manual; never verify a request again.  Inbox listeners must call
+captures Fedify's `onRequestFinished()` report for each request, and the
+deployment's root origin.  Take verification keys and refusal reasons from
+that report; never verify a request again or infer its outcome from telemetry
+or public-key cache serialization. Inbox listeners must call
 `markHandled()`, which is how a delivery tells a received activity from an
 acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
 federation through `createFederation`, which observes the outbox queue so that

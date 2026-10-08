@@ -24,7 +24,6 @@ import createFederation, { type TrackedFederation } from "@drfed/federation";
 import {
   classifyInbound,
   createInboundRecorder,
-  createKeyCache,
   deliverActivity,
   describeActivity,
 } from "@drfed/federation/activity-delivery";
@@ -37,7 +36,6 @@ import {
 import { observeKeyVersion } from "@drfed/models/key";
 import {
   type Context,
-  type KvKey,
   MemoryKvStore,
   SendActivityError,
   type SenderKeyPair,
@@ -49,7 +47,6 @@ import {
   Create,
   CryptographicKey,
   type DocumentLoader,
-  Multikey,
   Person,
   type Recipient,
 } from "@fedify/vocab";
@@ -228,8 +225,11 @@ it("records signed, rotated, tampered and rejected inbox deliveries with the ori
     });
     assert.equal(rejected?.status, "rejected");
     assert.equal(rejected?.verificationResult, "verified");
-    assert.equal(rejected?.error, rejected?.responseBody);
-    assert.match(rejected?.error ?? "", /do not match/u);
+    assert.equal(
+      rejected?.responseBody,
+      "The signer and the actor do not match.",
+    );
+    assert.match(rejected?.error ?? "", /actorKeyMismatch/u);
     assert.equal(
       (
         await send(
@@ -278,7 +278,7 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
     assert.equal(unsigned.status, "unverified");
     assert.equal(unsigned.signedKeyIri, null);
     assert.equal(unsigned.verificationKeyId, null);
-    assert.equal(unsigned.verificationMechanism, "http_signature");
+    assert.equal(unsigned.verificationMechanism, null);
     assert.equal(unsigned.verificationResult, "no_signature");
     const pair = await generateCryptoKeyPair();
     assert.equal(
@@ -347,69 +347,6 @@ it("records missing signatures, failed key fetches and non-JSON bodies, and skip
       401,
     );
   });
-});
-
-it("uses the Fedify KV serialization for RSA, Multikey, scoped and negative entries", async () => {
-  const kv = new MemoryKvStore();
-  const cache = createKeyCache(kv);
-  const rsa = await generateCryptoKeyPair();
-  const key = new CryptographicKey({
-    id: keyId,
-    owner: actorIri,
-    publicKey: rsa.publicKey,
-  });
-  await cache.set(keyId, key);
-  assert.deepEqual(
-    await kv.get(["_fedify", "publicKey", "2", keyId.href]),
-    await key.toJsonLd(),
-  );
-  assert.ok((await cache.get(keyId)) instanceof CryptographicKey);
-  const ed = await generateCryptoKeyPair("Ed25519");
-  const multi = new Multikey({
-    id: keyId,
-    controller: actorIri,
-    publicKey: ed.publicKey,
-  });
-  await kv.set(
-    ["_fedify", "publicKey", "2", keyId.href],
-    await multi.toJsonLd(),
-  );
-  assert.ok((await cache.get(keyId)) instanceof Multikey);
-  await cache.set(keyId, null);
-  assert.equal(await cache.get(keyId), null);
-  await cache.setFetchError(keyId, { error: new TypeError("offline") });
-  assert.equal(
-    ((await cache.getFetchError(keyId)) as { error: Error }).error.name,
-    "TypeError",
-  );
-  await kv.set(["_fedify", "publicKey", "2", keyId.href], "not a key");
-  assert.equal(await cache.get(keyId), undefined);
-  // A key at a compatible identifier is wrapped with when its entry expires.
-  const scoped = cache.compatibleKeyScope("multikey");
-  const entry: KvKey = [
-    "_fedify",
-    "publicKey",
-    "__compatible",
-    "multikey",
-    keyId.href,
-  ];
-  const before = Temporal.Now.instant().epochMilliseconds;
-  await scoped.set(keyId, multi);
-  const stored = await kv.get<{ key: unknown; expires: number }>(entry);
-  assert.deepEqual(Object.keys(stored ?? {}).sort(), ["expires", "key"]);
-  assert.deepEqual(stored?.key, await multi.toJsonLd());
-  assert.ok((stored?.expires ?? 0) > before);
-  assert.ok((await scoped.get(keyId)) instanceof Multikey);
-  assert.equal(
-    await cache.compatibleKeyScope("httpSignature").get(keyId),
-    undefined,
-  );
-  await scoped.set(keyId, null);
-  assert.equal((await kv.get<{ key: unknown }>(entry))?.key, null);
-  assert.equal(await scoped.get(keyId), null);
-  await kv.set(entry, await multi.toJsonLd());
-  assert.equal(await scoped.get(keyId), undefined);
-  assert.equal(await kv.get(entry), undefined);
 });
 
 it("classifies accepted proofs independently of HTTP signature failure and describes malformed JSON-LD", async () => {

@@ -17,7 +17,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import type { Uuid } from "@drfed/models/uuid";
-import type { Federation, KvKey, KvStore } from "@fedify/fedify";
+import type { Federation, InboxRequestReport, KvStore } from "@fedify/fedify";
 import type { Attributes } from "@opentelemetry/api";
 
 /** A span Fedify reported while a tracked run went on. */
@@ -30,42 +30,6 @@ export interface ObservedSpan {
   }[];
   /** Whether the span ended with an error status. */
   readonly failed: boolean;
-}
-
-/** One `activitypub.key.lookup` measurement. */
-export interface ObservedKeyLookup {
-  /** `hit`, `fetched`, `not_found`, `invalid`, `network_error`, or `error`. */
-  readonly result: string;
-  /** The status the server of the key answered with, if it answered. */
-  readonly statusCode: number | null;
-}
-
-/** One `activitypub.signature.key_fetch.duration` measurement. */
-export interface ObservedKeyFetch {
-  /** `hit`, `fetched`, or `error` when no usable key came back. */
-  readonly result: string;
-  /** The lookup Fedify counted for the fetch, which tells why it failed. */
-  readonly lookup: ObservedKeyLookup | null;
-  /**
-   * Every value each public-key cache entry held while Fedify made the fetch,
-   * in order, by its key below the prefix, as JSON: what it read, then what it
-   * wrote.  The last of a fetch that brought a key is the key it brought.
-   */
-  readonly keys: ReadonlyMap<string, readonly unknown[]>;
-}
-
-/** One `activitypub.signature.verification.duration` measurement. */
-export interface ObservedVerification {
-  /** `http`, `linked_data`, or `object_integrity`. */
-  readonly kind: string;
-  /** `verified`, `rejected`, `missing`, or `error`. */
-  readonly result: string;
-  /**
-   * The key fetches Fedify measured while verifying, in order, which hold the
-   * keys this verification used, and no other.  It fetches a key again when
-   * the cached one did not verify.
-   */
-  readonly keyFetches: readonly ObservedKeyFetch[];
 }
 
 /** One response `fetch()` received while a tracked run went on. */
@@ -85,7 +49,7 @@ export interface Report {
   /** Whether an inbox listener ran. */
   readonly handled: boolean;
   readonly spans: readonly ObservedSpan[];
-  readonly verifications: readonly ObservedVerification[];
+  readonly inboxReport: InboxRequestReport | undefined;
   /** `activitypub.outbox.activity` results: `retried`, `abandoned`, ... */
   readonly outbox: readonly string[];
   readonly responses: readonly ObservedResponse[];
@@ -100,13 +64,8 @@ export interface Tracked {
   handled: boolean;
   /** Tasks the run started may outlive it; they must not add to it. */
   closed: boolean;
-  /**
-   * The values public-key cache entries held since Fedify last measured a key
-   * fetch, which the next measurement takes as those of its fetch.
-   */
-  keys: Map<string, readonly unknown[]>;
+  inboxReport: InboxRequestReport | undefined;
   readonly spans: ObservedSpan[];
-  readonly verifications: ObservedVerification[];
   readonly outbox: string[];
   readonly responses: ObservedResponse[];
 }
@@ -168,8 +127,8 @@ interface TrackOptions {
 
 /**
  * Run a federation request or a queued task and report what Fedify did: the
- * spans, measurements and responses it reported, with the values public-key
- * cache entries held at each key fetch it measured, even when the run throws.
+ * inbox report, outbound spans, measurements and responses, even when the
+ * run throws.
  * @returns How the run ended, and what was tracked.
  */
 export async function trackSettled<T>(
@@ -180,9 +139,8 @@ export async function trackSettled<T>(
     ...(inboundDeliveryId == null ? {} : { inboundDeliveryId }),
     handled: false,
     closed: false,
-    keys: new Map(),
+    inboxReport: undefined,
     spans: [],
-    verifications: [],
     outbox: [],
     responses: [],
   };
@@ -190,8 +148,8 @@ export async function trackSettled<T>(
     storage.run(state, async () => await run()),
   ]);
   state.closed = true;
-  const { handled, spans, verifications, outbox, responses } = state;
-  return { outcome, handled, spans, verifications, outbox, responses };
+  const { handled, spans, inboxReport, outbox, responses } = state;
+  return { outcome, handled, spans, inboxReport, outbox, responses };
 }
 
 /**
@@ -214,53 +172,4 @@ export async function trackRequest<T>(
 ): Promise<{ readonly result: T } & Report> {
   const { outcome, ...report } = await trackSettled(run, options);
   return { result: unwrap(outcome), ...report };
-}
-
-const below = (key: KvKey, prefix: KvKey): string | null =>
-  key.length > prefix.length &&
-  prefix.every((part, index) => key[index] === part)
-    ? JSON.stringify(key.slice(prefix.length))
-    : null;
-
-/**
- * Let `trackRequest()` see the public keys Fedify reads and writes, which are
- * the keys it verifies with, including those it fetches again.  `trackMetrics()`
- * tells which key fetch, and so which verification, each belongs to.
- * @returns The same store, tracking entries under `prefix`.
- */
-export function trackPublicKeys(kv: KvStore, prefix: KvKey): KvStore {
-  const note = (key: KvKey, value: unknown) => {
-    const entry = below(key, prefix);
-    const keys = tracking()?.keys;
-    if (entry != null) keys?.set(entry, [...(keys.get(entry) ?? []), value]);
-  };
-  return new Proxy(kv, {
-    get(target, property) {
-      if (property === "get") {
-        return async (key: KvKey) => {
-          const value = await target.get(key);
-          note(key, value);
-          return value;
-        };
-      }
-      if (property === "set") {
-        return async (
-          key: KvKey,
-          value: unknown,
-          options?: Parameters<KvStore["set"]>[2],
-        ) => {
-          await target.set(key, value, options);
-          note(key, value);
-        };
-      }
-      if (property === "delete") {
-        return async (key: KvKey) => {
-          await target.delete(key);
-          note(key, undefined);
-        };
-      }
-      const value: unknown = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
 }

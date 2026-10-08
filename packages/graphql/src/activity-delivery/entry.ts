@@ -109,13 +109,12 @@ const VerificationResult = builder.enumType(
       },
       key_fetch_error: {
         description:
-          "The key a signature or proof names could not be fetched, or what " +
-          "was fetched held no usable key.",
+          "Fedify reported a failure fetching the key a signature or proof names.",
       },
       no_signature: { description: "Nothing to verify was found." },
       unattempted: {
         description:
-          "Fedify answered before verifying anything, e.g. a body that is " +
+          "Fedify stopped before checking a signature or proof, e.g. a body that is " +
           "not JSON or an unknown inbox.",
       },
       unobserved: {
@@ -295,7 +294,7 @@ const ActivityDeliveryRef = builder.drizzleNode("activityDeliveries", {
       description:
         "Why a refused or failed delivery ended that way, which for an " +
         "inbound request whose handling threw is the exception.  Null for " +
-        "accepted ones.",
+        "accepted ones unless verification observation failed.",
     }),
     attempts: t.relatedConnection("attempts", {
       query: { orderBy: { created: "asc", id: "asc" } },

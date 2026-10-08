@@ -63,9 +63,9 @@ actor was a member of when the delivery arrived, so that a shared-inbox
 delivery, whose `actor` is null, still explains why it is in the actor's feed.
 `ActivityDelivery.attempts` is a connection, oldest attempt first.
 
-Wrap the federation HTTP surface with `createInboundRecorder`, passing a
-federation made by `createFederation` and the root origin; both come from
-[`@drfed/federation`].  Every inbox `POST`
+Wrap the federation HTTP surface with `createInboundRecorder` from
+[`@drfed/federation`], passing a federation made by `createFederation` from
+the same package and the root origin.  Every inbox `POST`
 is recorded, whether or not its body is JSON; recording errors never replace
 federation responses.  A request Fedify throws on is recorded too, with the
 exception in `error` and no `statusCode`, and the exception is thrown again.
@@ -79,41 +79,35 @@ An inbound delivery keeps:
     `Signature` scheme.
  -  `inboxUrl`, the canonical IRI of the inbox, however the request spelled its
     host or scheme.
- -  `verificationMechanism` and `verificationResult`, what Fedify reported of
-    verifying the request, as its OpenTelemetry manual documents: the
-    `activitypub.signature.verification.duration` result of each mechanism it
-    tried, the `activitypub.signature.key_fetch.duration` and
-    `activitypub.key.lookup` results of the keys it fetched for each, the
-    `*.verify` spans naming their keys, and the
-    `activitypub.activity.received` event.  DrFed verifies nothing again.  The
-    result is `unattempted` when Fedify answered before verifying, such as for
-    a body that is not JSON or an inbox whose owner does not exist, even if
-    the body carries a signature or proof.  Proofs are found as JSON-LD,
-    however `proof` is spelled.
- -  A refusal is `key_fetch_error` rather than `invalid_signature` when the
-    last key fetch of the mechanism brought no usable key, whichever
-    mechanism it is: the signature was then not checked, or only against a
-    cached key that did not verify.  `error` tells why as `keyFetchError:`
-    followed by the status the server of the key answered with, by `cached`
-    for the record of an earlier failure, or by the lookup result Fedify
-    counted, such as `network_error` or `invalid` for a document that holds no
-    key.  When Fedify itself names the fetch of an HTTP signature's key as
-    failed, what follows is the status or the type of the error it reports.
- -  The result tells whether a signature or proof verified, not whether it
-    authenticated the activity.  Object Integrity Proofs that verify without
-    their keys' controllers covering the activity's actor are `verified`, and
-    the refusal is `status` `rejected`, with `error` telling that Fedify did
-    not accept them, even when the HTTP signature Fedify went on to failed.
-    Fedify reports a Linked Data Signature that verifies without its key's
-    owner being the actor the same as one that does not verify, so that one
-    is `invalid_signature`.
- -  `verificationKey`, the public key version that mechanism used, even when
-    verification failed: the last key its cache entry held during a key fetch
-    of that one verification which brought a key, whether read or fetched,
-    even when fetching it again then failed.  A key another mechanism of the
-    same request found under the same IRI is not it, nor is one read from the
-    cache that the verification could not use.  `signedKeyIri` is the `keyId`
-    the HTTP signature declares.  The two may name different keys.
+ -  `verificationMechanism` and `verificationResult` summarize Fedify's
+    `onRequestFinished()` report, independently of OpenTelemetry sampling.
+    DrFed verifies nothing again.  The result is `unattempted` when no
+    signature check ran before a preparation or parsing failure, and
+    `unobserved` when the report is missing or observation fails.
+ -  The report can contain several attempts and keys; the delivery retains
+    one representative check.  Root activity evaluations take precedence over
+    embedded portable objects.  An authenticating attempt wins, followed by
+    the last cryptographically successful evaluation, including an attribution
+    refusal, then the last meaningful failed evaluation.  A partly invalid
+    proof set remains `invalid_signature` or `key_fetch_error`.
+ -  `key_fetch_error` comes from an explicit fetch failure.  `error` includes
+    `keyFetchError:` and the HTTP status or the original error's name and
+    message, including for cached failures.  A document with no usable key
+    that Fedify reports as `invalidSignature` is `invalid_signature`.
+ -  A valid signature or proof can still fail authentication.  Linked Data
+    Signatures with the wrong owner and Object Integrity Proofs with uncovered
+    attributions remain `verified` with `status` `rejected`.  `error` records
+    Fedify's attribution, ownership, nonce or proof-policy reason.  Other
+    refusals and processing failures use the completion report's reason;
+    exceptions retain the original thrown value's description.
+ -  `verificationKey` is the actual successful key of the selected check, or
+    its last tried key on failure, including when refreshing a cached key
+    fails.  Its history uses the key snapshot's ID, falling back to a valid
+    declared key ID when the snapshot has none.  `signedKeyIri` is the HTTP
+    signature's declaration, preferring the successful check when several
+    HTTP signatures were evaluated.  It may differ from the history ID or
+    refer to a mechanism that did not authenticate the request.  Malformed
+    declarations remain in the raw request.
  -  `status`, which follows the response Fedify gave: `received` when the inbox
     listener ran, `acknowledged` when the request was answered 2xx without it
     (a duplicate, for instance), `rejected` when a verified activity was

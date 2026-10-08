@@ -48,8 +48,9 @@ them.
 Activity deliveries
 -------------------
 
-`createFederation()` tracks the public keys, spans, and measurements Fedify
-reports, and observes the outbox queue when one is given, so that each delivery
+`createFederation()` captures Fedify's inbox completion reports and tracks
+outbound spans and measurements.  It observes the outbox queue when one is
+given, so that each delivery
 can be recorded in `activity_deliveries`.  Wrap the federation's HTTP surface
 with `createInboundRecorder()` to record every inbox request, and send
 activities with `deliverActivity()`.  Both are also exported from the package

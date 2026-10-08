@@ -18,7 +18,7 @@ import type { FederationBuilder } from "@fedify/fedify";
 import { Activity } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 
-import { markHandled } from "./activity-delivery/tracking.ts";
+import { markHandled, tracking } from "./activity-delivery/tracking.ts";
 
 const logger = getLogger(["drfed", "federation"]);
 
@@ -35,6 +35,10 @@ export function registerInboxListeners(
     .on(Activity, (_ctx, activity) => {
       markHandled();
       logger.debug("Received an activity: {activity}", { activity });
+    })
+    .onRequestFinished((_ctx, report) => {
+      const state = tracking();
+      if (state != null) state.inboxReport = report;
     })
     .onError((_ctx, error) => {
       logger.error("An error occurred while processing an inbox: {error}", {
