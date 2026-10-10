@@ -19,7 +19,7 @@ import { graphql } from "relay-runtime";
 import { Index, Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
-import { actorLabel } from "~/actor.ts";
+import { actorLabel } from "~/label.ts";
 
 import type { ActorDetail_actor$key } from "./__generated__/ActorDetail_actor.graphql.ts";
 import { CopyButton } from "./CopyButton.tsx";

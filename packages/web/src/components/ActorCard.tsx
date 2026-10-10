@@ -19,7 +19,7 @@ import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
-import { actorLabel } from "~/actor.ts";
+import { actorLabel } from "~/label.ts";
 
 import type { ActorCard_actor$key } from "./__generated__/ActorCard_actor.graphql.ts";
 

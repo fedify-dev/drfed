@@ -34,8 +34,8 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
-import { actorLabel } from "~/actor.ts";
 import { showToast } from "~/components/Toast.tsx";
+import { actorLabel } from "~/label.ts";
 
 import type { CreateObjectMutation } from "./__generated__/CreateObjectMutation.graphql.ts";
 import type { InstanceActorListQuery } from "./__generated__/InstanceActorListQuery.graphql.ts";
