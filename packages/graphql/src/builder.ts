@@ -15,12 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { type Database, normalizeEmail, relations } from "@drfed/models";
-import {
-  type Account,
-  type Session,
-  instanceMembers,
-  instances,
-} from "@drfed/models/schema";
+import { type Account, type Session, instances } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Template } from "@fedify/uri-template";
@@ -30,12 +25,12 @@ import ErrorsPlugin from "@pothos/plugin-errors";
 import RelayPlugin from "@pothos/plugin-relay";
 import ScopeAuthPlugin from "@pothos/plugin-scope-auth";
 import type { Transport } from "@upyo/core";
-import type { SQL } from "drizzle-orm";
-import { type PgColumn, getTableConfig } from "drizzle-orm/pg-core";
-import { and, eq, inArray, isNotNull } from "drizzle-orm/sql/expressions";
-import { sql } from "drizzle-orm/sql/sql";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { eq } from "drizzle-orm/sql/expressions";
 import { GraphQLScalarType, Kind } from "graphql";
 import { JSONResolver, URLResolver, UUIDResolver } from "graphql-scalars";
+
+import { hideUnreadableNodes, memberInstances } from "./readable.ts";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -164,12 +159,19 @@ export const builder = new SchemaBuilder<SchemaTypes>({
   errors: { defaultTypes: [] },
   relay: {
     nodeQueryOptions: {
-      resolve: async (_, { id }, __, ___, resolveNode) =>
-        filterDeleted(await resolveNode(id)),
+      resolve: async (_, { id }, ctx, __, resolveNode) => {
+        const [node] = await hideUnreadableNodes(ctx, [
+          filterDeleted(await resolveNode(id)),
+        ]);
+        return node;
+      },
     },
     nodesQueryOptions: {
-      resolve: async (_, { ids }, __, ___, resolveNodes) =>
-        (await resolveNodes(ids)).map(filterDeleted),
+      resolve: async (_, { ids }, ctx, __, resolveNodes) =>
+        await hideUnreadableNodes(
+          ctx,
+          (await resolveNodes(ids)).map(filterDeleted),
+        ),
     },
   },
   scopeAuth: {
@@ -233,53 +235,6 @@ async function isLocalInstanceMember(
     eq(instances.localId, localInstanceId),
   ).limit(1);
   return rows.length > 0;
-}
-
-/**
- * The local instances an account is an accepted member of; pending members,
- * who have been invited but have not accepted yet, do not count.
- * @returns A query of their IDs.
- */
-const memberInstances = (db: Database, accountId: Uuid, ...conditions: SQL[]) =>
-  db
-    .select({ instanceId: instanceMembers.instanceId })
-    .from(instanceMembers)
-    .innerJoin(instances, eq(instanceMembers.instanceId, instances.id))
-    .where(
-      and(
-        eq(instanceMembers.accountId, accountId),
-        isNotNull(instanceMembers.accepted),
-        isNotNull(instances.localId),
-        ...conditions,
-      ),
-    );
-
-/**
- * Restricts rows to those of the local instances whose private records the
- * viewer may read: every local instance for an administrator, and those the
- * viewer is an accepted member of otherwise, as the `admin` and
- * `localInstanceMember` scopes decide for one instance.  Filtering rows by it
- * before paging keeps a connection from telling of rows the viewer may not
- * read.
- * @param context The request context, whose `account` is the viewer.
- * @param instanceId The column of the instance a row belongs to.
- * @returns The condition on the column.
- */
-export function viewableInstance(
-  context: UserContext,
-  instanceId: PgColumn,
-): SQL {
-  const { account } = context;
-  if (account == null) return sql`false`;
-  return account.admin
-    ? inArray(
-        instanceId,
-        context.db
-          .select({ id: instances.id })
-          .from(instances)
-          .where(isNotNull(instances.localId)),
-      )
-    : inArray(instanceId, memberInstances(context.db, account.id));
 }
 
 builder.scalarType("DateTime", {

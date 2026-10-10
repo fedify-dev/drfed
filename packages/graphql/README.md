@@ -46,6 +46,31 @@ resolver context as is; `createYogaServer` never registers anything on it.
 [`@drfed/federation`]: https://github.com/fedify-dev/drfed/tree/main/packages/federation
 
 
+Reading activities and objects
+------------------------------
+
+Activities and objects of local actors are readable by anyone, whatever their
+addressing, since they are what DrFed's users make to debug with.  What
+remote actors sent is an inbox's content, which [ActivityPub] filters by the
+requester's permission (section 5.2) and opens without authentication only
+when addressed to the public (section 5.6):
+
+ -  An activity of a remote actor is readable when it is addressed to the
+    public, or by an accepted member of a local instance that received it,
+    i.e. one of whose accepted inbound deliveries is linked to it.
+ -  An object of a remote actor is readable when it is addressed to the
+    public, or when an activity the viewer may read refers to it.
+ -  Administrators read everything.
+
+`as:Public` and `Public` count as the public as well as its full IRI.  What the
+viewer may not read is left out as if it did not exist: `node` and `nodes`
+return null for it, as do `Resource.detail` and `Activity.object`, and
+`Actor.objects`, `Object.activities`, and `Collection.items` leave it out
+before paging, so that neither cursors nor `totalCount` tell of it.
+
+[ActivityPub]: https://www.w3.org/TR/activitypub/
+
+
 Activity deliveries
 -------------------
 

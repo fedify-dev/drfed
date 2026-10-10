@@ -23,7 +23,8 @@ import {
 import type { Uuid } from "@drfed/models/uuid";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
 
-import builder, { type DrFedObjectRef, viewableInstance } from "../builder.ts";
+import builder, { type DrFedObjectRef } from "../builder.ts";
+import { viewableInstance } from "../readable.ts";
 
 const ActivityDeliveryDirection = builder.enumType(
   "ActivityDeliveryDirection",
