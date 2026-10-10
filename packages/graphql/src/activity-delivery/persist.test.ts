@@ -681,6 +681,35 @@ it("keeps the object as received however the document expresses it", async () =>
   });
 });
 
+it("stores the object without its document when it lies beyond the places tried", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents);
+    const { object, ...activity } = createOf(alice, "far");
+    // 70 places come before the object, more than the 64 tried.
+    const decoys = Object.fromEntries(
+      Array.from({ length: 70 }, (_, index) => [
+        `https://example.com/ns#p${index}`,
+        { id: `https://remote.example/decoys/${index}`, type: "Note" },
+      ]),
+    );
+    const body = { ...activity, ...decoys, object };
+    assert.equal((await send(await signed(signer, body))).status, 202);
+    const stored = await db.query.objects.findFirst({
+      where: { resource: { iri: "https://remote.example/notes/far" } },
+    });
+    assert.ok(stored != null);
+    assert.equal(stored.document, null);
+    const activityRow = await findActivity(
+      db,
+      "https://remote.example/activities/far",
+    );
+    assert.deepEqual(activityRow?.document, body);
+  });
+});
+
 it("stores no text PostgreSQL would refuse or alter, but keeps it received", async () => {
   await withTestHarness(async ({ db }) => {
     await seedLocalInstance(db);

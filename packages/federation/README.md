@@ -81,7 +81,10 @@ An IRI already stored is kept as it is: a `Create` received again, or by
 several instances, is stored once, and nothing it carries is written then, even
 an object it names anew.  One that claims another actor's object or an IRI of
 another kind is not stored.  The activity and its embedded object are stored as
-received, whatever terms their context uses.
+received, whatever terms their context uses.  DrFed looks for the embedded
+object in at most 64 places of the activity, expanding the document once for
+each; when it is not among them, the object is stored without its document,
+and the activity's document still holds it as received.
 A remote actor's `username` is its `preferredUsername`, which may be missing.
 
 Fedify authenticates an activity before answering it with 2xx, so every

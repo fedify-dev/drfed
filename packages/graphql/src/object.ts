@@ -88,7 +88,12 @@ const ObjectRef = builder.drizzleNode("objects", {
     actor: t.relation("actor", {
       description: "The actor that authored the object.",
     }),
-    document: t.expose("document", { type: "JSON", nullable: true }),
+    document: t.expose("document", {
+      type: "JSON",
+      nullable: true,
+      description:
+        "The JSON-LD document of the object.  For a remote object embedded in the Create that delivered it, the object as received; null when it was not found within the first 64 places of that document, in which case the document of the Create, reachable through activities, holds it as received.",
+    }),
     name: t.exposeString("name", {
       nullable: true,
       description: "The optional title of the object.",

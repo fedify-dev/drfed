@@ -149,7 +149,8 @@ const PROBE = "urn:drfed:embedded-object";
 /**
  * How many places of a document are tried for its object, each by expanding
  * it again, so that a sender cannot make DrFed expand a large document over
- * and over.
+ * and over.  An object not found within them is stored without its document,
+ * which the activity's document still holds as received.
  */
 const MAX_PROBES = 64;
 
@@ -232,7 +233,8 @@ async function isObjectAt(
 
 /**
  * The object of a received activity, as it was received.
- * @returns The embedded object, or undefined when it is not found.
+ * @returns The embedded object, or undefined when it is not found within
+ *          the first {@link MAX_PROBES} places of the document.
  */
 async function embeddedObject(
   payload: unknown,
