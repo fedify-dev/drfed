@@ -24,7 +24,11 @@ export default defineConfig({
   head: [["link", { rel: "icon", type: "image/svg+xml", href: "/icon.svg" }]],
   themeConfig: {
     logo: { src: "/icon.svg", alt: "" },
-    nav: [{ text: "Installation", link: "/installation/manual-installation" }],
+    nav: [
+      { text: "Installation", link: "/installation/manual-installation" },
+      { text: "Manual", link: "/manual/self-hosting" },
+      { text: "CLI reference", link: "/reference/cli" },
+    ],
     sidebar: [
       {
         text: "Installation",
@@ -34,6 +38,14 @@ export default defineConfig({
             link: "/installation/manual-installation",
           },
         ],
+      },
+      {
+        text: "Manual",
+        items: [{ text: "Self-hosting", link: "/manual/self-hosting" }],
+      },
+      {
+        text: "Reference",
+        items: [{ text: "CLI", link: "/reference/cli" }],
       },
     ],
     search: { provider: "local" },
