@@ -35,6 +35,13 @@ Pass the backend URL when starting the built server:
 node .output/server/index.mjs --backend-url https://drfed.example
 ~~~~
 
+Set `HOST` or `PORT` to change the listening address:
+
+~~~~ bash
+HOST=127.0.0.1 PORT=4000 node .output/server/index.mjs \
+  --backend-url https://drfed.example
+~~~~
+
 This project was created with the [Solid CLI]
 
 [Solid CLI]: https://github.com/solidjs-community/solid-cli
