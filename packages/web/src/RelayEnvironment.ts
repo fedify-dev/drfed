@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { parseArgs } from "node:util";
+
 import { getCookie } from "@solidjs/start/http";
 import {
   Environment,
@@ -34,6 +36,17 @@ const fetchGraphQL = async (
 ): Promise<GraphQLResponse> => {
   "use server";
 
+  const backendUrl = import.meta.env.DEV
+    ? import.meta.env.VITE_BACKEND_URL
+    : parseArgs({
+        options: {
+          "backend-url": { type: "string" },
+        },
+      }).values["backend-url"];
+  if (backendUrl == undefined) {
+    throw new Error("The --backend-url option is required.");
+  }
+
   const accessToken = getCookie(SESSION_COOKIE);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -42,7 +55,7 @@ const fetchGraphQL = async (
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const url = new URL("/graphql", import.meta.env.VITE_BACKEND_URL);
+  const url = new URL("/graphql", backendUrl);
 
   const response = await fetch(url, {
     method: "POST",

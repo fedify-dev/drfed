@@ -25,6 +25,16 @@ Building
 mise run build:web
 ~~~~
 
+
+Running the build
+-----------------
+
+Pass the backend URL when starting the built server:
+
+~~~~ bash
+node .output/server/index.mjs --backend-url https://drfed.example
+~~~~
+
 This project was created with the [Solid CLI]
 
 [Solid CLI]: https://github.com/solidjs-community/solid-cli
