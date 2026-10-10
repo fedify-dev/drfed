@@ -20,3 +20,14 @@ broke, whether that's DNS, TLS, HTTP, signatures, or JSON-LD processing.
 [AGPLv3]: https://www.gnu.org/licenses/agpl-3.0.html
 [ActivityPub]: https://www.w3.org/TR/activitypub/
 [Fedify]: https://fedify.dev/
+
+
+Documentation
+-------------
+
+The documentation site lives in *docs/* and uses [VitePress]. After
+`mise install`, run `mise run dev:docs` to start it locally. Run
+`mise run build:docs` to build the static site and `mise run preview:docs` to
+preview the result.
+
+[VitePress]: https://vitepress.dev/

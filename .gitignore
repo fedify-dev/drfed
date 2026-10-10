@@ -9,6 +9,8 @@ __generated__/
 mise.local.toml
 node_modules/
 packages/*/dist/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 
 index.db
 
