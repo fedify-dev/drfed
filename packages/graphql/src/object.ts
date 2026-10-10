@@ -324,7 +324,6 @@ builder.mutationFields((t) => ({
       }
       if (!validateUuid(actorId)) return actorNotFound;
       // Keep host validation and resource creation under the same actor lock.
-      // oxlint-disable-next-line max-statements
       return await ctx.db.transaction(async (tx) => {
         const [actor] = await tx
           .select({ id: schema.actors.id, host: schema.instances.host })

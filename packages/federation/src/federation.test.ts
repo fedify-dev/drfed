@@ -515,7 +515,6 @@ describe("ActivityPub Create activities", () => {
 
 describe("ActivityPub outbox", () => {
   it("paginates Create activities while excluding followers-only and deleted objects", async () => {
-    // oxlint-disable-next-line max-statements
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 23 }, () => uuid());
@@ -951,43 +950,40 @@ describe("durable actor signing keys", () => {
     });
   });
   it("coalesces generation and returns a competing persisted winner", async () => {
-    await withFederation(
-      // oxlint-disable-next-line max-statements
-      async ({ db, federation }) => {
-        await seedLocalActor(db, { keys: false });
-        const ctx = federation.createContext(new URL(actorIri), undefined);
-        const entered = Promise.withResolvers<void>();
-        const release = Promise.withResolvers<void>();
-        let count = 0;
-        const candidates: Record<string, unknown> = {};
-        const candidate = async (type?: "RSASSA-PKCS1-v1_5" | "Ed25519") => {
-          count += 1;
-          entered.resolve();
-          await release.promise;
-          const pair = await generateCryptoKeyPair(type);
-          candidates[type!] = await exportJwk(pair.publicKey);
-          return pair;
-        };
-        const first = ensureActorKeyPairs(db, ctx, localActorId, candidate);
-        const second = ensureActorKeyPairs(db, ctx, localActorId, candidate);
-        await entered.promise;
-        await seedActorKeys(db, localActorId);
-        release.resolve();
-        const [one, two] = await Promise.all([first, second]);
-        assert.equal(count, 2);
-        assert.equal(one, two);
-        assert.equal(one.length, 2);
-        const rows = await db.select().from(schema.localActorKeys);
-        assert.equal(rows.length, 2);
-        for (const pair of one) {
-          const type = pair.publicKey.algorithm.name;
-          const stored = rows.find((row) => row.type === type)!;
-          assert.deepEqual(await exportJwk(pair.publicKey), stored.publicKey);
-          assert.deepEqual(await exportJwk(pair.privateKey), stored.privateKey);
-          assert.notDeepEqual(candidates[type], stored.publicKey);
-        }
-      },
-    );
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db, { keys: false });
+      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let count = 0;
+      const candidates: Record<string, unknown> = {};
+      const candidate = async (type?: "RSASSA-PKCS1-v1_5" | "Ed25519") => {
+        count += 1;
+        entered.resolve();
+        await release.promise;
+        const pair = await generateCryptoKeyPair(type);
+        candidates[type!] = await exportJwk(pair.publicKey);
+        return pair;
+      };
+      const first = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+      const second = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+      await entered.promise;
+      await seedActorKeys(db, localActorId);
+      release.resolve();
+      const [one, two] = await Promise.all([first, second]);
+      assert.equal(count, 2);
+      assert.equal(one, two);
+      assert.equal(one.length, 2);
+      const rows = await db.select().from(schema.localActorKeys);
+      assert.equal(rows.length, 2);
+      for (const pair of one) {
+        const type = pair.publicKey.algorithm.name;
+        const stored = rows.find((row) => row.type === type)!;
+        assert.deepEqual(await exportJwk(pair.publicKey), stored.publicKey);
+        assert.deepEqual(await exportJwk(pair.privateKey), stored.privateKey);
+        assert.notDeepEqual(candidates[type], stored.publicKey);
+      }
+    });
   });
   it("sanitizes failures and clears failed in-flight generation", async () => {
     await withFederation(async ({ db, federation }) => {

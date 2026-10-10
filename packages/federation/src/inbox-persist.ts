@@ -334,7 +334,6 @@ async function loadActor(
  * @returns What storing it needs.
  * @throws {Refusal} When a rule is not met.
  */
-// oxlint-disable-next-line max-statements
 async function accept(
   ctx: InboxContext<unknown>,
   activity: Create,

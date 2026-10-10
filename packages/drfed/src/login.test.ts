@@ -30,7 +30,6 @@ const binary = fileURLToPath(
   new URL("../bin/drfed-server.mjs", import.meta.url),
 );
 
-// oxlint-disable-next-line max-statements
 it("normalizes CLI login origins and preserves the allowlist", async () => {
   // The CLI requires a nonzero port; obtain an available one from the OS.
   const socket = createServer();

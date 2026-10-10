@@ -87,7 +87,6 @@ export class KeyGenerationQueue implements MessageQueue {
       delayed: 0,
     });
   }
-  // oxlint-disable-next-line max-statements
   async listen(
     handler: (message: unknown) => void | Promise<void>,
     options?: MessageQueueListenOptions,

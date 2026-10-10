@@ -153,87 +153,81 @@ describe("Mutation.generateActors", () => {
     );
     username.mock.mockImplementationOnce(() => "Dr-Fed43", 2);
 
-    await withTestHarness(
-      // oxlint-disable-next-line max-statements
-      async ({ db, post }) => {
-        const auth = await seedAuthenticatedLocalInstance(db);
+    await withTestHarness(async ({ db, post }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
 
-        const response = await post(
-          {
-            query: generateActorsMutation,
-            variables: {
-              instance: globalId("Instance", localInstanceId),
-              size: 2,
-            },
+      const response = await post(
+        {
+          query: generateActorsMutation,
+          variables: {
+            instance: globalId("Instance", localInstanceId),
+            size: 2,
           },
-          auth,
-        );
+        },
+        auth,
+      );
 
-        assert.equal(response.status, ok);
-        const body = await response.json();
-        assert.equal(body.errors, undefined);
+      assert.equal(response.status, ok);
+      const body = await response.json();
+      assert.equal(body.errors, undefined);
+      assert.equal(body.data.generateActors.resultType, "CreateActorsSuccess");
+      assert.equal(body.data.generateActors.actors.length, 2);
+      assert.ok(
+        body.data.generateActors.actors.every(
+          (actor: {
+            iri: unknown;
+            local: { uuid: unknown } | null;
+            username: unknown;
+            uuid: unknown;
+          }) =>
+            typeof actor.uuid === "string" &&
+            typeof actor.username === "string" &&
+            typeof actor.iri === "string" &&
+            typeof actor.local?.uuid === "string",
+        ),
+      );
+      assert.deepStrictEqual(
+        body.data.generateActors.actors.map(
+          (actor: { iri: string }) => actor.iri,
+        ),
+        body.data.generateActors.actors.map(
+          (actor: { uuid: string }) =>
+            `https://test-instance.drfed.org/users/${actor.uuid}`,
+        ),
+      );
+
+      assert.equal(await db.$count(schema.localActorKeys), 0);
+      const actors = await db.select().from(schema.actors);
+      assert.equal(actors.length, 2);
+      assert.equal(username.mock.callCount(), 3);
+      assert.deepEqual(
+        new Set(actors.map((actor) => actor.username)),
+        new Set(["dr_fed42", "dr_fed43"]),
+      );
+      for (const actor of actors) {
+        assert.match(actor.username ?? "", /^[a-z0-9_]+$/u);
         assert.equal(
-          body.data.generateActors.resultType,
-          "CreateActorsSuccess",
+          actor.profileUrl,
+          `https://test-instance.drfed.org/@${actor.username}`,
         );
-        assert.equal(body.data.generateActors.actors.length, 2);
-        assert.ok(
-          body.data.generateActors.actors.every(
-            (actor: {
-              iri: unknown;
-              local: { uuid: unknown } | null;
-              username: unknown;
-              uuid: unknown;
-            }) =>
-              typeof actor.uuid === "string" &&
-              typeof actor.username === "string" &&
-              typeof actor.iri === "string" &&
-              typeof actor.local?.uuid === "string",
-          ),
-        );
-        assert.deepStrictEqual(
-          body.data.generateActors.actors.map(
-            (actor: { iri: string }) => actor.iri,
-          ),
-          body.data.generateActors.actors.map(
-            (actor: { uuid: string }) =>
-              `https://test-instance.drfed.org/users/${actor.uuid}`,
-          ),
-        );
+      }
+      assert.equal(
+        actors.every(
+          (actor) =>
+            actor.instanceId === localInstanceId &&
+            actor.localId != null &&
+            actor.type === "Person",
+        ),
+        true,
+      );
 
-        assert.equal(await db.$count(schema.localActorKeys), 0);
-        const actors = await db.select().from(schema.actors);
-        assert.equal(actors.length, 2);
-        assert.equal(username.mock.callCount(), 3);
-        assert.deepEqual(
-          new Set(actors.map((actor) => actor.username)),
-          new Set(["dr_fed42", "dr_fed43"]),
-        );
-        for (const actor of actors) {
-          assert.match(actor.username ?? "", /^[a-z0-9_]+$/u);
-          assert.equal(
-            actor.profileUrl,
-            `https://test-instance.drfed.org/@${actor.username}`,
-          );
-        }
-        assert.equal(
-          actors.every(
-            (actor) =>
-              actor.instanceId === localInstanceId &&
-              actor.localId != null &&
-              actor.type === "Person",
-          ),
-          true,
-        );
-
-        const localActors = await db.select().from(schema.localActors);
-        assert.equal(localActors.length, 2);
-        assert.deepEqual(
-          new Set(localActors.map(({ id }) => id)),
-          new Set(actors.map(({ localId }) => localId)),
-        );
-      },
-    );
+      const localActors = await db.select().from(schema.localActors);
+      assert.equal(localActors.length, 2);
+      assert.deepEqual(
+        new Set(localActors.map(({ id }) => id)),
+        new Set(actors.map(({ localId }) => localId)),
+      );
+    });
   });
 
   it("schedules only committed actors and survives a failed prewarm enqueue", async (test) => {

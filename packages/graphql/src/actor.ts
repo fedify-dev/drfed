@@ -297,136 +297,128 @@ builder.mutationFields((t) => ({
       const targetInstanceId = instanceId as Uuid;
 
       let createdOrigin: URL | undefined;
-      const result = await ctx.db.transaction(
-        // oxlint-disable-next-line max-statements
-        async (tx) => {
-          // Find the instance that the account is included
-          const [instance] = await tx
-            .select({
-              host: schema.instances.host,
-              maxActors: schema.localInstances.maxActors,
-            })
-            .from(schema.instanceMembers)
-            .for("update", { of: schema.localInstances })
-            .innerJoin(
-              schema.instances,
-              eq(schema.instanceMembers.instanceId, schema.instances.id),
-            )
-            .innerJoin(
-              schema.localInstances,
-              eq(schema.instances.localId, schema.localInstances.id),
-            )
-            .where(
-              and(
-                eq(schema.instanceMembers.accountId, account.id),
-                gt(schema.localInstances.expires, Temporal.Now.instant()),
-                eq(schema.instances.id, targetInstanceId),
-                isNotNull(schema.instanceMembers.accepted),
-              ),
-            )
-            .limit(1);
-          if (instance == null) {
-            return {
-              type: INSTANCE_NOT_FOUND,
-              message: "Can't find the instance.",
-            };
-          }
-          // Read the stored authority rather than recomposing it from the
-          // slug, so that actor URIs cannot drift from the instance the rest of
-          // the fediverse already knows.
-          const { host, maxActors } = instance;
-          const instanceUrl = `${ctx.rootOrigin.protocol}//${host}`;
-          // Stored authorities can outlive the runtime that accepted them.
-          if (!URL.canParse(instanceUrl)) {
-            return {
-              type: INVALID_INSTANCE_HOST,
-              message:
-                `The instance host ${JSON.stringify(host)} cannot be parsed by ` +
-                "this server. Contact the server administrator.",
-            };
-          }
-          const currActors = await tx.$count(
-            schema.actors,
-            eq(schema.actors.instanceId, targetInstanceId),
-          );
+      const result = await ctx.db.transaction(async (tx) => {
+        // Find the instance that the account is included
+        const [instance] = await tx
+          .select({
+            host: schema.instances.host,
+            maxActors: schema.localInstances.maxActors,
+          })
+          .from(schema.instanceMembers)
+          .for("update", { of: schema.localInstances })
+          .innerJoin(
+            schema.instances,
+            eq(schema.instanceMembers.instanceId, schema.instances.id),
+          )
+          .innerJoin(
+            schema.localInstances,
+            eq(schema.instances.localId, schema.localInstances.id),
+          )
+          .where(
+            and(
+              eq(schema.instanceMembers.accountId, account.id),
+              gt(schema.localInstances.expires, Temporal.Now.instant()),
+              eq(schema.instances.id, targetInstanceId),
+              isNotNull(schema.instanceMembers.accepted),
+            ),
+          )
+          .limit(1);
+        if (instance == null) {
+          return {
+            type: INSTANCE_NOT_FOUND,
+            message: "Can't find the instance.",
+          };
+        }
+        // Read the stored authority rather than recomposing it from the
+        // slug, so that actor URIs cannot drift from the instance the rest of
+        // the fediverse already knows.
+        const { host, maxActors } = instance;
+        const instanceUrl = `${ctx.rootOrigin.protocol}//${host}`;
+        // Stored authorities can outlive the runtime that accepted them.
+        if (!URL.canParse(instanceUrl)) {
+          return {
+            type: INVALID_INSTANCE_HOST,
+            message:
+              `The instance host ${JSON.stringify(host)} cannot be parsed by ` +
+              "this server. Contact the server administrator.",
+          };
+        }
+        const currActors = await tx.$count(
+          schema.actors,
+          eq(schema.actors.instanceId, targetInstanceId),
+        );
 
-          if (size + currActors > maxActors) {
-            return {
-              type: TOO_MANY_ACTORS,
-              message: `${size} is too big. The maximum number of actors of ${
-                host
-              } is ${maxActors} and the current number of actors is ${
-                currActors
-              }.`,
-            };
-          }
-          // Create actors
-          createdOrigin = new URL(instanceUrl);
-          const fedCtx = ctx.federation.createContext(
-            new URL(instanceUrl),
-            undefined,
-          );
-          const ids = Array.from({ length: size }, () => ({ id: uuid() }));
-          await tx.insert(schema.localActors).values(ids);
-          const createdActors = [];
-          for (const { id } of ids) {
-            const actor = await promoteResource(
-              tx,
-              fedCtx.getActorUri(id).href,
-              "actor",
-              async (inner, resource) => {
-                for (let attempt = 0; attempt < 10; attempt += 1) {
-                  const [createdActor] = await inner
-                    .insert(schema.actors)
-                    .values(
-                      generateActor(resource.id, targetInstanceId, fedCtx),
-                    )
-                    .onConflictDoNothing({
-                      target: [
-                        schema.actors.username,
-                        schema.actors.instanceId,
-                      ],
-                      // Only the partial index of local actors' usernames.
-                      where: isNotNull(schema.actors.localId),
-                    })
-                    .returning();
-                  if (createdActor != null) {
-                    return createdActor;
-                  }
+        if (size + currActors > maxActors) {
+          return {
+            type: TOO_MANY_ACTORS,
+            message: `${size} is too big. The maximum number of actors of ${
+              host
+            } is ${maxActors} and the current number of actors is ${
+              currActors
+            }.`,
+          };
+        }
+        // Create actors
+        createdOrigin = new URL(instanceUrl);
+        const fedCtx = ctx.federation.createContext(
+          new URL(instanceUrl),
+          undefined,
+        );
+        const ids = Array.from({ length: size }, () => ({ id: uuid() }));
+        await tx.insert(schema.localActors).values(ids);
+        const createdActors = [];
+        for (const { id } of ids) {
+          const actor = await promoteResource(
+            tx,
+            fedCtx.getActorUri(id).href,
+            "actor",
+            async (inner, resource) => {
+              for (let attempt = 0; attempt < 10; attempt += 1) {
+                const [createdActor] = await inner
+                  .insert(schema.actors)
+                  .values(generateActor(resource.id, targetInstanceId, fedCtx))
+                  .onConflictDoNothing({
+                    target: [schema.actors.username, schema.actors.instanceId],
+                    // Only the partial index of local actors' usernames.
+                    where: isNotNull(schema.actors.localId),
+                  })
+                  .returning();
+                if (createdActor != null) {
+                  return createdActor;
                 }
-                throw new Error("Actor insertion returned no row.");
+              }
+              throw new Error("Actor insertion returned no row.");
+            },
+            id,
+          );
+          for (const [role, iri] of [
+            ["followers", fedCtx.getFollowersUri(id).href],
+            ["following", fedCtx.getFollowingUri(id).href],
+            ["featured", fedCtx.getFeaturedUri(id).href],
+            ["outbox", fedCtx.getOutboxUri(id).href],
+          ] as const) {
+            await promoteResource(
+              tx,
+              iri,
+              "collection",
+              async (inner, resource) => {
+                await inner.insert(schema.collections).values({
+                  id: resource.id,
+                  type: "OrderedCollection",
+                  ownerActorId: actor.id,
+                });
+                await inner.insert(schema.actorCollectionReferences).values({
+                  actorId: actor.id,
+                  role,
+                  collectionId: resource.id,
+                });
               },
-              id,
             );
-            for (const [role, iri] of [
-              ["followers", fedCtx.getFollowersUri(id).href],
-              ["following", fedCtx.getFollowingUri(id).href],
-              ["featured", fedCtx.getFeaturedUri(id).href],
-              ["outbox", fedCtx.getOutboxUri(id).href],
-            ] as const) {
-              await promoteResource(
-                tx,
-                iri,
-                "collection",
-                async (inner, resource) => {
-                  await inner.insert(schema.collections).values({
-                    id: resource.id,
-                    type: "OrderedCollection",
-                    ownerActorId: actor.id,
-                  });
-                  await inner.insert(schema.actorCollectionReferences).values({
-                    actorId: actor.id,
-                    role,
-                    collectionId: resource.id,
-                  });
-                },
-              );
-            }
-            createdActors.push(actor);
           }
-          return { actors: createdActors };
-        },
-      );
+          createdActors.push(actor);
+        }
+        return { actors: createdActors };
+      });
       if ("actors" in result && createdOrigin != null) {
         await enqueueActorKeyGeneration(
           ctx.federation.createContext(createdOrigin, undefined),

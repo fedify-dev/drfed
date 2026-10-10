@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-statements
 // Sequential mutations exercise counter updates in the same database.
 // oxlint-disable no-await-in-loop
 

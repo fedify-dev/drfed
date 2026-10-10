@@ -33,7 +33,6 @@ const migrations = join(
   "drizzle",
 );
 
-// oxlint-disable-next-line max-statements -- Keep the migration before/after assertions together.
 it("upgrades hashed challenges while preserving accounts and sessions", async () => {
   const baseline = await mkdtemp(join(tmpdir(), "drfed-login-migration-"));
   const client = new PGlite();
