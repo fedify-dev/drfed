@@ -22,6 +22,7 @@ import {
 } from "@drfed/federation/object";
 import {
   addActorCollectionItem,
+  ensureResource,
   lockActorCollection,
   promoteResource,
   schema,
@@ -64,9 +65,9 @@ const ObjectRef = builder.drizzleNode("objects", {
   description:
     "Represents an ActivityPub object authored by an `Actor`.  An object of " +
     "a local actor is readable whatever its addressing.  One of a remote " +
-    "actor is readable only when it is addressed to the public or an " +
-    "activity the viewer may read refers to it, and by administrators; " +
-    "otherwise it is left out as if it did not exist.",
+    "actor is readable only when it is addressed to the public or the " +
+    "viewer may read the activity it was received in, and by " +
+    "administrators; otherwise it is left out as if it did not exist.",
   id: {
     column: ({ id }) => id,
     description: "The Relay global ID of the object.",
@@ -391,6 +392,11 @@ builder.mutationFields((t) => ({
           identifier: actorId,
           id,
         }).href;
+        const activityId = uuid();
+        const activityIri = fedCtx.getObjectUri(Create, {
+          id: activityId,
+        }).href;
+        await ensureResource(tx, activityIri, activityId);
         const object = await promoteResource(
           tx,
           iri,
@@ -404,6 +410,7 @@ builder.mutationFields((t) => ({
                 summary: normalizeOptionalText(input.summary),
                 id: resource.id,
                 actorId,
+                activityId,
                 language: canonicalLanguage,
                 published,
               })
@@ -416,10 +423,9 @@ builder.mutationFields((t) => ({
           id,
         );
         await storeAddressing(tx, object.id, addressing);
-        const activityId = uuid();
         await promoteResource(
           tx,
-          fedCtx.getObjectUri(Create, { id: activityId }).href,
+          activityIri,
           "activity",
           async (inner, resource) => {
             await inner.insert(schema.activities).values({

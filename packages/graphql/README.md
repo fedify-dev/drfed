@@ -59,7 +59,7 @@ when addressed to the public (section 5.6):
     public, or by an accepted member of a local instance that received it,
     i.e. one of whose accepted inbound deliveries is linked to it.
  -  An object of a remote actor is readable when it is addressed to the
-    public, or when an activity the viewer may read refers to it.
+    public, or when the viewer may read the activity it was received in.
  -  Administrators read everything.
 
 `as:Public` and `Public` count as the public as well as its full IRI.  What the

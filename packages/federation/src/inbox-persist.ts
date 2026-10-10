@@ -396,7 +396,8 @@ async function accept(
  * already stored as the same kind is reused as it is, so a `Create` received
  * again, or by several instances at once, is stored once.  Nothing is written
  * for an activity already stored, even if it names another actor or object
- * this time.
+ * this time.  A reused object keeps the content and readers of the activity
+ * that first carried it.
  * @throws {Refusal} When its actor's host is a local instance's, its object
  *                   is already another actor's, or it is already stored.
  * @throws {ResourceKindConflictError} When an IRI is another kind of resource.
@@ -428,6 +429,13 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
       accepted.objectIri,
       accepted.activityIri,
     ]);
+    const { id: activityId, kind } = await ensureResource(
+      tx,
+      accepted.activityIri,
+    );
+    // The activity is stored as it was first received; nothing this
+    // transaction wrote before finding it is kept.
+    if (kind === "activity") throw new Refusal("it is already stored");
     const actorId = await promoteResource(
       tx,
       accepted.actorIri,
@@ -456,6 +464,7 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
           .values({
             id: resource.id,
             actorId,
+            activityId,
             type: accepted.objectType,
             document: accepted.objectDocument,
             name: accepted.name,
@@ -492,10 +501,6 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
         });
         await storeAddressing(inner, resource.id, activityAddressing);
       },
-      undefined,
-      // The activity is stored as it was first received; nothing this
-      // transaction wrote before finding it is kept.
-      () => Promise.reject(new Refusal("it is already stored")),
     );
   });
 }

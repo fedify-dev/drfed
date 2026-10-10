@@ -627,6 +627,39 @@ it("stores a Create received again, or by several instances, once", async () => 
   });
 });
 
+it("keeps an object as the activity that first carried it", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents);
+    const first = createOf(alice, "1");
+    const second = createOf(alice, "2", {
+      object: {
+        id: "https://remote.example/notes/1",
+        content: "<p>changed</p>",
+      },
+    });
+    for (const body of [first, second]) {
+      assert.equal((await send(await signed(signer, body))).status, 202);
+    }
+    const object = await db.query.objects.findFirst({
+      where: { resource: { iri: "https://remote.example/notes/1" } },
+    });
+    const carrier = await findActivity(
+      db,
+      "https://remote.example/activities/1",
+    );
+    assert.equal(object?.contentHtml, "<p>1</p>");
+    assert.deepEqual(object?.document, first.object);
+    assert.equal(object?.activityId, carrier?.id);
+    assert.equal(
+      (await findActivity(db, "https://remote.example/activities/2"))?.objectId,
+      object?.id,
+    );
+  });
+});
+
 it("keeps the object as received however the document expresses it", async () => {
   await withTestHarness(async ({ db }) => {
     await seedLocalInstance(db);

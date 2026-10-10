@@ -397,6 +397,14 @@ export const objects = pgTable(
       .$type<Uuid>()
       .notNull()
       .references(() => actors.id, { onDelete: "cascade" }),
+    /**
+     * The activity that carried the stored snapshot.  Who may read a remote
+     * object follows it, not the activities that refer to the object later
+     * with another version of it.
+     */
+    activityId: uuid("activity_id")
+      .$type<Uuid>()
+      .references(() => resources.id, { onDelete: "set null" }),
     type: objectTypeEnum().notNull(),
     document: json(),
     url: text(),
@@ -418,6 +426,7 @@ export const objects = pgTable(
       "objects_content_html_check",
       sql`trim(both from ${t.contentHtml}) <> ''`,
     ),
+    unique("objects_activity_id_key").on(t.activityId),
     index("object_actor_published_index").on(
       t.actorId,
       desc(t.published),

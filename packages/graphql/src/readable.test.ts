@@ -305,6 +305,115 @@ describe("Reading received content", () => {
     });
   });
 
+  it("never shows a stored object through a later activity carrying another version of it", async () => {
+    await withTestHarness(async ({ db, post: graphql }) => {
+      const viewers = await seedViewers(db);
+      const documents: Documents = new Map();
+      const alice = await addActor(documents, aliceIri);
+      const { send } = await createRecorder(db, documents);
+      const secret = createOf(alice.iri, "1", {
+        activity: direct,
+        object: { ...direct, content: "<p>SECRET OLD VERSION</p>" },
+      });
+      const redacted = createOf(alice.iri, "2", {
+        object: {
+          id: "https://remote.example/notes/1",
+          content: "<p>REDACTED PUBLIC VERSION</p>",
+        },
+      });
+      for (const body of [secret, redacted]) {
+        assert.equal((await send(await signed(alice, body))).status, 202);
+      }
+      const objectId = await idOf(db, "https://remote.example/notes/1");
+      const variables = {
+        activity: globalId(
+          "Activity",
+          await idOf(db, "https://remote.example/activities/2"),
+        ),
+        object: globalId("Object", objectId),
+        resource: resourceGlobalId(objectId),
+        actor: globalId("Actor", await idOf(db, aliceIri)),
+      };
+
+      for (const viewer of [
+        undefined,
+        viewers.stranger,
+        viewers.pending,
+        viewers.other,
+      ]) {
+        assert.deepEqual(await read(graphql, contentQuery, variables, viewer), {
+          activity: { document: redacted, object: null },
+          object: null,
+          resource: null,
+          nodes: [{ id: variables.activity }, null, null],
+          actor: { objects: { totalCount: 0, edges: [] } },
+        });
+      }
+      const stored = {
+        contentHtml: "<p>SECRET OLD VERSION</p>",
+        document: secret.object,
+      };
+      for (const viewer of [viewers.member, viewers.admin]) {
+        const data = await read(graphql, contentQuery, variables, viewer);
+        assert.deepEqual(data.activity, {
+          document: redacted,
+          object: { detail: stored },
+        });
+        assert.deepEqual(data.object, stored);
+      }
+    });
+  });
+
+  it("never shows a stored object to an instance that received only another version of it", async () => {
+    await withTestHarness(async ({ db, post: graphql }) => {
+      const viewers = await seedViewers(db);
+      const documents: Documents = new Map();
+      const alice = await addActor(documents, aliceIri);
+      const { send } = await createRecorder(db, documents);
+      const first = createOf(alice.iri, "1", {
+        activity: direct,
+        object: { ...direct, content: "<p>first</p>" },
+      });
+      const second = createOf(alice.iri, "2", {
+        activity: direct,
+        object: {
+          ...direct,
+          id: "https://remote.example/notes/1",
+          content: "<p>second</p>",
+        },
+      });
+      assert.equal((await send(await signed(alice, first))).status, 202);
+      assert.equal(
+        (await send(await signed(alice, second, hostB))).status,
+        202,
+      );
+      const query = `
+        query ($activity: ID!, $object: ID!) {
+          activity: node(id: $activity) { ... on Activity { document } }
+          object: node(id: $object) { ... on Object { contentHtml } }
+        }
+      `;
+      const variables = {
+        activity: globalId(
+          "Activity",
+          await idOf(db, "https://remote.example/activities/2"),
+        ),
+        object: globalId(
+          "Object",
+          await idOf(db, "https://remote.example/notes/1"),
+        ),
+      };
+      assert.deepEqual(await read(graphql, query, variables, viewers.other), {
+        activity: { document: second },
+        object: null,
+      });
+      assert.deepEqual(await read(graphql, query, variables, viewers.member), {
+        activity: null,
+        object: { contentHtml: "<p>first</p>" },
+      });
+    });
+  });
+
   it("shows what a remote actor addresses to the public in any spelling", async () => {
     await withTestHarness(async ({ db, post: graphql }) => {
       const { admin } = await seedViewers(db);

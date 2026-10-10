@@ -112,7 +112,6 @@ export function viewableInstance(viewer: Viewer, instanceId: PgColumn): SQL {
 const authors = alias(actors, "readable_authors");
 const remoteActivities = alias(activities, "readable_remote_activities");
 const remoteObjects = alias(objects, "readable_remote_objects");
-const referring = alias(activities, "readable_referring_activities");
 const entries = alias(addressing, "readable_addressing");
 const targets = alias(resources, "readable_targets");
 const deliveries = alias(activityDeliveries, "readable_deliveries");
@@ -146,12 +145,15 @@ const received = (viewer: Viewer, id: SQLWrapper): SQL => sql`exists (
 const readableActivity = (viewer: Viewer, id: SQLWrapper): SQL =>
   sql`(not ${remoteActivity(id)} or ${addressedPublicly(id)} or ${received(viewer, id)})`;
 
-// True for anything but an object of a remote actor.
+// True for anything but an object of a remote actor.  Only the activity that
+// carried the stored version opens it, since a later one may carry another;
+// one whose activity is gone stays closed.
 const readableObject = (viewer: Viewer, id: SQLWrapper): SQL =>
   sql`(not ${remoteObject(id)} or ${addressedPublicly(id)} or exists (
-    select 1 from ${activities} ${referring}
-    where ${referring.objectId} = ${id}
-      and ${readableActivity(viewer, referring.id)}
+    select 1 from ${objects} ${remoteObjects}
+    where ${remoteObjects.id} = ${id}
+      and ${remoteObjects.activityId} is not null
+      and ${readableActivity(viewer, remoteObjects.activityId)}
   ))`;
 
 /**
@@ -164,7 +166,7 @@ const readableObject = (viewer: Viewer, id: SQLWrapper): SQL =>
  *     public, or when one of the local instances the viewer is a member of
  *     received it, i.e. an inbound delivery to it is linked to the activity.
  *  -  An object of a remote actor is readable when it is addressed to the
- *     public, or when an activity the viewer may read refers to it.
+ *     public, or when the viewer may read the activity it was received in.
  *  -  Everything else, including the activities and objects of local actors
  *     whatever their addressing, is readable.
  *

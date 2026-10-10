@@ -147,6 +147,7 @@ describe("Mutation.createObject", () => {
         });
         assert.ok(stored);
         assert.ok(activity);
+        assert.equal(stored.activityId, activity.id);
         assert.equal(
           object.iri,
           `${base}/users/${localActorId}/${object.uuid}`,
