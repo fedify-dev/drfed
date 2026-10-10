@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "types": ["vitepress/client"]
+  },
+  "include": [".vitepress/**/*.ts", ".vitepress/**/*.mts"]
+}

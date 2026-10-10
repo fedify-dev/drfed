@@ -1,0 +1,165 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+:root {
+  --vp-font-family-base: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --vp-font-family-mono:
+    ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --drfed-font-serif: Georgia, "Times New Roman", serif;
+
+  --vp-c-bg: #fdfcfb;
+  --vp-c-bg-alt: #f4f2f0;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f5f3f1;
+  --vp-c-text-1: #26211f;
+  --vp-c-text-2: #6a615c;
+  --vp-c-text-3: #756b65;
+  --vp-c-divider: #e9e5e1;
+  --vp-c-border: #dad4cf;
+  --vp-c-gutter: #e9e5e1;
+  --vp-c-brand-1: #b83254;
+  --vp-c-brand-2: #c23a5c;
+  --vp-c-brand-3: #b83254;
+  --vp-c-brand-soft: #f7e3e7;
+  --vp-c-default-1: #dad4cf;
+  --vp-c-default-2: #e9e5e1;
+  --vp-c-default-3: #f4f2f0;
+  --vp-c-default-soft: #f4f2f0;
+
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+  --vp-button-alt-border: var(--vp-c-border);
+  --vp-button-alt-hover-border: var(--vp-c-brand-1);
+  --vp-nav-height: 68px;
+}
+
+.dark {
+  --vp-c-bg: #181613;
+  --vp-c-bg-alt: #1e1b17;
+  --vp-c-bg-elv: #201d19;
+  --vp-c-bg-soft: #272420;
+  --vp-c-text-1: #f0ece8;
+  --vp-c-text-2: #bab1aa;
+  --vp-c-text-3: #a39990;
+  --vp-c-divider: #332f2a;
+  --vp-c-border: #453f39;
+  --vp-c-gutter: #332f2a;
+  --vp-c-brand-1: #f78da4;
+  --vp-c-brand-2: #ef6a88;
+  --vp-c-brand-3: #f78da4;
+  --vp-c-brand-soft: #322a27;
+  --vp-c-default-1: #453f39;
+  --vp-c-default-2: #332f2a;
+  --vp-c-default-3: #272420;
+  --vp-c-default-soft: #272420;
+  --vp-button-brand-text: #26211f;
+  --vp-button-brand-hover-text: #26211f;
+  --vp-button-brand-active-text: #26211f;
+}
+
+.VPNavBarTitle .title {
+  font-family: var(--drfed-font-serif);
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.VPNavBarTitle .logo {
+  height: 32px;
+  border-radius: 50%;
+}
+
+.VPHero .name {
+  font-family: var(--vp-font-family-mono);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.VPHero .text {
+  margin-top: 20px;
+  max-width: 760px;
+  font-family: var(--drfed-font-serif);
+  font-size: clamp(40px, 5.5vw, 72px);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+}
+
+.VPHero .tagline {
+  max-width: 540px;
+  padding-top: 24px;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.VPButton {
+  border-radius: 999px;
+}
+
+.VPFeature {
+  border-color: var(--vp-c-divider);
+  border-radius: 14px;
+  background: var(--vp-c-bg-elv);
+}
+
+.VPFeature .title {
+  font-family: var(--drfed-font-serif);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.VPFeature .details {
+  margin-top: 8px;
+  line-height: 1.7;
+}
+
+.vp-doc h1,
+.vp-doc h2 {
+  font-family: var(--drfed-font-serif);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+
+.vp-doc h1 {
+  font-size: clamp(34px, 4vw, 44px);
+  line-height: 1.15;
+}
+
+.vp-doc h2 {
+  font-size: 28px;
+}
+
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.75;
+}
+
+.vp-doc div[class*="language-"] {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+}
+
+.VPSidebarItem.is-active > .item .link > .text {
+  font-weight: 700;
+}
+
+.VPFooter {
+  background: var(--vp-c-bg-alt);
+}
