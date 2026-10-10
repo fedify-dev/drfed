@@ -41,6 +41,7 @@ import program from "./program.ts";
 import seedData from "./seed.ts";
 import { createFetchHandler, warnAboutStrandedInstances } from "./serving.ts";
 
+// oxlint-disable-next-line max-statements
 async function runServer(options: ServerOptions) {
   const { credentials } = options.drizzle;
   if (options.drizzle.migrate) await migrate({ credentials });

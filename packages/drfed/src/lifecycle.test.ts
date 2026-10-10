@@ -130,6 +130,7 @@ it(
     // Windows child.kill("SIGTERM") forcibly terminates without running handlers.
     skip: process.platform === "win32",
   },
+  // oxlint-disable-next-line max-statements
   async () => {
     const { server, port } = await reservePort();
     await closeServer(server);

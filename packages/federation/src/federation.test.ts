@@ -937,6 +937,7 @@ describe("durable actor signing keys", () => {
       await assert.rejects(db.insert(schema.localActorKeys).values(row!));
       await assert.rejects(
         db.update(schema.localActorKeys).set({
+          // oxlint-disable-next-line id-length
           publicKey: { ...row!.publicKey, d: "secret" } as NonNullable<
             typeof row
           >["publicKey"],
@@ -950,40 +951,43 @@ describe("durable actor signing keys", () => {
     });
   });
   it("coalesces generation and returns a competing persisted winner", async () => {
-    await withFederation(async ({ db, federation }) => {
-      await seedLocalActor(db, { keys: false });
-      const ctx = federation.createContext(new URL(actorIri), undefined);
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      let count = 0;
-      const candidates: Record<string, unknown> = {};
-      const candidate = async (type?: "RSASSA-PKCS1-v1_5" | "Ed25519") => {
-        count += 1;
-        entered.resolve();
-        await release.promise;
-        const pair = await generateCryptoKeyPair(type);
-        candidates[type!] = await exportJwk(pair.publicKey);
-        return pair;
-      };
-      const first = ensureActorKeyPairs(db, ctx, localActorId, candidate);
-      const second = ensureActorKeyPairs(db, ctx, localActorId, candidate);
-      await entered.promise;
-      await seedActorKeys(db, localActorId);
-      release.resolve();
-      const [one, two] = await Promise.all([first, second]);
-      assert.equal(count, 2);
-      assert.equal(one, two);
-      assert.equal(one.length, 2);
-      const rows = await db.select().from(schema.localActorKeys);
-      assert.equal(rows.length, 2);
-      for (const pair of one) {
-        const type = pair.publicKey.algorithm.name;
-        const stored = rows.find((row) => row.type === type)!;
-        assert.deepEqual(await exportJwk(pair.publicKey), stored.publicKey);
-        assert.deepEqual(await exportJwk(pair.privateKey), stored.privateKey);
-        assert.notDeepEqual(candidates[type], stored.publicKey);
-      }
-    });
+    await withFederation(
+      // oxlint-disable-next-line max-statements
+      async ({ db, federation }) => {
+        await seedLocalActor(db, { keys: false });
+        const ctx = federation.createContext(new URL(actorIri), undefined);
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        let count = 0;
+        const candidates: Record<string, unknown> = {};
+        const candidate = async (type?: "RSASSA-PKCS1-v1_5" | "Ed25519") => {
+          count += 1;
+          entered.resolve();
+          await release.promise;
+          const pair = await generateCryptoKeyPair(type);
+          candidates[type!] = await exportJwk(pair.publicKey);
+          return pair;
+        };
+        const first = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+        const second = ensureActorKeyPairs(db, ctx, localActorId, candidate);
+        await entered.promise;
+        await seedActorKeys(db, localActorId);
+        release.resolve();
+        const [one, two] = await Promise.all([first, second]);
+        assert.equal(count, 2);
+        assert.equal(one, two);
+        assert.equal(one.length, 2);
+        const rows = await db.select().from(schema.localActorKeys);
+        assert.equal(rows.length, 2);
+        for (const pair of one) {
+          const type = pair.publicKey.algorithm.name;
+          const stored = rows.find((row) => row.type === type)!;
+          assert.deepEqual(await exportJwk(pair.publicKey), stored.publicKey);
+          assert.deepEqual(await exportJwk(pair.privateKey), stored.privateKey);
+          assert.notDeepEqual(candidates[type], stored.publicKey);
+        }
+      },
+    );
   });
   it("sanitizes failures and clears failed in-flight generation", async () => {
     await withFederation(async ({ db, federation }) => {
@@ -1006,6 +1010,7 @@ describe("durable actor signing keys", () => {
       );
       await db
         .update(schema.localActorKeys)
+        // oxlint-disable-next-line id-length
         .set({ privateKey: { kty: "RSA", d: "PRIVATE_SECRET" } });
       await assert.rejects(
         ensureActorKeyPairs(db, ctx, localActorId),
@@ -1063,7 +1068,7 @@ async function assertEventually(check: () => Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     // oxlint-disable-next-line no-await-in-loop
     if (await check()) return;
-    // oxlint-disable-next-line no-await-in-loop
+    // oxlint-disable-next-line no-await-in-loop avoid-new
     await new Promise((resolve) => {
       setTimeout(resolve, 20);
     });
