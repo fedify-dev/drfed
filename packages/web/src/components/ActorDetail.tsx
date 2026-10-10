@@ -19,6 +19,8 @@ import { graphql } from "relay-runtime";
 import { Index, Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
+import { actorLabel } from "~/actor.ts";
+
 import type { ActorDetail_actor$key } from "./__generated__/ActorDetail_actor.graphql.ts";
 import { CopyButton } from "./CopyButton.tsx";
 
@@ -74,7 +76,7 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
         ];
         return (
           <>
-            <Title>{actor().handle} — DrFed</Title>
+            <Title>{actorLabel(actor())} — DrFed</Title>
             <header class={styles.header}>
               <Show when={actor().avatarUrl}>
                 {(url) => (
@@ -90,8 +92,12 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
               </Show>
               <div>
                 <p class={styles.label}>{actor().type}</p>
-                <h1>{actor().handle}</h1>
-                <CopyButton value={actor().handle} label="actor handle" />
+                <h1>{actorLabel(actor())}</h1>
+                <Show when={actor().handle}>
+                  {(handle) => (
+                    <CopyButton value={handle()} label="actor handle" />
+                  )}
+                </Show>
               </div>
             </header>
             <section class={styles.panel} aria-labelledby="identity-title">
@@ -99,7 +105,7 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
               <dl class={styles.fields}>
                 <div>
                   <dt>Username</dt>
-                  <dd>{actor().username}</dd>
+                  <dd>{actor().username ?? "None"}</dd>
                 </div>
                 <div>
                   <dt>Instance</dt>

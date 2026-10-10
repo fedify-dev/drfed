@@ -101,6 +101,7 @@
     "@drfed/models": "workspace:*",
     "@fedify/fedify": "catalog:",
     "@fedify/vocab": "catalog:",
+    "@fedify/vocab-runtime": "catalog:",
     "@logtape/logtape": "catalog:",
     "@opentelemetry/api": "^1.9.1",
     "drizzle-orm": "catalog:"

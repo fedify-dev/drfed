@@ -13,14 +13,13 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-export * from "./email.ts";
-export * from "./db.ts";
-export * from "./migrate.ts";
-export { relations } from "./relations.ts";
-export * as schema from "./schema.ts";
-export * from "./login.ts";
-export * from "./resource.ts";
-export * from "./key.ts";
-export * from "./activity-delivery.ts";
-export * from "./instance.ts";
-export * from "./text.ts";
+
+/**
+ * What names an actor to a reader: its handle, or its IRI for a remote actor
+ * that has no `preferredUsername`.
+ * @returns The handle or the IRI.
+ */
+export const actorLabel = (actor: {
+  readonly handle?: string | null | undefined;
+  readonly iri: string;
+}): string => actor.handle ?? actor.iri;

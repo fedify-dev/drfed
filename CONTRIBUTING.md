@@ -382,6 +382,11 @@ acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
 federation through `createFederation`, which observes the outbox queue so that
 each attempt Fedify's worker makes settles its delivery.
 
+The `Create` listener stores what it accepts through *src/inbox-persist.ts*.
+An inbound delivery that was verified and answered with 2xx is linked to
+`activities` by the activity IRI it recorded, through `linkInboundActivity`,
+never by what a listener reports.
+
 
 GraphQL changes
 ---------------

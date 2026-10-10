@@ -15,7 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { Database } from "@drfed/models";
-import { recordInbound } from "@drfed/models/activity-delivery";
+import {
+  linkInboundActivity,
+  recordInbound,
+} from "@drfed/models/activity-delivery";
 import type {
   ActivityDeliveryVerificationResult,
   Instance,
@@ -242,6 +245,9 @@ export function createInboundRecorder({
     if (status === "acknowledged" && kv != null) {
       await receivedMeanwhile(db, kv, id);
     }
+    // A listener stores the activity before Fedify answers; a queue worker
+    // that runs after this links the delivery itself.
+    await linkInboundActivity(db, id);
   }
 
   return {
@@ -274,7 +280,7 @@ export function createInboundRecorder({
       const id = uuidV7();
       const { outcome, handled, ...report } = await trackSettled(
         () => federation.fetch(request, options),
-        { inboundDeliveryId: id },
+        { inboundDeliveryId: id, receipt: { payload, received: created } },
       );
       const completed = Temporal.Now.instant();
       try {

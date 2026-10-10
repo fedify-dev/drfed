@@ -13,14 +13,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-export * from "./email.ts";
-export * from "./db.ts";
-export * from "./migrate.ts";
-export { relations } from "./relations.ts";
-export * as schema from "./schema.ts";
-export * from "./login.ts";
-export * from "./resource.ts";
-export * from "./key.ts";
-export * from "./activity-delivery.ts";
-export * from "./instance.ts";
-export * from "./text.ts";
+
+/**
+ * PostgreSQL's text and jsonb hold no U+0000, and the driver replaces an
+ * unpaired surrogate with U+FFFD on its way into the database's UTF-8.
+ * @returns Whether the string is stored as it is.
+ */
+export const storableText = (value: string): boolean =>
+  !value.includes("\0") && value.isWellFormed();

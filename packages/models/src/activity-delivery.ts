@@ -14,19 +14,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import {
   type ActivityDelivery,
   type NewActivityDelivery,
   type NewActivityDeliveryActor,
+  activities,
   activityDeliveries,
   activityDeliveryActorCollections,
   activityDeliveryActors,
   activityDeliveryAttempts,
   actors,
+  resources,
 } from "./schema.ts";
+import { storableText } from "./text.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
 
 type DeliveryEntry = Omit<NewActivityDelivery, "id" | "direction" | "status">;
@@ -114,9 +117,7 @@ export function inboundActorRows(entry: {
  * @returns Whether the JSON value can be stored as jsonb.
  */
 function storableJson(value: unknown): boolean {
-  if (typeof value === "string") {
-    return !value.includes("\0") && value.isWellFormed();
-  }
+  if (typeof value === "string") return storableText(value);
   return (
     typeof value !== "object" ||
     value == null ||
@@ -255,6 +256,38 @@ export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
         eq(activityDeliveries.id, id),
         eq(activityDeliveries.direction, "inbound"),
         eq(activityDeliveries.status, "acknowledged"),
+      ),
+    )
+    .returning({ id: activityDeliveries.id });
+  return rows.length > 0;
+}
+
+/**
+ * Link an inbound delivery to the stored activity its activity IRI names.
+ * Only a delivery Fedify verified and answered with 2xx is linked: Fedify
+ * authenticates an activity before accepting it, so its actor has the origin
+ * of the activity's ID, whether an inbox listener ran or it was a duplicate.
+ * A delivery that is already linked is left as is.
+ * @returns Whether the delivery was linked.
+ */
+export async function linkInboundActivity(
+  db: Database | Transaction,
+  deliveryId: Uuid,
+): Promise<boolean> {
+  const rows = await db
+    .update(activityDeliveries)
+    .set({ activityId: resources.id })
+    .from(resources)
+    .innerJoin(activities, eq(activities.id, resources.id))
+    .where(
+      and(
+        eq(activityDeliveries.id, deliveryId),
+        eq(activityDeliveries.direction, "inbound"),
+        inArray(activityDeliveries.status, ["received", "acknowledged"]),
+        eq(activityDeliveries.verificationResult, "verified"),
+        isNull(activityDeliveries.activityId),
+        eq(resources.iri, activityDeliveries.activityIri),
+        eq(resources.kind, "activity"),
       ),
     )
     .returning({ id: activityDeliveries.id });

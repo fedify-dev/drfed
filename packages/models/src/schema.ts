@@ -34,6 +34,7 @@ import {
   primaryKey,
   text,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -256,7 +257,11 @@ export const actors = pgTable(
       .unique()
       .references(() => localActors.id, { onDelete: "cascade" }),
     type: actorTypeEnum().notNull(),
-    username: text().notNull(),
+    /**
+     * A local actor's handle username; a remote actor's `preferredUsername`
+     * as received, which ActivityPub neither requires nor makes unique.
+     */
+    username: text(),
     instanceId: uuid("instance_id")
       .$type<Uuid>()
       .notNull()
@@ -312,8 +317,17 @@ export const actors = pgTable(
     deleted: instant(),
   },
   (t) => [
-    unique("username_key").on(t.username, t.instanceId),
-    check("actors_username_check", sql`${t.username} NOT LIKE '%@%'`),
+    uniqueIndex("username_key")
+      .on(t.username, t.instanceId)
+      .where(sql`${t.localId} IS NOT NULL`),
+    check(
+      "actors_username_check",
+      sql`${t.localId} IS NULL OR ${t.username} NOT LIKE '%@%'`,
+    ),
+    check(
+      "actors_local_username_check",
+      sql`${t.localId} IS NULL OR ${t.username} IS NOT NULL`,
+    ),
     check(
       "actors_suspended_check",
       sql`
@@ -673,6 +687,13 @@ export const activityDeliveries = pgTable(
       .notNull()
       .default(sql`'{}'`),
     activityIri: text("activity_iri"),
+    /**
+     * The stored activity `activityIri` names: for an inbound delivery, only
+     * one Fedify verified and accepted.
+     */
+    activityId: uuid("activity_id")
+      .$type<Uuid>()
+      .references(() => activities.id, { onDelete: "set null" }),
     objectType: text("object_type"),
     objectIri: text("object_iri"),
     signedKeyIri: text("signed_key_iri"),
@@ -736,6 +757,11 @@ export const activityDeliveries = pgTable(
       desc(table.id),
     ),
     index("activity_delivery_actor_index").on(table.actorId),
+    index("activity_delivery_activity_created_index").on(
+      table.activityId,
+      desc(table.created),
+      desc(table.id),
+    ),
     index("activity_delivery_verification_key_index").on(
       table.verificationKeyId,
     ),

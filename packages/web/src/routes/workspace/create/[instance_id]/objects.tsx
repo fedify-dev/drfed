@@ -34,6 +34,7 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
+import { actorLabel } from "~/actor.ts";
 import { showToast } from "~/components/Toast.tsx";
 
 import type { CreateObjectMutation } from "./__generated__/CreateObjectMutation.graphql.ts";
@@ -54,6 +55,7 @@ const instanceActorListQuery = graphql`
           edges {
             node {
               handle
+              iri
               id
             }
           }
@@ -130,8 +132,14 @@ export const route = {
 type RouteData = ReturnType<typeof loadInstanceActorListQuery>;
 interface ActorOption {
   readonly id: string;
-  readonly handle: string;
+  readonly label: string;
 }
+const actorOptions = (
+  edges: readonly {
+    readonly node: Parameters<typeof actorLabel>[0] & { readonly id: string };
+  }[],
+): ActorOption[] =>
+  edges.map(({ node }) => ({ id: node.id, label: actorLabel(node) }));
 
 export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
   const data = createPreloadedQuery<InstanceActorListQuery>(
@@ -246,19 +254,21 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
                   <Select<ActorOption>
                     class={styles.field}
                     disabled={isCreating()}
-                    value={currentActor() ?? actorList()[0]?.node ?? null}
+                    value={
+                      currentActor() ?? actorOptions(actorList())[0] ?? null
+                    }
                     onChange={setCurrentActor}
                     optionValue="id"
-                    optionTextValue="handle"
+                    optionTextValue="label"
                     placeholder="Select Handle"
-                    options={actorList().map((actor) => actor.node)}
+                    options={actorOptions(actorList())}
                     itemComponent={(itemProps) => (
                       <Select.Item
                         class={objectStyles.option}
                         item={itemProps.item}
                       >
                         <Select.ItemLabel>
-                          {itemProps.item.rawValue.handle}
+                          {itemProps.item.rawValue.label}
                         </Select.ItemLabel>
                         <Select.ItemIndicator aria-hidden="true">
                           ✓
@@ -274,7 +284,7 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
                       type="button"
                     >
                       <Select.Value<ActorOption>>
-                        {(state) => state.selectedOption().handle}
+                        {(state) => state.selectedOption().label}
                       </Select.Value>
                       <Select.Icon aria-hidden="true">▾</Select.Icon>
                     </Select.Trigger>

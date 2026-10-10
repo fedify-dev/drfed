@@ -14,24 +14,38 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import type { Database } from "@drfed/models";
 import type { FederationBuilder } from "@fedify/fedify";
-import { Activity } from "@fedify/vocab";
+import { Activity, Create } from "@fedify/vocab";
 import { getLogger } from "@logtape/logtape";
 
-import { markHandled, tracking } from "./activity-delivery/tracking.ts";
+import {
+  markHandled,
+  receipt,
+  tracking,
+} from "./activity-delivery/tracking.ts";
+import { persistCreate } from "./inbox-persist.ts";
 
 const logger = getLogger(["drfed", "federation"]);
 
 /**
- * Registers the personal and shared inbox listeners.
+ * Registers the personal and shared inbox listeners.  A `Create` that meets
+ * the rules for storing it is stored with its actor and object; any other
+ * activity is only logged.
  * @param builder The builder to register on.
+ * @param db The database to store received activities in.
  */
 export function registerInboxListeners(
   builder: FederationBuilder<unknown>,
+  db: Database,
 ): void {
   builder
     .setInboxListeners("/users/{identifier}/inbox", "/inbox")
-    // FIXME: https://github.com/fedify-dev/drfed/issues/88
+    .on(Create, async (ctx, activity) => {
+      await persistCreate(db, ctx, activity, receipt());
+      markHandled();
+      logger.debug("Received a Create: {activity}", { activity });
+    })
     .on(Activity, (_ctx, activity) => {
       markHandled();
       logger.debug("Received an activity: {activity}", { activity });

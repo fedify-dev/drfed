@@ -58,6 +58,11 @@ async function resolveActorCollection(
   return collection?.ownerActor?.deleted == null ? (collection ?? null) : null;
 }
 
+const USERNAME_DOC =
+  "The username of the `Actor`.  A remote actor's is its " +
+  "`preferredUsername` as received, which is null when it has none and " +
+  "need not be unique.";
+
 const ActorRef = builder.drizzleNode("actors", {
   name: "Actor",
   description: "Represents an `Actor` in the DrFed platform.",
@@ -78,19 +83,25 @@ const ActorRef = builder.drizzleNode("actors", {
     }),
     handle: t.field({
       type: "String",
-      description: "The handle of the `Actor`.",
+      nullable: true,
+      description:
+        "The handle of the `Actor`, its `username` and its `Instance`'s " +
+        "host.  For a remote actor, this is not a verified WebFinger " +
+        "address.  Null when `username` is.",
       select: {
         columns: { username: true },
         with: { instance: { columns: { host: true } } },
       },
-      resolve: ({ instance, username }) => `@${username}@${instance.host}`,
+      resolve: ({ instance, username }) =>
+        username == null ? null : `@${username}@${instance.host}`,
     }),
     type: t.expose("type", {
       type: ActorType,
       description: `The type of the \`Actor\`: ${ACTOR_TYPES_DOC}`,
     }),
     username: t.exposeString("username", {
-      description: "The username of the `Actor`.",
+      nullable: true,
+      description: USERNAME_DOC,
     }),
     instance: t.relation("instance", {
       description: "The `Instance` that the `Actor` belongs to.",
@@ -368,6 +379,8 @@ builder.mutationFields((t) => ({
                   .values(generateActor(resource.id, targetInstanceId, fedCtx))
                   .onConflictDoNothing({
                     target: [schema.actors.username, schema.actors.instanceId],
+                    // Only the partial index of local actors' usernames.
+                    where: isNotNull(schema.actors.localId),
                   })
                   .returning();
                 if (createdActor != null) {
@@ -495,7 +508,8 @@ builder.drizzleObjectField("instances", "actors", (t) =>
             description: `The type of the \`Actor\`: ${ACTOR_TYPES_DOC}`,
           }),
           username: fb.exposeString("username", {
-            description: "The username of the `Actor`.",
+            nullable: true,
+            description: USERNAME_DOC,
           }),
         };
       },

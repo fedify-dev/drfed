@@ -46,6 +46,28 @@ const logger = getLogger(["drfed", "federation", "activity-delivery"]);
 const queued = new WeakSet<Federation<unknown>>();
 
 /**
+ * The stored activity of an IRI, which a delivery of it is linked to.
+ * @returns Its ID, or null when it is not stored or cannot be looked up.
+ */
+async function findActivityId(
+  db: Database,
+  activityIri: string,
+): Promise<Uuid | null> {
+  try {
+    const resource = await db.query.resources.findFirst({
+      columns: { id: true },
+      where: { iri: activityIri, kind: "activity" },
+    });
+    return resource?.id ?? null;
+  } catch (error) {
+    logger.error("Could not look up the delivered activity: {error}", {
+      error,
+    });
+    return null;
+  }
+}
+
+/**
  * How a delivery Fedify returned from without sending or enqueuing settles:
  * no attempt was made, and none will be.
  */
@@ -123,6 +145,7 @@ export async function deliverActivity(
     throw new TypeError("Delivery requires a local sender on this instance.");
   }
   const activityIri = activity.id.href;
+  const activityId = await findActivityId(db, activityIri);
   const delivered = activity.clone({ btos: [], bccs: [] });
   const synchronous = !queued.has(ctx.federation);
   const targets = groupRecipients(
@@ -150,6 +173,7 @@ export async function deliverActivity(
           instanceId: actor.instanceId,
           actorId: actor.id,
           activityIri,
+          activityId,
           remoteActorIri,
           remoteHost: remoteHost(remoteActorIri, inboxUrl),
           inboxUrl,

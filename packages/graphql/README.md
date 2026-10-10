@@ -63,6 +63,12 @@ actor was a member of when the delivery arrived, so that a shared-inbox
 delivery, whose `actor` is null, still explains why it is in the actor's feed.
 `ActivityDelivery.attempts` is a connection, oldest attempt first.
 
+`ActivityDelivery.activity` is the stored activity a delivery is linked to,
+and `Activity.deliveries` lists an activity's deliveries, newest first.  Since
+one activity's deliveries span instances, `Activity.deliveries` leaves out,
+before paging, those of instances the viewer may not read, rather than failing
+on them.
+
 Wrap the federation HTTP surface with `createInboundRecorder` from
 [`@drfed/federation`], passing a federation made by `createFederation` from
 the same package and the root origin.  Every inbox `POST`

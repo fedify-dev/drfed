@@ -55,12 +55,22 @@ export interface Report {
   readonly responses: readonly ObservedResponse[];
 }
 
+/** What an inbox request carried, as its inbound delivery records it. */
+export interface Receipt {
+  /** The parsed request body. */
+  readonly payload: unknown;
+  /** When the request arrived. */
+  readonly received: Temporal.Instant;
+}
+
 /** The state of a tracked run, which Fedify's reports add to. */
 export interface Tracked {
   /**
    * The inbound delivery the run will be recorded as, known before it exists.
    */
   readonly inboundDeliveryId?: Uuid;
+  /** What the inbox request being handled carried. */
+  readonly receipt?: Receipt;
   handled: boolean;
   /** Tasks the run started may outlive it; they must not add to it. */
   closed: boolean;
@@ -106,6 +116,15 @@ export function tracking(): Tracked | undefined {
   return state?.closed === false ? state : undefined;
 }
 
+/**
+ * What the inbox request an inbox listener is handling carried, which Fedify's
+ * context does not tell.
+ * @returns The receipt, or undefined outside a recorded inbox request.
+ */
+export function receipt(): Receipt | undefined {
+  return tracking()?.receipt;
+}
+
 /** Mark the tracked request as having reached an inbox listener. */
 export function markHandled(): void {
   const state = tracking();
@@ -123,6 +142,7 @@ export function untracked<T>(run: () => T): T {
 
 interface TrackOptions {
   readonly inboundDeliveryId?: Uuid;
+  readonly receipt?: Receipt;
 }
 
 /**
@@ -133,10 +153,11 @@ interface TrackOptions {
  */
 export async function trackSettled<T>(
   run: () => Promise<T>,
-  { inboundDeliveryId }: TrackOptions = {},
+  { inboundDeliveryId, receipt: carried }: TrackOptions = {},
 ): Promise<{ readonly outcome: PromiseSettledResult<T> } & Report> {
   const state: Tracked = {
     ...(inboundDeliveryId == null ? {} : { inboundDeliveryId }),
+    ...(carried == null ? {} : { receipt: carried }),
     handled: false,
     closed: false,
     inboxReport: undefined,
