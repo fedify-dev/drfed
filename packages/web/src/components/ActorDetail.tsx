@@ -93,11 +93,12 @@ export function ActorDetail(props: { $actor: ActorDetail_actor$key }) {
               <div>
                 <p class={styles.label}>{actor().type}</p>
                 <h1>{actorLabel(actor())}</h1>
-                <Show when={actor().handle}>
-                  {(handle) => (
-                    <CopyButton value={handle()} label="actor handle" />
-                  )}
-                </Show>
+                <CopyButton
+                  value={actorLabel(actor())}
+                  label={
+                    actor().handle == undefined ? "actor IRI" : "actor handle"
+                  }
+                />
               </div>
             </header>
             <section class={styles.panel} aria-labelledby="identity-title">
