@@ -689,7 +689,8 @@ export const activityDeliveries = pgTable(
     activityIri: text("activity_iri"),
     /**
      * The stored activity `activityIri` names: for an inbound delivery, only
-     * one Fedify verified and accepted.
+     * one Fedify verified and accepted.  The database enforces the latter;
+     * `linkInboundActivity()` matches the IRI.
      */
     activityId: uuid("activity_id")
       .$type<Uuid>()
@@ -750,6 +751,10 @@ export const activityDeliveries = pgTable(
     check(
       "activity_deliveries_body_check",
       sql`(${table.direction} = 'inbound') = (${table.body} IS NOT NULL)`,
+    ),
+    check(
+      "activity_deliveries_activity_check",
+      sql`${table.activityId} IS NULL OR ${table.direction} = 'outbound' OR (${table.verificationResult} = 'verified' AND ${table.status} IN ('received', 'acknowledged'))`,
     ),
     index("activity_delivery_instance_created_index").on(
       table.instanceId,

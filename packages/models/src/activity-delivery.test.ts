@@ -33,7 +33,7 @@ import { observeKeyVersion } from "@drfed/models/key";
 import { promoteResource } from "@drfed/models/resource";
 import { uuidV7 } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq, isNull } from "drizzle-orm";
+import { DrizzleQueryError, and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 
 it("enforces delivery constraints, key retention and outbound state transitions", async () => {
@@ -627,6 +627,31 @@ it("links only verified and accepted inbound deliveries to the activity they nam
     }
     for (const delivery of unlinked) {
       assert.equal(await linkInboundActivity(db, delivery.id), false);
+    }
+    // Nor can anything else link a delivery that was not verified and accepted.
+    const unattempted = await recordInbound(db, {
+      instanceId,
+      inboxUrl: "https://local.example/inbox",
+      activityIri: "https://remote.example/unrelated",
+      status: "unverified",
+      verificationResult: "unattempted",
+      body: new Uint8Array(),
+      created: now,
+      completed: now,
+    });
+    unlinked.push(unattempted);
+    for (const delivery of [unattempted, ...unlinked.slice(0, 3)]) {
+      await assert.rejects(
+        db
+          .update(schema.activityDeliveries)
+          .set({ activityId })
+          .where(eq(schema.activityDeliveries.id, delivery.id)),
+        (error: unknown) =>
+          error instanceof DrizzleQueryError &&
+          error.cause != null &&
+          "constraint" in error.cause &&
+          error.cause.constraint === "activity_deliveries_activity_check",
+      );
     }
     const outbound = await recordOutbound(db, {
       instanceId,

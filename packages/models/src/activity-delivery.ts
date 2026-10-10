@@ -42,10 +42,12 @@ export interface AddressedActor {
 /**
  * `payload` is `undefined` for an unparsable body and `null` for JSON `null`;
  * it is stored as SQL `NULL` when jsonb cannot hold it, and `body` keeps it.
+ * An inbound delivery is linked to its activity only by
+ * `linkInboundActivity()`.
  */
 export type InboundDeliveryEntry = Omit<
   DeliveryEntry,
-  "body" | "verificationResult" | "recipientIris"
+  "body" | "verificationResult" | "recipientIris" | "activityId"
 > & {
   /**
    * Chosen in advance when something must name the delivery before it exists.
