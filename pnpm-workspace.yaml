@@ -13,6 +13,7 @@ catalog:
   "@fedify/postgres": 2.4.1
   "@fedify/pglite": 2.4.1
   "@fedify/vocab": 2.4.1
+  "@fedify/vocab-runtime": 2.4.1
   "@logtape/drizzle-orm": ^2.2.2
   "@logtape/graphql-yoga": 2.3.0-dev.840
   "@logtape/logtape": 2.3.0-dev.840

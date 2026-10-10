@@ -89,6 +89,14 @@
     "./activity-delivery": {
       "types": "./dist/activity-delivery.d.mts",
       "default": "./dist/activity-delivery.mjs"
+    },
+    "./instance": {
+      "types": "./dist/instance.d.mts",
+      "default": "./dist/instance.mjs"
+    },
+    "./text": {
+      "types": "./dist/text.d.mts",
+      "default": "./dist/text.mjs"
     }
   },
   "files": [
@@ -109,7 +117,9 @@
       "src/resource.ts",
       "src/slug.ts",
       "src/key.ts",
-      "src/activity-delivery.ts"
+      "src/activity-delivery.ts",
+      "src/instance.ts",
+      "src/text.ts"
     ],
     "dts": {
       "sourcemap": true,

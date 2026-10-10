@@ -16,7 +16,7 @@
 
 // These tests run Fedify's own delivery and outbox worker against an inbox
 // served on a local port.
-// oxlint-disable max-statements no-await-in-loop
+// oxlint-disable no-await-in-loop
 import assert from "node:assert/strict";
 import { it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";

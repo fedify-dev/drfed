@@ -1,0 +1,1 @@
+ALTER TABLE "activity_deliveries" ADD CONSTRAINT "activity_deliveries_activity_check" CHECK ("activity_id" IS NULL OR "direction" = 'outbound' OR ("verification_result" = 'verified' AND "status" IN ('received', 'acknowledged')));

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // Keep the upgrade scenario and ordered writes together.
-// oxlint-disable max-statements, no-await-in-loop
+// oxlint-disable no-await-in-loop
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

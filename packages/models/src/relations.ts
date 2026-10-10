@@ -56,6 +56,10 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.activityDeliveries.id,
       to: r.activityDeliveryAttempts.deliveryId,
     }),
+    activity: r.one.activities({
+      from: r.activityDeliveries.activityId,
+      to: r.activities.id,
+    }),
   },
   activityDeliveryAttempts: {
     delivery: r.one.activityDeliveries({
@@ -281,6 +285,10 @@ export const relations = defineRelations(schema, (r) => ({
     addressing: r.many.addressing({
       from: r.activities.id,
       to: r.addressing.sourceId,
+    }),
+    deliveries: r.many.activityDeliveries({
+      from: r.activities.id,
+      to: r.activityDeliveries.activityId,
     }),
   },
   objects: {

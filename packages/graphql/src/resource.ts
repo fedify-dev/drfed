@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { activitySelection, objectSelection } from "@drfed/federation/object";
-import { type Database, schema } from "@drfed/models";
+import { schema } from "@drfed/models";
 import type { Resource as ResourceRow } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import { PothosValidationError } from "@pothos/core";
@@ -29,6 +29,11 @@ import {
   classifyMastodon,
   classifyMisskey,
 } from "./classification.ts";
+import {
+  type Viewer,
+  isReadableResource,
+  readableResource,
+} from "./readable.ts";
 
 export const ResourceKind = builder.enumType("ResourceKind", {
   values: schema.resourceKindEnum.enumValues,
@@ -61,9 +66,9 @@ const ResourceRef = builder.drizzleNode("resources", {
       type: ResourceDetail,
       nullable: true,
       description:
-        "Typed details, or null while unknown or when the typed row or its author/owner is deleted.",
+        "Typed details, or null while unknown, when the typed row or its author/owner is deleted, or when the viewer may not read it.",
       select: { columns: { id: true, iri: true, kind: true } },
-      resolve: (row, _, ctx) => resolveResource(ctx.db, row),
+      resolve: (row, _, ctx) => resolveResource(ctx, row),
     }),
   }),
 });
@@ -71,14 +76,20 @@ export const Resource: DrFedObjectRef = ResourceRef;
 
 /**
  * Loads the typed record so union fragments see the complete entity.
- * @returns The typed entity, or null when it or its author is deleted.
+ * @returns The typed entity, or null when it or its author is deleted, or when
+ *          the viewer may not read it.
  */
 export async function resolveResource(
-  db: Database,
+  viewer: Viewer,
   row: ResourceRow,
 ): Promise<{ id: Uuid } | null> {
+  const { db } = viewer;
   const visible = await db.query.resources.findFirst({
-    where: { id: row.id, RAW: (table) => visibleResource(table.id) },
+    where: {
+      id: row.id,
+      RAW: (table) =>
+        and(visibleResource(table.id), readableResource(viewer, table.id))!,
+    },
     columns: { id: true },
   });
   if (visible == null) return null;
@@ -149,7 +160,7 @@ const CollectionRef = builder.drizzleNode("collections", {
     }),
     totalCount: t.int({
       description:
-        "The number of locally stored, visible members. It can differ from `declaredTotalItems`. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this count and `items`.",
+        "The number of locally stored, visible members. It can differ from `declaredTotalItems`. Deleted actors, deleted objects, resources authored by deleted actors, and resources the viewer may not read are excluded from this count and `items`.",
       select: { columns: { id: true } },
       resolve: (row, _, ctx) =>
         ctx.db.$count(
@@ -157,13 +168,14 @@ const CollectionRef = builder.drizzleNode("collections", {
           and(
             eq(schema.collectionItems.collectionId, row.id),
             visibleResource(schema.collectionItems.itemId),
+            readableResource(ctx, schema.collectionItems.itemId),
           ),
         ),
     }),
     items: t.connection({
       type: Resource,
       description:
-        "The locally stored, visible members. Deleted actors, deleted objects, and resources authored by deleted actors are excluded from this connection and `totalCount`.",
+        "The locally stored, visible members. Deleted actors, deleted objects, resources authored by deleted actors, and resources the viewer may not read are excluded from this connection and `totalCount`.",
       select: { columns: { id: true } },
       resolve: (row, args, ctx) => {
         const positions = new Map<Uuid, number | null>();
@@ -191,6 +203,7 @@ const CollectionRef = builder.drizzleNode("collections", {
                 RAW: (table) =>
                   and(
                     visibleResource(table.itemId),
+                    readableResource(ctx, table.itemId),
                     collectionCursorPredicate(
                       table.position,
                       table.itemId,
@@ -320,6 +333,12 @@ export const ActivityType = builder.enumType("ActivityType", {
 });
 const ActivityRef = builder.drizzleNode("activities", {
   name: "Activity",
+  description:
+    "Represents an ActivityPub activity.  An activity of a local actor is " +
+    "readable whatever its addressing.  One of a remote actor is readable " +
+    "only when it is addressed to the public, by members of the local " +
+    "instances that received it, and by administrators; otherwise it is " +
+    "left out as if it did not exist.",
   select: {
     columns: { id: true },
     with: { actor: { columns: { deleted: true } } },
@@ -337,8 +356,14 @@ const ActivityRef = builder.drizzleNode("activities", {
     object: t.field({
       type: Resource,
       nullable: true,
+      description:
+        "The resource the activity acts on, or null when there is none or " +
+        "the viewer may not read it.",
       select: { with: { object: true } },
-      resolve: (row) => row.object,
+      resolve: async (row, _, ctx) =>
+        row.object != null && (await isReadableResource(ctx, row.object.id))
+          ? row.object
+          : null,
     }),
     expectedClassifications: t.field({
       type: [ExpectedClassification],

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable id-length max-statements no-await-in-loop
+// oxlint-disable id-length no-await-in-loop
 
 import assert from "node:assert/strict";
 import { it } from "node:test";
@@ -23,15 +23,17 @@ import { migrate, relations, schema } from "@drfed/models";
 import {
   type OutboundSettlement,
   inboundActorRows,
+  linkInboundActivity,
   receiveInbound,
   recordInbound,
   recordOutbound,
   settleOutbound,
 } from "@drfed/models/activity-delivery";
 import { observeKeyVersion } from "@drfed/models/key";
+import { promoteResource } from "@drfed/models/resource";
 import { uuidV7 } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq, isNull } from "drizzle-orm";
+import { DrizzleQueryError, and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 
 it("enforces delivery constraints, key retention and outbound state transitions", async () => {
@@ -540,6 +542,146 @@ it("keeps one row per delivery and actor and requires a role", async () => {
       .delete(schema.activityDeliveries)
       .where(eq(schema.activityDeliveries.id, delivery.id));
     assert.equal(await db.$count(schema.activityDeliveryActorCollections), 0);
+  } finally {
+    await client.close();
+  }
+});
+
+it("links only verified and accepted inbound deliveries to the activity they name", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const db = drizzle({ client, schema, relations });
+    const instanceId = uuidV7();
+    await db
+      .insert(schema.instances)
+      .values({ id: instanceId, host: "remote.example" });
+    const actorIri = "https://remote.example/users/alice";
+    const actorId = await promoteResource(
+      db,
+      actorIri,
+      "actor",
+      async (tx, r) => {
+        await tx.insert(schema.actors).values({
+          id: r.id,
+          instanceId,
+          type: "Person",
+          username: "alice",
+          inboxUrl: `${actorIri}/inbox`,
+        });
+        return r.id;
+      },
+    );
+    const activityIri = "https://remote.example/activities/1";
+    const activityId = await promoteResource(
+      db,
+      activityIri,
+      "activity",
+      async (tx, r) => {
+        await tx.insert(schema.activities).values({
+          id: r.id,
+          type: "Create",
+          actorId,
+          published: Temporal.Now.instant(),
+        });
+        return r.id;
+      },
+    );
+    const collectionIri = "https://remote.example/collection";
+    await promoteResource(db, collectionIri, "collection", async (tx, r) => {
+      await tx
+        .insert(schema.collections)
+        .values({ id: r.id, type: "OrderedCollection" });
+    });
+    const now = Temporal.Now.instant();
+    const inbound = (
+      status: "received" | "acknowledged" | "unverified" | "rejected",
+      verificationResult: "verified" | "invalid_signature" | "no_signature",
+      iri = activityIri,
+    ) =>
+      recordInbound(db, {
+        instanceId,
+        inboxUrl: "https://local.example/inbox",
+        activityIri: iri,
+        status,
+        verificationResult,
+        body: new Uint8Array(),
+        created: now,
+        completed: now,
+      });
+    const linked = [
+      await inbound("received", "verified"),
+      await inbound("acknowledged", "verified"),
+    ];
+    const unlinked = [
+      await inbound("unverified", "no_signature"),
+      await inbound("unverified", "invalid_signature"),
+      await inbound("rejected", "verified"),
+      await inbound("received", "verified", collectionIri),
+      await inbound("received", "verified", "https://remote.example/unknown"),
+    ];
+    for (const delivery of linked) {
+      assert.equal(await linkInboundActivity(db, delivery.id), true);
+      // A linked delivery stays as it is.
+      assert.equal(await linkInboundActivity(db, delivery.id), false);
+    }
+    for (const delivery of unlinked) {
+      assert.equal(await linkInboundActivity(db, delivery.id), false);
+    }
+    // Nor can anything else link a delivery that was not verified and accepted.
+    const unattempted = await recordInbound(db, {
+      instanceId,
+      inboxUrl: "https://local.example/inbox",
+      activityIri: "https://remote.example/unrelated",
+      status: "unverified",
+      verificationResult: "unattempted",
+      body: new Uint8Array(),
+      created: now,
+      completed: now,
+    });
+    unlinked.push(unattempted);
+    for (const delivery of [unattempted, ...unlinked.slice(0, 3)]) {
+      await assert.rejects(
+        db
+          .update(schema.activityDeliveries)
+          .set({ activityId })
+          .where(eq(schema.activityDeliveries.id, delivery.id)),
+        (error: unknown) =>
+          error instanceof DrizzleQueryError &&
+          error.cause != null &&
+          "constraint" in error.cause &&
+          error.cause.constraint === "activity_deliveries_activity_check",
+      );
+    }
+    const outbound = await recordOutbound(db, {
+      instanceId,
+      inboxUrl: "https://remote.example/inbox",
+      activityIri,
+      activityId,
+    });
+    assert.equal(await linkInboundActivity(db, outbound.id), false);
+    const rows = await db.query.activityDeliveries.findMany({
+      columns: { id: true, activityId: true },
+    });
+    assert.deepEqual(
+      new Map(rows.map((row) => [row.id, row.activityId])),
+      new Map([
+        ...linked.map((row) => [row.id, activityId] as const),
+        ...unlinked.map((row) => [row.id, null] as const),
+        [outbound.id, activityId],
+      ]),
+    );
+    // The deliveries outlive the activity they observed.
+    await db
+      .delete(schema.resources)
+      .where(eq(schema.resources.id, activityId));
+    assert.equal(
+      await db.$count(
+        schema.activityDeliveries,
+        isNull(schema.activityDeliveries.activityId),
+      ),
+      rows.length,
+    );
   } finally {
     await client.close();
   }

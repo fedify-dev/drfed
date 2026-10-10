@@ -17,7 +17,7 @@
 // Keep dependent database writes and observations sequential.
 // oxlint-disable no-await-in-loop
 
-import { and, eq, min } from "drizzle-orm";
+import { and, asc, eq, inArray, min } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import {
@@ -69,8 +69,51 @@ export async function ensureResource(
 }
 
 /**
- * Atomically promotes an unknown IRI and inserts its typed row.
- * @returns The typed-row insertion callback result.
+ * Promotions of one resource exclude each other, but not the foreign key
+ * checks of rows referring to it, such as addressing it: `kind` is no key.
+ * An exclusive lock would make two writers that each promote one resource and
+ * address the other deadlock.
+ */
+const PROMOTION_LOCK = "no key update";
+
+/**
+ * Locks resources for promotion in IRI order, so that transactions promoting
+ * several of them never wait for each other in a cycle.  Only registered IRIs
+ * are locked; see {@link ensureResource}.
+ */
+export async function lockResources(
+  tx: Transaction,
+  iris: readonly string[],
+): Promise<void> {
+  if (iris.length === 0) return;
+  // PostgreSQL locks the rows after sorting them.
+  await tx
+    .select({ id: resources.id })
+    .from(resources)
+    .where(inArray(resources.iri, [...iris]))
+    .orderBy(asc(resources.iri))
+    .for(PROMOTION_LOCK);
+}
+
+/** Thrown when an IRI is already registered as another kind of resource. */
+export class ResourceKindConflictError extends Error {
+  constructor(
+    readonly iri: string,
+    readonly kind: Resource["kind"],
+    readonly requested: Exclude<Resource["kind"], "unknown">,
+  ) {
+    super(`Resource ${iri} is already a ${kind}.`);
+    this.name = "ResourceKindConflictError";
+  }
+}
+
+/**
+ * Atomically promotes an unknown IRI and inserts its typed row.  An IRI that
+ * already is of the kind is passed to `reuse` instead, under the same lock, so
+ * that concurrent writers of one IRI insert its typed row once.
+ * @returns The typed-row insertion or reuse callback result.
+ * @throws {ResourceKindConflictError} If the IRI is another kind of resource.
+ * @throws {Error} If the IRI already is of the kind and `reuse` is not given.
  */
 export async function promoteResource<T>(
   db: Database | Transaction,
@@ -78,21 +121,28 @@ export async function promoteResource<T>(
   kind: Exclude<Resource["kind"], "unknown">,
   insert: (tx: Transaction, resource: Resource) => Promise<T>,
   id?: Uuid,
+  reuse?: (tx: Transaction, resource: Resource) => Promise<T>,
 ): Promise<T> {
   return await db.transaction(async (tx) => {
     const ensured = await ensureResource(tx, iri, id);
-    // Only promotion needs an exclusive lock; re-read the kind after locking
-    // so a concurrent promotion cannot change it between validation and update.
+    // Re-read the kind after locking so a concurrent promotion cannot change
+    // it between validation and update.
     const [resource] = await tx
       .select()
       .from(resources)
       .where(eq(resources.id, ensured.id))
-      .for("update");
+      .for(PROMOTION_LOCK);
     if (resource == null) {
       throw new Error("Resource disappeared during promotion.");
     }
-    if (resource.kind !== "unknown" && resource.kind !== kind) {
-      throw new Error(`Resource ${iri} is already a ${resource.kind}.`);
+    if (resource.kind === kind) {
+      if (reuse == null) {
+        throw new Error(`Resource ${iri} has already been promoted.`);
+      }
+      return await reuse(tx, resource);
+    }
+    if (resource.kind !== "unknown") {
+      throw new ResourceKindConflictError(iri, resource.kind, kind);
     }
     await tx
       .update(resources)

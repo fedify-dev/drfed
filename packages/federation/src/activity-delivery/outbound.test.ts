@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-statements no-await-in-loop no-throw-literal
+// oxlint-disable no-await-in-loop no-throw-literal
 import assert from "node:assert/strict";
 import { it } from "node:test";
 

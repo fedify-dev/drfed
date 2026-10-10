@@ -34,7 +34,7 @@
     "eslint/id-length": ["warn", { "exceptionPatterns": ["^_", "^[Tertv]$"] }],
     "eslint/init-declarations": "off",
     "eslint/max-params": "off",
-    "eslint/max-statements": ["warn", { "max": 20 }],
+    "eslint/max-statements": "off",
     "eslint/no-console": "warn",
     "eslint/no-use-before-define": "off",
     "eslint/prefer-destructuring": ["warn", { "object": true, "array": false }],
@@ -61,7 +61,7 @@
       { "checkTypeImports": true, "ignorePackages": true }
     ],
     "import/group-exports": "off",
-    "import/max-dependencies": ["warn", { "max": 20 }],
+    "import/max-dependencies": "off",
     "import/no-default-export": "off",
     "import/no-named-export": "off",
     "import/no-unassigned-import": [

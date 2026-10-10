@@ -19,6 +19,8 @@ import { graphql } from "relay-runtime";
 import { Show } from "solid-js";
 import { createFragment } from "solid-relay";
 
+import { actorLabel } from "~/label.ts";
+
 import type { ActorCard_actor$key } from "./__generated__/ActorCard_actor.graphql.ts";
 
 import styles from "~/styles/instance.module.css";
@@ -28,6 +30,7 @@ export const ActorCard = (props: { $actor: ActorCard_actor$key }) => {
     graphql`
       fragment ActorCard_actor on Actor {
         handle
+        iri
         id
       }
     `,
@@ -40,7 +43,7 @@ export const ActorCard = (props: { $actor: ActorCard_actor$key }) => {
         <article class={styles.actorCard}>
           <span class={styles.actorMarker} aria-hidden="true" />
           <A href={`/actor/${encodeURIComponent(actor().id)}`}>
-            {actor().handle}
+            {actorLabel(actor())}
           </A>
         </article>
       )}

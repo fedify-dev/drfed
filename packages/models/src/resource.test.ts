@@ -14,20 +14,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-statements -- Keep resource before/after assertions together.
-
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import { migrate, relations, schema } from "@drfed/models";
+import { type Transaction, migrate, relations, schema } from "@drfed/models";
 import {
   PUBLIC_IRI,
   PUBLIC_RESOURCE_ID,
+  ResourceKindConflictError,
   addActorCollectionItem,
   ensureResource,
   promoteResource,
   storeAddressing,
 } from "@drfed/models/resource";
+import type { Resource } from "@drfed/models/schema";
+import { uuidV7 } from "@drfed/models/uuid";
 import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -210,6 +211,133 @@ it("indexes activities by referenced object in connection order", async () => {
       ),
       `No (object_id, published, id) index on activities:\n${definitions.join("\n")}`,
     );
+  } finally {
+    await client.close();
+  }
+});
+
+it("reuses an IRI already of the kind under the lock, and refuses another kind", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const db = drizzle({ client, schema, relations });
+    const iri = "https://remote.example/collection";
+    const insert = async (tx: Transaction, row: Resource) => {
+      await tx
+        .insert(schema.collections)
+        .values({ id: row.id, type: "OrderedCollection" });
+      return "inserted";
+    };
+    const reused: Resource[] = [];
+    const reuse = (_tx: Transaction, row: Resource) => {
+      reused.push(row);
+      return Promise.resolve("reused");
+    };
+    assert.equal(
+      await promoteResource(db, iri, "collection", insert, undefined, reuse),
+      "inserted",
+    );
+    assert.equal(reused.length, 0);
+    const before = await db.$count(schema.collections);
+    assert.equal(
+      await promoteResource(db, iri, "collection", insert, undefined, reuse),
+      "reused",
+    );
+    assert.equal(reused[0]?.kind, "collection");
+    assert.equal(await db.$count(schema.collections), before);
+    // A caller that only ever promotes new IRIs is told it was not one.
+    await assert.rejects(
+      promoteResource(db, iri, "collection", insert),
+      /already been promoted/u,
+    );
+    await assert.rejects(
+      promoteResource(db, iri, "activity", insert, undefined, reuse),
+      (error: unknown) =>
+        error instanceof ResourceKindConflictError &&
+        error.iri === iri &&
+        error.kind === "collection" &&
+        error.requested === "activity",
+    );
+    assert.equal(reused.length, 1);
+  } finally {
+    await client.close();
+  }
+});
+
+it("keeps local actors' usernames unique handles, and remote ones as received", async () => {
+  const client = new PGlite();
+  try {
+    await migrate({ credentials: { driver: "pglite", client } });
+    const db = drizzle({ client, schema, relations });
+    const local = uuidV7();
+    const remote = uuidV7();
+    await db.insert(schema.instances).values([
+      { id: local, host: "local.example" },
+      { id: remote, host: "remote.example" },
+    ]);
+    const insertActor = (
+      iri: string,
+      values: Omit<
+        typeof schema.actors.$inferInsert,
+        "id" | "type" | "inboxUrl"
+      >,
+    ) =>
+      promoteResource(db, iri, "actor", async (tx, row) => {
+        await tx
+          .insert(schema.actors)
+          .values({ ...values, id: row.id, type: "Person", inboxUrl: iri });
+      });
+    // Remote actors share or lack a preferredUsername, and may use `@`.
+    await insertActor("https://remote.example/users/alice", {
+      instanceId: remote,
+      username: "alice",
+    });
+    await insertActor("https://remote.example/bots/alice", {
+      instanceId: remote,
+      username: "alice",
+    });
+    await insertActor("https://remote.example/users/anonymous", {
+      instanceId: remote,
+      username: null,
+    });
+    await insertActor("https://remote.example/users/at", {
+      instanceId: remote,
+      username: "a@b",
+    });
+    assert.equal(await db.$count(schema.actors), 4);
+    const localIds = [uuidV7(), uuidV7(), uuidV7(), uuidV7()] as const;
+    await db.insert(schema.localActors).values(localIds.map((id) => ({ id })));
+    await insertActor("https://local.example/users/1", {
+      instanceId: local,
+      localId: localIds[0],
+      username: "alice",
+    });
+    for (const [iri, values, pattern] of [
+      [
+        "https://local.example/users/2",
+        { localId: localIds[1], username: "alice" },
+        /username_key/u,
+      ],
+      [
+        "https://local.example/users/3",
+        { localId: localIds[2], username: "a@b" },
+        /actors_username_check/u,
+      ],
+      [
+        "https://local.example/users/4",
+        { localId: localIds[3], username: null },
+        /actors_local_username_check/u,
+      ],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      await assert.rejects(
+        insertActor(iri, { ...values, instanceId: local }),
+        (error: unknown) =>
+          error instanceof Error &&
+          pattern.test(String((error.cause as Error | undefined)?.message)),
+      );
+    }
+    assert.equal(await db.$count(schema.actors), 5);
   } finally {
     await client.close();
   }

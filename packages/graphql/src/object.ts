@@ -22,6 +22,7 @@ import {
 } from "@drfed/federation/object";
 import {
   addActorCollectionItem,
+  ensureResource,
   lockActorCollection,
   promoteResource,
   schema,
@@ -35,6 +36,7 @@ import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
+import { readableResource } from "./readable.ts";
 import {
   Activity,
   ActivityType,
@@ -60,7 +62,12 @@ const ObjectRef = builder.drizzleNode("objects", {
     columns: { id: true, deleted: true },
     with: { actor: { columns: { deleted: true } } },
   },
-  description: "Represents an ActivityPub object authored by an `Actor`.",
+  description:
+    "Represents an ActivityPub object authored by an `Actor`.  An object of " +
+    "a local actor is readable whatever its addressing.  One of a remote " +
+    "actor is readable only when it is addressed to the public or the " +
+    "viewer may read the activity it was received in, and by " +
+    "administrators; otherwise it is left out as if it did not exist.",
   id: {
     column: ({ id }) => id,
     description: "The Relay global ID of the object.",
@@ -88,7 +95,12 @@ const ObjectRef = builder.drizzleNode("objects", {
     actor: t.relation("actor", {
       description: "The actor that authored the object.",
     }),
-    document: t.expose("document", { type: "JSON", nullable: true }),
+    document: t.expose("document", {
+      type: "JSON",
+      nullable: true,
+      description:
+        "The JSON-LD document of the object.  For a remote object embedded in the Create that delivered it, the object as received; null when it was not found within the first 64 places of that document, in which case the document of the Create, reachable through activities, holds it as received.",
+    }),
     name: t.exposeString("name", {
       nullable: true,
       description: "The optional title of the object.",
@@ -129,12 +141,16 @@ ResourceDetail.addTypes([ActivityPubObject]);
 registerAddressingFields("objects");
 
 const activitiesConnection = drizzleConnectionHelpers(builder, "activities", {
-  query: (args: {
-    type?: typeof schema.activities.$inferSelect.type | null;
-  }) => ({
+  query: (
+    args: {
+      type?: typeof schema.activities.$inferSelect.type | null;
+    },
+    ctx,
+  ) => ({
     where: {
       actor: { deleted: { isNull: true } },
       ...(args.type == null ? {} : { type: args.type }),
+      RAW: (table) => readableResource(ctx, table.id),
     },
     orderBy: { published: "asc", id: "asc" },
   }),
@@ -144,7 +160,7 @@ builder.drizzleObjectField("objects", "activities", (t) =>
     type: Activity,
     args: { type: t.arg({ type: ActivityType }) },
     description:
-      "Activities referencing this object, optionally filtered by type. Excludes deleted authors; ordered by published ASC, id ASC.",
+      "Activities referencing this object that the viewer may read, optionally filtered by type. Excludes deleted authors; ordered by published ASC, id ASC.",
     select(args, ctx, nestedSelection) {
       return {
         with: {
@@ -158,16 +174,17 @@ builder.drizzleObjectField("objects", "activities", (t) =>
 );
 
 const objectsConnection = drizzleConnectionHelpers(builder, "objects", {
-  query: {
+  query: (_, ctx) => ({
+    where: { RAW: (table) => readableResource(ctx, table.id) },
     orderBy: { published: "desc", id: "desc" },
-  },
+  }),
 });
 builder.drizzleObjectField("actors", "objects", (t) =>
   t.connection(
     {
       type: ActivityPubObject,
       description:
-        "Non-deleted objects, newest publication first. All addressing is publicly readable through GraphQL.",
+        "Non-deleted objects the viewer may read, newest publication first. A local actor's objects are readable whatever their addressing; see `Object` for a remote actor's.",
       select(args, ctx, nestedSelection) {
         return {
           with: {
@@ -184,6 +201,7 @@ builder.drizzleObjectField("actors", "objects", (t) =>
               and(
                 eq(schema.objects.actorId, actor.id),
                 isNull(schema.objects.deleted),
+                readableResource(ctx, schema.objects.id),
               ),
             );
           },
@@ -195,7 +213,7 @@ builder.drizzleObjectField("actors", "objects", (t) =>
       fields: (fb) => ({
         totalCount: fb.int({
           description:
-            "The number of non-deleted objects authored by this actor, regardless of addressing.",
+            "The number of non-deleted objects authored by this actor that the viewer may read.",
           resolve: (connection) => connection.totalCount(),
         }),
       }),
@@ -324,7 +342,6 @@ builder.mutationFields((t) => ({
       }
       if (!validateUuid(actorId)) return actorNotFound;
       // Keep host validation and resource creation under the same actor lock.
-      // oxlint-disable-next-line max-statements
       return await ctx.db.transaction(async (tx) => {
         const [actor] = await tx
           .select({ id: schema.actors.id, host: schema.instances.host })
@@ -375,6 +392,11 @@ builder.mutationFields((t) => ({
           identifier: actorId,
           id,
         }).href;
+        const activityId = uuid();
+        const activityIri = fedCtx.getObjectUri(Create, {
+          id: activityId,
+        }).href;
+        await ensureResource(tx, activityIri, activityId);
         const object = await promoteResource(
           tx,
           iri,
@@ -388,6 +410,7 @@ builder.mutationFields((t) => ({
                 summary: normalizeOptionalText(input.summary),
                 id: resource.id,
                 actorId,
+                activityId,
                 language: canonicalLanguage,
                 published,
               })
@@ -400,10 +423,9 @@ builder.mutationFields((t) => ({
           id,
         );
         await storeAddressing(tx, object.id, addressing);
-        const activityId = uuid();
         await promoteResource(
           tx,
-          fedCtx.getObjectUri(Create, { id: activityId }).href,
+          activityIri,
           "activity",
           async (inner, resource) => {
             await inner.insert(schema.activities).values({

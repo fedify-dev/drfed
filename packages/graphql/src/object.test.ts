@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// oxlint-disable max-statements
 // Sequential mutations exercise counter updates in the same database.
 // oxlint-disable no-await-in-loop
 
@@ -148,6 +147,7 @@ describe("Mutation.createObject", () => {
         });
         assert.ok(stored);
         assert.ok(activity);
+        assert.equal(stored.activityId, activity.id);
         assert.equal(
           object.iri,
           `${base}/users/${localActorId}/${object.uuid}`,

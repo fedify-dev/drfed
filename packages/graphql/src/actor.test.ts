@@ -205,7 +205,7 @@ describe("Mutation.generateActors", () => {
         new Set(["dr_fed42", "dr_fed43"]),
       );
       for (const actor of actors) {
-        assert.match(actor.username, /^[a-z0-9_]+$/u);
+        assert.match(actor.username ?? "", /^[a-z0-9_]+$/u);
         assert.equal(
           actor.profileUrl,
           `https://test-instance.drfed.org/@${actor.username}`,

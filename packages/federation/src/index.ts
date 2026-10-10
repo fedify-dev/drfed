@@ -57,7 +57,7 @@ export function buildFederation(db: Database): FederationBuilder<unknown> {
   const builder = createFederationBuilder<unknown>();
   registerActorDispatcher(builder, db);
   registerActorKeyTask(builder, db);
-  registerInboxListeners(builder);
+  registerInboxListeners(builder, db);
   registerObjectDispatchers(builder, db);
   registerCollectionDispatchers(builder, db);
   builder.setOutboxPermanentFailureHandler(reportPermanentFailure);

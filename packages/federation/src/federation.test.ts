@@ -515,7 +515,6 @@ describe("ActivityPub Create activities", () => {
 
 describe("ActivityPub outbox", () => {
   it("paginates Create activities while excluding followers-only and deleted objects", async () => {
-    // oxlint-disable-next-line max-statements
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const ids = Array.from({ length: 23 }, () => uuid());
@@ -937,6 +936,7 @@ describe("durable actor signing keys", () => {
       await assert.rejects(db.insert(schema.localActorKeys).values(row!));
       await assert.rejects(
         db.update(schema.localActorKeys).set({
+          // oxlint-disable-next-line id-length
           publicKey: { ...row!.publicKey, d: "secret" } as NonNullable<
             typeof row
           >["publicKey"],
@@ -1006,6 +1006,7 @@ describe("durable actor signing keys", () => {
       );
       await db
         .update(schema.localActorKeys)
+        // oxlint-disable-next-line id-length
         .set({ privateKey: { kty: "RSA", d: "PRIVATE_SECRET" } });
       await assert.rejects(
         ensureActorKeyPairs(db, ctx, localActorId),
@@ -1063,7 +1064,7 @@ async function assertEventually(check: () => Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     // oxlint-disable-next-line no-await-in-loop
     if (await check()) return;
-    // oxlint-disable-next-line no-await-in-loop
+    // oxlint-disable-next-line no-await-in-loop avoid-new
     await new Promise((resolve) => {
       setTimeout(resolve, 20);
     });

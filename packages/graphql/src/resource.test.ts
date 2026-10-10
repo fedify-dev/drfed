@@ -73,7 +73,6 @@ it("separates a collection's declared total from its visible member count", asyn
 
 for (const deleted of ["actor", "object"] as const) {
   it(`hides a deleted ${deleted} through resource targets, collections and activities`, async () => {
-    // oxlint-disable-next-line max-statements
     await withTestHarness(async ({ db, post }) => {
       await seedLocalActor(db);
       await seedRemoteActor(db);
