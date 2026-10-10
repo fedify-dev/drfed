@@ -42,9 +42,9 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "start": "node .output/sever/index.mjs",
+    "start": "node .output/server/index.mjs",
     "preview": "vite preview",
-    "prepack": "vite build"
+    "prepack": "mise run build"
   },
   "dependencies": {
     "@faker-js/faker": "catalog:",
