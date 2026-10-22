@@ -217,7 +217,7 @@ if "usage_debug" in $env {
   $env.LOGTAPE_TEST_MODE = "on-failure"
   $env.LOGTAPE_TEST_LOWEST_LEVEL = "debug"
 }
-pnpm run --parallel --recursive test --test-concurrency=4
+node --test "packages/*/src/**/*.test.ts"
 '''
 
 [tasks."test:postgres"]
