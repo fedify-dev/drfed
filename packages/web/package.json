@@ -59,7 +59,7 @@
     "solid-js": "^1.9.17",
     "solid-relay": "1.0.0-beta.29",
     "valibot": "1.4.2",
-    "vite": "^8.2.4",
+    "vite": "^8.3.3",
     "@types/relay-runtime": "^20.1.1"
   },
   "devDependencies": {
