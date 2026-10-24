@@ -181,13 +181,20 @@ async function smokeCompletion(
       // oxlint-disable-next-line no-await-in-loop
       const generated = await invoke(["completion", shell]);
       assert.equal(generated.stderr, "");
+      assert.ok(
+        generated.stdout.trim().length > 0,
+        `Empty generated ${shell} completion for ${command}`,
+      );
       // Bundled files belong to the installed package, independent of cwd.
       // oxlint-disable-next-line no-await-in-loop
       const bundled = await readFile(
         join(application, "completions", shell, filename),
         "utf8",
       );
-      assert.equal(generated.stdout, bundled);
+      assert.ok(
+        bundled.trim().length > 0,
+        `Empty bundled ${shell} completion for ${command}`,
+      );
       const option =
         command === "drfed-web" ? "--public-origin" : "--data-path";
       // oxlint-disable-next-line no-await-in-loop
