@@ -90,6 +90,12 @@ export default defineConfig({
         text: "Reference",
         items: [{ text: "CLI", link: "/reference/cli" }],
       },
+      {
+        text: "Internals",
+        items: [
+          { text: "Resource revisions", link: "/internals/resource-revisions" },
+        ],
+      },
       { text: "Changelog", link: "/changelog" },
     ],
     search: { provider: "local" },

@@ -17,6 +17,21 @@ Schema
 | `instance_members` | `instanceId` → `instances`, `accountId` → `accounts` |
 
 
+Resource revisions
+------------------
+
+`@drfed/models/resource-revision` provides trusted append and history reads for
+full ActivityStreams JSON, with compare-and-swap heads and terminal deletion
+markers. Existing local and inbound Create writers capture their documents in
+the same transaction. Retained JSON can contain blind recipients; model reads
+do not authorize access or prepare wire documents.
+
+See the [resource revision internals] for API examples, projections, legacy
+upgrades and the boundaries of editor, federation and dispatch integration.
+
+[resource revision internals]: https://canary.drfed.org/internals/resource-revisions
+
+
 Migrations
 ----------
 

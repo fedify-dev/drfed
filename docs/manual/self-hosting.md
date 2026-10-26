@@ -56,8 +56,9 @@ See [Configuration] for shared settings and mail setup.
 Prepare and check the database
 ------------------------------
 
-`drfed-migrate` prepares the database without starting the server. Stop a
-PGlite server before either of these commands:
+`drfed-migrate` prepares the database without starting the server. If DrFed
+uses PGlite, stop the DrFed server before running either command, because it
+holds exclusive access to the database directory:
 
 ~~~~ sh
 drfed-migrate --config drfed.toml
@@ -66,8 +67,9 @@ drfed-migrate --config drfed.toml --check
 
 `--check` inspects migration history without applying DrFed migrations. It
 exits successfully only when the database matches the installed migrations
-with no pending changes. Back up your database before upgrading, apply the
-new migrations, check them, then restart the server.
+with no pending changes. Before upgrading, back up your database and stop
+DrFed. Keep old server processes stopped while applying the new migrations,
+then run `drfed-migrate --config drfed.toml --check` before restarting DrFed.
 
 From the repository, invoke *packages/drfed/bin/drfed-migrate.mjs* through
 `mise exec -- node` after building.

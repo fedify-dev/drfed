@@ -204,10 +204,14 @@ run = "sacho init --no-interactive"
 
 [tasks."changelog:add"]
 description = "Create a user-facing changelog fragment"
-usage = 'arg "<name>" help="Fragment topic name"'
+usage = '''
+arg "<name>" help="Fragment topic name"
+flag "--section <section>" help="Changelog section id from sacho.toml"
+'''
 run = """
 #!/usr/bin/env nu
-sacho add $env.usage_name
+let section = (if "usage_section" in $env { ["--section" $env.usage_section] } else { [] })
+sacho add ...$section $env.usage_name
 """
 
 [tasks."changelog:preview"]
