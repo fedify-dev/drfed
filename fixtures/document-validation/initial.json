@@ -1,0 +1,557 @@
+{
+  "status": "draft",
+  "entryPoint": "validateDocument",
+  "description": "Proposed semantic expectations, not executed validator results. Categories and severities come from DOCUMENT_VALIDATION_CONTRACT.md. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
+  "fixtures": [
+    {
+      "id": "like-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-multiple-actors",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": ["https://example.com/alice", "https://example.com/bob"],
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-embedded-actor",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Person",
+          "id": "https://example.com/alice"
+        },
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-missing-fields",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-invalid-iri",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/not valid"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_iri",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": "Hello"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-empty-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": ""
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-invalid-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-like",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-nested-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "accept-follow-list",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": "https://example.com/alice",
+            "object": "https://example.com/bob"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "accept-follow-list-actor",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": 123,
+            "object": "https://example.com/bob"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 0, "actor"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "accept-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": {
+          "type": "Note",
+          "content": "A proposal"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "arrive-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "location": "https://example.com/places/work"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "arrive-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "arrive-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "addressing-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "to": []
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "empty_addressing_list",
+            "path": ["to"]
+          }
+        ],
+        "changes": [
+          {
+            "reason": "omit_empty_addressing_list",
+            "operation": "remove",
+            "path": ["to"],
+            "before": []
+          }
+        ],
+        "normalizedDocument": {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": "https://example.com/posts/42"
+        }
+      }
+    },
+    {
+      "id": "addressing-duplicates",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "to": ["https://example.com/bob", "https://example.com/bob"],
+        "cc": ["https://example.com/alice", "https://example.com/bob"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "extension-field",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          {
+            "testData": "https://example.com/ns#testData"
+          }
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "testData": {
+          "type": "not-an-activity",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "extension-unmapped",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "testField": "keep me"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "unmapped_extension_property",
+            "path": ["testField"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "extension-mixed-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": ["Like", "https://example.com/ns#CustomLike"],
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "extension_type_unchecked",
+            "path": ["type", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "extension-custom-only",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "https://example.com/ns#CustomActivity",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_type",
+            "path": ["type"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-remote",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://remote.example/context"
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "context_unavailable_offline",
+            "path": ["@context", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-alias-number",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          {
+            "subject": {
+              "@id": "https://www.w3.org/ns/activitystreams#object",
+              "@type": "@id"
+            }
+          }
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "subject": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["subject"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "type-full-iri-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "https://www.w3.org/ns/activitystreams#Like",
+        "actor": "https://example.com/alice",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "timestamp-invalid",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "published": "not-a-date"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_datetime",
+            "path": ["published"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "root-number",
+      "input": 123,
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_document_root",
+            "path": []
+          }
+        ]
+      }
+    }
+  ]
+}

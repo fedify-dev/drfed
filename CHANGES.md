@@ -35,6 +35,12 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added an offline `validateDocument()` API in `@drfed/models/document` for
+    basic Like documents with actor/object IRI references. Diagnostics include
+    stable reasons and field paths; unimplemented forms report incomplete
+    support. [[#151]]
+
+[#151]: https://github.com/fedify-dev/drfed/issues/151
 
 
 Version 0.1.0

@@ -7,6 +7,22 @@ both PGlite (embedded) and PostgreSQL.
 [DrFed]: https://drfed.org/
 
 
+Document validation
+-------------------
+
+`@drfed/models/document` exports `validateDocument()` and its diagnostic types.
+The initial implementation checks plain document roots and basic `Like`
+documents with optional scalar `actor` and `object` IRI references. It performs
+no network access, database writes, permission checks, or normalization.
+
+Findings use a stable `reason`, `category`, `severity`, and original-input
+`path`. `complete` means checking finished, not that the document passed: also
+check for diagnostics with `severity: "error"`. Unimplemented types,
+properties, context forms, lists, and embedded values produce support errors
+with `complete: false`. Full ActivityStreams coverage and the Fedify adapter
+are still under development.
+
+
 Schema
 ------
 
