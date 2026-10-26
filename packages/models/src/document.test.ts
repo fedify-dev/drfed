@@ -55,13 +55,17 @@ const like = {
   object: "https://example.com/posts/42",
 };
 
-describe("validateDocument() initial Like/reference checks", () => {
+describe("validateDocument() Like, Create, and Note checks", () => {
   for (const id of [
     "root-number",
     "like-reference",
     "like-number",
     "like-list-number",
     "like-multiple-actors",
+    "create-note",
+    "create-empty-content",
+    "create-invalid-content",
+    "create-reference",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -134,8 +138,8 @@ describe("validateDocument() initial Like/reference checks", () => {
   it("does not claim coverage of unimplemented fields or nested values", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
-      { ...like, object: { type: "Note", content: "Hello" } },
-      { ...like, type: "Create" },
+      { ...like, object: { type: "Article", content: "Hello" } },
+      { ...like, type: "Undo" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
@@ -208,16 +212,153 @@ describe("validateDocument() initial Like/reference checks", () => {
   it("checks reference siblings while reporting unimplemented list entries", () => {
     const result = validateDocument({
       ...like,
-      object: [like.object, { type: "Note", content: "Hello" }, 123],
+      object: [like.object, { type: "Article", content: "Hello" }, 123],
     });
     assert.equal(result.complete, false);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
-        { reason: "unsupported_value_form", path: ["object", 1] },
+        { reason: "unsupported_type", path: ["object", 1, "type"] },
         { reason: "invalid_value_shape", path: ["object", 2] },
       ],
     );
+  });
+
+  it("checks embedded Notes at original list paths and preserves all input", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    const input = Object.freeze({
+      ...like,
+      type: "Create",
+      object: Object.freeze([
+        like.object,
+        Object.freeze({
+          type: `${context}#Note`,
+          id: like.object,
+          attributedTo: Object.freeze([like.actor, false]),
+          content: 123,
+        }),
+        Object.freeze({ type: "Note", content: "" }),
+        like.object,
+      ]),
+    });
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 1, "attributedTo", 1],
+        },
+        { reason: "invalid_value_shape", path: ["object", 1, "content"] },
+      ],
+    );
+    assert.deepEqual(input, original);
+    assert.equal(fetch.mock.callCount(), 0);
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+  });
+
+  it("supports standalone Notes and optional or empty content", () => {
+    for (const content of [undefined, null, "", "<p>Hello</p>"]) {
+      const result = validateDocument({
+        "@context": context,
+        type: "Note",
+        ...(content === undefined ? {} : { content }),
+      });
+      assert.deepEqual(result, {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+    }
+    assert.equal(
+      validateDocument({ ...like, object: { type: "Note" } }).complete,
+      true,
+    );
+    assert.equal(
+      validateDocument({ ...like, type: `${context}#Create` }).complete,
+      true,
+    );
+  });
+
+  it("blocks an unknown nested context but still checks sibling objects", () => {
+    const result = validateDocument({
+      ...like,
+      type: "Create",
+      object: [
+        {
+          "@context": "https://remote.example/context",
+          type: "Note",
+          content: 123,
+        },
+        { type: "Note", content: false },
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "context_unavailable_offline",
+          path: ["object", 0, "@context"],
+        },
+        { reason: "invalid_value_shape", path: ["object", 1, "content"] },
+      ],
+    );
+  });
+
+  it("does not mistake language forms or unimplemented Note fields for malformed data", () => {
+    for (const content of [["Hello"], { en: "Hello" }]) {
+      const result = validateDocument({
+        ...like,
+        object: { type: "Note", content },
+      });
+      assert.equal(result.complete, false);
+      assert.equal(result.diagnostics[0]?.reason, "unsupported_value_form");
+      assert.deepEqual(result.diagnostics[0]?.path, ["object", "content"]);
+    }
+    const result = validateDocument({
+      ...like,
+      object: { type: "Note", name: "Hello" },
+    });
+    assert.equal(result.complete, false);
+    assert.equal(result.diagnostics[0]?.reason, "unsupported_property");
+    assert.deepEqual(result.diagnostics[0]?.path, ["object", "name"]);
+  });
+
+  it("does not invoke embedded object getters", () => {
+    let evaluated = false;
+    const result = validateDocument({
+      ...like,
+      object: {
+        type: "Note",
+        get content() {
+          evaluated = true;
+          throw new Error("Do not invoke input accessors");
+        },
+      },
+    });
+    assert.equal(evaluated, false);
+    assert.equal(result.diagnostics[0]?.reason, "non_json_value");
+    assert.deepEqual(result.diagnostics[0]?.path, ["object", "content"]);
+  });
+
+  it("shares the diagnostic cap across embedded Notes", () => {
+    const result = validateDocument({
+      ...like,
+      object: Array.from({ length: 110 }, () => ({
+        type: "Note",
+        content: 123,
+      })),
+    });
+    assert.equal(result.complete, false);
+    assert.equal(result.diagnostics.length, 100);
+    assert.equal(result.diagnostics.at(-1)?.reason, "diagnostic_limit_reached");
+    assert.deepEqual(result.diagnostics[0]?.path, ["object", 0, "content"]);
   });
 
   it("keeps undecided empty lists, null entries, and nested lists incomplete", () => {

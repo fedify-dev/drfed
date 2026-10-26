@@ -158,10 +158,11 @@ function createReporter() {
 
 function readDocument(
   document: unknown,
+  path: FieldPath,
   report: Report,
 ): Record<string, unknown> | undefined {
   if (!isJsonValueShape(document)) {
-    report("non_json_value", [], "Expected a JSON value.");
+    report("non_json_value", path, "Expected a JSON value.");
     return undefined;
   }
   if (
@@ -169,17 +170,21 @@ function readDocument(
     typeof document !== "object" ||
     Array.isArray(document)
   ) {
-    report("invalid_document_root", [], "Expected a document object.");
+    report("invalid_document_root", path, "Expected a document object.");
     return undefined;
   }
   const prototype: unknown = Object.getPrototypeOf(document);
   if (prototype !== Object.prototype && prototype !== null) {
-    report("non_json_value", [], "Expected a plain JSON data object.");
+    report("non_json_value", path, "Expected a plain JSON data object.");
     return undefined;
   }
   const keys = Reflect.ownKeys(document);
   if (keys.some((key) => typeof key !== "string")) {
-    report("non_json_value", [], "JSON objects cannot have symbol properties.");
+    report(
+      "non_json_value",
+      path,
+      "JSON objects cannot have symbol properties.",
+    );
     return undefined;
   }
   const descriptors = Object.getOwnPropertyDescriptors(document);
@@ -187,12 +192,16 @@ function readDocument(
   for (const key of Object.keys(descriptors).sort()) {
     const descriptor = descriptors[key]!;
     if (!("value" in descriptor) || !descriptor.enumerable) {
-      report("non_json_value", [key], "Expected an enumerable data property.");
+      report(
+        "non_json_value",
+        [...path, key],
+        "Expected an enumerable data property.",
+      );
       return undefined;
     }
     const value: unknown = descriptor.value;
     if (!isJsonValueShape(value)) {
-      report("non_json_value", [key], "Expected a JSON value.");
+      report("non_json_value", [...path, key], "Expected a JSON value.");
       return undefined;
     }
     values[key] = value;
@@ -200,8 +209,8 @@ function readDocument(
   return values;
 }
 
-// This checks only the immediate JSON shape. List entries are checked separately;
-// embedded objects are still unsupported and their properties are never read.
+// This checks only the immediate JSON shape. Supported nested values are read
+// separately through readDocument() or visitList(), without invoking accessors.
 function isJsonValueShape(value: unknown): boolean {
   return (
     value === null ||
@@ -266,6 +275,7 @@ function checkReferenceEntry(
   value: unknown,
   path: FieldPath,
   report: Report,
+  check: typeof checkReference,
 ): void {
   if (!isJsonValueShape(value)) {
     report("non_json_value", path, "Expected a JSON value.");
@@ -276,7 +286,7 @@ function checkReferenceEntry(
       "Null entries and nested lists are not checked yet.",
     );
   } else {
-    checkReference(value, path, report);
+    check(value, path, report);
   }
 }
 
@@ -320,9 +330,10 @@ function checkReferenceValues(
   value: unknown,
   path: FieldPath,
   report: Report,
+  check: typeof checkReference = checkReference,
 ): void {
   if (!Array.isArray(value)) {
-    checkReference(value, path, report);
+    check(value, path, report);
     return;
   }
   if (value.length === 0) {
@@ -334,81 +345,159 @@ function checkReferenceValues(
     return;
   }
   visitList(value, path, report, (entry, entryPath) => {
-    checkReferenceEntry(entry, entryPath, report);
+    checkReferenceEntry(entry, entryPath, report, check);
   });
 }
 
-/**
- * Checks the initial Like/reference subset without network access or writes.
- *
- * Only standard string contexts, a single Like type, and optional actor/object
- * IRI references, either singly or in nonempty flat lists, are implemented.
- * Other fields, types, context forms, and embedded
- * values produce support diagnostics and `complete: false`. This is not a
- * permission check, a Fedify parseability check, or full ActivityStreams
- * validation. The input must be plain JSON data, not a Proxy.
- * @returns Findings at original-input paths; no normalization is performed yet.
- */
-export function validateDocument(document: unknown): DocumentValidationResult {
-  const { report, result, isFull } = createReporter();
-
-  const values = readDocument(document, report);
-  if (values == null) return result();
-
+// A nested Note inherits its parent's understood context unless it overrides it.
+function checkContext(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  report: Report,
+  inherited: boolean,
+): boolean {
   if (!Object.hasOwn(values, "@context")) {
-    report(
-      "implicit_activitystreams_context",
-      ["@context"],
-      "Assuming the ActivityStreams context for this document.",
-    );
-  } else if (
-    values["@context"] !== activityStreamsContext &&
-    values["@context"] !== "http://www.w3.org/ns/activitystreams"
-  ) {
-    const context = values["@context"];
-    const reason =
-      typeof context === "string"
-        ? "context_unavailable_offline"
-        : context == null || typeof context === "object"
-          ? "unsupported_context_form"
-          : "invalid_context";
-    report(
-      reason,
-      ["@context"],
-      "This context cannot be interpreted by this checker yet.",
-    );
-    return result();
+    if (!inherited) {
+      report(
+        "implicit_activitystreams_context",
+        [...path, "@context"],
+        "Assuming the ActivityStreams context for this document.",
+      );
+    }
+    return true;
   }
-
+  const context = values["@context"];
   if (
-    values.type !== "Like" &&
-    values.type !== `${activityStreamsTypePrefix}Like`
+    context === activityStreamsContext ||
+    context === "http://www.w3.org/ns/activitystreams"
   ) {
-    const reason = Array.isArray(values.type)
+    return true;
+  }
+  const reason =
+    typeof context === "string"
+      ? "context_unavailable_offline"
+      : context == null || typeof context === "object"
+        ? "unsupported_context_form"
+        : "invalid_context";
+  report(
+    reason,
+    [...path, "@context"],
+    "This context cannot be interpreted by this checker yet.",
+  );
+  return false;
+}
+
+function checkType(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  embedded: boolean,
+): "Like" | "Create" | "Note" | undefined {
+  const type =
+    typeof value === "string"
+      ? value.startsWith(activityStreamsTypePrefix)
+        ? value.slice(activityStreamsTypePrefix.length)
+        : value
+      : value;
+  if (type !== "Note" && (embedded || (type !== "Like" && type !== "Create"))) {
+    const reason = Array.isArray(type)
       ? "unsupported_value_form"
-      : values.type == null || typeof values.type === "string"
+      : type == null || typeof type === "string"
         ? "unsupported_type"
         : "invalid_value_shape";
     report(
       reason,
-      ["type"],
-      "This initial checker supports a single Like type.",
+      [...path, "type"],
+      embedded
+        ? "Only embedded Notes are checked yet."
+        : "This checker supports a single Like, Create, or Note type.",
     );
-    return result();
+    return undefined;
   }
+
+  return type;
+}
+
+// Keep the supported property rules together for review.
+// eslint-disable-next-line complexity
+function checkDocumentValue(
+  document: unknown,
+  path: FieldPath,
+  reporter: ReturnType<typeof createReporter>,
+  embedded = false,
+): void {
+  const { report, isFull } = reporter;
+  const values = readDocument(document, path, report);
+  if (values == null || !checkContext(values, path, report, embedded)) return;
+
+  const type = checkType(values.type, path, report, embedded);
+  if (type == null) return;
 
   for (const key of Object.keys(values).sort()) {
     if (key === "@context" || key === "type") continue;
     if (isFull()) break;
-    if (key !== "actor" && key !== "object") {
+    const value = values[key];
+    const fieldPath = [...path, key];
+    if (key === "content") {
+      if (value !== null && typeof value !== "string") {
+        report(
+          typeof value === "object"
+            ? "unsupported_value_form"
+            : "invalid_value_shape",
+          fieldPath,
+          "Expected text; language objects and content lists are not checked yet.",
+        );
+      }
+    } else if (key === "id") {
+      if (Array.isArray(value)) {
+        report(
+          "unsupported_value_form",
+          fieldPath,
+          "ID lists are not checked yet.",
+        );
+      } else if (value !== null && typeof value === "object") {
+        report("invalid_value_shape", fieldPath, "Expected an IRI identifier.");
+      } else {
+        checkReference(value, fieldPath, report);
+      }
+    } else if (key === "attributedTo" || (type !== "Note" && key === "actor")) {
+      checkReferenceValues(value, fieldPath, report);
+    } else if (type !== "Note" && key === "object") {
+      checkReferenceValues(value, fieldPath, report, (entry, entryPath) => {
+        if (
+          entry !== null &&
+          typeof entry === "object" &&
+          !Array.isArray(entry)
+        ) {
+          checkDocumentValue(entry, entryPath, reporter, true);
+        } else {
+          checkReference(entry, entryPath, report);
+        }
+      });
+    } else {
       report(
         "unsupported_property",
-        [key],
+        fieldPath,
         "This property is not checked by the initial implementation.",
       );
-      continue;
     }
-    checkReferenceValues(values[key], [key], report);
   }
-  return result();
+}
+
+/**
+ * Checks Like/Create references and embedded Notes, or a standalone Note,
+ * without network access or writes. Notes inherit the parent's context.
+ *
+ * Supports standard string contexts, single types, id, string content,
+ * and reference-only attributedTo/actor values. Activity objects can be IRI
+ * references or Notes, singly or in nonempty flat lists. Other forms produce
+ * support diagnostics and `complete: false`. This is not a permission check,
+ * a Fedify parseability check, or full ActivityStreams validation.
+ * The input must be plain JSON data, not a Proxy.
+ * @returns Findings at original-input paths; no normalization is performed yet.
+ */
+export function validateDocument(document: unknown): DocumentValidationResult {
+  const reporter = createReporter();
+  checkDocumentValue(document, [], reporter);
+  return reporter.result();
 }
