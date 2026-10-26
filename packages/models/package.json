@@ -117,6 +117,10 @@
     "./pglite-preparation": {
       "types": "./dist/pglite-preparation.d.mts",
       "default": "./dist/pglite-preparation.mjs"
+    },
+    "./resource-revision": {
+      "types": "./dist/resource-revision.d.mts",
+      "default": "./dist/resource-revision.mjs"
     }
   },
   "files": [
@@ -144,7 +148,8 @@
       "src/migration-state.ts",
       "src/migration-session.ts",
       "src/pglite-store.ts",
-      "src/pglite-preparation.ts"
+      "src/pglite-preparation.ts",
+      "src/resource-revision.ts"
     ],
     "dts": {
       "sourcemap": true,

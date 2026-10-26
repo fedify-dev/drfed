@@ -20,6 +20,8 @@ import { it } from "node:test";
 
 import {
   type Database,
+  appendResourceRevision,
+  ensureResource,
   promoteResource,
   schema,
   storeAddressing,
@@ -633,3 +635,31 @@ it("reads a retained legacy activity after its target resource is removed", asyn
     });
   });
 });
+
+for (const kind of ["object", "activity"] as const) {
+  it(`returns unavailable legacy details for a generic ${kind} without exposing its JSON`, async () => {
+    await withTestHarness(async ({ db, post }) => {
+      const resource = await ensureResource(db, `urn:generic:${uuid()}`);
+      await appendResourceRevision(db, {
+        resourceId: resource.id,
+        resourceKind: kind,
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "received",
+        document: {
+          type: kind === "object" ? "Question" : "Arrive",
+          secret: "private revision contents",
+        },
+      });
+      const body = await (
+        await post({
+          query: `query($id: ID!) { node(id: $id) { ... on Resource { iri kind detail { __typename } } } }`,
+          variables: { id: globalId("Resource", resource.id) },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: { node: { iri: resource.iri, kind, detail: null } },
+      });
+    });
+  });
+}

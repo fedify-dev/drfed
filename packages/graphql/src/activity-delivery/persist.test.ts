@@ -19,7 +19,16 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import { type Database, promoteResource, schema } from "@drfed/models";
+import {
+  type Database,
+  ensureResource,
+  promoteResource,
+  schema,
+} from "@drfed/models";
+import {
+  appendResourceRevision,
+  loadCurrentResourceRevision,
+} from "@drfed/models/resource-revision";
 import { InProcessMessageQueue, type MessageQueue } from "@fedify/fedify";
 
 import { type TestHarness, withTestHarness } from "../harness.test.ts";
@@ -626,6 +635,61 @@ it("stores a Create received again, or by several instances, once", async () => 
       [true, true, true, true, false, false],
     );
   });
+});
+
+it("refuses a Create for a revision-backed object without legacy details", async () => {
+  for (const queued of [false, true]) {
+    await withTestHarness(async ({ db }) => {
+      await seedLocalInstance(db);
+      const documents: Documents = new Map();
+      const signer = await addActor(documents, alice);
+      const objectIri = "https://remote.example/notes/missing-typed";
+      const resource = await ensureResource(db, objectIri);
+      const document = {
+        id: objectIri,
+        type: "Note",
+        content: "retained generic document",
+      };
+      const revision = await appendResourceRevision(db, {
+        resourceId: resource.id,
+        resourceKind: "object",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        document,
+        capture: "fetched",
+      });
+      const before = await counts(db);
+      const { federation, send } = await createRecorder(
+        db,
+        documents,
+        queued ? { queue: new InProcessMessageQueue() } : {},
+      );
+      await withWorkers(federation, async () => {
+        const response = await send(
+          await signed(signer, createOf(alice, "missing-typed")),
+        );
+        assert.equal(response.status, 202, `queued: ${queued}`);
+        // A storage Refusal settles the listener. Throwing a plain Error here
+        // makes an immediate request fail, or leaves queued work retrying.
+        const deliveries = await eventually(
+          () => findDeliveries(db),
+          (rows) => rows.length === 1 && rows[0]?.status === "received",
+        );
+        assert.equal(deliveries[0]?.status, "received", `queued: ${queued}`);
+        assert.equal(deliveries[0]?.verificationResult, "verified");
+        assert.equal(deliveries[0]?.activityId, null);
+      });
+      assert.deepEqual(await counts(db), before);
+      assert.equal(
+        await db.query.objects.findFirst({ where: { id: resource.id } }),
+        undefined,
+      );
+      const retained = await loadCurrentResourceRevision(db, resource.id);
+      assert.equal(retained?.id, revision.id);
+      assert.deepEqual(retained?.document, document);
+      assert.equal((await ensureResource(db, objectIri)).kind, "object");
+    });
+  }
 });
 
 it("keeps an object as the activity that first carried it", async () => {

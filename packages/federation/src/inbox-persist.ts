@@ -544,7 +544,9 @@ async function reuseObject(
     columns: { id: true, actorId: true, published: true },
     where: { id },
   });
-  if (row == null) throw new Error(`Object ${id} has no row.`);
+  if (row == null) {
+    throw new Refusal("its object has no supported typed details");
+  }
   if (row.actorId !== actorId) {
     throw new Refusal("its object is already another actor's");
   }
