@@ -14,6 +14,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import {
+  type $EntityType,
+  Accept,
+  Activity,
+  Arrive,
+  Create,
+  Follow,
+  IntransitiveActivity,
+  Like,
+  Note,
+  Undo,
+  getEntityTypeById,
+} from "@fedify/vocab";
+
 /** The source property names and zero-based indexes leading to a finding. */
 export type FieldPath = readonly (string | number)[];
 
@@ -394,39 +408,48 @@ function checkContext(
   return false;
 }
 
+// Unsupported custom types by Fedify are not in this checker's coverage.
+const implementedTypes: ReadonlySet<$EntityType> = new Set<$EntityType>([
+  Note,
+  Activity,
+  Like,
+  Create,
+  Undo,
+  Accept,
+  Follow,
+  IntransitiveActivity,
+  Arrive,
+]);
+
 function checkType(
   value: unknown,
   path: FieldPath,
   report: Report,
-): "Like" | "Create" | "Undo" | "Accept" | "Follow" | "Note" | undefined {
-  const type =
+): $EntityType | undefined {
+  // Context checking above ensures short type names use the ActivityStreams
+  // namespace. Other context forms remain blocked before type detection.
+  const typeIri =
     typeof value === "string"
-      ? value.startsWith(activityStreamsTypePrefix)
-        ? value.slice(activityStreamsTypePrefix.length)
-        : value
-      : value;
-  if (
-    type !== "Note" &&
-    type !== "Like" &&
-    type !== "Create" &&
-    type !== "Undo" &&
-    type !== "Accept" &&
-    type !== "Follow"
-  ) {
-    const reason = Array.isArray(type)
+      ? value.includes(":")
+        ? value
+        : `${activityStreamsTypePrefix}${value}`
+      : undefined;
+  const Type = typeIri == null ? undefined : getEntityTypeById(typeIri);
+  if (Type == null || !implementedTypes.has(Type)) {
+    const reason = Array.isArray(value)
       ? "unsupported_value_form"
-      : type == null || typeof type === "string"
+      : value == null || typeof value === "string"
         ? "unsupported_type"
         : "invalid_value_shape";
     report(
       reason,
       [...path, "type"],
-      "This checker supports a single Like, Create, Undo, Accept, Follow, or Note type.",
+      "This type is not supported by the checker yet.",
     );
     return undefined;
   }
 
-  return type;
+  return Type;
 }
 
 function checkDocumentValue(
@@ -457,8 +480,12 @@ function checkDocumentValue(
     }
     if (!checkContext(values, path, report, embedded)) return;
 
-    const type = checkType(values.type, path, report);
-    if (type == null) return;
+    const Type = checkType(values.type, path, report);
+    if (Type == null) return;
+    const isActivity = Type === Activity || Type.prototype instanceof Activity;
+    const isIntransitive =
+      Type === IntransitiveActivity ||
+      Type.prototype instanceof IntransitiveActivity;
 
     ancestors.add(document);
     pending.push(() => {
@@ -496,12 +523,23 @@ function checkDocumentValue(
           } else {
             checkReference(value, fieldPath, report);
           }
-        } else if (
-          key === "attributedTo" ||
-          (type !== "Note" && key === "actor")
-        ) {
+        } else if (key === "attributedTo" || (isActivity && key === "actor")) {
           checkReferenceValues(value, fieldPath, report);
-        } else if (type !== "Note" && key === "object") {
+        } else if (isIntransitive && key === "object") {
+          if (value !== null) {
+            report(
+              "property_not_applicable",
+              fieldPath,
+              "The object property does not apply to intransitive activities.",
+            );
+          }
+        } else if (
+          key === "location" ||
+          (isActivity &&
+            ["object", "target", "origin", "result", "instrument"].includes(
+              key,
+            ))
+        ) {
           const checks: (() => void)[] = [];
           checkReferenceValues(
             value,
@@ -539,14 +577,17 @@ function checkDocumentValue(
 }
 
 /**
- * Checks Like, Create, Undo, Accept, Follow, and Note documents, including
+ * Checks Activity, IntransitiveActivity, Arrive, Like, Create, Undo, Accept,
+ * Follow, and Note documents, including
  * nested activity objects, without network access or writes. Embedded objects
  * inherit the parent's context.
  *
  * Supports standard string contexts, single types, id, string content,
- * and reference-only attributedTo/actor values. Activity objects can be IRI
- * references or supported embedded types, singly or in nonempty flat lists.
- * Other forms produce
+ * and reference-only attributedTo/actor values. Object location and activity
+ * object, target,
+ * origin, result, and instrument values can be IRI references or supported
+ * embedded types, singly or in nonempty flat lists. Intransitive activities
+ * reject a non-null object property. Other forms produce
  * support diagnostics and `complete: false`. This is not a permission check,
  * a Fedify parseability check, or full ActivityStreams validation.
  * The input must be plain JSON data, not a Proxy.

@@ -175,6 +175,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
+    "@fedify/vocab": "catalog:",
     "@logtape/logtape": "catalog:",
     "@types/pg": "8.20.0",
     "drizzle-orm": "catalog:",

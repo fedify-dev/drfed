@@ -24,6 +24,7 @@ import {
   diagnosticReasons,
   validateDocument,
 } from "@drfed/models/document";
+import { Object as APObject, getEntityTypeById } from "@fedify/vocab";
 
 interface DraftFixture {
   readonly id: string;
@@ -71,6 +72,19 @@ describe("validateDocument() supported document checks", () => {
     "accept-follow-list",
     "accept-follow-list-actor",
     "accept-note",
+    "like-target-reference",
+    "like-origin-number",
+    "create-result-note",
+    "undo-instrument-list-number",
+    "activity-reference",
+    "activity-object-number",
+    "intransitive-no-object",
+    "intransitive-null-object",
+    "intransitive-with-object",
+    "arrive-no-object",
+    "arrive-with-object",
+    "arrive-null-object",
+    "arrive-location-number",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -508,6 +522,334 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["object", 0, "object"] },
         { reason: "non_json_value", path: ["object", 1] },
         { reason: "non_json_value", path: ["object", 2] },
+      ],
+    );
+  });
+
+  it("recognizes base and intransitive types in short and full IRI forms without requiring fields", () => {
+    for (const type of ["Activity", "IntransitiveActivity", "Arrive"]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+      }
+    }
+  });
+
+  it("does not admit types recognized by Fedify until their checker rules are implemented", () => {
+    for (const type of ["Person", "Collection", "Update", "Question"]) {
+      assert.ok(
+        getEntityTypeById(`${context}#${type}`),
+        `Fedify must recognize ${type}`,
+      );
+      for (const spelling of [type, `${context}#${type}`]) {
+        const result = validateDocument({
+          "@context": context,
+          type: spelling,
+        });
+        assert.equal(result.complete, false);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "unsupported_type", path: ["type"] }],
+        );
+      }
+    }
+  });
+
+  it("looks up implemented types without invoking the Fedify document parser or network", (test) => {
+    const parser = test.mock.method(APObject, "fromJsonLd", () => {
+      throw new Error("Type detection must not parse documents");
+    });
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of [
+      "Note",
+      "Activity",
+      "Like",
+      "Create",
+      "Undo",
+      "Accept",
+      "Follow",
+      "IntransitiveActivity",
+      "Arrive",
+    ]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+      }
+    }
+    assert.equal(parser.mock.callCount(), 0);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("keeps unknown and foreign type IRIs unsupported instead of guessing from their local names", () => {
+    for (const type of [
+      "CustomLike",
+      `${context}#CustomLike`,
+      "https://example.com/Like",
+    ]) {
+      assert.equal(
+        getEntityTypeById(type.includes(":") ? type : `${context}#${type}`),
+        undefined,
+      );
+      const result = validateDocument({ "@context": context, type });
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "unsupported_type", path: ["type"] }],
+      );
+    }
+  });
+
+  it("reports a non-null intransitive object as inapplicable regardless of its shape", () => {
+    for (const type of ["IntransitiveActivity", "Arrive"]) {
+      for (const object of [
+        false,
+        123,
+        like.object,
+        [],
+        [like.object],
+        { type: "Note", content: false },
+      ]) {
+        const result = validateDocument({ "@context": context, type, object });
+        assert.equal(result.complete, true);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "property_not_applicable", path: ["object"] }],
+        );
+      }
+    }
+  });
+
+  it("checks nested intransitive activities while continuing independent fields and siblings", () => {
+    const input = {
+      ...like,
+      type: "Activity",
+      object: [
+        {
+          type: `${context}#Arrive`,
+          actor: false,
+          location: [like.object, 123],
+          object: { type: "Note", content: false },
+          origin: false,
+        },
+        {
+          type: `${context}#IntransitiveActivity`,
+          object: null,
+          result: { type: "Activity", object: 123 },
+        },
+        { type: "Activity", object: like.object },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["object", 0, "actor"] },
+        { reason: "invalid_value_shape", path: ["object", 0, "location", 1] },
+        { reason: "property_not_applicable", path: ["object", 0, "object"] },
+        { reason: "invalid_value_shape", path: ["object", 0, "origin"] },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 1, "result", "object"],
+        },
+      ],
+    );
+    assert.deepEqual(input, original);
+  });
+
+  it("shares activity relations with the newly supported types and keeps location optional", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of ["Activity", "IntransitiveActivity", "Arrive"]) {
+      const input = Object.freeze({
+        "@context": context,
+        type,
+        actor: like.actor,
+        target: Object.freeze([
+          like.object,
+          Object.freeze({ type: "Note", content: "Hello" }),
+        ]),
+        origin: like.object,
+        result: Object.freeze({ type: "Activity", object: like.object }),
+        instrument: like.object,
+        location: Object.freeze([
+          like.object,
+          Object.freeze({ type: "Note", content: "Place" }),
+          like.object,
+        ]),
+      });
+      const original = structuredClone(input);
+      assert.deepEqual(validateDocument(input), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+      assert.deepEqual(input, original);
+    }
+    for (const type of ["Note", "Like"]) {
+      assert.deepEqual(
+        validateDocument({ "@context": context, type, location: null }),
+        { complete: true, diagnostics: [], changes: [] },
+      );
+    }
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("reports unsupported location types and inherited context overrides without guessing", () => {
+    const result = validateDocument({
+      ...like,
+      type: "Arrive",
+      object: null,
+      location: [
+        { type: "Place", name: "Work" },
+        {
+          "@context": "https://remote.example/context",
+          type: "Note",
+          content: 123,
+        },
+        false,
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "unsupported_type", path: ["location", 0, "type"] },
+        {
+          reason: "context_unavailable_offline",
+          path: ["location", 1, "@context"],
+        },
+        { reason: "invalid_value_shape", path: ["location", 2] },
+      ],
+    );
+  });
+
+  for (const property of ["target", "origin", "result", "instrument"]) {
+    it(`accepts ${property} references and supported embedded values without fetching or changing them`, (test) => {
+      const fetch = test.mock.method(globalThis, "fetch", () => {
+        throw new Error("Unexpected network access");
+      });
+      const note = Object.freeze({ type: "Note", content: "Hello" });
+      const activity = Object.freeze({ type: "Follow", object: like.actor });
+      for (const type of ["Like", "Create", "Undo", "Accept", "Follow"]) {
+        for (const value of [
+          null,
+          like.object,
+          note,
+          activity,
+          Object.freeze([like.object, note, activity, like.object]),
+        ]) {
+          const input = Object.freeze({ ...like, type, [property]: value });
+          const original = structuredClone(input);
+          assert.deepEqual(validateDocument(input), {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          });
+          assert.deepEqual(input, original);
+        }
+      }
+      assert.equal(fetch.mock.callCount(), 0);
+    });
+
+    it(`checks ${property} list entries and nested properties in source order`, () => {
+      const result = validateDocument({
+        ...like,
+        [property]: [
+          123,
+          { type: "Note", content: false },
+          { type: "Undo", [property]: { type: "Like", object: false } },
+          "https://example.com/not valid",
+          { type: "Article" },
+          false,
+        ],
+      });
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [
+          { reason: "invalid_value_shape", path: [property, 0] },
+          { reason: "invalid_value_shape", path: [property, 1, "content"] },
+          {
+            reason: "invalid_value_shape",
+            path: [property, 2, property, "object"],
+          },
+          { reason: "invalid_iri", path: [property, 3] },
+          { reason: "unsupported_type", path: [property, 4, "type"] },
+          { reason: "invalid_value_shape", path: [property, 5] },
+        ],
+      );
+    });
+  }
+
+  it("keeps undecided relation forms unsupported and restricts the new properties to activities", () => {
+    for (const property of ["target", "origin", "result", "instrument"]) {
+      for (const [value, expectedPath] of [
+        [[], [property]],
+        [[null], [property, 0]],
+        [[[like.object]], [property, 0]],
+        ["/relative", [property]],
+      ] as const) {
+        const result = validateDocument({ ...like, [property]: value });
+        assert.equal(result.complete, false);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "unsupported_value_form", path: expectedPath }],
+        );
+      }
+      const note = validateDocument({
+        "@context": context,
+        type: "Note",
+        [property]: like.object,
+      });
+      assert.equal(note.complete, false);
+      assert.deepEqual(
+        note.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "unsupported_property", path: [property] }],
+      );
+    }
+  });
+
+  it("applies nested context blocking and cycle detection to the new relations", () => {
+    const input: Record<string, unknown> = {
+      ...like,
+      instrument: {
+        "@context": "https://remote.example/context",
+        type: "Note",
+        content: 123,
+      },
+      origin: false,
+      result: { type: "Note", content: 123 },
+    };
+    input.target = input;
+    const result = validateDocument(input);
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "context_unavailable_offline",
+          path: ["instrument", "@context"],
+        },
+        { reason: "invalid_value_shape", path: ["origin"] },
+        { reason: "invalid_value_shape", path: ["result", "content"] },
+        { reason: "non_json_value", path: ["target"] },
       ],
     );
   });

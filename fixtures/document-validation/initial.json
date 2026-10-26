@@ -429,10 +429,10 @@
         "object": "https://example.com/posts/42"
       },
       "expected": {
-        "complete": true,
+        "complete": false,
         "diagnostics": [
           {
-            "reason": "extension_type_unchecked",
+            "reason": "unsupported_type",
             "path": ["type", 1]
           }
         ]
@@ -549,6 +549,160 @@
           {
             "reason": "invalid_document_root",
             "path": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-target-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "target": "https://example.com/collection"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-origin-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "origin": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-result-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "result": {
+          "type": "Note",
+          "content": "Hello"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-instrument-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "instrument": [
+          "https://example.com/tool",
+          {
+            "type": "Like",
+            "object": 123
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["instrument", 1, "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "activity-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Activity",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "activity-object-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Activity",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "intransitive-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "origin": "https://example.com/start"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "intransitive-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "intransitive-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "arrive-location-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "location": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["location"]
           }
         ]
       }
