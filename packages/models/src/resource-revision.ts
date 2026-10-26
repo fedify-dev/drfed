@@ -570,3 +570,5 @@ export async function listResourceRevisions(
     .limit(limit);
   return await Promise.all(revisions.map((revision) => hydrate(db, revision)));
 }
+
+export { captureLegacyResourceRevision } from "./legacy-resource-revision.ts";

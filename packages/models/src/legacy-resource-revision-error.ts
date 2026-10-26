@@ -20,7 +20,7 @@ import type { Uuid } from "./uuid.ts";
 export class LegacyResourceRevisionError extends Error {
   constructor(readonly resourceId: Uuid) {
     super(
-      "A legacy typed resource cannot be changed through the generic revision API.",
+      "Legacy typed state requires coordinated capture and must agree with retained history.",
     );
     this.name = "LegacyResourceRevisionError";
   }

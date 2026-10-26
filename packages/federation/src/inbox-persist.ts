@@ -20,8 +20,10 @@
 import {
   type AddressingInput,
   type Database,
+  LegacyResourceRevisionError,
   ResourceKindConflictError,
   type Transaction,
+  captureLegacyResourceRevision,
   ensureRemoteInstance,
   ensureResource,
   lockResources,
@@ -527,6 +529,8 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
         await storeAddressing(inner, resource.id, activityAddressing);
       },
     );
+    await captureLegacyResourceRevision(tx, stored.id);
+    await captureLegacyResourceRevision(tx, activityId);
   });
 }
 
@@ -588,7 +592,11 @@ export async function persistCreate(
     await store(db, await accept(ctx, activity, actorIri, receipt));
   } catch (error) {
     if (
-      !(error instanceof Refusal || error instanceof ResourceKindConflictError)
+      !(
+        error instanceof Refusal ||
+        error instanceof ResourceKindConflictError ||
+        error instanceof LegacyResourceRevisionError
+      )
     ) {
       throw error;
     }

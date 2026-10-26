@@ -16,11 +16,17 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { type Database, migrate, relations, schema } from "@drfed/models";
+import { preparePostgresDatabase } from "@drfed/models/migration-session";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { migrate as migratePgliteBaseline } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import { Client } from "pg";
 import postgres from "postgres";
@@ -34,9 +40,10 @@ export type RevisionBackend = (typeof revisionBackends)[number];
 export interface RevisionFixture {
   readonly db: Database;
   readonly url?: string;
+  upgrade(): Promise<void>;
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     statement: string,
-    parameters?: string[],
+    parameters?: readonly (string | boolean | null)[],
   ): Promise<{ rows: T[] }>;
 }
 
@@ -51,35 +58,97 @@ export function revisionConnection(url: string): RevisionFixture & {
   return {
     db: drizzlePostgres({ client, schema, relations }),
     url,
+    upgrade: () => migrate({ credentials: { url } }),
     async query<T extends Record<string, unknown>>(
       statement: string,
-      parameters: string[] = [],
+      parameters: readonly (string | boolean | null)[] = [],
     ) {
-      const rows = await client.unsafe<T[]>(statement, parameters);
+      const rows = await client.unsafe<T[]>(statement, [...parameters]);
       return { rows: [...rows] };
     },
     close: () => client.end(),
   };
 }
 
-/** Runs against a fresh database; it never truncates a shared database. */
-export async function withRevisionDatabase(
-  backend: RevisionBackend,
-  run: (fixture: RevisionFixture) => Promise<void>,
-): Promise<void> {
-  if (backend === "pglite") {
-    const client = new PGlite();
-    try {
-      await migrate({ credentials: { driver: "pglite", client } });
-      await run({
-        db: drizzlePglite({ client, schema, relations }),
-        query: (statement, parameters) => client.query(statement, parameters),
-      });
-    } finally {
-      await client.close();
-    }
-    return;
+interface BaselineFiles {
+  readonly directory: string;
+  readonly migrationsFolder: string;
+  readonly manifestPath: string;
+}
+
+async function baselineFiles(beforeMigration: string): Promise<BaselineFiles> {
+  const module = import.meta.resolve("@drfed/models/migrate");
+  const migrations = fileURLToPath(new URL("../drizzle/", module));
+  const manifest = JSON.parse(
+    await readFile(new URL("./migrations-manifest.json", module), "utf8"),
+  ) as {
+    readonly formatVersion: number;
+    readonly migrations: readonly {
+      readonly name: string;
+      readonly sha256: string;
+    }[];
+  };
+  assert.ok(
+    manifest.migrations.some((entry) => entry.name === beforeMigration),
+  );
+  const selected = manifest.migrations.filter(
+    (entry) => entry.name < beforeMigration,
+  );
+  const directory = await mkdtemp(join(tmpdir(), "drfed-revision-baseline-"));
+  const migrationsFolder = join(directory, "drizzle");
+  const manifestPath = join(directory, "manifest.json");
+  try {
+    await mkdir(migrationsFolder);
+    await Promise.all(
+      selected.map((entry) =>
+        cp(join(migrations, entry.name), join(migrationsFolder, entry.name), {
+          recursive: true,
+        }),
+      ),
+    );
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        formatVersion: manifest.formatVersion,
+        migrations: selected,
+      }),
+    );
+    return { directory, migrationsFolder, manifestPath };
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
   }
+}
+
+async function withPgliteRevisionDatabase(
+  run: (fixture: RevisionFixture) => Promise<void>,
+  baseline?: BaselineFiles,
+): Promise<void> {
+  const client = new PGlite();
+  try {
+    const upgrade = () =>
+      migrate({ credentials: { driver: "pglite", client } });
+    if (baseline === undefined) await upgrade();
+    else {
+      await migratePgliteBaseline(drizzlePglite({ client }), {
+        migrationsFolder: baseline.migrationsFolder,
+      });
+    }
+    await run({
+      db: drizzlePglite({ client, schema, relations }),
+      upgrade,
+      query: (statement, parameters) =>
+        client.query(statement, [...(parameters ?? [])]),
+    });
+  } finally {
+    await client.close();
+  }
+}
+
+async function withPostgresRevisionDatabase(
+  run: (fixture: RevisionFixture) => Promise<void>,
+  baseline?: BaselineFiles,
+): Promise<void> {
   assert.ok(revisionPostgresUrl, "An isolated PostgreSQL cluster is required.");
   const name = `drfed_revision_${randomUUID().replaceAll("-", "")}`;
   const administrator = new Client({ connectionString: revisionPostgresUrl });
@@ -89,7 +158,15 @@ export async function withRevisionDatabase(
     await administrator.query(`CREATE DATABASE "${name}"`);
     const url = new URL(revisionPostgresUrl);
     url.pathname = `/${name}`;
-    await migrate({ credentials: { url: url.href } });
+    if (baseline === undefined) {
+      await migrate({ credentials: { url: url.href } });
+    } else {
+      await preparePostgresDatabase({
+        credentials: { url: url.href },
+        migrationsFolder: baseline.migrationsFolder,
+        manifestPath: baseline.manifestPath,
+      });
+    }
     connection = revisionConnection(url.href);
     await run(connection);
   } finally {
@@ -100,5 +177,25 @@ export async function withRevisionDatabase(
     );
     await administrator.query(`DROP DATABASE IF EXISTS "${name}"`);
     await administrator.end();
+  }
+}
+
+/** Runs against a fresh database; it never truncates a shared database. */
+export async function withRevisionDatabase(
+  backend: RevisionBackend,
+  run: (fixture: RevisionFixture) => Promise<void>,
+  options: { readonly beforeMigration?: string } = {},
+): Promise<void> {
+  const baseline =
+    options.beforeMigration === undefined
+      ? undefined
+      : await baselineFiles(options.beforeMigration);
+  try {
+    if (backend === "pglite") await withPgliteRevisionDatabase(run, baseline);
+    else await withPostgresRevisionDatabase(run, baseline);
+  } finally {
+    if (baseline !== undefined) {
+      await rm(baseline.directory, { recursive: true, force: true });
+    }
   }
 }

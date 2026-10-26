@@ -232,6 +232,34 @@ it("stores a signed Create once, and links every delivery of it", async () => {
         );
       });
       await assertStored(db);
+      const activity = await findActivity(
+        db,
+        "https://remote.example/activities/1",
+      );
+      assert.ok(activity?.objectId);
+      const activityRevision = await loadCurrentResourceRevision(
+        db,
+        activity.id,
+      );
+      const objectRevision = await loadCurrentResourceRevision(
+        db,
+        activity.objectId,
+      );
+      assert.deepEqual(activityRevision?.document, body);
+      assert.equal(activityRevision?.capture, "received");
+      assert.equal(objectRevision?.capture, "embedded");
+      const original = await db.query.objects.findFirst({
+        where: { id: activity.objectId },
+      });
+      assert.deepEqual(objectRevision?.document, original?.document);
+      const receipts = await db.select().from(schema.revisionReceipts);
+      assert.equal(receipts.length, 4);
+      assert.ok(
+        receipts.every((row) =>
+          [activityRevision?.id, objectRevision?.id].includes(row.revisionId),
+        ),
+      );
+
       await assertLinkedBothWays(graphql, init);
     });
   }

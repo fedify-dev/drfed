@@ -22,6 +22,7 @@ import {
 } from "@drfed/federation/object";
 import {
   addActorCollectionItem,
+  captureLegacyResourceRevision,
   ensureResource,
   lockActorCollection,
   promoteResource,
@@ -470,6 +471,8 @@ builder.mutationFields((t) => ({
             },
           })
           .where(eq(schema.activities.id, activityId));
+        await captureLegacyResourceRevision(tx, object.id);
+        await captureLegacyResourceRevision(tx, activityId);
         return { ...object, actor: storedObject.actor, document: snapshot };
       });
     },

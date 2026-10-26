@@ -30,7 +30,9 @@ import {
   activityDeliveryAttempts,
   actors,
   objects,
+  resourceRevisions,
   resources,
+  revisionReceipts,
 } from "./schema.ts";
 import { storableText } from "./text.ts";
 import { type Uuid, uuidV7 } from "./uuid.ts";
@@ -300,36 +302,112 @@ export async function receiveInbound(db: Database, id: Uuid): Promise<boolean> {
  * and carries nothing.  An unlinked delivery is left as is.
  */
 async function decideCarried(tx: Transaction, deliveryId: Uuid): Promise<void> {
-  const [row] = await tx
+  // Both current callers already update this delivery; retain that lock order
+  // explicitly so every recomputation serializes evidence and receipt changes.
+  const [delivery] = await tx
     .select({
+      activityId: activityDeliveries.activityId,
       payload: activityDeliveries.payload,
       fetchedObject: activityDeliveries.fetchedObject,
-      activity: activities.document,
-      object: objects.document,
-      fetched: objects.fetched,
     })
     .from(activityDeliveries)
-    .innerJoin(activities, eq(activities.id, activityDeliveries.activityId))
-    .leftJoin(objects, eq(objects.activityId, activityDeliveries.activityId))
     .where(
       and(
         eq(activityDeliveries.id, deliveryId),
         eq(activityDeliveries.direction, "inbound"),
       ),
-    );
-  if (row == null) return;
+    )
+    .for("update");
+  if (delivery === undefined) return;
+  const [activity] =
+    delivery.activityId === null
+      ? []
+      : await tx
+          .select({
+            id: activities.id,
+            document: activities.document,
+          })
+          .from(activities)
+          .where(eq(activities.id, delivery.activityId));
+  // Lock separately, never the nullable side of an outer join. Deletion waits
+  // for this transaction, then its AFTER DELETE cleanup sees our receipts.
+  // This must precede receipt writes to avoid reversing the delete lock order.
+  const [object] =
+    activity === undefined
+      ? []
+      : await tx
+          .select({
+            id: objects.id,
+            document: objects.document,
+            fetched: objects.fetched,
+          })
+          .from(objects)
+          .where(eq(objects.activityId, activity.id))
+          .for("key share");
+  await tx
+    .delete(revisionReceipts)
+    .where(eq(revisionReceipts.deliveryId, deliveryId));
+  if (activity === undefined) return;
   const carriedSnapshot =
-    row.payload != null && isDeepStrictEqual(row.payload, row.activity);
+    delivery.payload != null &&
+    isDeepStrictEqual(delivery.payload, activity.document);
   const carriedObjectSnapshot =
     carriedSnapshot &&
-    row.fetched != null &&
-    (!row.fetched ||
-      (row.fetchedObject != null &&
-        isDeepStrictEqual(row.fetchedObject, row.object)));
+    object !== undefined &&
+    (!object.fetched ||
+      (delivery.fetchedObject != null &&
+        isDeepStrictEqual(delivery.fetchedObject, object.document)));
   await tx
     .update(activityDeliveries)
     .set({ carriedSnapshot, carriedObjectSnapshot })
     .where(eq(activityDeliveries.id, deliveryId));
+  if (!carriedSnapshot) return;
+  const revisions = await tx
+    .select()
+    .from(resourceRevisions)
+    .where(
+      and(
+        inArray(
+          resourceRevisions.resourceId,
+          object === undefined ? [activity.id] : [activity.id, object.id],
+        ),
+        eq(resourceRevisions.sequence, 1),
+        eq(resourceRevisions.kind, "snapshot"),
+      ),
+    );
+  const activityRevision = revisions.find(
+    (revision) => revision.resourceId === activity.id,
+  );
+  if (
+    activityRevision === undefined ||
+    !isDeepStrictEqual(activityRevision.document, activity.document)
+  ) {
+    return;
+  }
+  const receipts: (typeof revisionReceipts.$inferInsert)[] = [
+    {
+      deliveryId,
+      revisionId: activityRevision.id,
+      role: "activity",
+    },
+  ];
+  const objectRevision =
+    object === undefined
+      ? undefined
+      : revisions.find((revision) => revision.resourceId === object.id);
+  if (
+    carriedObjectSnapshot &&
+    object !== undefined &&
+    objectRevision !== undefined &&
+    isDeepStrictEqual(objectRevision.document, object.document)
+  ) {
+    receipts.push({
+      deliveryId,
+      revisionId: objectRevision.id,
+      role: "object",
+    });
+  }
+  await tx.insert(revisionReceipts).values(receipts);
 }
 
 /**
