@@ -56,7 +56,13 @@ const like = {
 };
 
 describe("validateDocument() initial Like/reference checks", () => {
-  for (const id of ["root-number", "like-reference", "like-number"]) {
+  for (const id of [
+    "root-number",
+    "like-reference",
+    "like-number",
+    "like-list-number",
+    "like-multiple-actors",
+  ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
       assert.ok(fixture, `Missing draft fixture: ${id}`);
@@ -129,7 +135,6 @@ describe("validateDocument() initial Like/reference checks", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
       { ...like, object: { type: "Note", content: "Hello" } },
-      { ...like, object: [like.object] },
       { ...like, type: "Create" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
@@ -158,6 +163,106 @@ describe("validateDocument() initial Like/reference checks", () => {
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [{ reason: "context_unavailable_offline", path: ["@context"] }],
     );
+  });
+
+  it("preserves reference order and duplicates without fetching list entries", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    const input = Object.freeze({
+      ...like,
+      actor: Object.freeze([like.actor, "https://example.com/bob", like.actor]),
+      object: Object.freeze([
+        like.object,
+        "https://example.com/posts/43",
+        like.object,
+      ]),
+    });
+    const original = structuredClone(input);
+    assert.deepEqual(validateDocument(input), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    assert.deepEqual(input, original);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("reports independent actor and object list failures at their original indexes", () => {
+    const result = validateDocument({
+      ...like,
+      actor: [like.actor, false],
+      object: [123, like.object, "https://example.com/not valid"],
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["actor", 1] },
+        { reason: "invalid_value_shape", path: ["object", 0] },
+        { reason: "invalid_iri", path: ["object", 2] },
+      ],
+    );
+  });
+
+  it("checks reference siblings while reporting unimplemented list entries", () => {
+    const result = validateDocument({
+      ...like,
+      object: [like.object, { type: "Note", content: "Hello" }, 123],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "unsupported_value_form", path: ["object", 1] },
+        { reason: "invalid_value_shape", path: ["object", 2] },
+      ],
+    );
+  });
+
+  it("keeps undecided empty lists, null entries, and nested lists incomplete", () => {
+    for (const [object, path] of [
+      [[], ["object"]],
+      [[null], ["object", 0]],
+      [[[like.object]], ["object", 0]],
+    ] as const) {
+      const result = validateDocument({ ...like, object });
+      assert.equal(result.complete, false);
+      assert.equal(result.diagnostics[0]?.reason, "unsupported_value_form");
+      assert.deepEqual(result.diagnostics[0]?.path, path);
+    }
+  });
+
+  it("does not evaluate list accessors or silently skip sparse entries", () => {
+    let evaluated = false;
+    const accessor = [like.object];
+    Object.defineProperty(accessor, "0", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Do not invoke input accessors");
+      },
+    });
+    const sparse = [like.object];
+    sparse.length = 2;
+    for (const [object, index] of [
+      [accessor, 0],
+      [sparse, 1],
+    ] as const) {
+      const result = validateDocument({ ...like, object });
+      assert.equal(result.diagnostics[0]?.reason, "non_json_value");
+      assert.deepEqual(result.diagnostics[0]?.path, ["object", index]);
+    }
+    assert.equal(evaluated, false);
+  });
+
+  it("does not impose the deferred value-count budget on reference lists", () => {
+    const result = validateDocument({
+      ...like,
+      actor: Array(6000).fill(like.actor),
+      object: Array(6000).fill(like.object),
+    });
+    assert.deepEqual(result, { complete: true, diagnostics: [], changes: [] });
   });
 
   it("reports an implicit context as a warning rather than rejection", () => {

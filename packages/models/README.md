@@ -12,15 +12,21 @@ Document validation
 
 `@drfed/models/document` exports `validateDocument()` and its diagnostic types.
 The initial implementation checks plain document roots and basic `Like`
-documents with optional scalar `actor` and `object` IRI references. It performs
+documents with optional `actor` and `object` IRI references, either singly or
+in nonempty flat lists. It performs
 no network access, database writes, permission checks, or normalization.
 
 Findings use a stable `reason`, `category`, `severity`, and original-input
 `path`. `complete` means checking finished, not that the document passed: also
 check for diagnostics with `severity: "error"`. Unimplemented types,
-properties, context forms, lists, and embedded values produce support errors
+properties, context forms, and embedded values produce support errors
 with `complete: false`. Full ActivityStreams coverage and the Fedify adapter
 are still under development.
+
+List findings retain the original index, for example `["object", 1]`.
+Order and duplicate references are preserved. Empty non-addressing lists,
+null entries, and nested lists remain explicitly unsupported until their
+policies are agreed.
 
 
 Schema

@@ -114,7 +114,6 @@ export interface DocumentValidationResult {
 
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const activityStreamsTypePrefix = `${activityStreamsContext}#`;
-const maximumProperties = 10_000;
 const maximumDiagnostics = 100;
 
 type Report = (
@@ -145,10 +144,6 @@ function readDocument(
     return undefined;
   }
   const keys = Reflect.ownKeys(document);
-  if (keys.length > maximumProperties) {
-    report("processing_limit_exceeded", [], "Too many document properties.");
-    return undefined;
-  }
   if (keys.some((key) => typeof key !== "string")) {
     report("non_json_value", [], "JSON objects cannot have symbol properties.");
     return undefined;
@@ -171,8 +166,8 @@ function readDocument(
   return values;
 }
 
-// Nested values are unsupported in this first slice, so this checks only the
-// immediate JSON shape and never reads a nested property or invokes an accessor.
+// This checks only the immediate JSON shape. List entries are checked separately;
+// embedded objects are still unsupported and their properties are never read.
 function isJsonValueShape(value: unknown): boolean {
   return (
     value === null ||
@@ -190,7 +185,7 @@ function checkReference(value: unknown, path: FieldPath, report: Report): void {
       report(
         "unsupported_value_form",
         path,
-        "Lists and embedded values are not checked yet.",
+        "Embedded values are not checked yet.",
       );
     } else {
       report(
@@ -231,11 +226,67 @@ function checkReference(value: unknown, path: FieldPath, report: Report): void {
   }
 }
 
+function checkReferenceValues(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (!Array.isArray(value)) {
+    checkReference(value, path, report);
+    return;
+  }
+  if (value.length === 0) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Empty non-addressing lists need an agreed policy.",
+    );
+    return;
+  }
+  if (Reflect.ownKeys(value).length > value.length + 1) {
+    report(
+      "non_json_value",
+      path,
+      "Expected a JSON array without extra properties.",
+    );
+    return;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const entryPath = [...path, index];
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    if (
+      descriptor == null ||
+      !("value" in descriptor) ||
+      !descriptor.enumerable
+    ) {
+      report(
+        "non_json_value",
+        entryPath,
+        "Expected an enumerable array entry.",
+      );
+      continue;
+    }
+    const entry: unknown = descriptor.value;
+    if (!isJsonValueShape(entry)) {
+      report("non_json_value", entryPath, "Expected a JSON value.");
+    } else if (entry === null || Array.isArray(entry)) {
+      report(
+        "unsupported_value_form",
+        entryPath,
+        "Null entries and nested lists are not checked yet.",
+      );
+    } else {
+      checkReference(entry, entryPath, report);
+    }
+  }
+}
+
 /**
  * Checks the initial Like/reference subset without network access or writes.
  *
  * Only standard string contexts, a single Like type, and optional actor/object
- * IRI references are implemented. Other fields, types, lists, and embedded
+ * IRI references, either singly or in nonempty flat lists, are implemented.
+ * Other fields, types, context forms, and embedded
  * values produce support diagnostics and `complete: false`. This is not a
  * permission check, a Fedify parseability check, or full ActivityStreams
  * validation. The input must be plain JSON data, not a Proxy.
@@ -323,7 +374,7 @@ export function validateDocument(document: unknown): DocumentValidationResult {
       );
       continue;
     }
-    checkReference(values[key], [key], report);
+    checkReferenceValues(values[key], [key], report);
   }
   return result();
 }
