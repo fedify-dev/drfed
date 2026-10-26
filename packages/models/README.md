@@ -12,12 +12,13 @@ Document validation
 
 `@drfed/models/document` exports `validateDocument()` and its diagnostic types.
 The initial implementation checks plain document roots with a single `Like`,
-`Create`, or `Note` type. Activities accept optional `actor` references and
-`object` references or embedded Notes, individually or in nonempty flat lists.
-Notes inherit the parent context unless they supply their own. Shared checks
-cover `id`, reference-only `attributedTo`, and string `content` (including HTML
-and empty strings); optional values may be absent or null. It performs no
-network access, database writes, permission checks, or normalization.
+`Create`, `Undo`, `Accept`, `Follow`, or `Note` type. Activities accept
+optional `actor` references and `object` references or supported embedded
+activities/Notes, individually or in nonempty flat lists. Embedded objects
+inherit the parent context unless they supply their own. Shared checks cover
+`id`, reference-only `attributedTo`, and string `content` (including HTML and
+empty strings); optional values may be absent or null. It performs no network
+access, database writes, permission checks, or normalization.
 
 Findings use a stable `reason`, `category`, `severity`, and original-input
 `path`. `complete` means checking finished, not that the document passed: also
@@ -28,6 +29,9 @@ are still under development.
 
 Nested findings retain the original path, for example
 `["object", 1, "content"]`.
+Checks use an explicit work stack, preserving depth-first order without
+recursive calls. Cycles in traversed objects receive `non_json_value`; shared
+objects in separate branches are allowed. No depth limit is imposed yet.
 Order and duplicate references are preserved. Empty non-addressing lists,
 null entries, and nested lists remain explicitly unsupported until their
 policies are agreed.

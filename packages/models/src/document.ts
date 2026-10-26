@@ -331,9 +331,10 @@ function checkReferenceValues(
   path: FieldPath,
   report: Report,
   check: typeof checkReference = checkReference,
+  schedule: (work: () => void) => void = (work) => work(),
 ): void {
   if (!Array.isArray(value)) {
-    check(value, path, report);
+    schedule(() => check(value, path, report));
     return;
   }
   if (value.length === 0) {
@@ -344,12 +345,18 @@ function checkReferenceValues(
     );
     return;
   }
-  visitList(value, path, report, (entry, entryPath) => {
-    checkReferenceEntry(entry, entryPath, report, check);
-  });
+  visitList(
+    value,
+    path,
+    (reason, entryPath, message) =>
+      schedule(() => report(reason, entryPath, message)),
+    (entry, entryPath) => {
+      schedule(() => checkReferenceEntry(entry, entryPath, report, check));
+    },
+  );
 }
 
-// A nested Note inherits its parent's understood context unless it overrides it.
+// A nested object inherits its parent's understood context unless it overrides it.
 function checkContext(
   values: Record<string, unknown>,
   path: FieldPath,
@@ -391,15 +398,21 @@ function checkType(
   value: unknown,
   path: FieldPath,
   report: Report,
-  embedded: boolean,
-): "Like" | "Create" | "Note" | undefined {
+): "Like" | "Create" | "Undo" | "Accept" | "Follow" | "Note" | undefined {
   const type =
     typeof value === "string"
       ? value.startsWith(activityStreamsTypePrefix)
         ? value.slice(activityStreamsTypePrefix.length)
         : value
       : value;
-  if (type !== "Note" && (embedded || (type !== "Like" && type !== "Create"))) {
+  if (
+    type !== "Note" &&
+    type !== "Like" &&
+    type !== "Create" &&
+    type !== "Undo" &&
+    type !== "Accept" &&
+    type !== "Follow"
+  ) {
     const reason = Array.isArray(type)
       ? "unsupported_value_form"
       : type == null || typeof type === "string"
@@ -408,9 +421,7 @@ function checkType(
     report(
       reason,
       [...path, "type"],
-      embedded
-        ? "Only embedded Notes are checked yet."
-        : "This checker supports a single Like, Create, or Note type.",
+      "This checker supports a single Like, Create, Undo, Accept, Follow, or Note type.",
     );
     return undefined;
   }
@@ -418,79 +429,124 @@ function checkType(
   return type;
 }
 
-// Keep the supported property rules together for review.
-// eslint-disable-next-line complexity
 function checkDocumentValue(
-  document: unknown,
-  path: FieldPath,
+  rootDocument: unknown,
+  rootPath: FieldPath,
   reporter: ReturnType<typeof createReporter>,
-  embedded = false,
 ): void {
   const { report, isFull } = reporter;
-  const values = readDocument(document, path, report);
-  if (values == null || !checkContext(values, path, report, embedded)) return;
+  const pending: (() => void)[] = [];
+  const ancestors = new WeakSet<object>();
 
-  const type = checkType(values.type, path, report, embedded);
-  if (type == null) return;
+  function checkDocument(
+    document: unknown,
+    path: FieldPath,
+    embedded: boolean,
+  ): void {
+    if (
+      document !== null &&
+      typeof document === "object" &&
+      ancestors.has(document)
+    ) {
+      report("non_json_value", path, "JSON documents cannot contain cycles.");
+      return;
+    }
+    const values = readDocument(document, path, report);
+    if (values == null || document === null || typeof document !== "object") {
+      return;
+    }
+    if (!checkContext(values, path, report, embedded)) return;
 
-  for (const key of Object.keys(values).sort()) {
-    if (key === "@context" || key === "type") continue;
-    if (isFull()) break;
-    const value = values[key];
-    const fieldPath = [...path, key];
-    if (key === "content") {
-      if (value !== null && typeof value !== "string") {
-        report(
-          typeof value === "object"
-            ? "unsupported_value_form"
-            : "invalid_value_shape",
-          fieldPath,
-          "Expected text; language objects and content lists are not checked yet.",
-        );
-      }
-    } else if (key === "id") {
-      if (Array.isArray(value)) {
-        report(
-          "unsupported_value_form",
-          fieldPath,
-          "ID lists are not checked yet.",
-        );
-      } else if (value !== null && typeof value === "object") {
-        report("invalid_value_shape", fieldPath, "Expected an IRI identifier.");
-      } else {
-        checkReference(value, fieldPath, report);
-      }
-    } else if (key === "attributedTo" || (type !== "Note" && key === "actor")) {
-      checkReferenceValues(value, fieldPath, report);
-    } else if (type !== "Note" && key === "object") {
-      checkReferenceValues(value, fieldPath, report, (entry, entryPath) => {
-        if (
-          entry !== null &&
-          typeof entry === "object" &&
-          !Array.isArray(entry)
+    const type = checkType(values.type, path, report);
+    if (type == null) return;
+
+    ancestors.add(document);
+    pending.push(() => {
+      ancestors.delete(document);
+    });
+    // LIFO work preserves the same depth-first, sorted-property order.
+    for (const key of Object.keys(values).sort().reverse()) {
+      if (key === "@context" || key === "type") continue;
+      pending.push(() => {
+        const value = values[key];
+        const fieldPath = [...path, key];
+        if (key === "content") {
+          if (value !== null && typeof value !== "string") {
+            report(
+              typeof value === "object"
+                ? "unsupported_value_form"
+                : "invalid_value_shape",
+              fieldPath,
+              "Expected text; language objects and content lists are not checked yet.",
+            );
+          }
+        } else if (key === "id") {
+          if (Array.isArray(value)) {
+            report(
+              "unsupported_value_form",
+              fieldPath,
+              "ID lists are not checked yet.",
+            );
+          } else if (value !== null && typeof value === "object") {
+            report(
+              "invalid_value_shape",
+              fieldPath,
+              "Expected an IRI identifier.",
+            );
+          } else {
+            checkReference(value, fieldPath, report);
+          }
+        } else if (
+          key === "attributedTo" ||
+          (type !== "Note" && key === "actor")
         ) {
-          checkDocumentValue(entry, entryPath, reporter, true);
+          checkReferenceValues(value, fieldPath, report);
+        } else if (type !== "Note" && key === "object") {
+          const checks: (() => void)[] = [];
+          checkReferenceValues(
+            value,
+            fieldPath,
+            report,
+            (entry, entryPath) => {
+              if (
+                entry !== null &&
+                typeof entry === "object" &&
+                !Array.isArray(entry)
+              ) {
+                checkDocument(entry, entryPath, true);
+              } else {
+                checkReference(entry, entryPath, report);
+              }
+            },
+            (check) => checks.push(check),
+          );
+          for (const check of checks.reverse()) pending.push(check);
         } else {
-          checkReference(entry, entryPath, report);
+          report(
+            "unsupported_property",
+            fieldPath,
+            "This property is not checked by the initial implementation.",
+          );
         }
       });
-    } else {
-      report(
-        "unsupported_property",
-        fieldPath,
-        "This property is not checked by the initial implementation.",
-      );
     }
+  }
+
+  checkDocument(rootDocument, rootPath, false);
+  while (pending.length > 0 && !isFull()) {
+    pending.pop()!();
   }
 }
 
 /**
- * Checks Like/Create references and embedded Notes, or a standalone Note,
- * without network access or writes. Notes inherit the parent's context.
+ * Checks Like, Create, Undo, Accept, Follow, and Note documents, including
+ * nested activity objects, without network access or writes. Embedded objects
+ * inherit the parent's context.
  *
  * Supports standard string contexts, single types, id, string content,
  * and reference-only attributedTo/actor values. Activity objects can be IRI
- * references or Notes, singly or in nonempty flat lists. Other forms produce
+ * references or supported embedded types, singly or in nonempty flat lists.
+ * Other forms produce
  * support diagnostics and `complete: false`. This is not a permission check,
  * a Fedify parseability check, or full ActivityStreams validation.
  * The input must be plain JSON data, not a Proxy.

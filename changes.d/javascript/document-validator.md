@@ -1,6 +1,7 @@
  -  Added an offline `validateDocument()` API in `@drfed/models/document` for
-    basic Like and Create documents with actor/object IRI references and
-    embedded Notes, individually or in lists, plus standalone Notes. Nested
+    Like, Create, Undo, Accept, Follow, and Note documents, with activity object
+    values accepted as IRI references or supported embedded types, individually
+    or in lists. Nested
     content errors retain their original field paths. Diagnostics include
     stable reasons and field paths; unimplemented forms report incomplete
     support. [[#151]]

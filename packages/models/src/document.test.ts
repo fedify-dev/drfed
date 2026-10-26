@@ -55,7 +55,7 @@ const like = {
   object: "https://example.com/posts/42",
 };
 
-describe("validateDocument() Like, Create, and Note checks", () => {
+describe("validateDocument() supported document checks", () => {
   for (const id of [
     "root-number",
     "like-reference",
@@ -66,6 +66,11 @@ describe("validateDocument() Like, Create, and Note checks", () => {
     "create-empty-content",
     "create-invalid-content",
     "create-reference",
+    "undo-like",
+    "undo-nested-number",
+    "accept-follow-list",
+    "accept-follow-list-actor",
+    "accept-note",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -139,7 +144,7 @@ describe("validateDocument() Like, Create, and Note checks", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
       { ...like, object: { type: "Article", content: "Hello" } },
-      { ...like, type: "Undo" },
+      { ...like, type: "Update" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
@@ -359,6 +364,152 @@ describe("validateDocument() Like, Create, and Note checks", () => {
     assert.equal(result.diagnostics.length, 100);
     assert.equal(result.diagnostics.at(-1)?.reason, "diagnostic_limit_reached");
     assert.deepEqual(result.diagnostics[0]?.path, ["object", 0, "content"]);
+  });
+
+  it("checks nested activities depth first, preserving list and property paths", () => {
+    const input = {
+      "@context": context,
+      type: `${context}#Accept`,
+      actor: false,
+      object: [
+        {
+          type: "Undo",
+          actor: like.actor,
+          object: { type: `${context}#Like`, object: 123 },
+          published: "2026-10-26T00:00:00Z",
+        },
+        456,
+        { type: `${context}#Follow`, actor: false, object: like.actor },
+      ],
+      published: "2026-10-26T00:00:00Z",
+    };
+    const original = structuredClone(input);
+    const expected = [
+      { reason: "invalid_value_shape", path: ["actor"] },
+      {
+        reason: "invalid_value_shape",
+        path: ["object", 0, "object", "object"],
+      },
+      { reason: "unsupported_property", path: ["object", 0, "published"] },
+      { reason: "invalid_value_shape", path: ["object", 1] },
+      { reason: "invalid_value_shape", path: ["object", 2, "actor"] },
+      { reason: "unsupported_property", path: ["published"] },
+    ];
+    for (let index = 0; index < 2; index += 1) {
+      const result = validateDocument(input);
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        expected,
+      );
+    }
+    assert.deepEqual(input, original);
+  });
+
+  it("keeps nested activity references offline without requiring embedded objects", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of ["Undo", "Accept", "Follow"]) {
+      assert.deepEqual(validateDocument({ ...like, type }), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+    }
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("blocks a nested activity context without skipping later siblings", () => {
+    const result = validateDocument({
+      ...like,
+      type: "Undo",
+      object: [
+        {
+          "@context": "https://remote.example/context",
+          type: "Like",
+          object: 123,
+        },
+        { type: "Follow", actor: false },
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "context_unavailable_offline",
+          path: ["object", 0, "@context"],
+        },
+        { reason: "invalid_value_shape", path: ["object", 1, "actor"] },
+      ],
+    );
+  });
+
+  it("reports cycles without rejecting shared objects in separate branches", () => {
+    const cyclic: Record<string, unknown> = {
+      "@context": context,
+      type: "Undo",
+    };
+    cyclic.object = cyclic;
+    const cycle = validateDocument(cyclic);
+    assert.equal(cycle.complete, true);
+    assert.deepEqual(
+      cycle.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "non_json_value", path: ["object"] }],
+    );
+    const shared = Object.freeze({ type: "Follow", actor: false });
+    const result = validateDocument({
+      ...like,
+      type: "Accept",
+      object: [shared, shared],
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["object", 0, "actor"] },
+        { reason: "invalid_value_shape", path: ["object", 1, "actor"] },
+      ],
+    );
+  });
+
+  it("handles deep activity nesting without recursive calls or a new depth limit", () => {
+    const depth = 3000;
+    let input: unknown = { type: "Like", object: 123 };
+    for (let index = 0; index < depth; index += 1) {
+      input = { type: "Undo", object: input };
+    }
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    const failure = result.diagnostics.find(
+      ({ reason }) => reason === "invalid_value_shape",
+    );
+    assert.ok(failure);
+    assert.deepEqual(failure.path, Array(depth + 1).fill("object"));
+  });
+
+  it("keeps sparse and accessor entry findings in nested source order", () => {
+    let evaluated = false;
+    const object = [{ type: "Like", object: false }, undefined];
+    Object.defineProperty(object, "1", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Do not invoke accessors");
+      },
+    });
+    object.length = 3;
+    const result = validateDocument({ ...like, type: "Undo", object });
+    assert.equal(evaluated, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["object", 0, "object"] },
+        { reason: "non_json_value", path: ["object", 1] },
+        { reason: "non_json_value", path: ["object", 2] },
+      ],
+    );
   });
 
   it("keeps undecided empty lists, null entries, and nested lists incomplete", () => {
