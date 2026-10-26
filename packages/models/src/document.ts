@@ -122,6 +122,40 @@ type Report = (
   message: string,
 ) => void;
 
+// Owns diagnostic collection and completion state for one validation call.
+function createReporter() {
+  const diagnostics: Diagnostic[] = [];
+  let complete = true;
+
+  const report: Report = (reason, path, message) => {
+    if (diagnostics.length >= maximumDiagnostics - 1) {
+      complete = false;
+      if (diagnostics.length < maximumDiagnostics) {
+        diagnostics.push({
+          reason: "diagnostic_limit_reached",
+          ...diagnosticReasons.diagnostic_limit_reached,
+          path: [],
+          message: "Further diagnostics were omitted.",
+        });
+      }
+      return;
+    }
+    const classification = diagnosticReasons[reason];
+    if (classification.category === "support") complete = false;
+    diagnostics.push({ reason, ...classification, path, message });
+  };
+
+  return {
+    report,
+    isFull: () => diagnostics.length >= maximumDiagnostics,
+    result: (): DocumentValidationResult => ({
+      complete,
+      diagnostics,
+      changes: [],
+    }),
+  };
+}
+
 function readDocument(
   document: unknown,
   report: Report,
@@ -178,6 +212,7 @@ function isJsonValueShape(value: unknown): boolean {
   );
 }
 
+// Reports reference-rule failures without owning the diagnostic collection.
 function checkReference(value: unknown, path: FieldPath, report: Report): void {
   if (value === null) return;
   if (typeof value !== "string") {
@@ -226,6 +261,61 @@ function checkReference(value: unknown, path: FieldPath, report: Report): void {
   }
 }
 
+// Applies the current list-entry policy, independently of list traversal.
+function checkReferenceEntry(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (!isJsonValueShape(value)) {
+    report("non_json_value", path, "Expected a JSON value.");
+  } else if (value === null || Array.isArray(value)) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Null entries and nested lists are not checked yet.",
+    );
+  } else {
+    checkReference(value, path, report);
+  }
+}
+
+// Visits data entries safely and constructs paths, without reference rules.
+function visitList(
+  values: readonly unknown[],
+  path: FieldPath,
+  report: Report,
+  visit: (value: unknown, path: FieldPath) => void,
+): void {
+  if (Reflect.ownKeys(values).length > values.length + 1) {
+    report(
+      "non_json_value",
+      path,
+      "Expected a JSON array without extra properties.",
+    );
+    return;
+  }
+  for (let index = 0; index < values.length; index += 1) {
+    const entryPath = [...path, index];
+    const descriptor = Object.getOwnPropertyDescriptor(values, index);
+    if (
+      descriptor == null ||
+      !("value" in descriptor) ||
+      !descriptor.enumerable
+    ) {
+      report(
+        "non_json_value",
+        entryPath,
+        "Expected an enumerable array entry.",
+      );
+      continue;
+    }
+    const entry: unknown = descriptor.value;
+    visit(entry, entryPath);
+  }
+}
+
+// Coordinates reference rules with traversal and reporting.
 function checkReferenceValues(
   value: unknown,
   path: FieldPath,
@@ -243,42 +333,9 @@ function checkReferenceValues(
     );
     return;
   }
-  if (Reflect.ownKeys(value).length > value.length + 1) {
-    report(
-      "non_json_value",
-      path,
-      "Expected a JSON array without extra properties.",
-    );
-    return;
-  }
-  for (let index = 0; index < value.length; index += 1) {
-    const entryPath = [...path, index];
-    const descriptor = Object.getOwnPropertyDescriptor(value, index);
-    if (
-      descriptor == null ||
-      !("value" in descriptor) ||
-      !descriptor.enumerable
-    ) {
-      report(
-        "non_json_value",
-        entryPath,
-        "Expected an enumerable array entry.",
-      );
-      continue;
-    }
-    const entry: unknown = descriptor.value;
-    if (!isJsonValueShape(entry)) {
-      report("non_json_value", entryPath, "Expected a JSON value.");
-    } else if (entry === null || Array.isArray(entry)) {
-      report(
-        "unsupported_value_form",
-        entryPath,
-        "Null entries and nested lists are not checked yet.",
-      );
-    } else {
-      checkReference(entry, entryPath, report);
-    }
-  }
+  visitList(value, path, report, (entry, entryPath) => {
+    checkReferenceEntry(entry, entryPath, report);
+  });
 }
 
 /**
@@ -293,30 +350,7 @@ function checkReferenceValues(
  * @returns Findings at original-input paths; no normalization is performed yet.
  */
 export function validateDocument(document: unknown): DocumentValidationResult {
-  const diagnostics: Diagnostic[] = [];
-  let complete = true;
-
-  function report(reason: DiagnosticReason, path: FieldPath, message: string) {
-    if (diagnostics.length >= maximumDiagnostics - 1) {
-      complete = false;
-      if (diagnostics.length < maximumDiagnostics) {
-        diagnostics.push({
-          reason: "diagnostic_limit_reached",
-          ...diagnosticReasons.diagnostic_limit_reached,
-          path: [],
-          message: "Further diagnostics were omitted.",
-        });
-      }
-      return;
-    }
-    const classification = diagnosticReasons[reason];
-    if (classification.category === "support") complete = false;
-    diagnostics.push({ reason, ...classification, path, message });
-  }
-
-  function result(): DocumentValidationResult {
-    return { complete, diagnostics, changes: [] };
-  }
+  const { report, result, isFull } = createReporter();
 
   const values = readDocument(document, report);
   if (values == null) return result();
@@ -365,7 +399,7 @@ export function validateDocument(document: unknown): DocumentValidationResult {
 
   for (const key of Object.keys(values).sort()) {
     if (key === "@context" || key === "type") continue;
-    if (diagnostics.length >= maximumDiagnostics) break;
+    if (isFull()) break;
     if (key !== "actor" && key !== "object") {
       report(
         "unsupported_property",
