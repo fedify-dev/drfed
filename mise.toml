@@ -274,7 +274,7 @@ if "DRFED_TEST_POSTGRES_URL" not-in $env {
 if ($env.DRFED_TEST_POSTGRES_URL | str trim | is-empty) {
   error make {msg: "DRFED_TEST_POSTGRES_URL must not be empty."}
 }
-node --test packages/models/src/migration-session.test.ts
+node --test packages/models/src/migration-session.test.ts packages/models/src/resource-revision-schema.test.ts
 """
 
 [tasks.bump-version]

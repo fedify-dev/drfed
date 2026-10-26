@@ -19,6 +19,63 @@ import { defineRelations } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
 export const relations = defineRelations(schema, (r) => ({
+  resourceRevisions: {
+    resource: r.one.resources({
+      from: r.resourceRevisions.resourceId,
+      to: r.resources.id,
+      optional: false,
+    }),
+    addressing: r.many.revisionAddressing({
+      from: r.resourceRevisions.id,
+      to: r.revisionAddressing.revisionId,
+    }),
+    relations: r.many.revisionRelations({
+      from: r.resourceRevisions.id,
+      to: r.revisionRelations.revisionId,
+    }),
+    receipts: r.many.revisionReceipts({
+      from: r.resourceRevisions.id,
+      to: r.revisionReceipts.revisionId,
+    }),
+  },
+  resourceHeads: {
+    resource: r.one.resources({
+      from: r.resourceHeads.resourceId,
+      to: r.resources.id,
+      optional: false,
+    }),
+    revision: r.one.resourceRevisions({
+      from: [r.resourceHeads.resourceId, r.resourceHeads.revisionId],
+      to: [r.resourceRevisions.resourceId, r.resourceRevisions.id],
+      optional: false,
+    }),
+  },
+  revisionAddressing: {
+    revision: r.one.resourceRevisions({
+      from: r.revisionAddressing.revisionId,
+      to: r.resourceRevisions.id,
+      optional: false,
+    }),
+  },
+  revisionRelations: {
+    revision: r.one.resourceRevisions({
+      from: r.revisionRelations.revisionId,
+      to: r.resourceRevisions.id,
+      optional: false,
+    }),
+  },
+  revisionReceipts: {
+    revision: r.one.resourceRevisions({
+      from: r.revisionReceipts.revisionId,
+      to: r.resourceRevisions.id,
+      optional: false,
+    }),
+    delivery: r.one.activityDeliveries({
+      from: r.revisionReceipts.deliveryId,
+      to: r.activityDeliveries.id,
+      optional: false,
+    }),
+  },
   keys: {
     versions: r.many.keyVersions({ from: r.keys.id, to: r.keyVersions.keyId }),
   },
@@ -34,6 +91,10 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   activityDeliveries: {
+    revisionReceipts: r.many.revisionReceipts({
+      from: r.activityDeliveries.id,
+      to: r.revisionReceipts.deliveryId,
+    }),
     instance: r.one.instances({
       from: r.activityDeliveries.instanceId,
       to: r.instances.id,
@@ -191,6 +252,14 @@ export const relations = defineRelations(schema, (r) => ({
     }),
   },
   resources: {
+    revisions: r.many.resourceRevisions({
+      from: r.resources.id,
+      to: r.resourceRevisions.resourceId,
+    }),
+    head: r.one.resourceHeads({
+      from: r.resources.id,
+      to: r.resourceHeads.resourceId,
+    }),
     actor: r.one.actors({
       from: r.resources.id,
       to: r.actors.id,

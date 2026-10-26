@@ -603,3 +603,33 @@ it("pages a collection backward in the same edge order as forward", async () => 
     assert.equal(head.pageInfo.hasPreviousPage, false);
   });
 });
+
+it("reads a retained legacy activity after its target resource is removed", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const id = uuid();
+    const activityId = uuid();
+    await seedObjects(db, [
+      {
+        id,
+        activityId,
+        actorId: localActorId,
+        iri: `https://test.example/${id}`,
+        type: "Note",
+        contentHtml: "old content",
+      },
+    ]);
+    await db.delete(schema.resources).where(eq(schema.resources.id, id));
+    const body = await (
+      await post({
+        query: `query($id: ID!) { node(id: $id) { ... on Activity { type object { iri } expectedClassifications { classification } } } }`,
+        variables: { id: globalId("Activity", activityId) },
+      })
+    ).json();
+    assert.deepEqual(body, {
+      data: {
+        node: { type: "Create", object: null, expectedClassifications: [] },
+      },
+    });
+  });
+});
