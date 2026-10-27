@@ -53,7 +53,9 @@ To be released.
     absent. Empty addressing warns and offers an explicit omission preview
     without changing the submitted document. Allowlisted bundled contexts and
     supported inline aliases retain original field/index diagnostics;
-    arbitrary custom properties remain explicitly unsupported. [[#151]]
+    custom properties are preserved as opaque JSON with warnings, including in
+    normalization previews, without claiming to validate their semantics.
+    [[#151]]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 

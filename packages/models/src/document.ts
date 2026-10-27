@@ -100,6 +100,10 @@ export const diagnosticReasons = {
     severity: "warning",
   },
   extension_type_unchecked: { category: "compatibility", severity: "warning" },
+  extension_property_unchecked: {
+    category: "compatibility",
+    severity: "warning",
+  },
   empty_addressing_list: { category: "compatibility", severity: "warning" },
   unmapped_extension_property: {
     category: "compatibility",
@@ -855,7 +859,7 @@ interface SourceProperty {
   readonly compatible: boolean;
 }
 
-// Retain one entry per source field. Aliases are never merged or reserialized.
+// Retain one entry per source field. Aliases are never merged or re-serialized.
 function resolveProperty(
   source: string,
   context: DocumentContext,
@@ -879,7 +883,15 @@ function resolveProperty(
   if (iri === "@type") {
     return { source, name: "type", iri: "@type", compatible: true };
   }
-  return { source, compatible: false };
+  return { source, ...(iri == null ? {} : { iri }), compatible: false };
+}
+
+function isOpaqueExtension(field: SourceProperty): boolean {
+  return (
+    !field.source.startsWith("@") &&
+    !field.iri?.startsWith("@") &&
+    !Array.from(standardTerms.values()).some((term) => term.iri === field.iri)
+  );
 }
 
 function isTypeCombination(value: unknown): boolean {
@@ -1219,8 +1231,6 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
     );
     return;
   }
-  // Temporal bounds precision at nanoseconds; validate with a truncated fraction
-  // without changing the source value, which RFC3339 allows to be more precise.
   const { minute, second, fraction, offset } = match.groups!;
   try {
     void Temporal.Instant.from(
@@ -1361,6 +1371,35 @@ function checkDocumentValue(
   const pending: (() => void)[] = [];
   const ancestors = new WeakSet<object>();
 
+  // Opaque extensions still need JSON-safe data for an independent preview.
+  function checkExtension(value: unknown, path: FieldPath): void {
+    if (!isJsonValueShape(value)) {
+      report("non_json_value", path, "Expected a JSON value.");
+      return;
+    }
+    if (value === null || typeof value !== "object") return;
+    if (ancestors.has(value)) {
+      report("non_json_value", path, "JSON documents cannot contain cycles.");
+      return;
+    }
+    ancestors.add(value);
+    pending.push(() => ancestors.delete(value));
+    const children: (() => void)[] = [];
+    if (Array.isArray(value)) {
+      visitList(value, path, report, (entry, entryPath) => {
+        children.push(() => checkExtension(entry, entryPath));
+      });
+    } else {
+      const values = readDocument(value, path, report);
+      if (values != null) {
+        for (const key of Object.keys(values)) {
+          children.push(() => checkExtension(values[key], [...path, key]));
+        }
+      }
+    }
+    for (const child of children.reverse()) pending.push(child);
+  }
+
   function checkDocument(
     document: unknown,
     path: FieldPath,
@@ -1438,6 +1477,15 @@ function checkDocumentValue(
         const value = values[source];
         const fieldPath = [...path, source];
         if (key == null) {
+          if (isOpaqueExtension(field)) {
+            report(
+              "extension_property_unchecked",
+              fieldPath,
+              "This custom property's data is preserved; its semantics were not checked.",
+            );
+            checkExtension(value, fieldPath);
+            return;
+          }
           report(
             "unsupported_property",
             fieldPath,
@@ -1609,10 +1657,11 @@ function createPreview(
  * embedded types, singly or in nonempty flat lists. Intransitive activities
  * reject a non-null object property. Other forms produce
  * support diagnostics and `complete: false`. This is not a permission check,
- * a Fedify parseability check, or full ActivityStreams validation.
+ * a Fedify parsability check, or full ActivityStreams validation.
  * The input must be plain JSON data, not a Proxy.
- * Context interpretation is bounded and synchronous. Complex contexts and
- * arbitrary custom properties remain unsupported; input is never expanded.
+ * Context interpretation is bounded and synchronous. Unknown
+ * custom properties are preserved as opaque JSON with warnings. Complex
+ * contexts remain unsupported; input is never expanded.
  * Null list entries mean absence. Functional properties accept at most one
  * non-null value, preserving array-index paths. Common text/language maps,
  * timestamps, actor preferredUsername, and addressing are checked.

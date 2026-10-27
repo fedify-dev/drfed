@@ -140,9 +140,18 @@ remote lookups or remote lookup failures to interpret in this API.
 Scoped contexts, custom base/vocabulary/default-language directives, context
 resets, JSON literals, and other complex forms remain unsupported. Relative
 IRIs remain unsupported until a trusted base policy exists. Custom properties,
-mapped or unmapped, receive `unsupported_property` with `complete: false`.
-Their data stays in the input; preservation of rejected input does not mean
-successful extension validation or guaranteed preservation during sending.
+mapped or unmapped, are preserved as opaque JSON and receive the compatibility
+warning `extension_property_unchecked`. Their semantics are not validated.
+Otherwise supported documents can finish with `complete: true` and no errors;
+normalization previews preserve the custom fields and their nested values.
+Opaque values are checked for JSON safety, including cycles and accessors,
+without interpreting nested type or context keys as ActivityStreams.
+
+This warning policy does not admit unknown types, unsupported contexts,
+JSON-LD keywords, or known vocabulary properties without implemented rules.
+Those still block validation. Passing validation does not guarantee custom
+fields survive Fedify serialization or sending. This supersedes the earlier
+policy that rejected all custom properties.
 
 Diagnostics are capped at 100, including a final `diagnostic_limit_reached`
 error diagnostic when truncated; checking then remains incomplete and no

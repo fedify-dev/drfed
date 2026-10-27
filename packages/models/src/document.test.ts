@@ -303,7 +303,7 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
-  it("keeps arbitrary custom properties unsupported and retains their raw data", () => {
+  it("warns about opaque custom properties and retains their raw data", () => {
     for (const inline of [
       {},
       { debugData: "https://example.com/ns#debugData" },
@@ -315,10 +315,10 @@ describe("validateDocument() supported document checks", () => {
       };
       const original = structuredClone(input);
       const result = validateDocument(input);
-      assert.equal(result.complete, false);
+      assert.equal(result.complete, true);
       assert.deepEqual(
         result.diagnostics.map(({ reason, path }) => ({ reason, path })),
-        [{ reason: "unsupported_property", path: ["debugData"] }],
+        [{ reason: "extension_property_unchecked", path: ["debugData"] }],
       );
       assert.deepEqual(input, original);
       assert.deepEqual(result.changes, []);
@@ -331,6 +331,87 @@ describe("validateDocument() supported document checks", () => {
     });
     assert.equal(known.complete, false);
     assert.equal(known.diagnostics[0]?.reason, "unsupported_property");
+  });
+
+  it("preserves opaque nested extensions in independent successful previews", () => {
+    const data = { type: "Custom", values: [[], null, { content: 123 }] };
+    const input = {
+      ...like,
+      object: { type: "Note", to: [], debugData: data },
+      debugData: data,
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.ok(
+      result.diagnostics.every(({ severity }) => severity === "warning"),
+    );
+    assert.deepEqual(
+      result.diagnostics
+        .filter(({ reason }) => reason === "extension_property_unchecked")
+        .map(({ path }) => path),
+      [["debugData"], ["object", "debugData"]],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      ...input,
+      object: { type: "Note", debugData: data },
+    });
+    assert.notEqual(result.normalizedDocument!.debugData, data);
+    assert.deepEqual(input, original);
+    const invalid = validateDocument({ ...input, actor: false });
+    assert.ok(
+      invalid.diagnostics.some(
+        ({ reason }) => reason === "invalid_value_shape",
+      ),
+    );
+    assert.equal(invalid.normalizedDocument, undefined);
+  });
+
+  it("rejects non-JSON opaque data without invoking getters or creating previews", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    let getterCalls = 0;
+    const accessor = {
+      get value() {
+        getterCalls += 1;
+        return true;
+      },
+    };
+    for (const debugData of [
+      cyclic,
+      accessor,
+      { value: undefined },
+      [NaN],
+      new Date(),
+    ]) {
+      const result = validateDocument({ ...like, to: [], debugData });
+      assert.ok(
+        result.diagnostics.some(({ reason }) => reason === "non_json_value"),
+      );
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(result.changes, []);
+    }
+    assert.equal(getterCalls, 0);
+  });
+
+  it("keeps JSON-LD keywords and incompatible standard aliases blocking", () => {
+    for (const input of [
+      { ...like, "@graph": [] },
+      {
+        ...like,
+        "@context": [
+          context,
+          { payload: { "@id": "as:object", "@container": "@list" } },
+        ],
+        payload: [],
+      },
+    ]) {
+      const result = validateDocument(input);
+      assert.equal(result.complete, false);
+      assert.ok(
+        result.diagnostics.some(({ severity }) => severity === "error"),
+      );
+    }
   });
 
   it("uses allowlisted bundled contexts without fetching context or resource URLs", (t) => {
@@ -751,7 +832,7 @@ describe("validateDocument() supported document checks", () => {
   it("withholds normalization when there are errors, unsupported fields, or truncated findings", () => {
     for (const fields of [
       { object: 123 },
-      { extra: true },
+      { duration: "PT1H" },
       { actor: Array(110).fill(false) },
     ]) {
       const result = validateDocument({ ...like, to: [], ...fields });
@@ -1571,7 +1652,7 @@ describe("validateDocument() supported document checks", () => {
         { type: "Link", href: 123 },
         {
           type: "Person",
-          publicKey: "https://example.com/key",
+          duration: "PT1H",
         },
       ],
     });
@@ -1582,7 +1663,7 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["actor", 0, "href"] },
         {
           reason: "unsupported_property",
-          path: ["actor", 1, "publicKey"],
+          path: ["actor", 1, "duration"],
         },
       ],
     );
