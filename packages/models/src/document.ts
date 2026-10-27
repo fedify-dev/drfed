@@ -166,6 +166,8 @@ export interface DocumentValidationResult {
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const activityStreamsTypePrefix = `${activityStreamsContext}#`;
 const maximumDiagnostics = 100;
+const actorTypes = [Application, Group, Organization, Person, Service];
+const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
 
 type Report = (
   reason: DiagnosticReason,
@@ -378,14 +380,11 @@ function checkReferenceEntry(
   report: Report,
   check: typeof checkReference,
 ): void {
+  if (value === null) return;
   if (!isJsonValueShape(value)) {
     report("non_json_value", path, "Expected a JSON value.");
-  } else if (value === null || Array.isArray(value)) {
-    report(
-      "unsupported_value_form",
-      path,
-      "Null entries and nested lists are not checked yet.",
-    );
+  } else if (Array.isArray(value)) {
+    report("unsupported_value_form", path, "Nested lists are not checked yet.");
   } else {
     check(value, path, report);
   }
@@ -442,7 +441,7 @@ function checkReferenceValues(
     report(
       "unsupported_value_form",
       path,
-      "Empty non-addressing lists need an agreed policy.",
+      "Empty non-addressing lists are not supported.",
     );
     return;
   }
@@ -454,6 +453,22 @@ function checkReferenceValues(
     (entry, entryPath) => {
       schedule(() => checkReferenceEntry(entry, entryPath, report, check));
     },
+  );
+}
+
+function checkSingleReference(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  check: typeof checkReference,
+  schedule: (work: () => void) => void,
+): void {
+  checkSingleValue(
+    value,
+    path,
+    (reason, entryPath, message) =>
+      schedule(() => report(reason, entryPath, message)),
+    (entry, entryPath) => schedule(() => check(entry, entryPath, report)),
   );
 }
 
@@ -550,9 +565,7 @@ function getCollectionRange(
     if (property === "partOf") return [Collection, Link];
     if (["next", "prev"].includes(property)) return [CollectionPage, Link];
   }
-  const actor = [Application, Group, Organization, Person, Service].some(
-    (Actor) => isTypeOrSubtype(Type, Actor),
-  );
+  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
   if (actor) {
     if (["inbox", "outbox"].includes(property)) {
       return [OrderedCollection, OrderedCollectionPage];
@@ -570,19 +583,237 @@ function checkNonNegativeInteger(
   report: Report,
 ): void {
   if (value === null) return;
-  if (Array.isArray(value)) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    report("invalid_value_shape", path, "Expected a non-negative integer.");
+  }
+}
+
+// Functional properties count non-null values but retain source array indexes.
+function checkSingleValue(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  check: typeof checkReference,
+): void {
+  if (!Array.isArray(value)) {
+    check(value, path, report);
+    return;
+  }
+  if (value.length === 0) {
     report(
       "unsupported_value_form",
       path,
-      "Array forms of single-value properties are not checked yet.",
+      "Empty non-addressing lists are not supported.",
+    );
+    return;
+  }
+  const entries: { value: unknown; path: FieldPath }[] = [];
+  visitList(value, path, report, (entry, entryPath) => {
+    if (entry !== null) entries.push({ value: entry, path: entryPath });
+  });
+  if (entries.length > 1) {
+    report(
+      "invalid_multiplicity",
+      path,
+      "Expected at most one non-null value.",
+    );
+  }
+  for (const entry of entries) {
+    checkReferenceEntry(entry.value, entry.path, report, check);
+  }
+}
+
+function checkLanguageTag(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (
+    typeof value !== "string" ||
+    !/^[a-z]{1,8}(?:-[a-z\d]{1,8})*$/iu.test(value)
+  ) {
+    report("invalid_value_shape", path, "Expected a language tag.");
+    return;
+  }
+  try {
+    void new Intl.Locale(value);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    report(
+      "unsupported_value_form",
+      path,
+      "This language tag is outside the current locale parser's support.",
+    );
+  }
+}
+
+function checkText(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  plain: boolean,
+): void {
+  if (value === null) return;
+  if (typeof value === "string") {
+    if (plain && /<(?:[a-z][^>]*>|\/[a-z][^>]*>|!--)/iu.test(value)) {
+      report(
+        "invalid_value_shape",
+        path,
+        "Names must be plain text without HTML markup.",
+      );
+    }
+    return;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    report("invalid_value_shape", path, "Expected text.");
+    return;
+  }
+  const values = readDocument(value, path, report);
+  if (values == null) return;
+  if (!Object.hasOwn(values, "@value")) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Use a language-map property or an explicit @value object for localized text.",
+    );
+    return;
+  }
+  for (const key of Object.keys(values).sort()) {
+    const fieldPath = [...path, key];
+    if (key === "@value") {
+      if (typeof values[key] === "string") {
+        checkText(values[key], fieldPath, report, plain);
+      } else {
+        report("invalid_value_shape", fieldPath, "Expected a text value.");
+      }
+    } else if (key === "@language") {
+      checkLanguageTag(values[key], fieldPath, report);
+    } else {
+      report(
+        "unsupported_value_form",
+        fieldPath,
+        "This text-value attribute is not supported yet.",
+      );
+    }
+  }
+}
+
+function checkLanguageMap(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  plain: boolean,
+): void {
+  if (value === null) return;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    report("invalid_value_shape", path, "Expected a language map.");
+    return;
+  }
+  const values = readDocument(value, path, report);
+  if (values == null) return;
+  for (const language of Object.keys(values).sort()) {
+    const fieldPath = [...path, language];
+    checkLanguageTag(language, fieldPath, report);
+    if (values[language] === null) continue;
+    if (typeof values[language] === "string") {
+      checkText(values[language], fieldPath, report, plain);
+    } else {
+      report(
+        "invalid_value_shape",
+        fieldPath,
+        "Expected a language-map string.",
+      );
+    }
+  }
+}
+
+function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
+  if (value === null) return;
+  if (typeof value !== "string") {
+    report("invalid_value_shape", path, "Expected a date-time string.");
+    return;
+  }
+  // AS2 permits omitted seconds, but requires an offset and uppercase T/Z.
+  const match =
+    /^(?<minute>\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?<second>:\d{2})?(?<fraction>\.\d+)?(?<offset>Z|[+-]\d{2}:\d{2})$/u.exec(
+      value,
+    );
+  if (match == null) {
+    report(
+      "invalid_datetime",
+      path,
+      "Expected an ActivityStreams date-time with a timezone.",
+    );
+    return;
+  }
+  // Temporal bounds precision at nanoseconds; validate with a truncated fraction
+  // without changing the source value, which RFC3339 allows to be more precise.
+  const { minute, second, fraction, offset } = match.groups!;
+  try {
+    void Temporal.Instant.from(
+      `${minute}${second ?? ":00"}${fraction?.slice(0, 10) ?? ""}${offset}`,
+    );
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    report(
+      "invalid_datetime",
+      path,
+      "Expected a valid calendar date, time, and offset.",
+    );
+    return;
+  }
+  if (second === ":60") {
+    report(
+      "unsupported_value_form",
+      path,
+      "Leap-second timestamps are not checked by the current date-time parser.",
+    );
+  }
+}
+
+// Scalar/common properties share checks; embedded references use the work stack.
+function checkCommonProperty(
+  Type: VocabularyType,
+  property: string,
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): boolean {
+  const object = isTypeOrSubtype(Type, APObject);
+  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
+  const textProperties = object ? ["name", "summary", "content"] : ["name"];
+  if (actor) textProperties.push("preferredUsername");
+  if (textProperties.includes(property)) {
+    checkReferenceValues(value, path, report, (entry, entryPath) =>
+      checkText(entry, entryPath, report, property === "name"),
     );
   } else if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 0
+    textProperties.some(
+      (name) => property === `${name}Map` && name !== "preferredUsername",
+    )
   ) {
-    report("invalid_value_shape", path, "Expected a non-negative integer.");
+    checkLanguageMap(value, path, report, property === "nameMap");
+  } else if (
+    object &&
+    ["published", "updated", "startTime", "endTime"].includes(property)
+  ) {
+    checkSingleValue(value, path, report, checkDateTime);
+  } else if (property === "id") {
+    checkSingleValue(value, path, report, (entry, entryPath) => {
+      if (entry !== null && typeof entry === "object") {
+        report("invalid_value_shape", entryPath, "Expected an IRI identifier.");
+      } else {
+        checkReference(entry, entryPath, report);
+      }
+    });
+  } else if (property === "mediaType") {
+    checkSingleValue(value, path, report, (entry, entryPath) =>
+      checkLinkProperty(property, entry, entryPath, report),
+    );
+  } else {
+    return false;
   }
+  return true;
 }
 
 function checkLinkRelation(
@@ -629,14 +860,6 @@ function checkLinkProperty(
     return;
   }
   if (value === null) return;
-  if (Array.isArray(value)) {
-    report(
-      "unsupported_value_form",
-      path,
-      "Array forms of single-value Link properties are not checked yet.",
-    );
-    return;
-  }
   if (typeof value !== "string") {
     report("invalid_value_shape", path, "Expected a string.");
     return;
@@ -651,20 +874,7 @@ function checkLinkProperty(
       report("invalid_value_shape", path, "Expected a MIME media type.");
     }
   } else {
-    if (!/^[a-z]{1,8}(?:-[a-z\d]{1,8})*$/iu.test(value)) {
-      report("invalid_value_shape", path, "Expected a language tag.");
-      return;
-    }
-    try {
-      void new Intl.Locale(value);
-    } catch (error) {
-      if (!(error instanceof RangeError)) throw error;
-      report(
-        "unsupported_value_form",
-        path,
-        "This language tag is outside the current locale parser's support.",
-      );
-    }
+    checkLanguageTag(value, path, report);
   }
 }
 
@@ -672,6 +882,7 @@ function checkDocumentValue(
   rootDocument: unknown,
   rootPath: FieldPath,
   reporter: ReturnType<typeof createReporter>,
+  changes: NormalizationChange[],
 ): void {
   const { report, isFull } = reporter;
   const pending: (() => void)[] = [];
@@ -724,7 +935,7 @@ function checkDocumentValue(
           ? ["totalItems"]
           : [];
     const referenceProperties = ["attributedTo", "preview"];
-    if (isObject) referenceProperties.push("location");
+    if (isObject) referenceProperties.push("location", ...addressingProperties);
     if (isActivity) {
       referenceProperties.push(
         "actor",
@@ -749,57 +960,57 @@ function checkDocumentValue(
         const fieldPath = [...path, key];
         const collectionRange = getCollectionRange(Type, key);
         if (integerProperties.includes(key)) {
-          checkNonNegativeInteger(value, fieldPath, report);
+          checkSingleValue(value, fieldPath, report, checkNonNegativeInteger);
         } else if (linkProperties.includes(key)) {
-          checkLinkProperty(key, value, fieldPath, report);
-        } else if (isObject && key === "content") {
-          if (value !== null && typeof value !== "string") {
-            report(
-              typeof value === "object"
-                ? "unsupported_value_form"
-                : "invalid_value_shape",
-              fieldPath,
-              "Expected text; language objects and content lists are not checked yet.",
-            );
-          }
-        } else if (key === "id") {
-          if (Array.isArray(value)) {
-            report(
-              "unsupported_value_form",
-              fieldPath,
-              "ID lists are not checked yet.",
-            );
-          } else if (value !== null && typeof value === "object") {
-            report(
-              "invalid_value_shape",
-              fieldPath,
-              "Expected an IRI identifier.",
-            );
+          if (key === "rel") {
+            checkLinkProperty(key, value, fieldPath, report);
           } else {
-            checkReference(value, fieldPath, report);
-          }
-        } else if (isIntransitive && key === "object") {
-          if (value !== null) {
-            report(
-              "property_not_applicable",
-              fieldPath,
-              "The object property does not apply to intransitive activities.",
+            checkSingleValue(value, fieldPath, report, (entry, entryPath) =>
+              checkLinkProperty(key, entry, entryPath, report),
             );
           }
+        } else if (checkCommonProperty(Type, key, value, fieldPath, report)) {
+          // Common scalar and language properties were checked above.
+        } else if (isIntransitive && key === "object") {
+          checkReferenceValues(value, fieldPath, report, (entry, entryPath) => {
+            if (entry !== null) {
+              report(
+                "property_not_applicable",
+                entryPath,
+                "The object property does not apply to intransitive activities.",
+              );
+            }
+          });
         } else if (
           referenceProperties.includes(key) ||
           collectionRange != null
         ) {
-          if (collectionRange != null && Array.isArray(value)) {
+          if (
+            addressingProperties.includes(key) &&
+            Array.isArray(value) &&
+            value.length === 0
+          ) {
+            visitList(value, fieldPath, report, () => undefined);
             report(
-              "unsupported_value_form",
+              "empty_addressing_list",
               fieldPath,
-              "Array forms of single-value collection properties are not checked yet.",
+              "Empty addressing is retained; omit this property in the wire preview.",
             );
+            changes.push({
+              operation: "remove",
+              reason: "omit_empty_addressing_list",
+              path: fieldPath,
+              before: [],
+              message: "Omit empty addressing from the wire representation.",
+            });
             return;
           }
           const checks: (() => void)[] = [];
-          checkReferenceValues(
+          const checkValues =
+            collectionRange == null
+              ? checkReferenceValues
+              : checkSingleReference;
+          checkValues(
             value,
             fieldPath,
             report,
@@ -834,6 +1045,54 @@ function checkDocumentValue(
   }
 }
 
+// Clone checked JSON iteratively so a deeply nested preview cannot overflow
+// the JavaScript call stack or share mutable containers with the input.
+function createPreview(
+  document: { [key: string]: JsonValue },
+  changes: readonly NormalizationChange[],
+): { [key: string]: JsonValue } {
+  const root: { [key: string]: JsonValue } = {};
+  const copies = new WeakMap<object, JsonValue>([[document, root]]);
+  const pending = [
+    {
+      source: document as object,
+      target: root as { [key: string]: JsonValue },
+    },
+  ];
+  while (pending.length > 0) {
+    const { source, target } = pending.pop()!;
+    for (const [key, value] of Object.entries(source)) {
+      let copy = value as JsonValue;
+      if (value !== null && typeof value === "object") {
+        const existing = copies.get(value);
+        if (existing !== undefined) copy = existing;
+        else {
+          copy = Array.isArray(value) ? [] : {};
+          copies.set(value, copy);
+          pending.push({
+            source: value,
+            target: copy as { [key: string]: JsonValue },
+          });
+        }
+      }
+      Object.defineProperty(target, key, {
+        value: copy,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
+  }
+  for (const change of changes) {
+    let parent = root;
+    for (const key of change.path.slice(0, -1)) {
+      parent = parent[key] as { [key: string]: JsonValue };
+    }
+    delete parent[change.path.at(-1)!];
+  }
+  return root;
+}
+
 /**
  * Checks the implemented Activity Vocabulary types, including nested
  * activity objects, without network access or writes. Embedded objects inherit
@@ -849,10 +1108,30 @@ function checkDocumentValue(
  * support diagnostics and `complete: false`. This is not a permission check,
  * a Fedify parseability check, or full ActivityStreams validation.
  * The input must be plain JSON data, not a Proxy.
- * @returns Findings at original-input paths; no normalization is performed yet.
+ * Null list entries mean absence. Functional properties accept at most one
+ * non-null value, preserving array-index paths. Common text/language maps,
+ * timestamps, actor preferredUsername, and addressing are checked.
+ * @returns Findings at original-input paths, with an explicit omission preview
+ * for empty addressing only when validation completes without errors.
  */
 export function validateDocument(document: unknown): DocumentValidationResult {
   const reporter = createReporter();
-  checkDocumentValue(document, [], reporter);
-  return reporter.result();
+  const changes: NormalizationChange[] = [];
+  checkDocumentValue(document, [], reporter, changes);
+  const result = reporter.result();
+  if (
+    !result.complete ||
+    result.diagnostics.some(({ severity }) => severity === "error") ||
+    changes.length === 0
+  ) {
+    return result;
+  }
+  return {
+    ...result,
+    changes,
+    normalizedDocument: createPreview(
+      document as { [key: string]: JsonValue },
+      changes,
+    ),
+  };
 }

@@ -4,6 +4,131 @@
   "description": "Validation expectations; selected cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
   "fixtures": [
     {
+      "id": "common-localized-text",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "name": "A title",
+        "nameMap": { "en": "A title", "ko": "제목" },
+        "summary": [null, "<p>Summary</p>"],
+        "content": ["", { "@value": "Bonjour", "@language": "fr" }],
+        "contentMap": { "und": "<p>Content</p>" }
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-invalid-language-map",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "contentMap": { "en": 123, "en_US": "Text" },
+        "summary": ["Text", false]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_value_shape", "path": ["contentMap", "en"] },
+          { "reason": "invalid_value_shape", "path": ["contentMap", "en_US"] },
+          { "reason": "invalid_value_shape", "path": ["summary", 1] }
+        ]
+      }
+    },
+    {
+      "id": "common-name-markup",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Mention",
+        "nameMap": { "en": "<b>Alice</b>" }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_value_shape", "path": ["nameMap", "en"] }
+        ]
+      }
+    },
+    {
+      "id": "actor-preferred-username",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "preferredUsername": [
+          "alice",
+          { "@value": "앨리스", "@language": "ko" }
+        ]
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": [null, "2024-02-29T12:34Z"],
+        "updated": "2024-02-29T12:34:56.123456789123+01:30",
+        "startTime": "2024-02-29T12:34.5-00:00",
+        "endTime": null
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-invalid-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": ["2023-02-29T12:34:56Z", "2024-01-01T12:00Z"],
+        "updated": false
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_multiplicity", "path": ["published"] },
+          { "reason": "invalid_datetime", "path": ["published", 0] },
+          { "reason": "invalid_value_shape", "path": ["updated"] }
+        ]
+      }
+    },
+    {
+      "id": "addressing-null-and-nested",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "audience": [null, { "type": "Person", "preferredUsername": 123 }],
+        "bcc": ["https://example.com/alice", "https://example.com/alice"],
+        "bto": null,
+        "cc": { "type": "Mention", "href": "https://example.com/alice" },
+        "to": [null, "https://example.com/alice"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["audience", 1, "preferredUsername"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "functional-reference-multiplicity",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "next": [
+          null,
+          { "type": "Link", "href": 123 },
+          "https://example.com/page"
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_multiplicity", "path": ["next"] },
+          { "reason": "invalid_value_shape", "path": ["next", 1, "href"] }
+        ]
+      }
+    },
+    {
       "id": "like-reference",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
@@ -1858,13 +1983,8 @@
         "first": ["https://example.com/collection?page=2"]
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_value_form",
-            "path": ["first"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {
@@ -1893,13 +2013,8 @@
         "totalItems": [0]
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_value_form",
-            "path": ["totalItems"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {
@@ -2084,13 +2199,8 @@
         "href": ["https://example.com/"]
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_value_form",
-            "path": ["href"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {
@@ -2116,20 +2226,15 @@
       }
     },
     {
-      "id": "link-name-pending",
+      "id": "link-name",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Link",
         "name": "Read more"
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_property",
-            "path": ["name"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {

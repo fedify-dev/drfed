@@ -25,21 +25,21 @@ Their `object`, `target`, `origin`, `result`, and `instrument` values accept
 references or supported embedded objects or activities, individually
 or in nonempty flat lists. Embedded objects inherit the parent context unless
 they supply their own. Shared checks cover `id`, reference/embedded
-`attributedTo`, and string `content` (including HTML and empty strings), and
+`attributedTo`, text `content` (including HTML and empty strings), and
 `location` reference/embedded values. IntransitiveActivity and its supported
 subtypes accept an omitted or null `object`; a non-null value receives
 `property_not_applicable`. This restriction does not make other properties
 required or remove their shared checks. Unsupported embedded types such as
-Place still produces support findings. It performs no network access,
-database writes, permission checks, or normalization. Object and Article reuse
+Place produce support findings. It performs no network access,
+database writes, or permission checks. Object and Article reuse
 the common checks at the root and when embedded, without acquiring
 activity-only properties. They require an explicit supported type; handling an
 omitted type remains separate work.
 
 Actor types use the common Object checks. Actor and attribution properties
 have Object-or-Link vocabulary ranges, so a supported non-actor Object is not
-rejected merely for its class. Actor-specific fields such as
-preferredUsername remain explicitly unsupported; collection links are checked
+rejected merely for its class. Actor preferredUsername uses the text checks;
+collection links are checked
 as described below; Link values use their own rules. These semantic
 checks do not establish identity/authority or guarantee compatibility with
 Fedify's narrower typed decoders.
@@ -57,8 +57,29 @@ navigation values. OrderedCollectionPage also checks startIndex. Counts are
 not required to match visible member length. Actor inbox/outbox support
 references or embedded OrderedCollection/OrderedCollectionPage, and
 following/followers/liked support Collection values. No reference is fetched.
-Empty member lists and arrays on single-value collection fields remain
-explicitly unsupported pending the shared representation policy.
+Empty member lists remain explicitly unsupported. Functional properties,
+including counts and navigation, accept a scalar or an array with at most one
+non-null value. Additional values produce invalid\_multiplicity; array indexes
+remain part of each value's diagnostic path.
+
+Common text checks cover name, summary, content, their nameMap/summaryMap/
+contentMap forms, and explicit @value/@language objects. Text lists and null
+entries preserve their original order and indexes. Name rejects HTML markup;
+content and summary may contain HTML. Language-map values must be strings or
+null; complex JSON-LD text attributes remain unsupported.
+
+Published, updated, startTime, and endTime use the ActivityStreams date-time
+format: timezone required, uppercase T/Z, seconds optional. Calendar and offset
+checks use Temporal. Leap-second values remain explicitly unsupported. These
+checks do not decide server ownership, generate timestamps, or enforce time
+ordering between fields.
+
+Object subtypes accept to/cc/bto/bcc/audience through shared reference and
+embedded-value checks. Empty addressing produces a compatibility warning.
+When checking completes without errors, changes proposes removing each empty
+addressing field and normalizedDocument supplies an independent preview. The
+input remains unchanged; callers must explicitly choose the preview. No
+preview is returned for errors, incomplete checking, or diagnostic truncation.
 
 Findings use a stable `reason`, `category`, `severity`, and original-input
 `path`. `complete` means checking finished, not that the document passed: also
@@ -72,9 +93,9 @@ Nested findings retain the original path, for example
 Checks use an explicit work stack, preserving depth-first order without
 recursive calls. Cycles in traversed objects receive `non_json_value`; shared
 objects in separate branches are allowed. No depth limit is imposed yet.
-Order and duplicate references are preserved. Empty non-addressing lists,
-null entries, and nested lists remain explicitly unsupported until their
-policies are agreed.
+Order and duplicate references are preserved. Null list entries mean absence.
+Empty non-addressing lists and nested lists remain explicitly unsupported.
+Relative IRIs remain unsupported until a trusted base-IRI policy is agreed.
 
 
 Schema
@@ -148,4 +169,4 @@ Link and Mention check optional href, rel, mediaType, hreflang, height/width,
 and preview. Collection navigation also accepts Link values. Type detection
 uses their exported Fedify classes because the installed entity registry
 excludes them. MIMEType and Intl.Locale provide lexical checks without changing
-input. Name/language-value forms remain pending common-property coverage.
+input. Link name and nameMap use the common text checks.

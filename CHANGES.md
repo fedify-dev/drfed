@@ -47,7 +47,11 @@ To be released.
     navigation, and actor collection links without fetching or changing member
     order. Link and Mention check reference metadata, dimensions, and previews.
     Type recognition uses the shared Fedify version and an explicit list
-    of implemented types. [[#151]]
+    of implemented types. Common text and language maps, actor usernames,
+    timestamps, and addressing retain original values and diagnostic paths.
+    Single-value properties check multiplicity while treating null entries as
+    absent. Empty addressing warns and offers an explicit omission preview
+    without changing the submitted document. [[#151]]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 

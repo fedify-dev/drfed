@@ -40,6 +40,13 @@ interface DraftFixture {
       readonly reason: DiagnosticReason;
       readonly path: FieldPath;
     }[];
+    readonly changes?: readonly {
+      readonly reason: string;
+      readonly operation: string;
+      readonly path: FieldPath;
+      readonly before: unknown;
+    }[];
+    readonly normalizedDocument?: unknown;
   };
 }
 
@@ -230,10 +237,21 @@ describe("validateDocument() supported document checks", () => {
     "link-invalid-metadata",
     "link-functional-array",
     "link-object-properties",
-    "link-name-pending",
+    "link-name",
     "link-preview-number",
     "link-language-parser-limit",
     "like-actor-link",
+    "addressing-empty",
+    "addressing-duplicates",
+    "timestamp-invalid",
+    "common-localized-text",
+    "common-invalid-language-map",
+    "common-name-markup",
+    "actor-preferred-username",
+    "common-timestamps",
+    "common-invalid-timestamps",
+    "addressing-null-and-nested",
+    "functional-reference-multiplicity",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -256,11 +274,278 @@ describe("validateDocument() supported document checks", () => {
         );
         assert.notEqual(diagnostic.message, "");
       }
-      assert.deepEqual(result.changes, []);
-      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(
+        result.changes.map(({ reason, operation, path, ...change }) => ({
+          reason,
+          operation,
+          path,
+          before: "before" in change ? change.before : undefined,
+        })),
+        fixture.expected.changes ?? [],
+      );
+      assert.deepEqual(
+        result.normalizedDocument,
+        fixture.expected.normalizedDocument,
+      );
       assert.deepEqual(fixture.input, original);
     });
   }
+
+  it("checks all timestamp properties with ActivityStreams calendar and lexical rules", () => {
+    for (const property of ["published", "updated", "startTime", "endTime"]) {
+      for (const value of [
+        "2024-02-29T12:34Z",
+        "2026-10-27T12:34:56.123456789123+05:30",
+        null,
+        [null],
+      ]) {
+        assert.deepEqual(
+          validateDocument({
+            "@context": context,
+            type: "Note",
+            [property]: value,
+          }),
+          { complete: true, diagnostics: [], changes: [] },
+        );
+      }
+      for (const value of [
+        "2023-02-29T12:34Z",
+        "2024-02-30T12:34Z",
+        "2026-13-01T12:34Z",
+        "2026-01-01T24:00Z",
+        "2026-01-01T12:60Z",
+        "2026-01-01T12:34+24:00",
+        "2026-01-01t12:34Z",
+        "2026-01-01T12:34z",
+        "2026-01-01T12:34",
+        "2026-01-01",
+      ]) {
+        const result = validateDocument({
+          "@context": context,
+          type: "Note",
+          [property]: [null, value],
+        });
+        assert.equal(result.complete, true);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "invalid_datetime", path: [property, 1] }],
+        );
+      }
+    }
+    const leap = validateDocument({
+      "@context": context,
+      type: "Note",
+      published: "2016-12-31T23:59:60Z",
+    });
+    assert.equal(leap.complete, false);
+    assert.equal(leap.diagnostics[0]?.reason, "unsupported_value_form");
+  });
+
+  it("checks functional values and preserves scalar, list, and null-entry paths", () => {
+    for (const [type, property, value] of [
+      ["Note", "id", like.object],
+      ["Link", "href", like.object],
+      ["Link", "width", 0],
+      ["Link", "height", 1],
+      ["Link", "mediaType", "text/html"],
+      ["Link", "hreflang", "en"],
+      ["Collection", "totalItems", 2],
+      ["OrderedCollectionPage", "startIndex", 0],
+      ["CollectionPage", "next", { type: "CollectionPage" }],
+      ["Person", "inbox", { type: "OrderedCollection" }],
+    ] as const) {
+      const input = { "@context": context, type, [property]: [null, value] };
+      const original = structuredClone(input);
+      assert.deepEqual(validateDocument(input), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+      assert.deepEqual(input, original);
+      const repeated = validateDocument({
+        ...input,
+        [property]: [value, null, value],
+      });
+      assert.equal(repeated.complete, true);
+      assert.deepEqual(
+        repeated.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "invalid_multiplicity", path: [property] }],
+      );
+    }
+  });
+
+  it("checks actor usernames without adding actor requirements or applying them to other types", () => {
+    for (const type of [
+      "Application",
+      "Group",
+      "Organization",
+      "Person",
+      "Service",
+    ]) {
+      assert.deepEqual(
+        validateDocument({
+          "@context": context,
+          type,
+          preferredUsername: [null, "alice"],
+        }),
+        { complete: true, diagnostics: [], changes: [] },
+      );
+      const result = validateDocument({
+        ...like,
+        actor: { type, preferredUsername: false },
+      });
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [
+          {
+            reason: "invalid_value_shape",
+            path: ["actor", "preferredUsername"],
+          },
+        ],
+      );
+    }
+    for (const type of ["Note", "Link"]) {
+      const result = validateDocument({
+        "@context": context,
+        type,
+        preferredUsername: "alice",
+      });
+      assert.equal(result.complete, false);
+      assert.equal(result.diagnostics[0]?.reason, "unsupported_property");
+    }
+  });
+
+  it("reports text-value attributes and language-map accessors without invoking them", () => {
+    let evaluated = false;
+    const map = Object.defineProperty({}, "en", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    const result = validateDocument({
+      ...like,
+      object: {
+        type: "Note",
+        contentMap: map,
+        name: [null, { "@value": 123, "@language": false }],
+        summary: [{ "@value": "Text", "@direction": "rtl" }],
+      },
+    });
+    assert.equal(evaluated, false);
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "non_json_value", path: ["object", "contentMap", "en"] },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", "name", 1, "@language"],
+        },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", "name", 1, "@value"],
+        },
+        {
+          reason: "unsupported_value_form",
+          path: ["object", "summary", 0, "@direction"],
+        },
+      ],
+    );
+  });
+
+  it("preserves addressing values and proposes nested empty-list omission in an independent preview", (t) => {
+    const fetch = t.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    const recipients = Object.freeze([null, like.actor, like.actor]);
+    const object = Object.freeze({
+      type: "Note",
+      to: Object.freeze([]),
+      cc: recipients,
+    });
+    const input = Object.freeze({
+      ...like,
+      bcc: Object.freeze([]),
+      object: Object.freeze([object]),
+    });
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.ok(
+      result.diagnostics.every(({ severity }) => severity === "warning"),
+    );
+    assert.deepEqual(
+      result.changes.map(({ reason, operation, path }) => ({
+        reason,
+        operation,
+        path,
+      })),
+      [
+        {
+          reason: "omit_empty_addressing_list",
+          operation: "remove",
+          path: ["bcc"],
+        },
+        {
+          reason: "omit_empty_addressing_list",
+          operation: "remove",
+          path: ["object", 0, "to"],
+        },
+      ],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      ...like,
+      object: [{ type: "Note", cc: [null, like.actor, like.actor] }],
+    });
+    assert.deepEqual(input, original);
+    const previewObject = (
+      result.normalizedDocument!.object as { cc: unknown[] }[]
+    )[0]!;
+    previewObject.cc.push("https://example.com/bob");
+    assert.deepEqual(input, original);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("withholds normalization when there are errors, unsupported fields, or truncated findings", () => {
+    for (const fields of [
+      { object: 123 },
+      { extra: true },
+      { actor: Array(110).fill(false) },
+    ]) {
+      const result = validateDocument({ ...like, to: [], ...fields });
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(result.changes, []);
+    }
+    for (const property of ["to", "cc", "bto", "bcc", "audience"]) {
+      const result = validateDocument({
+        "@context": context,
+        type: "Link",
+        [property]: [],
+      });
+      assert.equal(result.complete, false);
+      assert.equal(result.diagnostics[0]?.reason, "unsupported_property");
+    }
+  });
+
+  it("creates an empty-addressing preview for deep documents without recursive cloning", () => {
+    let input: Record<string, unknown> = { type: "Note", to: [] };
+    for (let index = 0; index < 3000; index += 1) {
+      input = { type: "Create", object: input };
+    }
+    input["@context"] = context;
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.changes[0]?.path.length, 3001);
+    let preview = result.normalizedDocument!;
+    for (let index = 0; index < 3000; index += 1) {
+      preview = preview.object as typeof preview;
+    }
+    assert.deepEqual(preview, { type: "Note" });
+  });
 
   it("rejects non-object roots without throwing", () => {
     for (const value of [null, [], true, "Like"]) {
@@ -305,7 +590,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("does not claim coverage of unimplemented fields or nested values", () => {
     for (const input of [
-      { ...like, published: "2026-10-26T00:00:00Z" },
+      { ...like, duration: "PT1H" },
       { ...like, object: { type: "Page", content: "Hello" } },
       { ...like, type: "Page" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
@@ -479,8 +764,8 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
-  it("does not mistake language forms or unimplemented Note fields for malformed data", () => {
-    for (const content of [["Hello"], { en: "Hello" }]) {
+  it("requires the language-map property name for an untagged language object", () => {
+    for (const content of [{ en: "Hello" }]) {
       const result = validateDocument({
         ...like,
         object: { type: "Note", content },
@@ -493,9 +778,8 @@ describe("validateDocument() supported document checks", () => {
       ...like,
       object: { type: "Note", name: "Hello" },
     });
-    assert.equal(result.complete, false);
-    assert.equal(result.diagnostics[0]?.reason, "unsupported_property");
-    assert.deepEqual(result.diagnostics[0]?.path, ["object", "name"]);
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.diagnostics, []);
   });
 
   it("does not invoke embedded object getters", () => {
@@ -553,14 +837,12 @@ describe("validateDocument() supported document checks", () => {
         reason: "invalid_value_shape",
         path: ["object", 0, "object", "object"],
       },
-      { reason: "unsupported_property", path: ["object", 0, "published"] },
       { reason: "invalid_value_shape", path: ["object", 1] },
       { reason: "invalid_value_shape", path: ["object", 2, "actor"] },
-      { reason: "unsupported_property", path: ["published"] },
     ];
     for (let index = 0; index < 2; index += 1) {
       const result = validateDocument(input);
-      assert.equal(result.complete, false);
+      assert.equal(result.complete, true);
       assert.deepEqual(
         result.diagnostics.map(({ reason, path }) => ({ reason, path })),
         expected,
@@ -1050,7 +1332,7 @@ describe("validateDocument() supported document checks", () => {
         { type: "Link", href: 123 },
         {
           type: "Person",
-          preferredUsername: "alice",
+          publicKey: "https://example.com/key",
         },
       ],
     });
@@ -1061,7 +1343,7 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["actor", 0, "href"] },
         {
           reason: "unsupported_property",
-          path: ["actor", 1, "preferredUsername"],
+          path: ["actor", 1, "publicKey"],
         },
       ],
     );
@@ -1092,8 +1374,6 @@ describe("validateDocument() supported document checks", () => {
         false,
         123,
         like.object,
-        [],
-        [like.object],
         { type: "Note", content: false },
       ]) {
         const result = validateDocument({ "@context": context, type, object });
@@ -1103,6 +1383,24 @@ describe("validateDocument() supported document checks", () => {
           [{ reason: "property_not_applicable", path: ["object"] }],
         );
       }
+      assert.deepEqual(
+        validateDocument({ "@context": context, type, object: [null] }),
+        {
+          complete: true,
+          diagnostics: [],
+          changes: [],
+        },
+      );
+      const listed = validateDocument({
+        "@context": context,
+        type,
+        object: [null, like.object],
+      });
+      assert.equal(listed.complete, true);
+      assert.deepEqual(
+        listed.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "property_not_applicable", path: ["object", 1] }],
+      );
     }
   });
 
@@ -1405,7 +1703,7 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(fetch.mock.callCount(), 0);
   });
 
-  it("checks embedded navigation ranges and leaves single-value arrays unsupported", () => {
+  it("checks embedded navigation ranges and permits single-value arrays", () => {
     const result = validateDocument({
       "@context": context,
       type: "OrderedCollectionPage",
@@ -1417,14 +1715,13 @@ describe("validateDocument() supported document checks", () => {
       prev: { type: "Link", href: 123 },
       startIndex: -1,
     });
-    assert.equal(result.complete, false);
+    assert.equal(result.complete, true);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
         { reason: "invalid_value_shape", path: ["current", "startIndex"] },
         { reason: "invalid_value_shape", path: ["first", "items"] },
         { reason: "invalid_value_shape", path: ["last"] },
-        { reason: "unsupported_value_form", path: ["next"] },
         { reason: "invalid_value_shape", path: ["partOf", "totalItems"] },
         { reason: "invalid_value_shape", path: ["prev", "href"] },
         { reason: "invalid_value_shape", path: ["startIndex"] },
@@ -1552,7 +1849,6 @@ describe("validateDocument() supported document checks", () => {
     for (const property of ["target", "origin", "result", "instrument"]) {
       for (const [value, expectedPath] of [
         [[], [property]],
-        [[null], [property, 0]],
         [[[like.object]], [property, 0]],
         ["/relative", [property]],
       ] as const) {
@@ -1604,10 +1900,9 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
-  it("keeps undecided empty lists, null entries, and nested lists incomplete", () => {
+  it("keeps empty non-addressing and nested lists incomplete", () => {
     for (const [object, path] of [
       [[], ["object"]],
-      [[null], ["object", 0]],
       [[[like.object]], ["object", 0]],
     ] as const) {
       const result = validateDocument({ ...like, object });
