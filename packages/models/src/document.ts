@@ -87,6 +87,8 @@ export const diagnosticReasons = {
   invalid_multiplicity: { category: "vocabulary", severity: "error" },
   property_not_applicable: { category: "vocabulary", severity: "error" },
   invalid_context: { category: "vocabulary", severity: "error" },
+  unauthorized_local_identity: { category: "authority", severity: "error" },
+  server_owned_field_conflict: { category: "authority", severity: "error" },
   context_unavailable_offline: { category: "support", severity: "error" },
   unsupported_context_form: { category: "support", severity: "error" },
   unsupported_type: { category: "support", severity: "error" },
@@ -166,6 +168,27 @@ export interface DocumentValidationResult {
   readonly diagnostics: readonly Diagnostic[];
   readonly normalizedDocument?: { readonly [key: string]: JsonValue };
   readonly changes: readonly NormalizationChange[];
+}
+
+/** A permission outcome established by server code, not by document content. */
+export interface DocumentAuthority {
+  readonly allowed: boolean;
+  /** Original document location; use [] for an operation-level denial. */
+  readonly path: FieldPath;
+}
+
+/** An authoritative creation value allocated by the caller, never the editor. */
+export interface ServerOwnedField {
+  /** Source path to id, actor, attributedTo, published, or updated. */
+  readonly path: FieldPath;
+  readonly value: string;
+}
+
+/** Trusted server inputs; these options must not be accepted from a client. */
+export interface DocumentPreparationOptions {
+  /** At least one explicit outcome is required; omission never means allowed. */
+  readonly authority: readonly [DocumentAuthority, ...DocumentAuthority[]];
+  readonly serverOwnedFields: readonly ServerOwnedField[];
 }
 
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
@@ -1366,6 +1389,11 @@ function checkDocumentValue(
   rootPath: FieldPath,
   reporter: ReturnType<typeof createReporter>,
   changes: NormalizationChange[],
+  onDocument?: (
+    values: Record<string, unknown>,
+    path: FieldPath,
+    context: DocumentContext,
+  ) => void,
 ): void {
   const { report, isFull } = reporter;
   const pending: (() => void)[] = [];
@@ -1434,6 +1462,7 @@ function checkDocumentValue(
       );
       return;
     }
+    onDocument?.(values, path, context);
     const isObject = isTypeOrSubtype(Type, APObject);
     const isLink = isTypeOrSubtype(Type, Link);
     const isActivity = isTypeOrSubtype(Type, Activity);
@@ -1602,7 +1631,6 @@ function createPreview(
   changes: readonly NormalizationChange[],
 ): { [key: string]: JsonValue } {
   const root: { [key: string]: JsonValue } = {};
-  const copies = new WeakMap<object, JsonValue>([[document, root]]);
   const pending = [
     {
       source: document as object,
@@ -1614,16 +1642,12 @@ function createPreview(
     for (const [key, value] of Object.entries(source)) {
       let copy = value as JsonValue;
       if (value !== null && typeof value === "object") {
-        const existing = copies.get(value);
-        if (existing !== undefined) copy = existing;
-        else {
-          copy = Array.isArray(value) ? [] : {};
-          copies.set(value, copy);
-          pending.push({
-            source: value,
-            target: copy as { [key: string]: JsonValue },
-          });
-        }
+        // Each JSON occurrence has its own path and proposed field values.
+        copy = Array.isArray(value) ? [] : {};
+        pending.push({
+          source: value,
+          target: copy as { [key: string]: JsonValue },
+        });
       }
       Object.defineProperty(target, key, {
         value: copy,
@@ -1638,7 +1662,16 @@ function createPreview(
     for (const key of change.path.slice(0, -1)) {
       parent = parent[key] as { [key: string]: JsonValue };
     }
-    delete parent[change.path.at(-1)!];
+    const key = change.path.at(-1)!;
+    if (change.operation === "remove") delete parent[key];
+    else {
+      Object.defineProperty(parent, key, {
+        value: change.after,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    }
   }
   return root;
 }
@@ -1688,4 +1721,229 @@ export function validateDocument(document: unknown): DocumentValidationResult {
       changes,
     ),
   };
+}
+
+interface PreparationTarget {
+  readonly values: Record<string, unknown>;
+  readonly context: DocumentContext;
+}
+
+// #152 supplies these options after its own permission checks and allocation.
+// TypeErrors identify caller mistakes; document problems use diagnostics.
+// Validating option shapes does not authenticate their source.
+function checkPreparationOptions(options: DocumentPreparationOptions): void {
+  const validPath = (path: FieldPath) =>
+    Array.isArray(path) &&
+    path.every(
+      (part) =>
+        typeof part === "string" ||
+        (typeof part === "number" && Number.isSafeInteger(part) && part >= 0),
+    );
+  if (
+    options == null ||
+    !Array.isArray(options.authority) ||
+    options.authority.length === 0 ||
+    options.authority.some(
+      (outcome) =>
+        outcome == null ||
+        typeof outcome.allowed !== "boolean" ||
+        !validPath(outcome.path),
+    ) ||
+    !Array.isArray(options.serverOwnedFields) ||
+    options.serverOwnedFields.some(
+      (field) =>
+        field == null ||
+        !validPath(field.path) ||
+        typeof field.path.at(-1) !== "string" ||
+        typeof field.value !== "string",
+    )
+  ) {
+    throw new TypeError(
+      "Expected explicit trusted authority outcomes and server-owned fields.",
+    );
+  }
+}
+
+// Compare against one server-owned creation value without rewriting a claim.
+// Resolve aliases first so an existing identity cannot be bypassed by adding
+// the same semantic field under another spelling. Null remains explicit absence.
+function proposeServerField(
+  field: ServerOwnedField,
+  target: PreparationTarget,
+  seen: Set<string>,
+  report: Report,
+  changes: NormalizationChange[],
+): void {
+  const parentPath = field.path.slice(0, -1);
+  const source = field.path.at(-1) as string;
+  const resolved = resolveProperty(source, target.context);
+  const property = resolved.name;
+  if (
+    !resolved.compatible ||
+    property == null ||
+    !["id", "actor", "attributedTo", "published", "updated"].includes(property)
+  ) {
+    throw new TypeError(
+      "Server-owned fields must identify a supported identity or timestamp property.",
+    );
+  }
+  const identity = JSON.stringify([...parentPath, property]);
+  if (seen.has(identity)) {
+    throw new TypeError(
+      "Specify each server-owned semantic field only once, including aliases.",
+    );
+  }
+  seen.add(identity);
+  const invalidServerValue: Report = () => {
+    throw new TypeError(`Invalid server-owned value for ${property}.`);
+  };
+  if (property === "published" || property === "updated") {
+    checkDateTime(field.value, field.path, invalidServerValue);
+  } else {
+    checkReference(field.value, field.path, invalidServerValue);
+  }
+  const aliases = Object.keys(target.values).filter(
+    (key) => resolveProperty(key, target.context).name === property,
+  );
+  const supplied = aliases.flatMap((key) => {
+    const value = target.values[key];
+    const entries = Array.isArray(value) ? value : [value];
+    return entries
+      .filter((entry) => entry !== null)
+      .map((entry) => ({ key, entry }));
+  });
+  if (supplied.length > 0) {
+    if (supplied.length !== 1 || supplied[0]!.entry !== field.value) {
+      for (const key of new Set(supplied.map((entry) => entry.key))) {
+        report(
+          "server_owned_field_conflict",
+          [...parentPath, key],
+          "This field must match the server-owned value for this creation operation.",
+        );
+      }
+    }
+    return;
+  }
+  const key = aliases[0] ?? source;
+  const path = [...parentPath, key];
+  const common = {
+    reason: "assign_server_owned_field",
+    path,
+    after: field.value,
+    message: `Use the server-proposed ${property} for this creation operation.`,
+  };
+  changes.push(
+    Object.hasOwn(target.values, key)
+      ? {
+          ...common,
+          operation: "replace",
+          before: target.values[key] as JsonValue,
+        }
+      : { ...common, operation: "add" },
+  );
+}
+
+/**
+ * Prepares a creation preview against trusted server values and permission
+ * outcomes. Does not determine authorization, allocate values, or persist.
+ *
+ * Integration boundary: https://github.com/fedify-dev/drfed/issues/152
+ * The write operation constructs options from trusted server state, not client
+ * JSON. It must check every local write, including nested creations, and recheck
+ * permissions at commit. This preview is not an authorization token. The caller
+ * also owns keeping committed IDs/timestamps consistent with the shown preview.
+ * Merely referencing or embedding an actor/resource does not request a write.
+ *
+ * Paths identify original source locations; owned-field aliases are resolved
+ * within the supported context profile. Matching singleton values are retained;
+ * absent/null values receive explicit additions/replacements. Conflicts block
+ * the preview. Throws TypeError for invalid trusted options/target paths.
+ * @returns Original-input diagnostics and any explicit creation preview changes.
+ */
+export function prepareDocument(
+  document: unknown,
+  options: DocumentPreparationOptions,
+): DocumentValidationResult {
+  checkPreparationOptions(options);
+  const reporter = createReporter();
+  const changes: NormalizationChange[] = [];
+  const requested = new Set(
+    options.serverOwnedFields.map(({ path }) =>
+      JSON.stringify(path.slice(0, -1)),
+    ),
+  );
+  const targets = new Map<string, PreparationTarget>();
+  // Use only documents reached by vocabulary traversal: arbitrary extension
+  // objects and unresolved IRI references must not become local write targets.
+  checkDocumentValue(
+    document,
+    [],
+    reporter,
+    changes,
+    (values, path, context) => {
+      const key = JSON.stringify(path);
+      if (requested.has(key)) targets.set(key, { values, context });
+    },
+  );
+  for (const outcome of options.authority) {
+    if (!outcome.allowed) {
+      reporter.report(
+        "unauthorized_local_identity",
+        [...outcome.path],
+        "The server denied use of this local identity for the requested operation.",
+      );
+    }
+  }
+  let result = reporter.result();
+  if (
+    !result.complete ||
+    result.diagnostics.some(({ severity }) => severity === "error")
+  ) {
+    return result;
+  }
+  const seen = new Set<string>();
+  for (const field of options.serverOwnedFields) {
+    const target = targets.get(JSON.stringify(field.path.slice(0, -1)));
+    if (target == null) {
+      throw new TypeError(
+        "Server-owned field parents must be existing supported documents, not references or opaque data.",
+      );
+    }
+    proposeServerField(field, target, seen, reporter.report, changes);
+  }
+  result = reporter.result();
+  if (
+    !result.complete ||
+    result.diagnostics.some(({ severity }) => severity === "error") ||
+    changes.length === 0
+  ) {
+    return result;
+  }
+  const preview = createPreview(
+    document as { [key: string]: JsonValue },
+    changes,
+  );
+  const checked = validateDocument(preview);
+  // Trusted values can still be inapplicable to the target's vocabulary type.
+  // Retain original warnings (e.g. empty addressing) without duplicating them.
+  for (const diagnostic of checked.diagnostics) {
+    if (
+      !result.diagnostics.some(
+        (existing) =>
+          existing.reason === diagnostic.reason &&
+          JSON.stringify(existing.path) === JSON.stringify(diagnostic.path),
+      )
+    ) {
+      reporter.report(diagnostic.reason, diagnostic.path, diagnostic.message);
+    }
+  }
+  result = reporter.result();
+  if (
+    !checked.complete ||
+    !result.complete ||
+    result.diagnostics.some(({ severity }) => severity === "error")
+  ) {
+    return { ...result, complete: checked.complete && result.complete };
+  }
+  return { ...result, changes, normalizedDocument: preview };
 }

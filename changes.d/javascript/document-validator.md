@@ -18,4 +18,7 @@
     supported inline aliases retain original field/index diagnostics;
     custom properties are preserved as opaque JSON with warnings, including in
     normalization previews, without claiming to validate their semantics.
-    [[#151]]
+    Added `prepareDocument()` to report trusted server authority outcomes and
+    conflicts with server-owned creation fields, with inspectable previews
+    for generated values. Neither entry point allocates identities, determines
+    permissions, or saves resources. [[#151]]

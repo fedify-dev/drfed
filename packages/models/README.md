@@ -50,23 +50,80 @@ Vocabulary errors describe malformed supported input. Support errors describe
 unimplemented types, properties, or representations and make `complete` false.
 Compatibility warnings do not automatically reject the document. An omitted
 context uses the standard ActivityStreams context with a warning. The exported
-category union reserves `authority`, but this entry point does not emit
-permission findings and the registry currently has no authority-specific reason.
+authority category is used by prepareDocument for caller-reported denials and
+server-owned-field conflicts. validateDocument itself emits no authority
+findings.
 
-The current normalization is omission of empty `to`, `cc`, `bto`, `bcc`, and
-`audience` arrays. For example, a Note with `to: []` receives the
+The document-only normalization is omission of empty `to`, `cc`, `bto`, `bcc`,
+and `audience` arrays. For example, a Note with `to: []` receives the
 `empty_addressing_list` warning and a removal change with reason
 `omit_empty_addressing_list`; its preview omits `to`. Present changes for an
 explicit caller decision. Validation does not apply them or save the preview.
 It does not assign IDs or timestamps, replace actor/attribution identities,
 deduplicate recipients, or convert references to embedded values.
 
-#152 can reuse this entry point, but write-operation integration and the
-server-owned-field contract remain pending. Structural acceptance never
-establishes permission: the server must enforce authorization at write time,
-including when callers bypass either editor. Saving, publication, and sending
-are separate operations. No successful lookup or remote-resource existence is
-implied by accepting an IRI.
+### Preparing server-owned creation fields
+
+`prepareDocument(document, options)` returns the same DocumentValidationResult
+shape. It combines structural validation with explicit authority outcomes and
+server-owned values supplied by trusted server code. The exported
+DocumentPreparationOptions, DocumentAuthority, and ServerOwnedField types define
+these inputs. Never populate options directly from editor/client JSON.
+
+~~~~ ts
+import { prepareDocument } from "@drfed/models/document";
+
+// Server code has already checked permission and allocated these values.
+const result = prepareDocument(submittedDocument, {
+  authority: [{ allowed: true, path: [] }],
+  serverOwnedFields: [
+    { path: ["id"], value: allocatedObjectIri },
+    { path: ["attributedTo"], value: authorizedActorIri },
+    { path: ["published"], value: allocatedPublicationTimestamp },
+  ],
+});
+~~~~
+
+At least one explicit authority outcome is required. A denied outcome produces
+unauthorized\_local\_identity (authority/error) at the supplied original path;
+use `[]` for an operation-level denial. The function only reports this outcome:
+`allowed: true` is not an authorization check or a reusable permission token.
+Nested creations need the caller's separate permission outcomes. Embedded
+values alone never request creation or modification of resources.
+
+Owned-field paths must name id, actor, attributedTo, published, or updated on
+existing supported root/nested documents. Supported aliases resolve to the same
+field; diagnostics and changes retain original source spellings and indexes.
+References and opaque extension data cannot be targets. The caller lists only
+the fields it owns for that explicit creation operation; no default fields are
+invented, and no values are generated from the clock or random IDs here.
+
+| Submitted value                                                   | Preparation behavior                                                                |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Missing                                                           | Propose an add change with reason assign\_server\_owned\_field.                     |
+| Null or a supported array containing only null                    | Propose a replace change retaining the original value in before.                    |
+| Exactly one non-null string matching the server value             | Preserve the submitted representation, including a singleton array.                 |
+| Different value, embedded identity, or additional non-null values | Report server\_owned\_field\_conflict (authority/error); never silently replace it. |
+| Structurally malformed or unsupported input                       | Return its vocabulary/support diagnostics; do not prepare a successful preview.     |
+
+Matching uses exact string equality, not URL canonicalization, timestamp
+rewriting, or remote lookup. Structural multiplicity errors remain vocabulary
+errors. Both identity strings and timestamps supplied by the server are checked
+for supported syntax. Invalid trusted configuration, duplicate semantic field
+declarations, or paths outside existing supported documents throw TypeError
+when preparation reaches those checks; these are caller programming errors.
+
+The preview combines server-field additions with existing empty-addressing
+omissions, preserves custom properties, and is structurally revalidated. It
+is returned only when checking completes without errors and changes exist.
+Denied authority, conflicts, unsupported input, and truncated diagnostics
+withhold both preview and changes. The input and trusted options are unchanged.
+
+#152 owns actual permission checks, value allocation, preview-to-commit
+coordination, persistence, and permission rechecks at write time. It must keep
+the committed values consistent with the accepted preview. This module neither
+saves anything nor adapts createObject. Both editors can display the shared
+results; saving, publication, and sending remain separate operations.
 
 ### Supported types and properties
 
@@ -167,8 +224,9 @@ through the built package export. Cases include `undo-nested-number`,
 `extension-mixed-type`. Fixture expectations contain reasons and paths;
 category and severity are checked against the registry. Input preservation and
 preview contents are asserted. Additional tests exercise network avoidance,
-contexts, representation limits, and nested traversal. Authority tests remain
-pending the write-operation contract.
+contexts, representation limits, and nested traversal. Preparation tests
+exercise supplied authority outcomes and generated-field previews. Database
+permission enforcement and transaction integration remain #152 responsibilities.
 
 [the fixture file]: ../../fixtures/document-validation/initial.json
 [the document tests]: src/document.test.ts

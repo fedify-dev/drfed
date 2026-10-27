@@ -20,8 +20,10 @@ import { describe, it } from "node:test";
 
 import {
   type DiagnosticReason,
+  type DocumentPreparationOptions,
   type FieldPath,
   diagnosticReasons,
+  prepareDocument,
   validateDocument,
 } from "@drfed/models/document";
 import {
@@ -2318,5 +2320,326 @@ describe("validateDocument() supported document checks", () => {
         ({ reason }) => reason !== "diagnostic_limit_reached",
       ),
     );
+  });
+});
+
+const creationOptions: DocumentPreparationOptions = {
+  authority: [{ allowed: true, path: [] }],
+  serverOwnedFields: [
+    { path: ["id"], value: "https://example.com/objects/new" },
+    { path: ["attributedTo"], value: like.actor },
+    { path: ["published"], value: "2026-10-27T12:00:00Z" },
+  ],
+};
+
+describe("prepareDocument() trusted creation inputs", () => {
+  it("keeps path-specific proposals independent for shared source objects", () => {
+    const shared = { type: "Note" };
+    const input = { ...like, type: "Create", object: [shared, shared] };
+    const first = "https://example.com/objects/first";
+    const second = "https://example.com/objects/second";
+    const result = prepareDocument(input, {
+      authority: [{ allowed: true, path: [] }],
+      serverOwnedFields: [
+        { path: ["object", 0, "id"], value: first },
+        { path: ["object", 1, "id"], value: second },
+      ],
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.diagnostics, []);
+    assert.deepEqual(result.normalizedDocument, {
+      ...input,
+      object: [
+        { type: "Note", id: first },
+        { type: "Note", id: second },
+      ],
+    });
+    assert.deepEqual(
+      result.changes.map((change) =>
+        "after" in change ? change.after : undefined,
+      ),
+      [first, second],
+    );
+    assert.deepEqual(shared, { type: "Note" });
+  });
+
+  it("proposes server fields alongside normalization while preserving opaque data and input", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected fetch");
+    });
+    const input = {
+      "@context": context,
+      type: "Note",
+      content: "Hello",
+      to: [],
+      debug: { values: [null, 1] },
+    };
+    const original = structuredClone(input);
+    const optionsBefore = structuredClone(creationOptions);
+    const result = prepareDocument(input, creationOptions);
+    assert.equal(result.complete, true);
+    assert.ok(
+      result.diagnostics.every(({ severity }) => severity === "warning"),
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      "@context": context,
+      type: "Note",
+      content: "Hello",
+      debug: input.debug,
+      id: creationOptions.serverOwnedFields[0]!.value,
+      attributedTo: like.actor,
+      published: "2026-10-27T12:00:00Z",
+    });
+    assert.deepEqual(
+      result.changes.map(({ operation, path }) => ({ operation, path })),
+      [
+        { operation: "remove", path: ["to"] },
+        { operation: "add", path: ["id"] },
+        { operation: "add", path: ["attributedTo"] },
+        { operation: "add", path: ["published"] },
+      ],
+    );
+    assert.notEqual(result.normalizedDocument!.debug, input.debug);
+    assert.deepEqual(input, original);
+    assert.deepEqual(creationOptions, optionsBefore);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("preserves matching singleton representations and explicitly replaces null absence", () => {
+    const input = {
+      ...like,
+      id: [null, creationOptions.serverOwnedFields[0]!.value],
+      attributedTo: [like.actor],
+      published: "2026-10-27T12:00:00Z",
+    };
+    assert.deepEqual(prepareDocument(input, creationOptions), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    const absent = prepareDocument(
+      { ...like, id: null },
+      {
+        ...creationOptions,
+        serverOwnedFields: [creationOptions.serverOwnedFields[0]!],
+      },
+    );
+    assert.equal(absent.changes[0]?.operation, "replace");
+    assert.deepEqual(
+      absent.changes[0] && "before" in absent.changes[0]
+        ? absent.changes[0].before
+        : undefined,
+      null,
+    );
+    assert.equal(
+      absent.normalizedDocument!.id,
+      creationOptions.serverOwnedFields[0]!.value,
+    );
+  });
+
+  it("rejects conflicting identities and timestamps without changing their values", () => {
+    for (const field of creationOptions.serverOwnedFields) {
+      const key = field.path[0] as string;
+      const value =
+        key === "published"
+          ? "2025-01-01T00:00:00Z"
+          : "https://other.example/value";
+      const input = { ...like, [key]: value };
+      const original = structuredClone(input);
+      const result = prepareDocument(input, {
+        ...creationOptions,
+        serverOwnedFields: [field],
+      });
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, category, severity, path }) => ({
+          reason,
+          category,
+          severity,
+          path,
+        })),
+        [
+          {
+            reason: "server_owned_field_conflict",
+            category: "authority",
+            severity: "error",
+            path: [key],
+          },
+        ],
+      );
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(result.changes, []);
+      assert.deepEqual(input, original);
+    }
+  });
+
+  it("separates denied authority from malformed input and never trusts document claims", () => {
+    const denied: DocumentPreparationOptions = {
+      authority: [{ allowed: false, path: ["object", 0, "actor"] }],
+      serverOwnedFields: [],
+    };
+    const input = {
+      ...like,
+      object: [{ type: "Follow", actor: false }],
+      authority: "allowed",
+    };
+    const result = prepareDocument(input, denied);
+    assert.ok(
+      result.diagnostics.some(
+        ({ reason, category }) =>
+          reason === "invalid_value_shape" && category === "vocabulary",
+      ),
+    );
+    assert.ok(
+      result.diagnostics.some(
+        ({ reason, category, path }) =>
+          reason === "unauthorized_local_identity" &&
+          category === "authority" &&
+          JSON.stringify(path) === '["object",0,"actor"]',
+      ),
+    );
+    assert.equal(result.normalizedDocument, undefined);
+    assert.deepEqual(result.changes, []);
+    const malformed = prepareDocument({ ...like, id: 123 }, creationOptions);
+    assert.deepEqual(
+      malformed.diagnostics.map(({ reason }) => reason),
+      ["invalid_value_shape"],
+    );
+    assert.throws(
+      () =>
+        prepareDocument(like, {
+          ...creationOptions,
+          authority: [],
+        } as unknown as DocumentPreparationOptions),
+      TypeError,
+    );
+  });
+
+  it("uses original nested aliases for conflicts and generated previews", () => {
+    const input = {
+      "@context": [
+        context,
+        {
+          identity: "@id",
+          author: { "@id": "as:attributedTo", "@type": "@id" },
+        },
+      ],
+      type: "Create",
+      object: [null, { type: "Note", identity: null, author: like.actor }],
+    };
+    const options: DocumentPreparationOptions = {
+      authority: [
+        { allowed: true, path: [] },
+        { allowed: true, path: ["object", 1, "author"] },
+      ],
+      serverOwnedFields: [
+        { path: ["object", 1, "id"], value: "https://example.com/objects/new" },
+        { path: ["object", 1, "attributedTo"], value: like.actor },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = prepareDocument(input, options);
+    assert.deepEqual(
+      result.changes.map(({ path }) => path),
+      [["object", 1, "identity"]],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      ...input,
+      object: [
+        null,
+        {
+          type: "Note",
+          identity: "https://example.com/objects/new",
+          author: like.actor,
+        },
+      ],
+    });
+    assert.deepEqual(input, original);
+    const conflict = prepareDocument(input, {
+      ...options,
+      serverOwnedFields: [
+        {
+          path: ["object", 1, "attributedTo"],
+          value: "https://other.example/actor",
+        },
+      ],
+    });
+    assert.deepEqual(
+      conflict.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "server_owned_field_conflict",
+          path: ["object", 1, "author"],
+        },
+      ],
+    );
+  });
+
+  it("rejects invalid trusted values, duplicate semantic fields, and non-document targets", () => {
+    for (const serverOwnedFields of [
+      [{ path: ["id"], value: "relative" }],
+      [{ path: ["published"], value: "not-a-date" }],
+      [{ path: ["content"], value: "server text" }],
+      [{ path: ["object", "id"], value: like.object }],
+      [{ path: ["debug", "id"], value: like.object }],
+      [
+        { path: ["id"], value: like.object },
+        { path: ["identity"], value: like.object },
+      ],
+    ]) {
+      const input = {
+        ...like,
+        "@context": [context, { identity: "@id" }],
+        debug: { type: "Note" },
+      };
+      assert.throws(
+        () => prepareDocument(input, { ...creationOptions, serverOwnedFields }),
+        TypeError,
+      );
+    }
+  });
+
+  it("revalidates generated fields and keeps incomplete documents without a preview", () => {
+    const link = prepareDocument(
+      { "@context": context, type: "Link" },
+      {
+        ...creationOptions,
+        serverOwnedFields: [{ path: ["actor"], value: like.actor }],
+      },
+    );
+    assert.equal(link.complete, false);
+    assert.equal(link.diagnostics[0]?.reason, "unsupported_property");
+    assert.equal(link.normalizedDocument, undefined);
+    for (const input of [
+      { ...like, type: "Unknown" },
+      { ...like, "@context": "https://unknown.example/context" },
+      { ...like, duration: "PT1H" },
+    ]) {
+      const result = prepareDocument(input, creationOptions);
+      assert.equal(result.complete, false);
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(result.changes, []);
+    }
+  });
+
+  it("caps authority diagnostics and retains the document-only boundary", () => {
+    const authority = Array.from({ length: 110 }, () => ({
+      allowed: false,
+      path: [],
+    }));
+    const result = prepareDocument(like, {
+      authority:
+        authority as unknown as DocumentPreparationOptions["authority"],
+      serverOwnedFields: [],
+    });
+    assert.equal(result.complete, false);
+    assert.equal(result.diagnostics.length, 100);
+    assert.equal(result.diagnostics.at(-1)?.reason, "diagnostic_limit_reached");
+    assert.equal(result.normalizedDocument, undefined);
+    assert.deepEqual(validateDocument(like), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
   });
 });
