@@ -1,0 +1,55 @@
+# DrFed: A web-based platform for developing and debugging ActivityPub apps
+# Copyright (C) 2026 DrFed team
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# region compose
+name: drfed
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: drfed
+      POSTGRES_USER: drfed
+      # Replace this password here and in DRFED_POSTGRES_URL below.
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=drfed", "--dbname=drfed"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  drfed:
+    image: ghcr.io/fedify-dev/drfed:0.2.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DRFED_ROOT_ORIGIN: https://drfed.example.com
+      DRFED_POSTGRES_URL: postgres://drfed:change-me@postgres/drfed
+      # Configure a mail transport for login mail, for example:
+      # DRFED_SMTP_URL: smtps://user:password@smtp.example.com
+    ports:
+      - "127.0.0.1:8888:8888"
+    # Longer than DrFed's own 10-second shutdown deadline.
+    stop_grace_period: 20s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+# endregion compose

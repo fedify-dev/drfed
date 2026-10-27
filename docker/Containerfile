@@ -1,0 +1,86 @@
+# DrFed: A web-based platform for developing and debugging ActivityPub apps
+# Copyright (C) 2026 DrFed team
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# The build context is a directory that `mise run image:build` assembles: the
+# five verified package tarballs, their manifest.json, and
+# docker-entrypoint.sh, never the repository.  Build it through that task,
+# which also passes every argument below.  The file uses plain Containerfile
+# instructions only, with no BuildKit-specific syntax.
+
+# Debian, not Alpine: the PGlite directory lock needs fs-native-extensions,
+# which ships glibc prebuilds only.
+ARG BASE_IMAGE=node:26.12.1-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec
+
+# Install on the target platform, so npm picks the optional native packages of
+# the platform that runs them.  All five tarballs go in one call, so internal
+# dependencies resolve to them even before the version exists on npm.  The
+# tarballs stay in this stage; the final image copies only the installation.
+FROM ${BASE_IMAGE} AS install
+ARG DRFED_VERSION
+WORKDIR /opt/drfed
+COPY drfed-*.tgz /tmp/drfed-packages/
+RUN test -n "$DRFED_VERSION" \
+  && printf '{"private":true,"type":"module"}\n' > package.json \
+  && npm install --omit=dev --ignore-scripts --no-audit --no-fund --no-update-notifier \
+    --cache /tmp/drfed-npm-cache \
+    "/tmp/drfed-packages/drfed-models-$DRFED_VERSION.tgz" \
+    "/tmp/drfed-packages/drfed-federation-$DRFED_VERSION.tgz" \
+    "/tmp/drfed-packages/drfed-graphql-$DRFED_VERSION.tgz" \
+    "/tmp/drfed-packages/drfed-web-$DRFED_VERSION.tgz" \
+    "/tmp/drfed-packages/drfed-drfed-$DRFED_VERSION.tgz"
+
+FROM ${BASE_IMAGE}
+
+ARG DRFED_VERSION
+ARG DRFED_REVISION
+ARG DRFED_CREATED
+ARG DRFED_BUILD
+ARG DRFED_PACKAGES
+ARG BASE_IMAGE_NAME
+ARG BASE_IMAGE_DIGEST
+
+COPY --from=install /opt/drfed /opt/drfed
+# The context keeps the script's executable mode.
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN mkdir -p /var/lib/drfed && chown node:node /var/lib/drfed
+
+# DRFED_CONTAINER changes only the default listen host to 0.0.0.0; every CLI,
+# environment and TOML setting still overrides it.  XDG_DATA_HOME places the
+# default PGlite directory at /var/lib/drfed/data without selecting PGlite, so
+# DRFED_POSTGRES_URL alone switches to PostgreSQL.
+ENV DRFED_CONTAINER=1 \
+  XDG_DATA_HOME=/var/lib \
+  PATH=/opt/drfed/node_modules/.bin:$PATH
+
+LABEL org.opencontainers.image.title="DrFed" \
+  org.opencontainers.image.description="A web-based platform for developing and debugging ActivityPub apps" \
+  org.opencontainers.image.url="https://drfed.org/" \
+  org.opencontainers.image.documentation="https://drfed.org/installation/docker" \
+  org.opencontainers.image.source="https://github.com/fedify-dev/drfed" \
+  org.opencontainers.image.licenses="AGPL-3.0-only" \
+  org.opencontainers.image.version="$DRFED_VERSION" \
+  org.opencontainers.image.revision="$DRFED_REVISION" \
+  org.opencontainers.image.created="$DRFED_CREATED" \
+  org.opencontainers.image.base.name="$BASE_IMAGE_NAME" \
+  org.opencontainers.image.base.digest="$BASE_IMAGE_DIGEST" \
+  org.drfed.build="$DRFED_BUILD" \
+  org.drfed.packages="$DRFED_PACKAGES"
+
+USER node
+WORKDIR /var/lib/drfed
+EXPOSE 8888
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["drfed-server"]

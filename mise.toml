@@ -119,6 +119,23 @@ raw_args = true
 depends = ["build"]
 run = "node scripts/test-packaging.mts"
 
+[tasks."image:build"]
+description = "Build the container image from package tarballs into an OCI layout"
+depends = ["build"]
+usage = """
+flag "--artifacts <dir>" help="Verified package tarballs and manifest.json; packs the workspace when omitted"
+flag "--platform <platform>" help="linux/amd64 or linux/arm64; defaults to the Docker server's platform"
+flag "--output <dir>" help="OCI layout directory; defaults to image-artifacts/linux-<arch>"
+"""
+run = "node scripts/image.mts build"
+
+[tasks."image:test"]
+description = "Test an image layout in Docker: commands, Compose examples, backups and upgrades"
+usage = """
+flag "--layout <dir>" help="OCI layout from image:build; defaults to image-artifacts/linux-<arch>"
+"""
+run = "node scripts/test-container.mts"
+
 [tasks."test:completion-installation"]
 description = "Probe packed completion discovery and manual loading in five shells"
 depends = ["build"]
