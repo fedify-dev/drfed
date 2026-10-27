@@ -412,6 +412,10 @@ run = "node scripts/release.mts pack"
 description = "CI release verify step"
 run = "node scripts/release.mts verify"
 
+[tasks."release:tag-target"]
+description = "CI release step checking that the release tag still names this commit"
+run = "node scripts/release.mts tag-target"
+
 [tasks."release:ensure-unpublished"]
 description = "CI release ensure-unpublished step"
 run = "node scripts/release.mts ensure-unpublished"

@@ -1,0 +1,19 @@
+name: Use the containerd image store
+description: >-
+  Switch the runner's Docker daemon to the containerd image store, which the
+  local runs of image:build and image:test use: BuildKit exports OCI layouts
+  with the default builder, and docker load keeps the manifest digest as the
+  image ID.
+runs:
+  using: composite
+  steps:
+    - name: Enable the containerd snapshotter and restart Docker
+      shell: bash
+      run: |
+        config=/etc/docker/daemon.json
+        current=$(sudo cat "$config" 2>/dev/null || echo '{}')
+        jq '.features["containerd-snapshotter"] = true' <<<"$current" |
+          sudo tee "$config" >/dev/null
+        sudo systemctl restart docker
+        docker info --format '{{json .DriverStatus}}' |
+          grep --quiet io.containerd.snapshotter.v1
