@@ -10,115 +10,159 @@ both PGlite (embedded) and PostgreSQL.
 Document validation
 -------------------
 
-`@drfed/models/document` exports `validateDocument()` and its diagnostic types.
-The implementation checks plain document roots with a single supported type:
-both activity base types, all twenty-eight named activity subtypes, and the
-Object, Article, and Note object types plus Application, Group, Organization,
-Person, and Service, plus Collection, OrderedCollection, CollectionPage,
-and OrderedCollectionPage, plus Link and Mention.
-Travel and Question use the shared intransitive checks. Question-specific
-`oneOf`, `anyOf`, and `closed` fields remain unsupported until #155 adds their
-rules; their input is preserved with `complete: false`. Open-ended questions
-need no choices, and Create/Update-embedded Questions share the same checks.
-Activities accept optional `actor` references or supported embedded values.
-Their `object`, `target`, `origin`, `result`, and `instrument` values accept
-references or supported embedded objects or activities, individually
-or in nonempty flat lists. Embedded objects inherit the parent context unless
-they supply their own. Shared checks cover `id`, reference/embedded
-`attributedTo`, text `content` (including HTML and empty strings), and
-`location` reference/embedded values. IntransitiveActivity and its supported
-subtypes accept an omitted or null `object`; a non-null value receives
-`property_not_applicable`. This restriction does not make other properties
-required or remove their shared checks. Unsupported embedded types such as
-Place produce support findings. It performs no network access,
-database writes, or permission checks. Object and Article reuse
-the common checks at the root and when embedded, without acquiring
-activity-only properties. They require an explicit supported type; handling an
-omitted type remains separate work.
+`@drfed/models/document` exports synchronous
+`validateDocument(document: unknown)` and the `DocumentValidationResult`,
+`Diagnostic`, `DiagnosticReason`, `FieldPath`, and `NormalizationChange` types,
+plus the `diagnosticReasons` registry. Pass parsed JSON, not JSON text.
+Validation performs no network access, database writes, permission checks, or
+delivery, and never mutates input.
 
-Actor types use the common Object checks. Actor and attribution properties
-have Object-or-Link vocabulary ranges, so a supported non-actor Object is not
-rejected merely for its class. Actor preferredUsername uses the text checks;
-collection links are checked
-as described below; Link values use their own rules. These semantic
-checks do not establish identity/authority or guarantee compatibility with
-Fedify's narrower typed decoders.
+### Consumer contract
 
-Type detection belongs to this package. It uses Fedify's public
-`getEntityTypeById()` and class inheritance, with an explicit
-`implementedTypes` set in *src/document.ts* for the types described above.
-Fedify recognizing a type does not automatically admit it. `@fedify/vocab` uses
-the same `catalog:` version as the federation package (currently 2.4.3); the
-shared catalog governs upgrades. Detection is synchronous and invokes no
-vocabulary parser or JSON-LD expansion.
+The structured builder (#140) supplies its document; the raw editor (#141)
+parses JSON first and owns syntax errors and text locations. Both call the same
+validator. Paths identify original property names and zero-based list indexes,
+including aliases; `[]` identifies the root. Map these paths to controls or
+source locations without comparing human-readable messages.
 
-Context interpretation uses allowlisted bundled data from the same catalog
-version of `@fedify/vocab-runtime`. The current allowlist is the ActivityStreams
-context and `https://w3id.org/security/v1`. Flat context arrays and simple
-inline term/prefix definitions are supported; the effective context must
-include the standard ActivityStreams vocabulary. Embedded documents inherit
-context, and local overrides of aliases do not change siblings. Standard terms
-cannot be overridden.
+~~~~ ts
+import { validateDocument } from "@drfed/models/document";
 
-Aliases reuse existing property checks while retaining original field names
-and list indexes. Type coercion and language/list containers must match the
-supported term; an IRI match alone does not establish equivalent JSON-LD
-meaning. For example, an object alias needs `@type: "@id"`. Functional aliases
-are checked together for multiplicity without merging their source values.
-Unknown custom properties and known properties without checker rules remain
-unsupported, with input retained. Parsing an extension definition does not
-admit its property into checker coverage.
+const result = validateDocument({
+  "@context": "https://www.w3.org/ns/activitystreams",
+  type: "Accept",
+  object: [{ type: "Follow", actor: false }],
+});
+// invalid_value_shape at ["object", 0, "actor"]
+const structurallyAccepted =
+  result.complete &&
+  !result.diagnostics.some(({ severity }) => severity === "error");
+~~~~
 
-Scoped term contexts, custom base/vocabulary/default-language directives,
-context resets, JSON literals, and other complex JSON-LD features remain
-explicitly unsupported. Malformed definitions produce invalid\_context;
-contexts outside the allowlist produce context\_unavailable\_offline. Validation
-never fetches a context or resource and remains synchronous.
+| Result field       | Caller interpretation                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| complete           | Checks finished. A definite malformed-input result can be complete; this is not a validity or permission flag.                                         |
+| diagnostics        | Each finding has a stable reason, category, severity, original-input path, and display message. Use reason for machine decisions; messages may change. |
+| changes            | Proposed changes with operation, reason, path, message, and before/after values as applicable. Empty when no preview is available.                     |
+| normalizedDocument | Independent preview, present only when changes are proposed, checking is complete, and no errors occur. Input remains unchanged.                       |
 
-Collections check items/orderedItems, non-negative totalItems, and typed
-navigation values. OrderedCollectionPage also checks startIndex. Counts are
-not required to match visible member length. Actor inbox/outbox support
-references or embedded OrderedCollection/OrderedCollectionPage, and
-following/followers/liked support Collection values. No reference is fetched.
-Empty member lists remain explicitly unsupported. Functional properties,
-including counts and navigation, accept a scalar or an array with at most one
-non-null value. Additional values produce invalid\_multiplicity; array indexes
-remain part of each value's diagnostic path.
+Vocabulary errors describe malformed supported input. Support errors describe
+unimplemented types, properties, or representations and make `complete` false.
+Compatibility warnings do not automatically reject the document. An omitted
+context uses the standard ActivityStreams context with a warning. The exported
+category union reserves `authority`, but this entry point does not emit
+permission findings and the registry currently has no authority-specific reason.
 
-Common text checks cover name, summary, content, their nameMap/summaryMap/
-contentMap forms, and explicit @value/@language objects. Text lists and null
-entries preserve their original order and indexes. Name rejects HTML markup;
-content and summary may contain HTML. Language-map values must be strings or
-null; complex JSON-LD text attributes remain unsupported.
+The current normalization is omission of empty `to`, `cc`, `bto`, `bcc`, and
+`audience` arrays. For example, a Note with `to: []` receives the
+`empty_addressing_list` warning and a removal change with reason
+`omit_empty_addressing_list`; its preview omits `to`. Present changes for an
+explicit caller decision. Validation does not apply them or save the preview.
+It does not assign IDs or timestamps, replace actor/attribution identities,
+deduplicate recipients, or convert references to embedded values.
 
-Published, updated, startTime, and endTime use the ActivityStreams date-time
-format: timezone required, uppercase T/Z, seconds optional. Calendar and offset
-checks use Temporal. Leap-second values remain explicitly unsupported. These
-checks do not decide server ownership, generate timestamps, or enforce time
-ordering between fields.
+#152 can reuse this entry point, but write-operation integration and the
+server-owned-field contract remain pending. Structural acceptance never
+establishes permission: the server must enforce authorization at write time,
+including when callers bypass either editor. Saving, publication, and sending
+are separate operations. No successful lookup or remote-resource existence is
+implied by accepting an IRI.
 
-Object subtypes accept to/cc/bto/bcc/audience through shared reference and
-embedded-value checks. Empty addressing produces a compatibility warning.
-When checking completes without errors, changes proposes removing each empty
-addressing field and normalizedDocument supplies an independent preview. The
-input remains unchanged; callers must explicitly choose the preview. No
-preview is returned for errors, incomplete checking, or diagnostic truncation.
+### Supported types and properties
 
-Findings use a stable `reason`, `category`, `severity`, and original-input
-`path`. `complete` means checking finished, not that the document passed: also
-check for diagnostics with `severity: "error"`. Unimplemented types,
-properties, context forms, and other embedded types produce support errors
-with `complete: false`. Full ActivityStreams coverage is still under
-development; the offline Fedify adapter is optional later work.
+The checker admits both activity base types and all 28 named activity subtypes,
+plus Object, Note, Article, Application, Group, Organization, Person, Service,
+Collection, OrderedCollection, CollectionPage, OrderedCollectionPage, Link,
+and Mention. Optional properties stay optional. Each document needs one
+supported type string; all type arrays, including singleton arrays, are
+unsupported. Unknown types are retained without being converted to Note.
 
-Nested findings retain the original path, for example
-`["object", 1, "content"]`.
-Checks use an explicit work stack, preserving depth-first order without
-recursive calls. Cycles in traversed objects receive `non_json_value`; shared
-objects in separate branches are allowed. No depth limit is imposed yet.
-Order and duplicate references are preserved. Null list entries mean absence.
-Empty non-addressing lists and nested lists remain explicitly unsupported.
-Relative IRIs remain unsupported until a trusted base-IRI policy is agreed.
+Type detection uses Fedify's public registry and inheritance, with an explicit
+implemented-type set. Link and Mention use their exported classes because the
+installed registry excludes them. Models and federation share the catalog
+version of `@fedify/vocab` (currently 2.4.3); context data comes from the
+matching `@fedify/vocab-runtime`. Recognition by Fedify alone does not
+establish checker coverage. No vocabulary parser or full JSON-LD expansion runs
+here.
+
+In the table, Object includes its admitted subtypes, including activities,
+actors, and collections. References are absolute IRIs or supported embedded
+Object/Link values. Reference lists retain order, duplicates, and source
+indexes.
+
+| Applies to              | Properties and rules                                                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Object and Link         | id: one IRI; mediaType: one MIME type; attributedTo and preview: references/lists; name/nameMap: text without HTML.                                                                  |
+| Object                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location: references/lists.                                                                       |
+| Object                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                        |
+| Activity                | actor, object, target, origin, result, instrument: references/lists. IntransitiveActivity, Arrive, Travel, and Question reject non-null object values.                               |
+| Actor types             | preferredUsername: text; inbox/outbox: one IRI or embedded OrderedCollection or OrderedCollectionPage; following/followers/liked: one IRI or embedded Collection subtype.            |
+| Collection and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI, CollectionPage subtype, or Link subtype. Counts need not match visible members. |
+| CollectionPage subtypes | partOf: one IRI, Collection subtype, or Link subtype; next/prev: one IRI, CollectionPage subtype, or Link subtype.                                                                   |
+| OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                                    |
+| Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only content/location are unsupported.                    |
+
+Single-value properties accept a scalar or array containing at most one
+non-null value; multiple values receive `invalid_multiplicity`. Null means
+absence, including null list entries. Empty non-addressing arrays and nested
+lists remain unsupported. Type arrays are excluded from this single-value rule.
+Actor and attribution vocabulary ranges are Object-or-Link, not restricted to
+actor classes; this does not guarantee compatibility with Fedify's narrower
+typed decoders.
+
+Text accepts strings, flat lists, and supported `@value`/`@language` objects.
+Language maps contain strings or null. Complex text attributes are unsupported.
+Dates require a timezone and uppercase T/Z; seconds are optional. Calendar
+checks use Temporal; leap-second timestamps remain unsupported. Timestamp
+validation does not establish server ownership or ordering between fields.
+
+Question is supported standalone and inside Create/Update using shared rules.
+Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending #155's
+poll rules. Open-ended Question needs no choices. Other types/properties without
+implemented rules, such as Place or duration, receive support findings.
+
+### Context and preservation limits
+
+The context allowlist includes the standard ActivityStreams context (HTTPS and
+its accepted HTTP spelling) and `https://w3id.org/security/v1`. Flat context
+arrays and simple inline term/prefix definitions are supported. Effective
+contexts must include the standard ActivityStreams vocabulary; standard terms
+cannot be overridden. Embedded values inherit context; local alias overrides
+are isolated from siblings.
+
+Aliases must have compatible coercion and containers. For example, an object
+alias needs `@type: "@id"`; matching a property IRI alone is insufficient.
+Functional aliases are counted together without merging source values.
+Malformed context definitions receive `invalid_context`; unavailable contexts
+receive `context_unavailable_offline`, not an empty replacement. There are no
+remote lookups or remote lookup failures to interpret in this API.
+
+Scoped contexts, custom base/vocabulary/default-language directives, context
+resets, JSON literals, and other complex forms remain unsupported. Relative
+IRIs remain unsupported until a trusted base policy exists. Custom properties,
+mapped or unmapped, receive `unsupported_property` with `complete: false`.
+Their data stays in the input; preservation of rejected input does not mean
+successful extension validation or guaranteed preservation during sending.
+
+Diagnostics are capped at 100, including a final `diagnostic_limit_reached`
+error diagnostic when truncated; checking then remains incomplete and no
+preview is returned. Traversal is iterative, with no depth/value-count limit
+currently. Cycles in traversed values receive `non_json_value`; shared sibling
+objects are allowed.
+
+### Executable examples
+
+All 138 cases in [the fixture file] are exercised by [the document tests]
+through the built package export. Cases include `undo-nested-number`,
+`accept-follow-list-actor`, `addressing-empty`, `context-alias-number`, and
+`extension-mixed-type`. Fixture expectations contain reasons and paths;
+category and severity are checked against the registry. Input preservation and
+preview contents are asserted. Additional tests exercise network avoidance,
+contexts, representation limits, and nested traversal. Authority tests remain
+pending the write-operation contract.
+
+[the fixture file]: ../../fixtures/document-validation/initial.json
+[the document tests]: src/document.test.ts
 
 
 Schema
@@ -187,9 +231,3 @@ Back up and stop DrFed before an update, install the updated package, run
 `drfed-migrate`, verify `drfed-migrate --check`, then start the server. Keep the
 backup until the updated application has been verified. Installed users do not
 need `drizzle-kit`; it is a developer tool for generating migration SQL.
-
-Link and Mention check optional href, rel, mediaType, hreflang, height/width,
-and preview. Collection navigation also accepts Link values. Type detection
-uses their exported Fedify classes because the installed entity registry
-excludes them. MIMEType and Intl.Locale provide lexical checks without changing
-input. Link name and nameMap use the common text checks.

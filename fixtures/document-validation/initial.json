@@ -1,7 +1,7 @@
 {
   "status": "draft",
   "entryPoint": "validateDocument",
-  "description": "Validation expectations; selected cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
+  "description": "Validation expectations; all cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
   "fixtures": [
     {
       "id": "common-localized-text",
@@ -559,8 +559,8 @@
         "complete": false,
         "diagnostics": [
           {
-            "reason": "unsupported_type",
-            "path": ["type", 1]
+            "reason": "unsupported_value_form",
+            "path": ["type"]
           }
         ]
       }
