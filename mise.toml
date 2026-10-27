@@ -156,8 +156,8 @@ description = "Check changelog fragments and frozen release history"
 run = "sacho check"
 
 [tasks."check:release"]
-description = "Exercise release version, registry, artifact and recovery fixtures"
-run = "node scripts/test-release.mts"
+description = "Exercise release version, registry, artifact, image and recovery fixtures"
+run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
 
 [tasks."check:docs-preview"]
 description = "Exercise docs preview pull request, build and comment fixtures"
@@ -423,3 +423,22 @@ run = "node scripts/release.mts publish"
 [tasks."release:github"]
 description = "CI release github step"
 run = "node scripts/release.mts github-release"
+
+[tasks."release:image-index"]
+description = "CI release step merging verified platform images into one index"
+run = "node scripts/release.mts image-index"
+
+[tasks."release:image-push"]
+description = "CI release step pushing the verified image index to GHCR"
+tools = { "aqua:google/go-containerregistry" = "0.22.1" }
+run = "node scripts/release.mts image-push"
+
+[tasks."release:image-attestation"]
+description = "CI release step checking or attaching the image provenance attestation"
+usage = 'arg "<action>" help="status, attach or verify"'
+run = "node scripts/release.mts image-attestation"
+
+[tasks."release:image-tags"]
+description = "CI release step advancing the image channel tag without moving it backward"
+tools = { "aqua:google/go-containerregistry" = "0.22.1" }
+run = "node scripts/release.mts image-tags"
