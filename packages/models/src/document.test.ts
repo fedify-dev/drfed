@@ -24,7 +24,12 @@ import {
   diagnosticReasons,
   validateDocument,
 } from "@drfed/models/document";
-import { Object as APObject, getEntityTypeById } from "@fedify/vocab";
+import {
+  Object as APObject,
+  Link,
+  Mention,
+  getEntityTypeById,
+} from "@fedify/vocab";
 
 interface DraftFixture {
   readonly id: string;
@@ -57,6 +62,60 @@ const like = {
 };
 
 describe("validateDocument() supported document checks", () => {
+  it("recognizes public Link classes separately from the entity registry", () => {
+    for (const Type of [Link, Mention]) {
+      assert.equal(getEntityTypeById(Type.typeId.href), undefined);
+      for (const type of [Type.name, Type.typeId.href]) {
+        const result = validateDocument({
+          "@context": context,
+          type,
+          href: "https://example.com/",
+        });
+        assert.equal(result.complete, true);
+        assert.deepEqual(result.diagnostics, []);
+      }
+    }
+  });
+
+  it("keeps Link metadata unchanged and never fetches its target", (t) => {
+    const fetch = t.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    const input = Object.freeze({
+      "@context": context,
+      type: "Link",
+      href: "https://example.com/",
+      rel: Object.freeze(["alternate", "alternate"]),
+      mediaType: "Text/HTML",
+      hreflang: "EN-us",
+    });
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.diagnostics, []);
+    assert.deepEqual(input, original);
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("detects preview cycles while allowing repeated Link values in separate branches", () => {
+    const link: Record<string, unknown> = {
+      type: "Link",
+      href: "https://example.com/",
+    };
+    link.preview = link;
+    const result = validateDocument({ ...like, object: [link, link] });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "non_json_value", path: ["object", 0, "preview"] },
+        { reason: "non_json_value", path: ["object", 1, "preview"] },
+      ],
+    );
+  });
+
   for (const id of [
     "root-number",
     "like-reference",
@@ -121,6 +180,60 @@ describe("validateDocument() supported document checks", () => {
     "question-choices-pending",
     "question-closed-pending",
     "question-both-choice-modes-pending",
+    "object-empty",
+    "article-empty-content",
+    "article-null-content",
+    "object-invalid-content",
+    "article-invalid-id",
+    "create-object",
+    "create-article",
+    "update-object",
+    "update-article",
+    "like-result-article-number",
+    "like-embedded-actor",
+    "application-object",
+    "group-object",
+    "organization-object",
+    "person-object",
+    "service-object",
+    "like-actor-list-person",
+    "article-attribution-service",
+    "actor-invalid-id",
+    "nested-actor-content",
+    "attribution-activity",
+    "actor-object-range",
+    "collection-members",
+    "orderedcollection-members",
+    "collectionpage-links",
+    "orderedcollectionpage-index",
+    "add-collection-target",
+    "actor-collection-links",
+    "collection-total-negative",
+    "orderedpage-start-fraction",
+    "collection-member-number",
+    "collection-first-wrong-type",
+    "page-partof-wrong-type",
+    "page-next-wrong-type",
+    "actor-inbox-wrong-type",
+    "actor-followers-number",
+    "collection-navigation-array",
+    "collection-empty-members",
+    "collection-count-array",
+    "link-metadata",
+    "mention-reference",
+    "link-empty",
+    "link-preview",
+    "object-preview-link",
+    "collection-link-navigation",
+    "link-href-number",
+    "link-rel-list",
+    "link-invalid-metadata",
+    "link-functional-array",
+    "link-object-properties",
+    "link-name-pending",
+    "link-preview-number",
+    "link-language-parser-limit",
+    "like-actor-link",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -193,8 +306,8 @@ describe("validateDocument() supported document checks", () => {
   it("does not claim coverage of unimplemented fields or nested values", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
-      { ...like, object: { type: "Article", content: "Hello" } },
-      { ...like, type: "Person" },
+      { ...like, object: { type: "Page", content: "Hello" } },
+      { ...like, type: "Page" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
@@ -267,7 +380,7 @@ describe("validateDocument() supported document checks", () => {
   it("checks reference siblings while reporting unimplemented list entries", () => {
     const result = validateDocument({
       ...like,
-      object: [like.object, { type: "Article", content: "Hello" }, 123],
+      object: [like.object, { type: "Page", content: "Hello" }, 123],
     });
     assert.equal(result.complete, false);
     assert.deepEqual(
@@ -584,7 +697,7 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("does not admit types recognized by Fedify until their checker rules are implemented", () => {
-    for (const type of ["Person", "Collection", "Article", "Place"]) {
+    for (const type of ["Page", "Place", "Image", "Event"]) {
       assert.ok(
         getEntityTypeById(`${context}#${type}`),
         `Fedify must recognize ${type}`,
@@ -753,6 +866,219 @@ describe("validateDocument() supported document checks", () => {
       ],
     );
     assert.deepEqual(input, original);
+  });
+
+  it("uses shared Object rules for Object and Article without activity properties", () => {
+    for (const type of ["Object", "Article"]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+        for (const content of [null, "", "<p>Text</p>"]) {
+          assert.deepEqual(
+            validateDocument({ "@context": context, type: spelling, content }),
+            {
+              complete: true,
+              diagnostics: [],
+              changes: [],
+            },
+          );
+        }
+        const result = validateDocument({
+          "@context": context,
+          type: spelling,
+          actor: like.actor,
+          content: false,
+          object: like.object,
+        });
+        assert.equal(result.complete, false);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [
+            { reason: "unsupported_property", path: ["actor"] },
+            { reason: "invalid_value_shape", path: ["content"] },
+            { reason: "unsupported_property", path: ["object"] },
+          ],
+        );
+      }
+    }
+  });
+
+  it("preserves Object and Article reference values and nested source paths without fetching", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of ["Object", "Article"]) {
+      const embedded = Object.freeze({
+        type: `${context}#${type}`,
+        id: like.object,
+        content: "",
+        attributedTo: Object.freeze([like.actor, like.actor]),
+        location: Object.freeze([
+          like.object,
+          Object.freeze({ type: "Object", content: "Place description" }),
+        ]),
+      });
+      const input = Object.freeze({
+        ...like,
+        type: "Update",
+        object: Object.freeze([like.object, embedded, like.object]),
+      });
+      const original = structuredClone(input);
+      assert.deepEqual(validateDocument(input), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+      assert.deepEqual(input, original);
+    }
+    const result = validateDocument({
+      ...like,
+      type: "Create",
+      object: [
+        { type: "Object", attributedTo: [like.actor, false] },
+        { type: "Article", location: [{ type: "Object", content: 123 }] },
+      ],
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 0, "attributedTo", 1],
+        },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 1, "location", 0, "content"],
+        },
+      ],
+    );
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("checks the five actor types as Objects in root and embedded forms", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of [
+      "Application",
+      "Group",
+      "Organization",
+      "Person",
+      "Service",
+    ]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+        const actor = Object.freeze({
+          type: spelling,
+          id: like.actor,
+          content: "",
+        });
+        const input = Object.freeze({
+          ...like,
+          actor: Object.freeze([like.actor, actor, like.actor]),
+          object: Object.freeze({
+            type: "Article",
+            attributedTo: actor,
+            location: actor,
+          }),
+        });
+        const original = structuredClone(input);
+        assert.deepEqual(validateDocument(input), {
+          complete: true,
+          diagnostics: [],
+          changes: [],
+        });
+        assert.deepEqual(input, original);
+      }
+    }
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("applies Object-or-Link shape rules without inventing an actor-only vocabulary restriction", () => {
+    const result = validateDocument({
+      ...like,
+      actor: [
+        { type: "Note", content: 123 },
+        { type: "Person", id: false },
+        false,
+      ],
+      object: {
+        type: "Article",
+        attributedTo: [
+          { type: "Create", object: 123 },
+          { type: "Group", content: false },
+        ],
+      },
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["actor", 0, "content"] },
+        { reason: "invalid_value_shape", path: ["actor", 1, "id"] },
+        { reason: "invalid_value_shape", path: ["actor", 2] },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", "attributedTo", 0, "object"],
+        },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", "attributedTo", 1, "content"],
+        },
+      ],
+    );
+  });
+
+  it("checks embedded Link values while keeping unimplemented actor fields explicit", () => {
+    const result = validateDocument({
+      ...like,
+      actor: [
+        { type: "Link", href: 123 },
+        {
+          type: "Person",
+          preferredUsername: "alice",
+        },
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["actor", 0, "href"] },
+        {
+          reason: "unsupported_property",
+          path: ["actor", 1, "preferredUsername"],
+        },
+      ],
+    );
+  });
+
+  it("detects actor/attribution cycles without rejecting shared actors in separate branches", () => {
+    const actor: Record<string, unknown> = { type: "Person", id: like.actor };
+    actor.attributedTo = actor;
+    const result = validateDocument({ ...like, actor: [actor, actor] });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "non_json_value", path: ["actor", 0, "attributedTo"] },
+        { reason: "non_json_value", path: ["actor", 1, "attributedTo"] },
+      ],
+    );
   });
 
   it("reports a non-null intransitive object as inapplicable regardless of its shape", () => {
@@ -971,6 +1297,199 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(fetch.mock.callCount(), 0);
   });
 
+  it("checks collection variants and count fields without requiring members or matching visible length", () => {
+    for (const type of [
+      "Collection",
+      "OrderedCollection",
+      "CollectionPage",
+      "OrderedCollectionPage",
+    ]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+        assert.deepEqual(
+          validateDocument({
+            "@context": context,
+            type: spelling,
+            totalItems: 100,
+            items: like.object,
+          }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+        for (const totalItems of [-1, 1.5, "2", false]) {
+          const result = validateDocument({
+            "@context": context,
+            type: spelling,
+            totalItems,
+          });
+          assert.equal(result.complete, true);
+          assert.deepEqual(
+            result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+            [{ reason: "invalid_value_shape", path: ["totalItems"] }],
+          );
+        }
+      }
+    }
+    assert.deepEqual(
+      validateDocument({
+        "@context": context,
+        type: "OrderedCollectionPage",
+        startIndex: null,
+        totalItems: null,
+      }),
+      {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      },
+    );
+  });
+
+  it("preserves nested collection member order and duplicates without fetching references", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    const members = Object.freeze([
+      like.object,
+      Object.freeze({ type: "Article", content: "Text" }),
+      like.object,
+    ]);
+    const target = Object.freeze({
+      type: `${context}#OrderedCollection`,
+      totalItems: 50,
+      orderedItems: members,
+    });
+    const input = Object.freeze({ ...like, type: "Add", target });
+    const original = structuredClone(input);
+    assert.deepEqual(validateDocument(input), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    assert.deepEqual(input, original);
+    const result = validateDocument({
+      ...like,
+      type: "Add",
+      target: {
+        type: "OrderedCollection",
+        totalItems: -1,
+        orderedItems: [
+          like.object,
+          { type: "CollectionPage", items: [{ type: "Note", content: 123 }] },
+          false,
+        ],
+      },
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "invalid_value_shape",
+          path: ["target", "orderedItems", 1, "items", 0, "content"],
+        },
+        { reason: "invalid_value_shape", path: ["target", "orderedItems", 2] },
+        { reason: "invalid_value_shape", path: ["target", "totalItems"] },
+      ],
+    );
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("checks embedded navigation ranges and leaves single-value arrays unsupported", () => {
+    const result = validateDocument({
+      "@context": context,
+      type: "OrderedCollectionPage",
+      current: { type: "OrderedCollectionPage", startIndex: -1 },
+      first: { type: "CollectionPage", items: 123 },
+      last: { type: "Collection" },
+      next: ["https://example.com/page"],
+      partOf: { type: "OrderedCollection", totalItems: false },
+      prev: { type: "Link", href: 123 },
+      startIndex: -1,
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["current", "startIndex"] },
+        { reason: "invalid_value_shape", path: ["first", "items"] },
+        { reason: "invalid_value_shape", path: ["last"] },
+        { reason: "unsupported_value_form", path: ["next"] },
+        { reason: "invalid_value_shape", path: ["partOf", "totalItems"] },
+        { reason: "invalid_value_shape", path: ["prev", "href"] },
+        { reason: "invalid_value_shape", path: ["startIndex"] },
+      ],
+    );
+    const unsupported = validateDocument({
+      "@context": context,
+      type: "Note",
+      items: like.object,
+      totalItems: 1,
+    });
+    assert.equal(unsupported.complete, false);
+    assert.ok(
+      unsupported.diagnostics.every(
+        ({ reason }) => reason === "unsupported_property",
+      ),
+    );
+  });
+
+  it("handles actor collection links, page cycles, and sparse member entries through shared traversal", () => {
+    for (const type of [
+      "Application",
+      "Group",
+      "Organization",
+      "Person",
+      "Service",
+    ]) {
+      assert.deepEqual(
+        validateDocument({
+          "@context": context,
+          type,
+          inbox: { type: "OrderedCollectionPage", startIndex: 0 },
+          outbox: "https://example.com/outbox",
+          following: { type: "OrderedCollection", totalItems: 0 },
+          followers: { type: "CollectionPage" },
+          liked: like.object,
+        }),
+        { complete: true, diagnostics: [], changes: [] },
+      );
+    }
+    const page: Record<string, unknown> = { type: "CollectionPage" };
+    page.next = page;
+    const result = validateDocument({
+      "@context": context,
+      type: "Collection",
+      first: page,
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "non_json_value", path: ["first", "next"] }],
+    );
+    const items = [like.object];
+    items.length = 2;
+    const sparse = validateDocument({
+      "@context": context,
+      type: "Collection",
+      items,
+    });
+    assert.deepEqual(
+      sparse.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "non_json_value", path: ["items", 1] }],
+    );
+  });
+
   for (const property of ["target", "origin", "result", "instrument"]) {
     it(`accepts ${property} references and supported embedded values without fetching or changing them`, (test) => {
       const fetch = test.mock.method(globalThis, "fetch", () => {
@@ -1007,7 +1526,7 @@ describe("validateDocument() supported document checks", () => {
           { type: "Note", content: false },
           { type: "Undo", [property]: { type: "Like", object: false } },
           "https://example.com/not valid",
-          { type: "Article" },
+          { type: "Page" },
           false,
         ],
       });

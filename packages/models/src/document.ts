@@ -14,33 +14,48 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { MIMEType } from "node:util";
+
 import {
   type $EntityType,
+  Object as APObject,
   Accept,
   Activity,
   Add,
   Announce,
+  Application,
   Arrive,
+  Article,
   Block,
+  Collection,
+  CollectionPage,
   Create,
   Delete,
   Dislike,
   Flag,
   Follow,
+  Group,
   Ignore,
   IntransitiveActivity,
   Invite,
   Join,
   Leave,
   Like,
+  Link,
   Listen,
+  Mention,
   Move,
   Note,
   Offer,
+  OrderedCollection,
+  OrderedCollectionPage,
+  Organization,
+  Person,
   Question,
   Read,
   Reject,
   Remove,
+  Service,
   TentativeAccept,
   TentativeReject,
   Travel,
@@ -158,9 +173,24 @@ type Report = (
   message: string,
 ) => void;
 
+type VocabularyType = $EntityType | typeof Link | typeof Mention;
+
 // Unsupported custom types by Fedify are not in this checker's coverage.
-const implementedTypes: ReadonlySet<$EntityType> = new Set<$EntityType>([
+const implementedTypes: ReadonlySet<VocabularyType> = new Set<VocabularyType>([
   Note,
+  APObject,
+  Article,
+  Application,
+  Group,
+  Organization,
+  Person,
+  Service,
+  Collection,
+  OrderedCollection,
+  CollectionPage,
+  OrderedCollectionPage,
+  Link,
+  Mention,
   Activity,
   Like,
   Create,
@@ -469,7 +499,7 @@ function checkType(
   value: unknown,
   path: FieldPath,
   report: Report,
-): $EntityType | undefined {
+): VocabularyType | undefined {
   // Context checking above ensures short type names use the ActivityStreams
   // namespace. Other context forms remain blocked before type detection.
   const typeIri =
@@ -478,7 +508,13 @@ function checkType(
         ? value
         : `${activityStreamsTypePrefix}${value}`
       : undefined;
-  const Type = typeIri == null ? undefined : getEntityTypeById(typeIri);
+  let Type: VocabularyType | undefined;
+  if (typeIri != null) {
+    Type = getEntityTypeById(typeIri);
+    // Link classes are exported separately from Fedify's entity registry.
+    if (typeIri === Link.typeId.href) Type = Link;
+    else if (typeIri === Mention.typeId.href) Type = Mention;
+  }
   if (Type == null || !implementedTypes.has(Type)) {
     const reason = Array.isArray(value)
       ? "unsupported_value_form"
@@ -496,6 +532,142 @@ function checkType(
   return Type;
 }
 
+function isTypeOrSubtype(Type: VocabularyType, Base: VocabularyType): boolean {
+  return Type === Base || Type.prototype instanceof Base;
+}
+
+// Collection navigation and actor collection links each identify one resource.
+function getCollectionRange(
+  Type: VocabularyType,
+  property: string,
+): readonly VocabularyType[] | undefined {
+  if (isTypeOrSubtype(Type, Collection)) {
+    if (["current", "first", "last"].includes(property)) {
+      return [CollectionPage, Link];
+    }
+  }
+  if (isTypeOrSubtype(Type, CollectionPage)) {
+    if (property === "partOf") return [Collection, Link];
+    if (["next", "prev"].includes(property)) return [CollectionPage, Link];
+  }
+  const actor = [Application, Group, Organization, Person, Service].some(
+    (Actor) => isTypeOrSubtype(Type, Actor),
+  );
+  if (actor) {
+    if (["inbox", "outbox"].includes(property)) {
+      return [OrderedCollection, OrderedCollectionPage];
+    }
+    if (["following", "followers", "liked"].includes(property)) {
+      return [Collection];
+    }
+  }
+  return undefined;
+}
+
+function checkNonNegativeInteger(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null) return;
+  if (Array.isArray(value)) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Array forms of single-value properties are not checked yet.",
+    );
+  } else if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0
+  ) {
+    report("invalid_value_shape", path, "Expected a non-negative integer.");
+  }
+}
+
+function checkLinkRelation(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null) return;
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    Array.from(value).some(
+      (character) =>
+        character.charCodeAt(0) <= 0x20 ||
+        character.charCodeAt(0) === 0x7f ||
+        character === ",",
+    )
+  ) {
+    report(
+      "invalid_value_shape",
+      path,
+      "Expected a relation token or absolute IRI without whitespace or commas.",
+    );
+  } else if (/^[a-z][a-z\d+.-]*:/iu.test(value)) {
+    checkReference(value, path, report);
+  } else if (!/^[a-z][a-z\d.-]*$/iu.test(value)) {
+    report(
+      "invalid_value_shape",
+      path,
+      "Expected a relation token or absolute IRI.",
+    );
+  }
+}
+
+// Link metadata uses lexical checks without rewriting the original values.
+function checkLinkProperty(
+  property: string,
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (property === "rel") {
+    checkReferenceValues(value, path, report, checkLinkRelation);
+    return;
+  }
+  if (value === null) return;
+  if (Array.isArray(value)) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Array forms of single-value Link properties are not checked yet.",
+    );
+    return;
+  }
+  if (typeof value !== "string") {
+    report("invalid_value_shape", path, "Expected a string.");
+    return;
+  }
+  if (property === "href") {
+    checkReference(value, path, report);
+  } else if (property === "mediaType") {
+    try {
+      void new MIMEType(value);
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      report("invalid_value_shape", path, "Expected a MIME media type.");
+    }
+  } else {
+    if (!/^[a-z]{1,8}(?:-[a-z\d]{1,8})*$/iu.test(value)) {
+      report("invalid_value_shape", path, "Expected a language tag.");
+      return;
+    }
+    try {
+      void new Intl.Locale(value);
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      report(
+        "unsupported_value_form",
+        path,
+        "This language tag is outside the current locale parser's support.",
+      );
+    }
+  }
+}
+
 function checkDocumentValue(
   rootDocument: unknown,
   rootPath: FieldPath,
@@ -509,6 +681,7 @@ function checkDocumentValue(
     document: unknown,
     path: FieldPath,
     embedded: boolean,
+    expectedTypes?: readonly VocabularyType[],
   ): void {
     if (
       document !== null &&
@@ -519,17 +692,50 @@ function checkDocumentValue(
       return;
     }
     const values = readDocument(document, path, report);
-    if (values == null || document === null || typeof document !== "object") {
+    if (values == null || document == null) {
       return;
     }
     if (!checkContext(values, path, report, embedded)) return;
 
     const Type = checkType(values.type, path, report);
     if (Type == null) return;
-    const isActivity = Type === Activity || Type.prototype instanceof Activity;
-    const isIntransitive =
-      Type === IntransitiveActivity ||
-      Type.prototype instanceof IntransitiveActivity;
+    if (expectedTypes?.every((Expected) => !isTypeOrSubtype(Type, Expected))) {
+      report(
+        "invalid_value_shape",
+        path,
+        "The embedded type is outside this property's collection range.",
+      );
+      return;
+    }
+    const isObject = isTypeOrSubtype(Type, APObject);
+    const isLink = isTypeOrSubtype(Type, Link);
+    const isActivity = isTypeOrSubtype(Type, Activity);
+    const isIntransitive = isTypeOrSubtype(Type, IntransitiveActivity);
+    const isCollection = isTypeOrSubtype(Type, Collection);
+    const isOrderedPage = isTypeOrSubtype(Type, OrderedCollectionPage);
+    const linkProperties = isLink
+      ? ["href", "mediaType", "hreflang", "rel"]
+      : [];
+    const integerProperties = isLink
+      ? ["height", "width"]
+      : isOrderedPage
+        ? ["totalItems", "startIndex"]
+        : isCollection
+          ? ["totalItems"]
+          : [];
+    const referenceProperties = ["attributedTo", "preview"];
+    if (isObject) referenceProperties.push("location");
+    if (isActivity) {
+      referenceProperties.push(
+        "actor",
+        "object",
+        "target",
+        "origin",
+        "result",
+        "instrument",
+      );
+    }
+    if (isCollection) referenceProperties.push("items", "orderedItems");
 
     ancestors.add(document);
     pending.push(() => {
@@ -541,7 +747,12 @@ function checkDocumentValue(
       pending.push(() => {
         const value = values[key];
         const fieldPath = [...path, key];
-        if (key === "content") {
+        const collectionRange = getCollectionRange(Type, key);
+        if (integerProperties.includes(key)) {
+          checkNonNegativeInteger(value, fieldPath, report);
+        } else if (linkProperties.includes(key)) {
+          checkLinkProperty(key, value, fieldPath, report);
+        } else if (isObject && key === "content") {
           if (value !== null && typeof value !== "string") {
             report(
               typeof value === "object"
@@ -567,8 +778,6 @@ function checkDocumentValue(
           } else {
             checkReference(value, fieldPath, report);
           }
-        } else if (key === "attributedTo" || (isActivity && key === "actor")) {
-          checkReferenceValues(value, fieldPath, report);
         } else if (isIntransitive && key === "object") {
           if (value !== null) {
             report(
@@ -578,12 +787,17 @@ function checkDocumentValue(
             );
           }
         } else if (
-          key === "location" ||
-          (isActivity &&
-            ["object", "target", "origin", "result", "instrument"].includes(
-              key,
-            ))
+          referenceProperties.includes(key) ||
+          collectionRange != null
         ) {
+          if (collectionRange != null && Array.isArray(value)) {
+            report(
+              "unsupported_value_form",
+              fieldPath,
+              "Array forms of single-value collection properties are not checked yet.",
+            );
+            return;
+          }
           const checks: (() => void)[] = [];
           checkReferenceValues(
             value,
@@ -595,7 +809,7 @@ function checkDocumentValue(
                 typeof entry === "object" &&
                 !Array.isArray(entry)
               ) {
-                checkDocument(entry, entryPath, true);
+                checkDocument(entry, entryPath, true, collectionRange);
               } else {
                 checkReference(entry, entryPath, report);
               }
@@ -623,13 +837,13 @@ function checkDocumentValue(
 /**
  * Checks the implemented Activity Vocabulary types, including nested
  * activity objects, without network access or writes. Embedded objects inherit
- * the parent's context. Question uses shared intransitive rules; poll-specific
+ * the parent's context. Collections add member, count, and navigation checks.
+ * Question uses shared intransitive rules; poll-specific
  * fields remain unsupported pending #155.
  *
  * Supports standard string contexts, single types, id, string content,
- * and reference-only attributedTo/actor values. Object location and activity
- * object, target,
- * origin, result, and instrument values can be IRI references or supported
+ * attribution/location and activity actor, object, target, origin, result,
+ * and instrument values. These can be IRI references or supported
  * embedded types, singly or in nonempty flat lists. Intransitive activities
  * reject a non-null object property. Other forms produce
  * support diagnostics and `complete: false`. This is not a permission check,

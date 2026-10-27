@@ -1,7 +1,7 @@
 {
   "status": "draft",
   "entryPoint": "validateDocument",
-  "description": "Proposed semantic expectations, not executed validator results. Categories and severities come from DOCUMENT_VALIDATION_CONTRACT.md. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
+  "description": "Validation expectations; selected cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
   "fixtures": [
     {
       "id": "like-reference",
@@ -1253,6 +1253,946 @@
             "path": ["oneOf"]
           }
         ]
+      }
+    },
+    {
+      "id": "object-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Object"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-empty-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "content": ""
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-null-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "content": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "object-invalid-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Object",
+        "content": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "article-invalid-id",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "id": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["id"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Object",
+          "content": "A base object"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-article",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Article",
+          "content": "An article"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Object",
+          "content": "Updated base object"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-article",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Article",
+          "content": "Updated article"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-result-article-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "result": [
+          "https://example.com/posts/42",
+          {
+            "type": "Article",
+            "content": 123
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["result", 1, "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "application-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Application",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "group-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Group",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "organization-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Organization",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "person-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "service-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Service",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-actor-list-person",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": [
+          "https://example.com/alice",
+          {
+            "type": "Person",
+            "id": "https://example.com/alice"
+          },
+          "https://example.com/alice"
+        ],
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-attribution-service",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "attributedTo": {
+          "type": "Service",
+          "id": "https://example.com/alice"
+        },
+        "content": "Text"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "actor-invalid-id",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": {
+          "type": "Person",
+          "id": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["actor", "id"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "nested-actor-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": {
+              "type": "Group",
+              "content": 123
+            }
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 0, "actor", "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "attribution-activity",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "attributedTo": {
+          "type": "Create",
+          "object": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "actor-object-range",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Object",
+          "id": "https://example.com/alice"
+        },
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": 5,
+        "items": [
+          "https://example.com/posts/42",
+          {
+            "type": "Article",
+            "content": "Text"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "orderedcollection-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollection",
+        "totalItems": 9,
+        "orderedItems": [
+          "https://example.com/posts/42",
+          "https://example.com/posts/42",
+          {
+            "type": "Note",
+            "content": ""
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collectionpage-links",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "partOf": "https://example.com/collection",
+        "next": "https://example.com/collection?page=2",
+        "prev": null,
+        "items": {
+          "type": "Object",
+          "id": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "orderedcollectionpage-index",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "partOf": {
+          "type": "OrderedCollection",
+          "totalItems": 0
+        },
+        "startIndex": 0,
+        "orderedItems": [
+          {
+            "type": "Article",
+            "content": "Text"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "add-collection-target",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "object": "https://example.com/posts/42",
+        "target": {
+          "type": "Collection",
+          "items": ["https://example.com/posts/42"]
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "actor-collection-links",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "inbox": {
+          "type": "OrderedCollection",
+          "totalItems": 0
+        },
+        "outbox": {
+          "type": "OrderedCollectionPage",
+          "startIndex": 0,
+          "orderedItems": [
+            {
+              "type": "Create",
+              "object": "https://example.com/posts/42"
+            }
+          ]
+        },
+        "following": {
+          "type": "Collection",
+          "totalItems": 0
+        },
+        "followers": "https://example.com/collection",
+        "liked": "https://example.com/collection"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-total-negative",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": -1
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["totalItems"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "orderedpage-start-fraction",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "startIndex": 0.5
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["startIndex"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-member-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "items": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["items", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-first-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "first": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["first"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-partof-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "partOf": {
+          "type": "Note"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["partOf"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-next-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "next": {
+          "type": "Collection"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["next"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "actor-inbox-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "inbox": {
+          "type": "Collection"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["inbox"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "actor-followers-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "followers": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["followers"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-navigation-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "first": ["https://example.com/collection?page=2"]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["first"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-empty-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": 0,
+        "items": []
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["items"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-count-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": [0]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["totalItems"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-metadata",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": "https://example.com/post",
+        "rel": ["alternate", "https://example.com/relation", "alternate"],
+        "mediaType": "text/html; charset=utf-8",
+        "hreflang": "en-US",
+        "height": 0,
+        "width": 640
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "mention-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Mention",
+        "href": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-preview",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "preview": {
+          "type": "Note",
+          "content": "Preview"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "object-preview-link",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "preview": {
+          "type": "Mention",
+          "href": "https://example.com/alice"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-link-navigation",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "current": {
+          "type": "Link",
+          "href": "https://example.com/current"
+        },
+        "first": {
+          "type": "Mention"
+        },
+        "last": {
+          "type": "Link"
+        },
+        "partOf": {
+          "type": "Link"
+        },
+        "next": {
+          "type": "Link"
+        },
+        "prev": {
+          "type": "Link"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-href-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["href"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-rel-list",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "rel": ["alternate", 123, "two words", "a,b"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 1]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 2]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 3]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-invalid-metadata",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "height": -1,
+        "hreflang": "en_US",
+        "mediaType": "invalid",
+        "width": 1.5
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["height"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["hreflang"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["mediaType"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["width"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-functional-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": ["https://example.com/"]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["href"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-object-properties",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "content": "Text",
+        "location": "https://example.com/place"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["content"]
+          },
+          {
+            "reason": "unsupported_property",
+            "path": ["location"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-name-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "name": "Read more"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["name"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-preview-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "preview": [
+          {
+            "type": "Link",
+            "href": false
+          },
+          123
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["preview", 0, "href"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["preview", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-language-parser-limit",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "hreflang": "x-private"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["hreflang"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-actor-link",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Mention",
+          "href": "https://example.com/alice"
+        },
+        "object": {
+          "type": "Link",
+          "href": "https://example.com/post"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
       }
     }
   ]
