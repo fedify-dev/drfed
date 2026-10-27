@@ -19,6 +19,8 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { setComposeImageTags } from "./compose-images.mts";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = join(root, "packages");
 
@@ -69,6 +71,9 @@ await Promise.all(
     console.log(`${data.name}: ${oldVersion} -> ${version}`);
   }),
 );
+
+await setComposeImageTags(version);
+console.log(`Compose examples: ghcr.io/fedify-dev/drfed:${version}`);
 
 const count = packageJsonPaths.length;
 console.log(
