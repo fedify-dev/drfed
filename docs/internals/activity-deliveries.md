@@ -73,12 +73,14 @@ Federation observations
 
 Wrap the federation HTTP surface with `createInboundRecorder` from
 `@drfed/federation`, passing a federation made by `createFederation` from
-the same package and the root origin.  Every inbox `POST`
-is recorded, whether or not its body is JSON; recording errors never replace
-federation responses.  A request Fedify throws on is recorded too, with the
-exception in `error` and no `statusCode`, and the exception is thrown again.
-The following names are GraphQL fields; the storage section above uses database
-column names. An inbound delivery exposes:
+the same package and the root origin. The recorder records an inbox `POST` only
+if it resolves to a local instance and its request body can be read. Otherwise,
+it passes the request to Fedify without recording it. The body need not be
+valid JSON. Recording errors are logged without changing the federation
+response. The following names are GraphQL fields; the storage section above
+uses database column names. A request Fedify throws on is recorded too, with
+the exception in `error` and no `statusCode`, and the exception is thrown
+again. An inbound delivery exposes:
 
  -  The request as received: `rawBody` (or `rawBodyBase64` when the body is not
     valid UTF-8), `requestHeaders`, and `requestUrl`. `payload` follows the
