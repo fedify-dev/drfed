@@ -58,9 +58,10 @@ To be released.
     Added `prepareDocument()` to report trusted server authority outcomes and
     conflicts with server-owned creation fields, with inspectable previews
     for generated values. Neither entry point allocates identities, determines
-    permissions, or saves resources. [[#151]]
+    permissions, or saves resources. [[#151], [#166] by Jiwon Kwon\]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
+[#166]: https://github.com/fedify-dev/drfed/pull/166
 
 
 Version 0.1.0

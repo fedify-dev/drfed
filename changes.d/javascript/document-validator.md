@@ -1,3 +1,9 @@
+---
+links:
+  '#151': https://github.com/fedify-dev/drfed/issues/151
+  '#166': https://github.com/fedify-dev/drfed/pull/166
+---
+
  -  Added an offline `validateDocument()` API in `@drfed/models/document` for
     the activity base types, all named activity types, Object, Article, Note,
     the five core actor types, and collection/page types. Actor, attribution,
@@ -21,4 +27,4 @@
     Added `prepareDocument()` to report trusted server authority outcomes and
     conflicts with server-owned creation fields, with inspectable previews
     for generated values. Neither entry point allocates identities, determines
-    permissions, or saves resources. [[#151]]
+    permissions, or saves resources. [[#151], [#166] by Jiwon Kwon]
