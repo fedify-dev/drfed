@@ -157,6 +157,25 @@ it("requires only HTTP origins and validates the active logging projection", asy
   assert.equal(resolved.logging.logLevel, "info");
 });
 
+it("listens on every interface by default inside the container image", async () => {
+  const args = [
+    "--public-origin=http://app.example",
+    "--backend-url=https://backend.example",
+  ];
+  const marked = await parse(args, { DRFED_CONTAINER: "1" }, process.cwd());
+  assert.deepEqual(marked.address, { host: "0.0.0.0", port: 3000 });
+  assert.equal(
+    describeWebConfiguration(marked).settings["web.listen"]?.source,
+    "default",
+  );
+  const overridden = await parse(
+    args,
+    { DRFED_CONTAINER: "1", DRFED_WEB_LISTEN: "localhost:3001" },
+    process.cwd(),
+  );
+  assert.deepEqual(overridden.address, { host: "localhost", port: 3001 });
+});
+
 it("requires HTTPS outside loopback unless explicitly allowed", async () => {
   const args = ["--public-origin=https://app.example"];
   await Promise.all(

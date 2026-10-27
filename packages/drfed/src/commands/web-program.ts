@@ -30,8 +30,10 @@ import {
   configurationProjection,
   configurationProvenance,
   createConfigurationBindings,
+  lazyDefault,
   configurationSettings as settings,
 } from "../configuration.ts";
+import { defaultListenHost } from "../listen-defaults.ts";
 import { createLoggingParser, resolveLogging } from "../logging.ts";
 
 /** Build a web-only CLI from the shared TOML and environment registry.
@@ -92,7 +94,10 @@ export function createWebProgram(
       settings.webListen,
       address,
       String,
-      { host: "localhost", port: 3000 },
+      lazyDefault(() => ({
+        host: defaultListenHost(bindings.env),
+        port: 3000,
+      })),
     ),
     logging: createLoggingParser(bindings),
     printConfig: withDefault(

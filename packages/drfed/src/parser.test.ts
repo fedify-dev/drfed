@@ -365,6 +365,56 @@ describe("drfed-server", () => {
       await rm(parent, { recursive: true, force: true });
     }
   });
+  it("listens on every interface by default only inside the container image", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "drfed-container-listen-"));
+    const config = join(parent, "drfed.toml");
+    const preload = join(parent, "guard.mjs");
+    const base = [
+      "--root-origin=http://drfed.test",
+      "--login-origin=http://drfed.test",
+      "--print-config",
+    ];
+    try {
+      await writeResourceGuard(preload);
+      await writeFile(config, '[server]\nlisten = "127.0.0.1:8889"\n');
+      for (const [args, environment, value, source] of [
+        [[], {}, { host: "localhost", port: 8888 }, "default"],
+        [
+          [],
+          { DRFED_CONTAINER: "1" },
+          { host: "0.0.0.0", port: 8888 },
+          "default",
+        ],
+        [
+          ["--config", config],
+          { DRFED_CONTAINER: "1" },
+          { host: "127.0.0.1", port: 8889 },
+          "config",
+        ],
+        [
+          ["--config", config],
+          { DRFED_CONTAINER: "1", DRFED_LISTEN: "localhost:8890" },
+          { host: "localhost", port: 8890 },
+          "env",
+        ],
+        [
+          ["--config", config, "--listen", "localhost:8891"],
+          { DRFED_CONTAINER: "1", DRFED_LISTEN: "localhost:8890" },
+          { host: "localhost", port: 8891 },
+          "cli",
+        ],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop
+        const result = await run([...base, ...args], preload, environment);
+        assert.equal(result.code, 0, result.stderr);
+        const diagnostic = JSON.parse(result.stdout);
+        assert.deepEqual(diagnostic.settings["server.listen"].value, value);
+        assert.equal(diagnostic.settings["server.listen"].source, source);
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
   it("prints selected configuration with redacted secrets and no resources", async () => {
     const parent = await mkdtemp(join(tmpdir(), "drfed-diagnostic-"));
     const config = join(parent, "drfed.toml");
