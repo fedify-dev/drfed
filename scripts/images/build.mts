@@ -24,14 +24,17 @@ import { createHash } from "node:crypto";
 import {
   chmod,
   copyFile,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -45,6 +48,7 @@ import {
   type PackageArtifact,
   architecture,
   baseImage,
+  drfedLayoutProblem,
   metadataFile,
   packageOrder,
   readJson,
@@ -132,6 +136,73 @@ async function commitEpoch(sha: string): Promise<string> {
 }
 
 /**
+ * Check that the output path holds nothing but an earlier image:build layout,
+ * so that replacing it cannot delete anything else.
+ * @returns Whether the path exists.
+ */
+async function replaceable(output: string): Promise<boolean> {
+  let stats;
+  try {
+    stats = await lstat(output);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  const refuse = (reason: string) =>
+    new Error(`Refusing to replace ${output}: ${reason}.`);
+  if (!stats.isDirectory()) throw refuse("it is not a directory");
+  const names = await readdir(output);
+  if (names.length === 0) return true;
+  const entries = new Map(
+    await Promise.all(
+      names.map(async (name) => {
+        const entry = await lstat(join(output, name));
+        const kind = entry.isFile()
+          ? "file"
+          : entry.isDirectory()
+            ? "directory"
+            : "other";
+        return [name, kind] as const;
+      }),
+    ),
+  );
+  const parse = async (name: string): Promise<unknown> => {
+    if (entries.get(name) !== "file") return undefined;
+    try {
+      return JSON.parse(await readFile(join(output, name), "utf8"));
+    } catch {
+      return undefined;
+    }
+  };
+  const problem = drfedLayoutProblem({
+    entries,
+    ociLayout: await parse("oci-layout"),
+    index: await parse("index.json"),
+    metadata: await parse(metadataFile),
+  });
+  if (problem !== undefined) {
+    throw refuse(
+      `it is not an empty directory or a DrFed image layout; ${problem}`,
+    );
+  }
+  return true;
+}
+
+/** Move a finished layout into place, keeping the earlier one on failure. */
+async function replaceLayout(staging: string, output: string): Promise<void> {
+  const previous = `${staging}.previous`;
+  const existed = await replaceable(output);
+  if (existed) await rename(output, previous);
+  try {
+    await rename(staging, output);
+  } catch (error) {
+    if (existed) await rename(previous, output);
+    throw error;
+  }
+  if (existed) await rm(previous, { recursive: true, force: true });
+}
+
+/**
  * Build one platform image from a tarball directory into an OCI layout.
  * @returns The written layout's metadata.
  */
@@ -150,6 +221,13 @@ export async function buildImage(options: {
   const arch = architecture(platform);
   const output = resolve(
     options.output ?? join(root, "image-artifacts", `linux-${arch}`),
+  );
+  // Before the build, so that a wrong --output fails fast.
+  await replaceable(output);
+  await mkdir(dirname(output), { recursive: true });
+  // Next to the output, so that the finished layout moves into place.
+  const staging = await mkdtemp(
+    join(dirname(output), `.${basename(output)}-build-`),
   );
   const temporary = await mkdtemp(join(tmpdir(), "drfed-image-"));
   try {
@@ -191,8 +269,6 @@ export async function buildImage(options: {
       build,
       packages,
     };
-    await rm(output, { recursive: true, force: true });
-    await mkdir(output, { recursive: true });
     const plan = engine.spec.build({
       containerfile: join(root, "docker", "Containerfile"),
       context,
@@ -207,7 +283,7 @@ export async function buildImage(options: {
         BASE_IMAGE_NAME: metadata.base.name,
         BASE_IMAGE_DIGEST: metadata.base.digest,
       },
-      output,
+      output: staging,
       tag: `localhost/drfed-build-${process.pid}:${arch}`,
     });
     try {
@@ -233,18 +309,21 @@ export async function buildImage(options: {
       }
     }
     for (const leftover of plan.leftovers) {
-      await rm(join(output, leftover), { recursive: true, force: true });
+      await rm(join(staging, leftover), { recursive: true, force: true });
     }
-    await singleImage(output);
+    await singleImage(staging);
     await writeFile(
-      join(output, metadataFile),
+      join(staging, metadataFile),
       `${JSON.stringify(metadata, null, 2)}\n`,
     );
+    await replaceLayout(staging, output);
     console.log(
       `Built ${build.version} for ${platform} with ${engine.spec.label} into ${output}`,
     );
     return metadata;
   } finally {
+    // Both were created by this build; staging is gone once it is in place.
+    await rm(staging, { recursive: true, force: true });
     await rm(temporary, { recursive: true, force: true });
   }
 }

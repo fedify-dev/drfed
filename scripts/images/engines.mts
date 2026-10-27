@@ -217,15 +217,15 @@ export function imageIdCandidates(image: {
   return [image.descriptor.digest, image.manifest.config.digest];
 }
 
-const leadingDocker = /^(?<indent>[ \t]*)docker(?=[ \t])/gmu;
+const leadingDocker = /(?<lead>^[ \t]*|\$\()docker(?=[ \t])/gmu;
 
 /**
  * Rewrite a shell snippet written for Docker to run the given engine.  Only a
- * docker command at the start of a line changes, so the documentation shows
- * exactly the text that the container tests run.
+ * docker command at the start of a line or of a command substitution changes,
+ * so the documentation shows exactly the text that the container tests run.
  * @returns The snippet for that engine.
  */
 export function forEngine(snippet: string, name: string): string {
   const { binary } = engineSpec(name);
-  return snippet.replaceAll(leadingDocker, `$<indent>${binary}`);
+  return snippet.replaceAll(leadingDocker, `$<lead>${binary}`);
 }

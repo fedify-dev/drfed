@@ -20,8 +20,19 @@
 set -e
 
 # region backup
+# Start the server again afterwards only if it is running now, and replace an
+# earlier drfed-data.tgz only with a complete backup.
+running=$(docker compose ps --status running --quiet drfed)
+finish() {
+  if [ -n "$running" ]; then
+    docker compose up -d drfed
+  fi
+  rm -f drfed-data.tgz.partial
+}
+trap finish EXIT
+trap 'exit 1' HUP INT TERM
 docker compose stop drfed
 docker compose run --rm -T drfed \
-  tar czf - -C /var/lib/drfed . > drfed-data.tgz
-docker compose up -d drfed
+  tar czf - -C /var/lib/drfed . > drfed-data.tgz.partial
+mv drfed-data.tgz.partial drfed-data.tgz
 # endregion backup

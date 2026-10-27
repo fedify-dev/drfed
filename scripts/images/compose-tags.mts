@@ -34,38 +34,88 @@ const composeFiles = [
 ] as const;
 const imageLine =
   /^(?<prefix>\s+image: ghcr\.io\/fedify-dev\/drfed:)(?<tag>\S+)$/gmu;
+// Any image line that seems to mean DrFed, however it is spelled.
+const looseImageLine = /^\s*image:.*drfed/gmu;
+
+/** The DrFed image tag of one Compose example, or why there is none. */
+export type ImageTag =
+  | { readonly tag: string; readonly problem?: undefined }
+  | { readonly tag?: undefined; readonly problem: string };
 
 /**
- * Find every DrFed image tag in the Compose examples.
- * @returns The tags with the file names they appear in.
+ * Find the single DrFed image tag of a Compose example.  A missing, quoted,
+ * misspelled or repeated image line is a problem, so that no example silently
+ * escapes the version check and the version bump.
+ * @returns The tag, or the problem.
  */
-export async function composeImageTags(): Promise<
-  readonly { readonly file: string; readonly tag: string }[]
-> {
-  const tags = await Promise.all(
-    composeFiles.map(async (file) => {
-      const content = await readFile(join(docker, file), "utf8");
-      return [...content.matchAll(imageLine)].map((match) => ({
-        file,
-        tag: match.groups!.tag!,
-      }));
-    }),
+export function findImageTag(content: string): ImageTag {
+  const tags = [...content.matchAll(imageLine)].map(
+    (match) => match.groups!.tag!,
   );
-  return tags.flat();
+  const loose = [...content.matchAll(looseImageLine)].length;
+  if (tags.length === 1 && loose === 1) return { tag: tags[0]! };
+  return {
+    problem:
+      tags.length === 0 && loose === 0
+        ? "has no ghcr.io/fedify-dev/drfed image line"
+        : `needs exactly one line "image: ghcr.io/fedify-dev/drfed:<version>"; found ${loose} DrFed image lines, ${tags.length} of them in that form`,
+  };
 }
 
-/** Point every Compose example at the given version. */
+/**
+ * Point a Compose example at the given version.
+ * @returns The new content, or the problem that prevents the change.
+ */
+export function withImageTag(
+  content: string,
+  version: string,
+): { readonly content: string } | { readonly problem: string } {
+  const found = findImageTag(content);
+  if (found.problem !== undefined) return { problem: found.problem };
+  const updated = content.replaceAll(imageLine, `$<prefix>${version}`);
+  const result = findImageTag(updated);
+  return result.tag === version
+    ? { content: updated }
+    : { problem: `would name ${result.tag ?? "no image"}, not ${version}` };
+}
+
+const readExamples = () =>
+  Promise.all(
+    composeFiles.map(async (file) => ({
+      file,
+      path: join(docker, file),
+      content: await readFile(join(docker, file), "utf8"),
+    })),
+  );
+
+/**
+ * Find the DrFed image tag of every Compose example.
+ * @returns One tag or problem per file.
+ */
+export async function composeImageTags(): Promise<
+  readonly ({ readonly file: string } & ImageTag)[]
+> {
+  return (await readExamples()).map(({ file, content }) => ({
+    file,
+    ...findImageTag(content),
+  }));
+}
+
+/**
+ * Point every Compose example at the given version.  Nothing is written
+ * unless every example can be changed.
+ */
 export async function setComposeImageTags(version: string): Promise<void> {
+  const updates = (await readExamples()).map((example) => ({
+    ...example,
+    ...withImageTag(example.content, version),
+  }));
+  const problems = updates.flatMap((update) =>
+    "problem" in update ? [`docker/${update.file} ${update.problem}`] : [],
+  );
+  if (problems.length > 0) throw new Error(problems.join("\n"));
   await Promise.all(
-    composeFiles.map(async (file) => {
-      const path = join(docker, file);
-      const content = await readFile(path, "utf8");
-      await writeFile(
-        path,
-        content.replaceAll(imageLine, `$<prefix>${version}`),
-        "utf8",
-      );
-    }),
+    updates.map((update) => writeFile(update.path, update.content, "utf8")),
   );
 }
 

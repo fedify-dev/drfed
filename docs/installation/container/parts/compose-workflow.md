@@ -118,8 +118,10 @@ Data in the volume survives container replacement, including
 `docker compose up -d` after an image change.  `docker compose down --volumes`
 deletes the volume and every account and instance in it.
 
-To back up a PGlite volume, stop the server and copy the volume to
-*drfed-data.tgz*:
+To back up a PGlite volume to *drfed-data.tgz*, run this script next to your
+*compose.yaml*.  It stops the server while it copies the volume and starts it
+again only if it was running.  An earlier *drfed-data.tgz* is replaced only
+when the new backup is complete:
 
 <<< @/../docker/backup.sh#backup{sh}
 

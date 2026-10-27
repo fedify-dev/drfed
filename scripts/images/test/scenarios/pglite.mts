@@ -18,10 +18,11 @@
 // restore snippets.
 // oxlint-disable no-console no-await-in-loop
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import process from "node:process";
 
-import { type Engine, succeed } from "../../engine.mts";
+import { type Engine, type Result, exec } from "../../engine.mts";
 import { forEngine } from "../../engines.mts";
 import {
   type Context,
@@ -38,19 +39,54 @@ import { expectPage, logIn } from "../login.mts";
 /**
  * Run a documented snippet the way the engine's documentation page shows it;
  * the page of the engine the file is written for shows it unchanged.
+ * @returns How the snippet exited.
  */
 async function runSnippet(
   engine: Engine,
   file: string,
   directory: string,
   env: NodeJS.ProcessEnv,
-): Promise<void> {
+  { expectSuccess = true, readOnly = false } = {},
+): Promise<Result> {
   const script = join(directory, `${engine.spec.name}-${file}`);
   await writeFile(
     script,
     forEngine(await readFile(join(examples, file), "utf8"), engine.spec.name),
   );
-  await succeed("sh", [script], { cwd: directory, env });
+  if (readOnly) await chmod(directory, 0o555);
+  try {
+    const result = await exec("sh", [script], { cwd: directory, env });
+    if (expectSuccess) {
+      assert.equal(result.code, 0, `${file}\n${result.stdout}${result.stderr}`);
+    }
+    return result;
+  } finally {
+    if (readOnly) await chmod(directory, 0o755);
+  }
+}
+
+/**
+ * A backup that cannot write keeps the previous backup and starts the server
+ * it stopped again.
+ */
+async function checkFailedBackup(
+  engine: Engine,
+  context: Context,
+  project: Project,
+): Promise<void> {
+  // Root writes to a read-only directory, so the backup would not fail.
+  if (process.getuid?.() === 0) return;
+  const directory = await mkdtemp(join(context.temporary, "failed-backup-"));
+  const previous = join(directory, "drfed-data.tgz");
+  await writeFile(previous, "previous backup");
+  const before = await project.listening();
+  const failed = await runSnippet(engine, "backup.sh", directory, project.env, {
+    expectSuccess: false,
+    readOnly: true,
+  });
+  assert.notEqual(failed.code, 0, "The backup cannot write its file.");
+  assert.equal(await readFile(previous, "utf8"), "previous backup");
+  await project.waitListening(before);
 }
 
 async function checkBackup(
@@ -61,6 +97,9 @@ async function checkBackup(
   accountId: string,
   origin: string,
 ): Promise<void> {
+  // The documented case: back up while the server runs.
+  await project.up();
+  await checkFailedBackup(engine, context, project);
   const directory = await mkdtemp(join(context.temporary, "backup-"));
   const before = await project.listening();
   await runSnippet(engine, "backup.sh", directory, project.env);
@@ -77,6 +116,19 @@ async function checkBackup(
     await restored.waitListening(0);
     assert.ok(await logIn(restored, await restored.port(), origin));
     assert.equal((await restored.call(["stop", "drfed"])).code, 0);
+    // A stopped server stays stopped, which the PGlite lock below relies on.
+    const stopped = await mkdtemp(join(context.temporary, "stopped-backup-"));
+    await runSnippet(engine, "backup.sh", stopped, restored.env);
+    assert.ok((await stat(join(stopped, "drfed-data.tgz"))).size > 0);
+    const running = await restored.call([
+      "ps",
+      "--status",
+      "running",
+      "--quiet",
+      "drfed",
+    ]);
+    assert.equal(running.code, 0, running.stderr);
+    assert.equal(running.stdout.trim(), "");
     const existing = await createAccount(restored);
     assert.equal(existing.status, "exists");
     assert.equal(existing.account.id, accountId);

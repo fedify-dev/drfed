@@ -71,7 +71,11 @@ jobs:
   # nothing is uploaded or published.
   image-pr:
     needs: [version]
-    if: ${{ !cancelled() && needs.version.outputs.enabled != 'true' }}
+    # The version job is skipped outside main and tags, but a failed one means
+    # the ref is broken and no image needs testing.
+    if: >-
+      ${{ !cancelled() && needs.version.result != 'failure' &&
+      needs.version.outputs.enabled != 'true' }}
     timeout-minutes: 45
     concurrency:
       group: image-pr-${{ github.workflow }}-${{ github.ref }}-${{ matrix.engine }}-${{ matrix.arch }}

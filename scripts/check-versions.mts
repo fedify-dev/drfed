@@ -51,10 +51,14 @@ for (const pkg of packages) {
 if (versions.size === 1) {
   const [version, names] = [...versions.entries()][0]!;
   const count = names.length;
-  const stale = (await composeImageTags()).filter(({ tag }) => tag !== version);
-  for (const { file, tag } of stale) {
-    console.error(`docker/${file} names image ${tag}, not ${version}.`);
-  }
+  const stale = (await composeImageTags()).flatMap(({ file, tag, problem }) =>
+    problem !== undefined
+      ? [`docker/${file} ${problem}.`]
+      : tag === version
+        ? []
+        : [`docker/${file} names image ${tag}, not ${version}.`],
+  );
+  for (const line of stale) console.error(line);
   const problem = await upgradeSourceProblem();
   if (problem !== undefined) {
     console.error(`docker/upgrade-source.json: ${problem}`);

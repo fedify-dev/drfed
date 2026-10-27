@@ -194,8 +194,8 @@ description = "Exercise release version, registry, artifact, image and recovery 
 run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
 
 [tasks."check:images"]
-description = "Exercise the container engine adapter calculations"
-run = "node --test scripts/images/engines.test.mts"
+description = "Exercise the container engine, Compose image tag and layout calculations"
+run = "node --test scripts/images/engines.test.mts scripts/images/compose-tags.test.mts scripts/images/layout.test.mts"
 
 [tasks."check:docs-preview"]
 description = "Exercise docs preview pull request, build and comment fixtures"

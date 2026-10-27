@@ -34,14 +34,17 @@ describe("forEngine()", () => {
     assert.equal(forEngine(backup, "docker"), backup);
   });
 
-  it("rewrites the docker command at the start of each line", async () => {
-    const backup = await readFile(join(root, "docker", "backup.sh"), "utf8");
-    const podman = forEngine(backup, "podman");
-    assert.match(
-      podman,
-      /^# region backup\npodman compose stop drfed\npodman compose run --rm -T drfed \\\n {2}tar czf - -C \/var\/lib\/drfed \. > drfed-data\.tgz\npodman compose up -d drfed\n# endregion backup$/mu,
-    );
-    assert.doesNotMatch(podman, /^\s*docker\s/mu);
+  it("rewrites every docker command of the snippets", async () => {
+    for (const file of ["backup.sh", "restore.sh"]) {
+      // oxlint-disable-next-line no-await-in-loop
+      const snippet = await readFile(join(root, "docker", file), "utf8");
+      const podman = forEngine(snippet, "podman");
+      assert.equal(
+        podman.match(/\bpodman compose\b/gu)?.length,
+        snippet.match(/\bdocker compose\b/gu)?.length,
+      );
+      assert.doesNotMatch(podman, /\bdocker compose\b/u);
+    }
   });
 
   it("rewrites inline commands and indented lines only", () => {
@@ -56,11 +59,16 @@ describe("forEngine()", () => {
       forEngine("  docker pull ghcr.io/fedify-dev/drfed:latest", "podman"),
       "  podman pull ghcr.io/fedify-dev/drfed:latest",
     );
+    assert.equal(
+      forEngine("id=$(docker compose ps --quiet drfed)", "podman"),
+      "id=$(podman compose ps --quiet drfed)",
+    );
     for (const text of [
       "docker/backup.sh",
       "dockerd --help",
       "# Use docker compose here",
       "echo docker compose",
+      "echo $(echo docker compose)",
     ]) {
       assert.equal(forEngine(text, "podman"), text);
     }

@@ -69,6 +69,77 @@ export interface ImageMetadata {
   readonly packages: readonly PackageArtifact[];
 }
 
+/** What the top level of a directory holds, as far as a layout check needs. */
+export interface LayoutContents {
+  /** Each entry's kind, from lstat, so that symbolic links are "other". */
+  readonly entries: ReadonlyMap<string, "file" | "directory" | "other">;
+  /** The parsed files; undefined when missing or not valid JSON. */
+  readonly ociLayout?: unknown;
+  readonly index?: unknown;
+  readonly metadata?: unknown;
+}
+
+const layoutEntries = new Map([
+  ["blobs", "directory"],
+  ["drfed-image.json", "file"],
+  ["index.json", "file"],
+  ["oci-layout", "file"],
+] as const);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Check that a directory holds exactly a layout that image:build wrote: the
+ * OCI layout files, its blobs, and DrFed's own metadata, and nothing else.
+ * Another project's layout lacks the metadata, so it is never mistaken for
+ * one.
+ * @returns Why the directory is not such a layout, or undefined if it is.
+ */
+export function drfedLayoutProblem(
+  contents: LayoutContents,
+): string | undefined {
+  const names = [...contents.entries.keys()].sort();
+  const expected = [...layoutEntries.keys()].sort();
+  if (names.join("\0") !== expected.join("\0")) {
+    const shown =
+      names.length > 5
+        ? `${names.slice(0, 5).join(", ")} and ${names.length - 5} more`
+        : names.join(", ");
+    return `it holds ${shown} instead of exactly ${expected.join(", ")}`;
+  }
+  for (const [name, kind] of layoutEntries) {
+    if (contents.entries.get(name) !== kind) return `${name} is not a ${kind}`;
+  }
+  if (
+    !isRecord(contents.ociLayout) ||
+    contents.ociLayout.imageLayoutVersion !== "1.0.0"
+  ) {
+    return "oci-layout is not an OCI image layout 1.0.0 marker";
+  }
+  if (
+    !isRecord(contents.index) ||
+    contents.index.schemaVersion !== 2 ||
+    !Array.isArray(contents.index.manifests)
+  ) {
+    return "index.json is not an OCI image index";
+  }
+  const { metadata } = contents;
+  const packages =
+    isRecord(metadata) && Array.isArray(metadata.packages)
+      ? metadata.packages.map((item) => (isRecord(item) ? item.name : item))
+      : undefined;
+  if (
+    !isRecord(metadata) ||
+    typeof metadata.platform !== "string" ||
+    !isRecord(metadata.build) ||
+    packages?.join() !== packageOrder.map((name) => `@drfed/${name}`).join()
+  ) {
+    return `${metadataFile} does not describe a DrFed image`;
+  }
+  return undefined;
+}
+
 /** An OCI descriptor, with only the fields DrFed reads or writes. */
 export interface Descriptor {
   readonly mediaType: string;
