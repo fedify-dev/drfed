@@ -250,6 +250,7 @@ description = "Run tests"
 depends = ["build"]
 usage = '''
 flag "-d --debug" help="Run tests in debug mode"
+flag "--shard <shard>" help="Run one test shard as INDEX/TOTAL"
 '''
 run = '''
 #!/usr/bin/env nu
@@ -260,7 +261,8 @@ if "usage_debug" in $env {
   $env.LOGTAPE_TEST_MODE = "on-failure"
   $env.LOGTAPE_TEST_LOWEST_LEVEL = "debug"
 }
-pnpm run --parallel --recursive test --test-concurrency=1
+let shard = (if "usage_shard" in $env { [$"--test-shard=($env.usage_shard)"] } else { [] })
+node --test ...$shard "packages/*/src/**/*.test.ts"
 '''
 
 [tasks."test:postgres"]
