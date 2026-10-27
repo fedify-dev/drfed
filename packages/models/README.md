@@ -11,28 +11,28 @@ Document validation
 -------------------
 
 `@drfed/models/document` exports `validateDocument()` and its diagnostic types.
-The initial implementation checks plain document roots with a single
-`Activity`, `IntransitiveActivity`, `Arrive`, `Like`, `Create`, `Undo`,
-`Accept`, `Follow`, or `Note` type. Activities accept optional `actor`
-references. Their `object`, `target`, `origin`, `result`, and `instrument`
-values accept references or supported embedded activities/Notes, individually
-or in nonempty flat lists. Embedded objects inherit the parent context unless
-they supply their own. Shared checks cover `id`, reference-only `attributedTo`,
-and string `content` (including HTML and empty strings), and `location`
-reference/embedded values. IntransitiveActivity and Arrive accept an omitted or
-null `object`; a non-null value receives `property_not_applicable`. This
-restriction does not make other properties required or remove their shared
+The implementation checks plain document roots with a single supported type:
+both activity base types, Arrive, all twenty-five ordinary named activity
+subtypes, and Note. Travel and Question remain unsupported. Activities accept
+optional `actor` references. Their `object`, `target`, `origin`, `result`, and
+`instrument` values accept references or supported embedded activities/Notes,
+individually or in nonempty flat lists. Embedded objects inherit the parent
+context unless they supply their own. Shared checks cover `id`, reference-only
+`attributedTo`, and string `content` (including HTML and empty strings), and
+`location` reference/embedded values. IntransitiveActivity and Arrive accept an
+omitted or null `object`; a non-null value receives `property_not_applicable`.
+This restriction does not make other properties required or remove their shared
 checks. Unsupported embedded types such as Place and Link still produce support
 findings. It performs no network access, database writes, permission checks, or
 normalization.
 
 Type detection belongs to this package. It uses Fedify's public
 `getEntityTypeById()` and class inheritance, with an explicit
-`implementedTypes` set in *src/document.ts* for the types listed above. Fedify
-recognizing a type does not automatically admit it. `@fedify/vocab` uses the
-same `catalog:` version as the federation package (currently 2.4.3); the shared
-catalog governs upgrades. Detection is synchronous and invokes no vocabulary
-parser or JSON-LD processor.
+`implementedTypes` set in *src/document.ts* for the types described above.
+Fedify recognizing a type does not automatically admit it. `@fedify/vocab` uses
+the same `catalog:` version as the federation package (currently 2.4.3); the
+shared catalog governs upgrades. Detection is synchronous and invokes no
+vocabulary parser or JSON-LD processor.
 
 Findings use a stable `reason`, `category`, `severity`, and original-input
 `path`. `complete` means checking finished, not that the document passed: also

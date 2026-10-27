@@ -18,13 +18,33 @@ import {
   type $EntityType,
   Accept,
   Activity,
+  Add,
+  Announce,
   Arrive,
+  Block,
   Create,
+  Delete,
+  Dislike,
+  Flag,
   Follow,
+  Ignore,
   IntransitiveActivity,
+  Invite,
+  Join,
+  Leave,
   Like,
+  Listen,
+  Move,
   Note,
+  Offer,
+  Read,
+  Reject,
+  Remove,
+  TentativeAccept,
+  TentativeReject,
   Undo,
+  Update,
+  View,
   getEntityTypeById,
 } from "@fedify/vocab";
 
@@ -419,6 +439,26 @@ const implementedTypes: ReadonlySet<$EntityType> = new Set<$EntityType>([
   Follow,
   IntransitiveActivity,
   Arrive,
+  Add,
+  Announce,
+  Block,
+  Delete,
+  Dislike,
+  Flag,
+  Ignore,
+  Invite,
+  Join,
+  Leave,
+  Listen,
+  Move,
+  Offer,
+  Read,
+  Reject,
+  Remove,
+  TentativeAccept,
+  TentativeReject,
+  Update,
+  View,
 ]);
 
 function checkType(
@@ -577,9 +617,9 @@ function checkDocumentValue(
 }
 
 /**
- * Checks Activity, IntransitiveActivity, Arrive, Like, Create, Undo, Accept,
- * Follow, and Note documents, including
- * nested activity objects, without network access or writes. Embedded objects
+ * Checks the implemented Activity Vocabulary types, including nested
+ * activity objects, without network access or writes. Travel and Question
+ * remain unsupported pending their dedicated coverage. Embedded objects
  * inherit the parent's context.
  *
  * Supports standard string contexts, single types, id, string content,

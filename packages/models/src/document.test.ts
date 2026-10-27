@@ -85,6 +85,30 @@ describe("validateDocument() supported document checks", () => {
     "arrive-with-object",
     "arrive-null-object",
     "arrive-location-number",
+    "add-reference",
+    "announce-reference",
+    "block-reference",
+    "delete-reference",
+    "dislike-reference",
+    "flag-reference",
+    "ignore-reference",
+    "invite-reference",
+    "join-reference",
+    "leave-reference",
+    "listen-reference",
+    "move-reference",
+    "offer-reference",
+    "read-reference",
+    "reject-reference",
+    "remove-reference",
+    "tentativeaccept-reference",
+    "tentativereject-reference",
+    "update-note",
+    "view-reference",
+    "add-target-number",
+    "move-origin-list-number",
+    "tentativeaccept-nested-number",
+    "update-note-number",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -158,7 +182,7 @@ describe("validateDocument() supported document checks", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
       { ...like, object: { type: "Article", content: "Hello" } },
-      { ...like, type: "Update" },
+      { ...like, type: "Travel" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
@@ -542,7 +566,7 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("does not admit types recognized by Fedify until their checker rules are implemented", () => {
-    for (const type of ["Person", "Collection", "Update", "Question"]) {
+    for (const type of ["Person", "Collection", "Travel", "Question"]) {
       assert.ok(
         getEntityTypeById(`${context}#${type}`),
         `Fedify must recognize ${type}`,
@@ -611,6 +635,106 @@ describe("validateDocument() supported document checks", () => {
         [{ reason: "unsupported_type", path: ["type"] }],
       );
     }
+  });
+
+  it("applies shared activity rules to the new ordinary types in compact and full IRI forms", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    for (const type of [
+      "Add",
+      "Announce",
+      "Block",
+      "Delete",
+      "Dislike",
+      "Flag",
+      "Ignore",
+      "Invite",
+      "Join",
+      "Leave",
+      "Listen",
+      "Move",
+      "Offer",
+      "Read",
+      "Reject",
+      "Remove",
+      "TentativeAccept",
+      "TentativeReject",
+      "Update",
+      "View",
+    ]) {
+      for (const spelling of [type, `${context}#${type}`]) {
+        // Vocabulary properties remain optional, including actor and object.
+        assert.deepEqual(
+          validateDocument({ "@context": context, type: spelling }),
+          {
+            complete: true,
+            diagnostics: [],
+            changes: [],
+          },
+        );
+        const input = {
+          "@context": context,
+          type: spelling,
+          actor: false,
+          instrument: 123,
+          object: [{ type: "Note", content: false }],
+          origin: [like.object, false],
+          result: 123,
+          target: false,
+        };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, true);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [
+            { reason: "invalid_value_shape", path: ["actor"] },
+            { reason: "invalid_value_shape", path: ["instrument"] },
+            { reason: "invalid_value_shape", path: ["object", 0, "content"] },
+            { reason: "invalid_value_shape", path: ["origin", 1] },
+            { reason: "invalid_value_shape", path: ["result"] },
+            { reason: "invalid_value_shape", path: ["target"] },
+          ],
+        );
+        assert.deepEqual(input, original);
+      }
+    }
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("recognizes inherited activity families in nested new types without applying their social effects", () => {
+    const input = {
+      ...like,
+      type: "TentativeAccept",
+      object: [
+        {
+          type: "Invite",
+          object: { type: "Block", actor: false, object: like.actor },
+        },
+        {
+          type: "TentativeReject",
+          object: { type: "Update", object: { type: "Note", content: 123 } },
+        },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 0, "object", "actor"],
+        },
+        {
+          reason: "invalid_value_shape",
+          path: ["object", 1, "object", "object", "content"],
+        },
+      ],
+    );
+    assert.deepEqual(input, original);
   });
 
   it("reports a non-null intransitive object as inapplicable regardless of its shape", () => {

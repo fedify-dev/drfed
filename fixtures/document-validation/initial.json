@@ -706,6 +706,350 @@
           }
         ]
       }
+    },
+    {
+      "id": "add-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "announce-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Announce",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "block-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Block",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "delete-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Delete",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "dislike-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Dislike",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "flag-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Flag",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "ignore-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Ignore",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "invite-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Invite",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "join-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Join",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "leave-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Leave",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "listen-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Listen",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "move-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Move",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination",
+        "origin": "https://example.com/collections/source"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "offer-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Offer",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "read-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Read",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "reject-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Reject",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "remove-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Remove",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "tentativeaccept-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeAccept",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "tentativereject-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeReject",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": "Updated"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "view-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "View",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "add-target-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "object": "https://example.com/posts/42",
+        "target": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["target"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "move-origin-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Move",
+        "object": "https://example.com/posts/42",
+        "origin": ["https://example.com/collections/source", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tentativeaccept-nested-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeAccept",
+        "object": {
+          "type": "Offer",
+          "actor": "https://example.com/alice",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "update-note-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "content"]
+          }
+        ]
+      }
     }
   ]
 }
