@@ -882,6 +882,21 @@ function resolveProperty(
   return { source, compatible: false };
 }
 
+function isTypeCombination(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length <= 1) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    if (
+      descriptor == null ||
+      !("value" in descriptor) ||
+      typeof descriptor.value !== "string"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function checkType(
   value: unknown,
   path: FieldPath,
@@ -903,7 +918,15 @@ function checkType(
       : value == null || typeof value === "string"
         ? "unsupported_type"
         : "invalid_value_shape";
-    report(reason, path, "This type is not supported by the checker yet.");
+    report(
+      reason,
+      path,
+      isTypeCombination(value)
+        ? "Type combinations are not supported. Provide a single supported type."
+        : Array.isArray(value)
+          ? "Type arrays are not supported. Provide a single type string."
+          : "This type is not supported by the checker yet.",
+    );
     return undefined;
   }
 
@@ -927,7 +950,7 @@ function checkDocumentType(
       report(
         "unsupported_value_form",
         [...path, field.source],
-        "Multiple type fields need the type-list policy.",
+        "Multiple type declarations are not supported. Provide a single type field.",
       );
     }
     return undefined;
