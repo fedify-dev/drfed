@@ -1,4 +1,8 @@
 profile: default
+self-hosted-runner:
+  labels:
+    - ubuntu-latest-m
+    - windows-latest-l
 rules:
   unpinned-uses:
     # Maintainers use current release tags for these actions rather than hashes.
