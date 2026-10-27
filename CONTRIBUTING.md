@@ -365,22 +365,45 @@ Container images
 The image `ghcr.io/fedify-dev/drfed` is built from *docker/Containerfile*,
 only from the verified tarballs of the same run, never from a registry
 dist-tag.  Keep the file free of BuildKit-only syntax so that other OCI
-builders can use it.  Build and test it locally with a running Docker daemon:
+builders can use it.  Build and test it locally with Docker or Podman:
 
 ~~~~ sh
 mise run image:build
-mise run image:test
+mise run test:image
 ~~~~
 
 `image:build` packs the workspace unless `--artifacts` names a tarball
-directory, and writes an OCI layout to *image-artifacts/linux-<arch>/*.
-`image:test` loads that exact layout and runs the four commands, the Compose
-examples under *docker/*, the backup and restore snippets, and an upgrade from
-the source named in *docker/upgrade-source.json*.  Run both after changing
-*docker/*, packaging, startup, or migrations.
+directory, and writes an OCI layout to *image-artifacts/linux-<arch>/*.  It
+builds with `--engine docker` or `--engine podman`; without the option it uses
+Docker when Docker is reachable, and Podman otherwise.  Either engine writes
+one OCI image manifest with gzip layers, the same image labels, and the same
+*drfed-image.json*, and either engine can test the result.  Only Docker layouts
+are released, so the manifest annotations and *index.json* entries that differ
+between the engines are never published.
 
-In CI, pull requests build and test the image on `linux/amd64` and
-`linux/arm64` runners without uploading it.  Release builds keep each tested
+`test:image` loads that exact layout and runs the four commands, the Compose
+examples under *docker/*, the backup and restore snippets, and an upgrade from
+the source named in *docker/upgrade-source.json*.  It runs
+`test:image:docker`, then `test:image:podman`; `--parallel` runs them at the
+same time, which needs memory for both engines' virtual machines on macOS.  An
+engine whose command is not installed is skipped with a message, and
+`--require` turns that into a failure, as CI does.  An installed engine that
+cannot be reached, such as a stopped Docker Desktop or `podman machine`, always
+fails.  Run the tests after changing *docker/*, packaging, startup, or
+migrations.
+
+The scripts live under *scripts/images/*.  Engine differences are data in
+*scripts/images/engines.mts*: command arguments, the environment, platform and
+image ID formats, and the build steps.  To support another container engine,
+add an entry there, add a `test:image:<tool>` task, and add that task to
+`test:image`. The scenarios under *scripts/images/test/scenarios/* do not name
+any engine. `mise run check:images` tests the calculations in *engines.mts*,
+including how the Podman documentation rewrites the Docker commands.
+
+In CI, pull requests build the image with Docker and with Podman on
+`linux/amd64` and `linux/arm64` runners and test each layout with the engine
+that built it, without uploading anything.  Release builds use Docker and test
+the same layout with Docker, then Podman.  Release builds keep each tested
 layout as a `drfed-image-<run-id>-<arch>` artifact and merge them into one OCI
 image index, kept as `drfed-image-index-<run-id>`.  The npm `publish` job
 requires that index, so a broken image blocks the whole release set.  The
@@ -706,7 +729,7 @@ missing.  This is the order CI uses.
 
 Run `mise run dev` for changes that affect startup, CLI parsing, migration
 execution, the GraphQL server, or package build output.  Run
-`mise run image:build` and `mise run image:test` for changes to *docker/* or
+`mise run image:build` and `mise run test:image` for changes to *docker/* or
 to what the container image runs.  Manually verify the
 installed CLI behavior when changing package metadata, `bin` entries, build
 configuration, or files published to npm.

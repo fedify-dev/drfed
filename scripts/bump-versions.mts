@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { setComposeImageTags } from "./compose-images.mts";
+import { setComposeImageTags } from "./images/compose-tags.mts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = join(root, "packages");

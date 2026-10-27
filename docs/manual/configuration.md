@@ -92,9 +92,9 @@ The official container image sets `DRFED_CONTAINER=1`.  This marker is not a
 setting: it only changes the default listening host of `drfed-server` and
 `drfed-web` to `0.0.0.0`, so every configured listen address still replaces it.
 The image also sets `XDG_DATA_HOME=/var/lib`, which places the default PGlite
-directory at */var/lib/drfed/data*.  See [Docker].
+directory at */var/lib/drfed/data*.  See [Container image].
 
-[Docker]: /installation/docker
+[Container image]: /installation/container/
 
 
 Deliver login email

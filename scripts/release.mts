@@ -44,7 +44,7 @@ import {
   sha256Digest,
   singleImage,
   writeBlob,
-} from "./image.mts";
+} from "./images/layout.mts";
 
 const execute = promisify(execFile);
 const packageOrder = ["models", "federation", "graphql", "web", "drfed"];

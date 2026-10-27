@@ -16,6 +16,8 @@
 
 import { defineConfig } from "vitepress";
 
+import { forEngine } from "../../scripts/images/engines.mts";
+
 // A link to the other deployment (the release site from canary and the other
 // way around), set at build time.  Neither variable set means no extra link;
 // setting only one of them is a misconfigured deployment and fails the build.
@@ -69,16 +71,28 @@ export default defineConfig({
   description:
     "Documentation for DrFed, a web-based platform for developing and debugging ActivityPub apps.",
   cleanUrls: true,
+  // Pages include these parts; they are not pages of their own.
+  srcExclude: ["installation/container/parts/**"],
   markdown: {
     // Wrapping the default renderers before VitePress applies its plugins
-    // runs this after code snippet imports have read their files.
+    // runs this after code snippet imports have read their files.  A page's
+    // containerEngine rewrites its shell commands, written for Docker, with
+    // the same function the container tests run them through.
     preConfig(md) {
       for (const rule of ["fence", "code_inline"] as const) {
         const render = md.renderer.rules[rule]!;
-        md.renderer.rules[rule] = (tokens, idx, ...rest) => {
+        md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
           const token = tokens[idx]!;
-          token.content = publishedImage(token.content);
-          return render(tokens, idx, ...rest);
+          const engine = (
+            env as { frontmatter?: { containerEngine?: unknown } }
+          ).frontmatter?.containerEngine;
+          const shell = rule === "code_inline" || /^\s*sh\b/u.test(token.info);
+          token.content = publishedImage(
+            typeof engine === "string" && shell
+              ? forEngine(token.content, engine)
+              : token.content,
+          );
+          return render(tokens, idx, options, env, self);
         };
       }
     },
@@ -92,7 +106,7 @@ export default defineConfig({
     logo: { src: "/icon.svg", alt: "" },
     nav: [
       { text: "What is DrFed?", link: "/what-is-drfed" },
-      { text: "Installation", link: "/installation/docker" },
+      { text: "Installation", link: "/installation/container/" },
       { text: "Manual", link: "/manual/self-hosting" },
       { text: "CLI reference", link: "/reference/cli" },
       { text: "Changelog", link: "/changelog" },
@@ -106,7 +120,18 @@ export default defineConfig({
       {
         text: "Installation",
         items: [
-          { text: "Docker", link: "/installation/docker" },
+          {
+            text: "Container image",
+            items: [
+              { text: "Overview", link: "/installation/container/" },
+              { text: "Docker", link: "/installation/container/docker" },
+              { text: "Podman", link: "/installation/container/podman" },
+              {
+                text: "Other container tools",
+                link: "/installation/container/other",
+              },
+            ],
+          },
           {
             text: "Run from source",
             link: "/installation/run-from-source",

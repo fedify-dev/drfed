@@ -1,9 +1,9 @@
 name: Use the containerd image store
 description: >-
   Switch the runner's Docker daemon to the containerd image store, which the
-  local runs of image:build and image:test use: BuildKit exports OCI layouts
-  with the default builder, and docker load keeps the manifest digest as the
-  image ID.
+  local Docker runs of image:build and test:image use: BuildKit exports OCI
+  layouts with the default builder, and docker load keeps the manifest digest
+  as the image ID.  Podman jobs do not use it.
 runs:
   using: composite
   steps:

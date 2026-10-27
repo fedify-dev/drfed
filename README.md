@@ -26,7 +26,8 @@ Installation and server usage
 -----------------------------
 
 The official container image `ghcr.io/fedify-dev/drfed` contains all four
-commands; see the [Docker installation guide].
+commands; see the [container installation guide] for Docker, Podman, and
+other container tools.
 
 DrFed requires Node.js 26 or newer. The first release will provide
 `drfed-server`, `drfed-account`, `drfed-migrate` and `drfed-web` through npm:
@@ -79,7 +80,7 @@ header and forwards requests to `localhost:8888`. Use `--no-migrate` to require
 an already migrated database. See the [CLI package documentation]
 for the environment variable names, PostgreSQL selection and mail settings.
 
-[Docker installation guide]: https://drfed.org/installation/docker
+[container installation guide]: https://drfed.org/installation/container/
 [CLI package documentation]: ./packages/drfed/README.md
 
 

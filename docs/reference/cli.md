@@ -37,9 +37,11 @@ mise run drfed-server \
 
 Supply a root origin through CLI options, the environment, or TOML. The server
 listens on `localhost:8888` by default, or on `0.0.0.0:8888` in the official
-container image, and runs database migrations on startup.
+[container image], and runs database migrations on startup.
 Open the configured public origin for the frontend. If no database is selected,
 DrFed uses PGlite in its default persistent OS data directory.
+
+[container image]: /installation/container/
 
 
 Server options

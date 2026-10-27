@@ -66,19 +66,22 @@ jobs:
           LOGTAPE_TEST_MODE: ${{ runner.debug == '1' && 'always' || 'on-failure' }}
           LOGTAPE_TEST_LOWEST_LEVEL: ${{ runner.debug == '1' && 'trace' || 'debug' }}
 
-  # Pull requests and other branches build the image from the workspace and
-  # test it on both architectures; nothing is uploaded or published.
+  # Pull requests and other branches build the image from the workspace with
+  # each container engine and test it with that engine on both architectures;
+  # nothing is uploaded or published.
   image-pr:
     needs: [version]
     if: ${{ !cancelled() && needs.version.outputs.enabled != 'true' }}
     timeout-minutes: 45
     concurrency:
-      group: image-pr-${{ github.workflow }}-${{ github.ref }}-${{ matrix.arch }}
+      group: image-pr-${{ github.workflow }}-${{ github.ref }}-${{ matrix.engine }}-${{ matrix.arch }}
       cancel-in-progress: false
       queue: max
     strategy:
       fail-fast: false
       matrix:
+        engine: [docker, podman]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-latest
@@ -95,10 +98,18 @@ jobs:
           experimental: true
           log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
       - uses: ./.github/actions/containerd-image-store
+        if: matrix.engine == 'docker'
+      # podman compose hands the default API address to its provider.
+      - name: Start the Podman API socket
+        if: matrix.engine == 'podman'
+        run: systemctl --user start podman.socket
+      - name: Show the Podman toolchain
+        if: matrix.engine == 'podman'
+        run: podman version && podman compose version
       - name: Build the image from the packed workspace
-        run: mise run image:build
+        run: mise run image:build --engine "${{ matrix.engine }}"
       - name: Test the exact image layout
-        run: mise run image:test
+        run: mise run "test:image:${{ matrix.engine }}" --require
 
   version:
     if: >-
@@ -242,11 +253,15 @@ jobs:
       - name: Build the image from the verified tarballs
         if: steps.original.outputs.reuse != 'true'
         run: >-
-          mise run --skip-deps image:build --artifacts release-artifacts
-          --platform "linux/${{ matrix.arch }}"
-      - name: Test the exact image layout
+          mise run --skip-deps image:build --engine docker
+          --artifacts release-artifacts --platform "linux/${{ matrix.arch }}"
+      # The bytes to be published must also run in Podman.
+      - name: Start the Podman API socket
         if: steps.original.outputs.reuse != 'true'
-        run: mise run image:test
+        run: systemctl --user start podman.socket
+      - name: Test the exact image layout with Docker, then Podman
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run test:image --require
       - uses: actions/upload-artifact@v7.0.2
         if: steps.original.outputs.reuse != 'true'
         with:

@@ -21,7 +21,7 @@ The rest of this guide covers the documentation site only.
 
 [Self-hosting]: https://drfed.org/manual/self-hosting
 [Configuration]: https://drfed.org/manual/configuration
-[Installation]: https://drfed.org/installation/docker
+[Installation]: https://drfed.org/installation/container/
 
 
 Documentation site requirements

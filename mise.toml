@@ -123,18 +123,52 @@ run = "node scripts/test-packaging.mts"
 description = "Build the container image from package tarballs into an OCI layout"
 depends = ["build"]
 usage = """
+flag "--engine <engine>" help="Container engine to build with; defaults to Docker when it is usable, then Podman" {
+  choices "docker" "podman"
+}
 flag "--artifacts <dir>" help="Verified package tarballs and manifest.json; packs the workspace when omitted"
-flag "--platform <platform>" help="linux/amd64 or linux/arm64; defaults to the Docker server's platform"
+flag "--platform <platform>" help="linux/amd64 or linux/arm64; defaults to the container engine's platform"
 flag "--output <dir>" help="OCI layout directory; defaults to image-artifacts/linux-<arch>"
 """
-run = "node scripts/image.mts build"
+run = "node scripts/images/build.mts"
 
-[tasks."image:test"]
-description = "Test an image layout in Docker: commands, Compose examples, backups and upgrades"
+[tasks."test:image"]
+description = "Test an image layout with every container engine, one after another"
 usage = """
+flag "--parallel" help="Test with every engine at the same time"
+flag "--require" help="Fail instead of skipping an engine that is not installed"
 flag "--layout <dir>" help="OCI layout from image:build; defaults to image-artifacts/linux-<arch>"
 """
-run = "node scripts/test-container.mts"
+run = """
+#!/usr/bin/env nu
+mut args = []
+if "usage_require" in $env { $args = ($args | append "--require") }
+if "usage_layout" in $env { $args = ($args | append ["--layout" $env.usage_layout]) }
+if "usage_parallel" in $env {
+  mise run test:image:docker ...$args ::: test:image:podman ...$args
+  exit $env.LAST_EXIT_CODE
+}
+mise run test:image:docker ...$args
+if $env.LAST_EXIT_CODE != 0 { exit $env.LAST_EXIT_CODE }
+mise run test:image:podman ...$args
+exit $env.LAST_EXIT_CODE
+"""
+
+[tasks."test:image:docker"]
+description = "Test an image layout in Docker: commands, Compose examples, backups and upgrades"
+usage = """
+flag "--require" help="Fail instead of skipping when Docker is not installed"
+flag "--layout <dir>" help="OCI layout from image:build; defaults to image-artifacts/linux-<arch>"
+"""
+run = "node scripts/images/test/index.mts --engine docker"
+
+[tasks."test:image:podman"]
+description = "Test an image layout in Podman: commands, Compose examples, backups and upgrades"
+usage = """
+flag "--require" help="Fail instead of skipping when Podman is not installed"
+flag "--layout <dir>" help="OCI layout from image:build; defaults to image-artifacts/linux-<arch>"
+"""
+run = "node scripts/images/test/index.mts --engine podman"
 
 [tasks."test:completion-installation"]
 description = "Probe packed completion discovery and manual loading in five shells"
@@ -158,6 +192,10 @@ run = "sacho check"
 [tasks."check:release"]
 description = "Exercise release version, registry, artifact, image and recovery fixtures"
 run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
+
+[tasks."check:images"]
+description = "Exercise the container engine adapter calculations"
+run = "node --test scripts/images/engines.test.mts"
 
 [tasks."check:docs-preview"]
 description = "Exercise docs preview pull request, build and comment fixtures"

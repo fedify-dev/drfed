@@ -21,7 +21,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const docker = join(dirname(fileURLToPath(import.meta.url)), "..", "docker");
+const docker = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "docker",
+);
 const composeFiles = [
   "compose.pglite.yaml",
   "compose.postgres.yaml",
