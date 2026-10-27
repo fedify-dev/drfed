@@ -418,6 +418,9 @@ importers:
       '@fedify/vocab':
         specifier: 'catalog:'
         version: 2.4.3
+      '@fedify/vocab-runtime':
+        specifier: 'catalog:'
+        version: 2.4.3
       '@logtape/logtape':
         specifier: 'catalog:'
         version: 2.3.0-dev.840

@@ -51,7 +51,9 @@ To be released.
     timestamps, and addressing retain original values and diagnostic paths.
     Single-value properties check multiplicity while treating null entries as
     absent. Empty addressing warns and offers an explicit omission preview
-    without changing the submitted document. [[#151]]
+    without changing the submitted document. Allowlisted bundled contexts and
+    supported inline aliases retain original field/index diagnostics;
+    arbitrary custom properties remain explicitly unsupported. [[#151]]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 

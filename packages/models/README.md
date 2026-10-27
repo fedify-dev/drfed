@@ -50,7 +50,30 @@ Type detection belongs to this package. It uses Fedify's public
 Fedify recognizing a type does not automatically admit it. `@fedify/vocab` uses
 the same `catalog:` version as the federation package (currently 2.4.3); the
 shared catalog governs upgrades. Detection is synchronous and invokes no
-vocabulary parser or JSON-LD processor.
+vocabulary parser or JSON-LD expansion.
+
+Context interpretation uses allowlisted bundled data from the same catalog
+version of `@fedify/vocab-runtime`. The current allowlist is the ActivityStreams
+context and `https://w3id.org/security/v1`. Flat context arrays and simple
+inline term/prefix definitions are supported; the effective context must
+include the standard ActivityStreams vocabulary. Embedded documents inherit
+context, and local overrides of aliases do not change siblings. Standard terms
+cannot be overridden.
+
+Aliases reuse existing property checks while retaining original field names
+and list indexes. Type coercion and language/list containers must match the
+supported term; an IRI match alone does not establish equivalent JSON-LD
+meaning. For example, an object alias needs `@type: "@id"`. Functional aliases
+are checked together for multiplicity without merging their source values.
+Unknown custom properties and known properties without checker rules remain
+unsupported, with input retained. Parsing an extension definition does not
+admit its property into checker coverage.
+
+Scoped term contexts, custom base/vocabulary/default-language directives,
+context resets, JSON literals, and other complex JSON-LD features remain
+explicitly unsupported. Malformed definitions produce invalid\_context;
+contexts outside the allowlist produce context\_unavailable\_offline. Validation
+never fetches a context or resource and remains synchronous.
 
 Collections check items/orderedItems, non-negative totalItems, and typed
 navigation values. OrderedCollectionPage also checks startIndex. Counts are

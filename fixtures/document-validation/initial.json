@@ -522,8 +522,10 @@
         }
       },
       "expected": {
-        "complete": true,
-        "diagnostics": []
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_property", "path": ["testData"] }
+        ]
       }
     },
     {
@@ -536,10 +538,10 @@
         "testField": "keep me"
       },
       "expected": {
-        "complete": true,
+        "complete": false,
         "diagnostics": [
           {
-            "reason": "unmapped_extension_property",
+            "reason": "unsupported_property",
             "path": ["testField"]
           }
         ]
@@ -608,7 +610,7 @@
         "@context": [
           "https://www.w3.org/ns/activitystreams",
           {
-            "subject": {
+            "payload": {
               "@id": "https://www.w3.org/ns/activitystreams#object",
               "@type": "@id"
             }
@@ -616,14 +618,14 @@
         ],
         "type": "Like",
         "actor": "https://example.com/alice",
-        "subject": 123
+        "payload": 123
       },
       "expected": {
         "complete": true,
         "diagnostics": [
           {
             "reason": "invalid_value_shape",
-            "path": ["subject"]
+            "path": ["payload"]
           }
         ]
       }

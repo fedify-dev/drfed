@@ -64,6 +64,7 @@ import {
   View,
   getEntityTypeById,
 } from "@fedify/vocab";
+import { preloadedContexts } from "@fedify/vocab-runtime";
 
 /** The source property names and zero-based indexes leading to a finding. */
 export type FieldPath = readonly (string | number)[];
@@ -164,7 +165,6 @@ export interface DocumentValidationResult {
 }
 
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
-const activityStreamsTypePrefix = `${activityStreamsContext}#`;
 const maximumDiagnostics = 100;
 const actorTypes = [Application, Group, Organization, Person, Service];
 const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
@@ -472,57 +472,424 @@ function checkSingleReference(
   );
 }
 
-// A nested object inherits its parent's understood context unless it overrides it.
+interface ContextTerm {
+  readonly iri: string;
+  readonly type?: string | undefined;
+  readonly container?: string | undefined;
+  readonly prefix: boolean;
+}
+
+interface DocumentContext {
+  readonly terms: ReadonlyMap<string, ContextTerm>;
+}
+
+function sameContextTerm(
+  actual: ContextTerm | undefined,
+  expected: ContextTerm,
+): boolean {
+  return (
+    actual != null &&
+    actual.iri === expected.iri &&
+    actual.type === expected.type &&
+    actual.container === expected.container &&
+    actual.prefix === expected.prefix
+  );
+}
+
+// Resolve only explicit terms, defined prefixes, keywords, and absolute IRIs.
+// This profile deliberately does not implement general JSON-LD expansion.
+function resolveTerm(
+  value: string,
+  terms: ReadonlyMap<string, ContextTerm>,
+  pending?: ReadonlySet<string>,
+): string | undefined {
+  if (value === "@id" || value === "@type") return value;
+  if (pending?.has(value)) return undefined;
+  const term = terms.get(value);
+  if (term != null) return term.iri;
+  const colon = value.indexOf(":");
+  if (colon < 0) return undefined;
+  if (pending?.has(value.slice(0, colon))) return undefined;
+  const prefix = terms.get(value.slice(0, colon));
+  if (prefix?.prefix) return prefix.iri + value.slice(colon + 1);
+  return URL.canParse(value) ? value : undefined;
+}
+
+function readContextTerm(
+  definition: unknown,
+  path: FieldPath,
+  terms: ReadonlyMap<string, ContextTerm>,
+  report: Report,
+  pending: ReadonlySet<string>,
+): ContextTerm | undefined {
+  let values: Record<string, unknown>;
+  if (typeof definition === "string") values = { "@id": definition };
+  else if (
+    definition !== null &&
+    typeof definition === "object" &&
+    !Array.isArray(definition)
+  ) {
+    const record = readDocument(definition, path, report);
+    if (record == null) return undefined;
+    values = record;
+  } else {
+    report(
+      definition === null ? "unsupported_context_form" : "invalid_context",
+      path,
+      "Only string and simple term definitions are supported.",
+    );
+    return undefined;
+  }
+  if (
+    Object.keys(values).some(
+      (key) => !["@id", "@type", "@container", "@prefix"].includes(key),
+    )
+  ) {
+    report(
+      "unsupported_context_form",
+      path,
+      "Scoped contexts, reverse properties, and complex term definitions are not supported.",
+    );
+    return undefined;
+  }
+  const id = values["@id"];
+  if (id === undefined) {
+    report(
+      "unsupported_context_form",
+      path,
+      "Inline term definitions require an explicit @id in this profile.",
+    );
+    return undefined;
+  }
+  if (typeof id !== "string") {
+    report("invalid_context", path, "Expected a string @id mapping.");
+    return undefined;
+  }
+  if (/^[#/.]/u.test(id) || id.startsWith("_:")) {
+    report(
+      "unsupported_context_form",
+      path,
+      "Relative and blank-node term mappings are outside the supported profile.",
+    );
+    return undefined;
+  }
+  if (id.startsWith("@") && !["@id", "@type"].includes(id)) {
+    report(
+      "unsupported_context_form",
+      path,
+      "This keyword alias is outside the supported profile.",
+    );
+    return undefined;
+  }
+  return resolveContextTerm(
+    id,
+    values,
+    typeof definition === "string",
+    path,
+    terms,
+    report,
+    pending,
+  );
+}
+
+function resolveContextTerm(
+  id: string,
+  values: Record<string, unknown>,
+  implicitPrefix: boolean,
+  path: FieldPath,
+  terms: ReadonlyMap<string, ContextTerm>,
+  report: Report,
+  pending: ReadonlySet<string>,
+): ContextTerm | undefined {
+  const iri = resolveTerm(id, terms, pending);
+  if (iri == null) return undefined;
+  if (iri.startsWith("@") && Object.keys(values).some((key) => key !== "@id")) {
+    report(
+      "unsupported_context_form",
+      path,
+      "Keyword aliases with additional coercion or container options are not supported.",
+    );
+    return undefined;
+  }
+  const type = values["@type"];
+  if (typeof type === "string" && type.startsWith("@") && type !== "@id") {
+    report(
+      "unsupported_context_form",
+      path,
+      "This type coercion is outside the supported profile.",
+    );
+    return undefined;
+  }
+  const expandedType =
+    typeof type === "string" ? resolveTerm(type, terms, pending) : undefined;
+  if (type !== undefined && expandedType === undefined) return undefined;
+  const container = values["@container"];
+  if (container === "@language" && type !== undefined) {
+    report(
+      "unsupported_context_form",
+      path,
+      "Language containers with type coercion are not supported.",
+    );
+    return undefined;
+  }
+  if (
+    container !== undefined &&
+    container !== "@language" &&
+    container !== "@list"
+  ) {
+    report(
+      "unsupported_context_form",
+      path,
+      "This container form is not supported.",
+    );
+    return undefined;
+  }
+  if (
+    values["@prefix"] !== undefined &&
+    typeof values["@prefix"] !== "boolean"
+  ) {
+    report("invalid_context", path, "Expected a boolean @prefix flag.");
+    return undefined;
+  }
+  return {
+    iri,
+    type: expandedType,
+    container,
+    prefix:
+      values["@prefix"] === true || (implicitPrefix && /[#/:]$/u.test(iri)),
+  };
+}
+
+function applyContextTerms(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  terms: Map<string, ContextTerm>,
+  report: Report,
+  protectedTerms?: ReadonlyMap<string, ContextTerm>,
+): boolean {
+  let valid = true;
+  const localReport: Report = (...args) => {
+    valid = false;
+    report(...args);
+  };
+  const pending = new Set(Object.keys(values));
+  for (const name of pending) terms.delete(name);
+  while (pending.size > 0) {
+    if (!valid) return false;
+    let resolved = false;
+    for (const name of pending) {
+      const fieldPath = [...path, name];
+      if (name.includes(":")) {
+        localReport(
+          "unsupported_context_form",
+          fieldPath,
+          "IRI-shaped term definitions are outside the supported inline profile.",
+        );
+        continue;
+      }
+      if (name.startsWith("@")) {
+        if (
+          protectedTerms == null &&
+          name === "@vocab" &&
+          values[name] === "_:"
+        ) {
+          pending.delete(name);
+        } else {
+          localReport(
+            "unsupported_context_form",
+            fieldPath,
+            "This context directive is outside the supported profile.",
+          );
+        }
+        continue;
+      }
+      const term = readContextTerm(
+        values[name],
+        fieldPath,
+        terms,
+        localReport,
+        pending,
+      );
+      if (term == null) continue;
+      const original = protectedTerms?.get(name);
+      if (original != null && !sameContextTerm(term, original)) {
+        localReport(
+          "unsupported_context_form",
+          fieldPath,
+          "The standard ActivityStreams context cannot be overridden.",
+        );
+        continue;
+      }
+      terms.set(name, term);
+      pending.delete(name);
+      resolved = true;
+    }
+    if (!resolved && pending.size > 0 && valid) {
+      for (const name of pending) {
+        localReport(
+          "invalid_context",
+          [...path, name],
+          "The term has an unresolved or cyclic IRI mapping.",
+        );
+      }
+    }
+  }
+  return valid;
+}
+
+// Bundled availability is not blanket context admission. Add allowlist entries
+// only when their complete definitions fit this interpreter's bounded profile.
+const bundledContexts = new Map<string, ReadonlyMap<string, ContextTerm>>();
+for (const url of [activityStreamsContext, "https://w3id.org/security/v1"]) {
+  const document = preloadedContexts[url] as {
+    "@context": Record<string, unknown>;
+  };
+  const terms = new Map<string, ContextTerm>();
+  applyContextTerms(
+    document["@context"],
+    [],
+    terms,
+    (_reason, _path, message) => {
+      throw new Error(message);
+    },
+  );
+  bundledContexts.set(url, terms);
+}
+const standardTerms = bundledContexts.get(activityStreamsContext)!;
+const standardContext: DocumentContext = { terms: standardTerms };
+
+function applyContextEntry(
+  value: unknown,
+  path: FieldPath,
+  terms: Map<string, ContextTerm>,
+  report: Report,
+): boolean {
+  if (typeof value === "string") {
+    const url =
+      value === "http://www.w3.org/ns/activitystreams"
+        ? activityStreamsContext
+        : value;
+    const bundled = bundledContexts.get(url);
+    if (bundled == null) {
+      report(
+        "context_unavailable_offline",
+        path,
+        "This context is outside the offline allowlist.",
+      );
+      return false;
+    }
+    for (const [name, term] of bundled) terms.set(name, term);
+    return true;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    report(
+      value === null || Array.isArray(value)
+        ? "unsupported_context_form"
+        : "invalid_context",
+      path,
+      "Expected an allowlisted context or a simple inline context.",
+    );
+    return false;
+  }
+  const definitions = readDocument(value, path, report);
+  return (
+    definitions != null &&
+    applyContextTerms(definitions, path, terms, report, standardTerms)
+  );
+}
+
+// Each child gets its parent's understood context; overrides never affect siblings.
 function checkContext(
   values: Record<string, unknown>,
   path: FieldPath,
   report: Report,
-  inherited: boolean,
-): boolean {
+  inherited?: DocumentContext,
+): DocumentContext | undefined {
   if (!Object.hasOwn(values, "@context")) {
-    if (!inherited) {
-      report(
-        "implicit_activitystreams_context",
-        [...path, "@context"],
-        "Assuming the ActivityStreams context for this document.",
-      );
-    }
-    return true;
+    if (inherited != null) return inherited;
+    report(
+      "implicit_activitystreams_context",
+      [...path, "@context"],
+      "Assuming the ActivityStreams context for this document.",
+    );
+    return standardContext;
   }
+  const terms = new Map(inherited?.terms);
+  let valid = true;
+  const localReport: Report = (...args) => {
+    valid = false;
+    report(...args);
+  };
   const context = values["@context"];
-  if (
-    context === activityStreamsContext ||
-    context === "http://www.w3.org/ns/activitystreams"
-  ) {
-    return true;
+  const contextPath = [...path, "@context"];
+  if (Array.isArray(context)) {
+    visitList(context, contextPath, localReport, (entry, entryPath) => {
+      if (!applyContextEntry(entry, entryPath, terms, localReport)) {
+        valid = false;
+      }
+    });
+  } else if (!applyContextEntry(context, contextPath, terms, localReport)) {
+    valid = false;
   }
-  const reason =
-    typeof context === "string"
-      ? "context_unavailable_offline"
-      : context == null || typeof context === "object"
-        ? "unsupported_context_form"
-        : "invalid_context";
-  report(
-    reason,
-    [...path, "@context"],
-    "This context cannot be interpreted by this checker yet.",
-  );
-  return false;
+  if (!valid) return undefined;
+  // Require the standard vocabulary, rather than inferring AS from arbitrary terms.
+  if (
+    ![...standardTerms].every(([name, term]) =>
+      sameContextTerm(terms.get(name), term),
+    )
+  ) {
+    report(
+      "unsupported_context_form",
+      contextPath,
+      "The context must include the standard ActivityStreams vocabulary.",
+    );
+    return undefined;
+  }
+  return { terms };
+}
+
+interface SourceProperty {
+  readonly source: string;
+  readonly name?: string;
+  readonly iri?: string;
+  readonly compatible: boolean;
+}
+
+// Retain one entry per source field. Aliases are never merged or reserialized.
+function resolveProperty(
+  source: string,
+  context: DocumentContext,
+): SourceProperty {
+  const term = context.terms.get(source);
+  const iri = term?.iri ?? resolveTerm(source, context.terms);
+  for (const [name, standard] of standardTerms) {
+    if (iri !== standard.iri || term?.container !== standard.container) {
+      continue;
+    }
+    return {
+      source,
+      name,
+      iri: standard.iri,
+      compatible: term?.type === standard.type,
+    };
+  }
+  if (iri === "@id") {
+    return { source, name: "id", iri: "@id", compatible: true };
+  }
+  if (iri === "@type") {
+    return { source, name: "type", iri: "@type", compatible: true };
+  }
+  return { source, compatible: false };
 }
 
 function checkType(
   value: unknown,
   path: FieldPath,
   report: Report,
+  context: DocumentContext,
 ): VocabularyType | undefined {
-  // Context checking above ensures short type names use the ActivityStreams
-  // namespace. Other context forms remain blocked before type detection.
   const typeIri =
-    typeof value === "string"
-      ? value.includes(":")
-        ? value
-        : `${activityStreamsTypePrefix}${value}`
-      : undefined;
+    typeof value === "string" ? resolveTerm(value, context.terms) : undefined;
   let Type: VocabularyType | undefined;
   if (typeIri != null) {
     Type = getEntityTypeById(typeIri);
@@ -536,11 +903,7 @@ function checkType(
       : value == null || typeof value === "string"
         ? "unsupported_type"
         : "invalid_value_shape";
-    report(
-      reason,
-      [...path, "type"],
-      "This type is not supported by the checker yet.",
-    );
+    report(reason, path, "This type is not supported by the checker yet.");
     return undefined;
   }
 
@@ -549,6 +912,28 @@ function checkType(
 
 function isTypeOrSubtype(Type: VocabularyType, Base: VocabularyType): boolean {
   return Type === Base || Type.prototype instanceof Base;
+}
+
+function checkDocumentType(
+  values: Record<string, unknown>,
+  fields: readonly SourceProperty[],
+  path: FieldPath,
+  context: DocumentContext,
+  report: Report,
+): VocabularyType | undefined {
+  const types = fields.filter(({ name }) => name === "type");
+  if (types.length > 1) {
+    for (const field of types) {
+      report(
+        "unsupported_value_form",
+        [...path, field.source],
+        "Multiple type fields need the type-list policy.",
+      );
+    }
+    return undefined;
+  }
+  const source = types[0]?.source ?? "type";
+  return checkType(values[source], [...path, source], report, context);
 }
 
 // Collection navigation and actor collection links each identify one resource.
@@ -575,6 +960,71 @@ function getCollectionRange(
     }
   }
   return undefined;
+}
+
+function isFunctionalProperty(Type: VocabularyType, property: string): boolean {
+  if (["id", "mediaType"].includes(property)) return true;
+  if (getCollectionRange(Type, property) != null) return true;
+  if (isTypeOrSubtype(Type, Link)) {
+    return ["href", "height", "width", "hreflang"].includes(property);
+  }
+  if (["published", "updated", "startTime", "endTime"].includes(property)) {
+    return true;
+  }
+  if (isTypeOrSubtype(Type, Collection) && property === "totalItems") {
+    return true;
+  }
+  return (
+    isTypeOrSubtype(Type, OrderedCollectionPage) && property === "startIndex"
+  );
+}
+
+// Count original data slots without reading accessors; the value checks report
+// sparse/accessor entries separately. Null entries do not contribute a value.
+function countValues(value: unknown): number {
+  if (!Array.isArray(value)) return value === null ? 0 : 1;
+  let count = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    if (
+      descriptor != null &&
+      "value" in descriptor &&
+      descriptor.value !== null
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function findMultipleAliases(
+  Type: VocabularyType,
+  fields: readonly SourceProperty[],
+  values: Record<string, unknown>,
+): ReadonlySet<string> {
+  const groups = new Map<string, string[]>();
+  for (const field of fields) {
+    if (
+      field.name == null ||
+      field.iri == null ||
+      !isFunctionalProperty(Type, field.name)
+    ) {
+      continue;
+    }
+    if (countValues(values[field.source]) === 0) continue;
+    const group = groups.get(field.iri) ?? [];
+    group.push(field.source);
+    groups.set(field.iri, group);
+  }
+  const multiple = new Set<string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (const source of group) {
+      // The existing functional-array check reports its own multiplicity.
+      if (countValues(values[source]) <= 1) multiple.add(source);
+    }
+  }
+  return multiple;
 }
 
 function checkNonNegativeInteger(
@@ -891,7 +1341,7 @@ function checkDocumentValue(
   function checkDocument(
     document: unknown,
     path: FieldPath,
-    embedded: boolean,
+    inherited?: DocumentContext,
     expectedTypes?: readonly VocabularyType[],
   ): void {
     if (
@@ -906,9 +1356,13 @@ function checkDocumentValue(
     if (values == null || document == null) {
       return;
     }
-    if (!checkContext(values, path, report, embedded)) return;
-
-    const Type = checkType(values.type, path, report);
+    const context = checkContext(values, path, report, inherited);
+    if (context == null) return;
+    const fields = Object.keys(values)
+      .filter((source) => source !== "@context")
+      .sort()
+      .map((source) => resolveProperty(source, context));
+    const Type = checkDocumentType(values, fields, path, context, report);
     if (Type == null) return;
     if (expectedTypes?.every((Expected) => !isTypeOrSubtype(Type, Expected))) {
       report(
@@ -947,17 +1401,42 @@ function checkDocumentValue(
       );
     }
     if (isCollection) referenceProperties.push("items", "orderedItems");
+    const multipleAliases = findMultipleAliases(Type, fields, values);
 
     ancestors.add(document);
     pending.push(() => {
       ancestors.delete(document);
     });
     // LIFO work preserves the same depth-first, sorted-property order.
-    for (const key of Object.keys(values).sort().reverse()) {
-      if (key === "@context" || key === "type") continue;
+    for (const field of fields.reverse()) {
+      const { source, name: key } = field;
+      if (key === "type") continue;
       pending.push(() => {
-        const value = values[key];
-        const fieldPath = [...path, key];
+        const value = values[source];
+        const fieldPath = [...path, source];
+        if (key == null) {
+          report(
+            "unsupported_property",
+            fieldPath,
+            "This property is outside the checker's Fedify vocabulary coverage.",
+          );
+          return;
+        }
+        if (!field.compatible) {
+          report(
+            "unsupported_value_form",
+            fieldPath,
+            "This spelling's type coercion differs from the supported vocabulary term.",
+          );
+          return;
+        }
+        if (multipleAliases.has(source)) {
+          report(
+            "invalid_multiplicity",
+            fieldPath,
+            "Multiple aliases supply values for one functional property.",
+          );
+        }
         const collectionRange = getCollectionRange(Type, key);
         if (integerProperties.includes(key)) {
           checkSingleValue(value, fieldPath, report, checkNonNegativeInteger);
@@ -1020,7 +1499,7 @@ function checkDocumentValue(
                 typeof entry === "object" &&
                 !Array.isArray(entry)
               ) {
-                checkDocument(entry, entryPath, true, collectionRange);
+                checkDocument(entry, entryPath, context, collectionRange);
               } else {
                 checkReference(entry, entryPath, report);
               }
@@ -1039,7 +1518,7 @@ function checkDocumentValue(
     }
   }
 
-  checkDocument(rootDocument, rootPath, false);
+  checkDocument(rootDocument, rootPath);
   while (pending.length > 0 && !isFull()) {
     pending.pop()!();
   }
@@ -1100,7 +1579,8 @@ function createPreview(
  * Question uses shared intransitive rules; poll-specific
  * fields remain unsupported pending #155.
  *
- * Supports standard string contexts, single types, id, string content,
+ * Supports allowlisted bundled contexts and simple inline aliases/prefixes,
+ * single types, id, string content,
  * attribution/location and activity actor, object, target, origin, result,
  * and instrument values. These can be IRI references or supported
  * embedded types, singly or in nonempty flat lists. Intransitive activities
@@ -1108,6 +1588,8 @@ function createPreview(
  * support diagnostics and `complete: false`. This is not a permission check,
  * a Fedify parseability check, or full ActivityStreams validation.
  * The input must be plain JSON data, not a Proxy.
+ * Context interpretation is bounded and synchronous. Complex contexts and
+ * arbitrary custom properties remain unsupported; input is never expanded.
  * Null list entries mean absence. Functional properties accept at most one
  * non-null value, preserving array-index paths. Common text/language maps,
  * timestamps, actor preferredUsername, and addressing are checked.

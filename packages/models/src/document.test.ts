@@ -30,6 +30,8 @@ import {
   Mention,
   getEntityTypeById,
 } from "@fedify/vocab";
+import { preloadedContexts } from "@fedify/vocab-runtime";
+import jsonld from "@fedify/vocab-runtime/jsonld";
 
 interface DraftFixture {
   readonly id: string;
@@ -252,6 +254,10 @@ describe("validateDocument() supported document checks", () => {
     "common-invalid-timestamps",
     "addressing-null-and-nested",
     "functional-reference-multiplicity",
+    "context-alias-number",
+    "context-remote",
+    "extension-field",
+    "extension-unmapped",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -290,6 +296,374 @@ describe("validateDocument() supported document checks", () => {
       assert.deepEqual(fixture.input, original);
     });
   }
+
+  it("checks aliased nested values at original indexes without expanding away nulls", () => {
+    const input = {
+      "@context": [
+        context,
+        { payload: { "@id": `${context}#object`, "@type": "@id" } },
+      ],
+      type: "Undo",
+      payload: [null, like.object, 123, { type: "Like", payload: false }],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["payload", 2] },
+        { reason: "invalid_value_shape", path: ["payload", 3, "payload"] },
+      ],
+    );
+    assert.deepEqual(input, original);
+  });
+
+  it("resolves type/id aliases, prefixes, full IRIs, and language containers", () => {
+    const input = {
+      "@context": [
+        context,
+        {
+          v: { "@id": `${context}#`, "@prefix": true },
+          kind: "@type",
+          identifier: "@id",
+          title: "v:name",
+          titles: { "@id": "v:name", "@container": "@language" },
+        },
+      ],
+      kind: "v:Note",
+      identifier: like.object,
+      title: "Title",
+      titles: { en: "Title", ko: "제목" },
+      [`${context}#summary`]: "<p>Summary</p>",
+      "v:content": "<p>Content</p>",
+    };
+    assert.deepEqual(validateDocument(input), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    const invalid = validateDocument({
+      ...input,
+      identifier: 123,
+      titles: { en: false },
+    });
+    assert.deepEqual(
+      invalid.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["identifier"] },
+        { reason: "invalid_value_shape", path: ["titles", "en"] },
+      ],
+    );
+  });
+
+  it("isolates nested alias overrides from their siblings", () => {
+    const input = {
+      "@context": [
+        context,
+        { payload: { "@id": `${context}#object`, "@type": "@id" } },
+      ],
+      type: "Undo",
+      payload: [
+        {
+          "@context": {
+            payload: { "@id": `${context}#location`, "@type": "@id" },
+          },
+          type: "Arrive",
+          payload: like.object,
+        },
+        { type: "Like", payload: false },
+        { type: "Arrive", payload: like.object },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["payload", 1, "payload"] },
+        { reason: "property_not_applicable", path: ["payload", 2, "payload"] },
+      ],
+    );
+    assert.deepEqual(input, original);
+  });
+
+  it("counts functional aliases together without merging their original values", () => {
+    const input = {
+      "@context": [
+        context,
+        { when: { "@id": `${context}#published`, "@type": "xsd:dateTime" } },
+      ],
+      type: "Note",
+      published: "2026-10-27T12:00Z",
+      when: [null, "not-a-date"],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_multiplicity", path: ["published"] },
+        { reason: "invalid_multiplicity", path: ["when"] },
+        { reason: "invalid_datetime", path: ["when", 1] },
+      ],
+    );
+    const single = validateDocument({
+      ...input,
+      published: null,
+      when: [null, "2026-10-27T12:00Z"],
+    });
+    assert.deepEqual(single, { complete: true, diagnostics: [], changes: [] });
+    assert.deepEqual(input, original);
+  });
+
+  it("keeps mismatched term coercion unsupported instead of inheriting it by IRI", () => {
+    for (const [key, inline] of [
+      ["payload", { payload: "as:object" }],
+      ["as:object", {}],
+      [`${context}#object`, {}],
+    ] as const) {
+      const result = validateDocument({
+        "@context": [context, inline],
+        type: "Like",
+        [key]: like.object,
+      });
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "unsupported_value_form", path: [key] }],
+      );
+    }
+  });
+
+  it("keeps arbitrary custom properties unsupported and retains their raw data", () => {
+    for (const inline of [
+      {},
+      { debugData: "https://example.com/ns#debugData" },
+    ]) {
+      const input = {
+        "@context": [context, inline],
+        type: "Note",
+        debugData: { value: [null, 123], type: "custom" },
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "unsupported_property", path: ["debugData"] }],
+      );
+      assert.deepEqual(input, original);
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+    const known = validateDocument({
+      "@context": context,
+      type: "Note",
+      duration: "not-a-duration",
+    });
+    assert.equal(known.complete, false);
+    assert.equal(known.diagnostics[0]?.reason, "unsupported_property");
+  });
+
+  it("uses allowlisted bundled contexts without fetching context or resource URLs", (t) => {
+    const fetch = t.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected fetch");
+    });
+    for (const declaration of [
+      context,
+      [context],
+      [context, "https://w3id.org/security/v1"],
+    ]) {
+      assert.deepEqual(validateDocument({ ...like, "@context": declaration }), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+    }
+    const blocked = validateDocument({
+      ...like,
+      "@context": [context, "https://remote.example/context"],
+    });
+    assert.equal(blocked.complete, false);
+    assert.deepEqual(
+      blocked.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "context_unavailable_offline", path: ["@context", 1] }],
+    );
+    assert.equal(fetch.mock.callCount(), 0);
+  });
+
+  it("distinguishes malformed inline contexts from unsupported JSON-LD features", () => {
+    for (const [inline, reason, suffix] of [
+      [{ bad: { "@id": 123 } }, "invalid_context", "bad"],
+      [{ bad: "@graph" }, "unsupported_context_form", "bad"],
+      [{ "as:object": "as:target" }, "unsupported_context_form", "as:object"],
+      [
+        { bad: { "@id": "@id", "@type": "@id" } },
+        "unsupported_context_form",
+        "bad",
+      ],
+      [
+        {
+          bad: { "@id": "as:name", "@container": "@language", "@type": "@id" },
+        },
+        "unsupported_context_form",
+        "bad",
+      ],
+      [
+        { bad: { "@id": "as:object", "@context": {} } },
+        "unsupported_context_form",
+        "bad",
+      ],
+      [{ "@language": "en" }, "unsupported_context_form", "@language"],
+      [
+        { "@base": "https://example.com/" },
+        "unsupported_context_form",
+        "@base",
+      ],
+      [
+        { bad: { "@id": "as:object", "@type": "@json" } },
+        "unsupported_context_form",
+        "bad",
+      ],
+      [
+        { object: { "@id": "as:target", "@type": "@id" } },
+        "unsupported_context_form",
+        "object",
+      ],
+    ] as const) {
+      const result = validateDocument({
+        ...like,
+        "@context": [context, inline],
+      });
+      assert.deepEqual(
+        result.diagnostics.map(({ reason: actual, path }) => ({
+          reason: actual,
+          path,
+        })),
+        [{ reason, path: ["@context", 1, suffix] }],
+      );
+    }
+    const cyclic = validateDocument({
+      ...like,
+      "@context": [context, { a: "b", b: "a" }],
+    });
+    assert.ok(
+      cyclic.diagnostics.every(({ reason }) => reason === "invalid_context"),
+    );
+    assert.deepEqual(
+      cyclic.diagnostics.map(({ path }) => path),
+      [
+        ["@context", 1, "a"],
+        ["@context", 1, "b"],
+      ],
+    );
+  });
+
+  it("never invokes context or term-definition accessors", () => {
+    let evaluated = false;
+    const definition = Object.defineProperty({}, "@id", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    const result = validateDocument({
+      ...like,
+      "@context": [context, { payload: definition }],
+    });
+    assert.equal(evaluated, false);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "non_json_value", path: ["@context", 1, "payload", "@id"] }],
+    );
+  });
+
+  it("uses original addressing aliases in normalized previews and change paths", () => {
+    const input = {
+      "@context": [
+        context,
+        {
+          recipients: { "@id": "as:to", "@type": "@id" },
+          payload: { "@id": "as:object", "@type": "@id" },
+        },
+      ],
+      type: "Create",
+      recipients: [],
+      payload: { type: "Note", recipients: [] },
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ path }) => path),
+      [["payload", "recipients"], ["recipients"]],
+    );
+    assert.deepEqual(
+      result.changes.map(({ path }) => path),
+      [["payload", "recipients"], ["recipients"]],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      "@context": input["@context"],
+      type: "Create",
+      payload: { type: "Note" },
+    });
+    assert.deepEqual(input, original);
+  });
+
+  it("matches Fedify expansion for the admitted forward-prefix profile while retaining source paths", async (t) => {
+    const fetch = t.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected fetch");
+    });
+    const bundled = structuredClone(preloadedContexts[context]);
+    const input = {
+      "@context": [
+        context,
+        { payload: { "@id": "z:object", "@type": "@id" }, z: `${context}#` },
+      ],
+      type: "z:Like",
+      payload: [null, 123, { type: "Like", payload: false }],
+    };
+    const original = structuredClone(input);
+    const expanded = await jsonld.expand(input, {
+      documentLoader: (url: string) => {
+        assert.equal(url, context);
+        return Promise.resolve({
+          contextUrl: null,
+          documentUrl: url,
+          document: structuredClone(preloadedContexts[context]),
+        });
+      },
+    });
+    assert.deepEqual(expanded, [
+      {
+        "@type": [`${context}#Like`],
+        [`${context}#object`]: [
+          { "@value": 123 },
+          {
+            "@type": [`${context}#Like`],
+            [`${context}#object`]: [{ "@value": false }],
+          },
+        ],
+      },
+    ]);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["payload", 1] },
+        { reason: "invalid_value_shape", path: ["payload", 2, "payload"] },
+      ],
+    );
+    assert.deepEqual(preloadedContexts[context], bundled);
+    assert.deepEqual(input, original);
+    assert.equal(fetch.mock.callCount(), 0);
+  });
 
   it("checks all timestamp properties with ActivityStreams calendar and lexical rules", () => {
     for (const property of ["published", "updated", "startTime", "endTime"]) {
