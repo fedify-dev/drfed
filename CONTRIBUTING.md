@@ -518,7 +518,10 @@ mise run generate:migrate --custom --name your_migration_name
 
 Review generated SQL before committing it.  Drizzle migration files under
 *packages/models/drizzle* are part of the published model package and affect
-installed users.
+installed users. See [database lifecycle internals] for migration integrity,
+preparation and persistent-store ownership.
+
+[database lifecycle internals]: https://drfed.org/internals/database-lifecycle
 
 
 Federation changes
@@ -555,6 +558,13 @@ The `Create` listener stores what it accepts through *src/inbox-persist.ts*.
 An inbound delivery that was verified and answered with 2xx is linked to
 `activities` by the activity IRI it recorded, through `linkInboundActivity`,
 never by what a listener reports.
+
+See [inbox persistence internals] for acceptance and idempotence, and
+[activity delivery internals] for completion reports, receipts and queue
+observations.
+
+[inbox persistence internals]: https://drfed.org/internals/inbox-persistence
+[activity delivery internals]: https://drfed.org/internals/activity-deliveries
 
 
 GraphQL changes

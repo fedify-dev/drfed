@@ -90,16 +90,8 @@ A failed mail receipt or a provider exception keeps this response unchanged;
 operators receive a fixed outcome diagnostic without provider error text or
 message IDs. Users can request another link if mail does not arrive.
 
-Pass `shutdownSignal` to `createYogaServer` to combine runtime shutdown with
-each request's cancellation signal. The combined signal reaches Upyo's send
-options. `trackOperation` keeps resolver work registered until the provider
-settles, including a provider that ignores cancellation after the HTTP response
-ends. The runtime owner must drain these operations before closing resources;
-passing a signal alone does not guarantee that a transport stops.
-See [Yoga execution cancellation] for the distinction between canceling an
-HTTP response and stopping resolver work.
-
-[Yoga execution cancellation]: https://the-guild.dev/graphql/yoga-server/docs/features/execution-cancellation
+For shutdown integration when embedding Yoga, see
+[runtime ownership](#runtime-ownership).
 
 
 Activity deliveries
@@ -125,91 +117,18 @@ one activity's deliveries span instances, `Activity.deliveries` leaves out,
 before paging, those of instances the viewer may not read, rather than failing
 on them.
 
-Wrap the federation HTTP surface with `createInboundRecorder` from
-[`@drfed/federation`], passing a federation made by `createFederation` from
-the same package and the root origin.  Every inbox `POST`
-is recorded, whether or not its body is JSON; recording errors never replace
-federation responses.  A request Fedify throws on is recorded too, with the
-exception in `error` and no `statusCode`, and the exception is thrown again.
-An inbound delivery keeps:
-
- -  The request as received: `rawBody` (or `rawBodyBase64` when the body is not
-    valid UTF-8), `requestHeaders`, and `requestUrl`.  `payload` is the body
-    parsed as JSON for querying, and is `null` when it does not parse or
-    holds U+0000 or an unpaired surrogate, which PostgreSQL cannot store.
-    `cookie` headers are dropped, and `authorization` is kept only for the
-    `Signature` scheme.
- -  `inboxUrl`, the canonical IRI of the inbox, however the request spelled its
-    host or scheme.
- -  `verificationMechanism` and `verificationResult` summarize Fedify's
-    `onRequestFinished()` report, independently of OpenTelemetry sampling.
-    DrFed verifies nothing again.  The result is `unattempted` when no
-    signature check ran before a preparation or parsing failure, and
-    `unobserved` when the report is missing or observation fails.
- -  The report can contain several attempts and keys; the delivery retains
-    one representative check.  Root activity evaluations take precedence over
-    embedded portable objects.  An authenticating attempt wins, followed by
-    the last cryptographically successful evaluation, including an attribution
-    refusal, then the last meaningful failed evaluation.  A partly invalid
-    proof set remains `invalid_signature` or `key_fetch_error`.
- -  `key_fetch_error` comes from an explicit fetch failure.  `error` includes
-    `keyFetchError:` and the HTTP status or the original error's name and
-    message, including for cached failures.  A document with no usable key
-    that Fedify reports as `invalidSignature` is `invalid_signature`.
- -  A valid signature or proof can still fail authentication.  Linked Data
-    Signatures with the wrong owner and Object Integrity Proofs with uncovered
-    attributions remain `verified` with `status` `rejected`.  `error` records
-    Fedify's attribution, ownership, nonce or proof-policy reason.  Other
-    refusals and processing failures use the completion report's reason;
-    exceptions retain the original thrown value's description.
- -  `verificationKey` is the actual successful key of the selected check, or
-    its last tried key on failure, including when refreshing a cached key
-    fails.  Its history uses the key snapshot's ID, falling back to a valid
-    declared key ID when the snapshot has none.  `signedKeyIri` is the HTTP
-    signature's declaration, preferring the successful check when several
-    HTTP signatures were evaluated.  It may differ from the history ID or
-    refer to a mechanism that did not authenticate the request.  Malformed
-    declarations remain in the raw request.
- -  `status`, which follows the response Fedify gave: `received` when the inbox
-    listener ran, `acknowledged` when the request was answered 2xx without it
-    (a duplicate, for instance), `rejected` when a verified activity was
-    refused or its handling threw, and `unverified` otherwise.  With an inbox
-    queue, a delivery is
-    `acknowledged` when the request is answered and becomes `received` once the
-    queue worker runs the listener; the queued message carries its delivery ID.
-
 `KeyVersion.firstSeen` and `lastSeen` are DrFed observation times, not remote
 rotation times or evidence of continuous use.  `Key` and `KeyVersion` hold
 public material only and are readable by any authenticated viewer.
 
-`deliverActivity`, also from [`@drfed/federation`], is the outbound entry point
-for explicit recipients once local actor keys are available (#87).  It removes
-`bto` and `bcc` before delivery, records one row per destination inbox with
-every recipient sharing it in `recipientIris`, and settles each delivery
-independently.  A recipient without an ID or an inbox is left out, because
-Fedify does not deliver to it. The recorded `payload` is the document before
-signing.  `attempts` keeps every attempt that ended, with the status the remote
-inbox answered, read from the responses `fetch()` publishes on
-`diagnostics_channel`, and the causes of network errors.  When the inbox
-redirects a delivery, the status is the one the redirects ended with, whether
-Fedify followed them, as it does when it signs the request, or `fetch()` did.
-With a message queue, `createFederation` observes Fedify's outbox worker, and
-each queued message carries the delivery it belongs to.  A delivery becomes
-`sent` when Fedify reports `activitypub.activity.sent` for its inbox, stays
-`failed` while it is retried, and ends `permanently_failed`, or `abandoned`
-when Fedify measures it abandoned after its retries ran out.  A delivery Fedify
-returns from without sending to the inbox, or without enqueuing a message to
-it, is `permanently_failed` with no attempt, since Fedify makes none.  The
-queue is handed to Fedify as one without native retries, so that every retry
-follows Fedify's policy and is recorded.  Activity resource persistence (#88),
-retention policies, and the activity-log UI (#13) are separate.
+Recording requires the federation recorder and outbound delivery wrapper. See
+[activity delivery internals] for the raw request fields,
+verification and status semantics, key observations, and queued delivery
+attempts. The [inbox persistence internals]
+explain how accepted deliveries acquire stored resources.
 
-URL fields hold only values that parse as URLs, and no text field holds
-U+0000; anything else a remote server sent stays in `rawBody` and
-`requestHeaders`, and in `payload` when PostgreSQL can store it.  `error` and
-`responseBody` keep what a remote server answered with U+FFFD for each U+0000.
-Deliveries are ordered by `created`, which for an inbound delivery is when the
-request arrived; `completed` is when DrFed answered it.
+[activity delivery internals]: https://drfed.org/internals/activity-deliveries
+[inbox persistence internals]: https://drfed.org/internals/inbox-persistence
 
 
 Moved exports
@@ -245,11 +164,10 @@ for users who need the schema from their installed version.
 Runtime ownership
 -----------------
 
-`createYogaServer()` accepts an optional `trackOperation` callback.  Supply a
-callback that registers and returns each operation's completion promise when
-the runtime closes database or mail resources on shutdown.  It tracks context
-loading and complete field and type resolvers, including work still running
-after [Yoga cancels execution].  The CLI supplies its operation registry;
-callers that omit the callback retain the existing behavior.
+When embedding `createYogaServer()`, pass `shutdownSignal` and `trackOperation`
+if the runtime closes database or mail resources on shutdown. Cancellation
+alone does not mean resolver work has stopped. See [runtime lifecycle internals]
+for context loading, resolver tracking, the callback contract and draining
+order.
 
-[Yoga cancels execution]: https://the-guild.dev/graphql/yoga-server/docs/features/execution-cancellation
+[runtime lifecycle internals]: https://drfed.org/internals/runtime-lifecycle

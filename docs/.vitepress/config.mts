@@ -93,6 +93,18 @@ export default defineConfig({
       {
         text: "Internals",
         items: [
+          { text: "HTTP serving", link: "/internals/http-serving" },
+          {
+            text: "Configuration resolution",
+            link: "/internals/configuration-resolution",
+          },
+          { text: "Database lifecycle", link: "/internals/database-lifecycle" },
+          { text: "Runtime lifecycle", link: "/internals/runtime-lifecycle" },
+          { text: "Inbox persistence", link: "/internals/inbox-persistence" },
+          {
+            text: "Activity deliveries",
+            link: "/internals/activity-deliveries",
+          },
           { text: "Resource revisions", link: "/internals/resource-revisions" },
         ],
       },

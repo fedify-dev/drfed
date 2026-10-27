@@ -28,13 +28,11 @@ call returns an independent `Federation` that resolves local actors from the
 given database.  `buildFederation(db)` returns the builder without building
 it, for callers that build it themselves.
 
-The application CLI routes one-label instance subdomains exclusively to this
-surface. A missing federation route returns 404 and never falls back to the
-frontend or GraphQL. Behind TLS termination, preserve the original Host and
-configure the external root origin: the CLI restores its scheme before Fedify
-processes the request, preserving the signed headers and body. Forwarded
-headers do not choose the authority. See the
-[CLI documentation](../drfed/README.md) for the first-release proxy contract.
+The CLI routes instance subdomains to this federation. See
+[HTTP serving internals] for authority classification and the
+[CLI documentation](../drfed/README.md#root-origin) for reverse proxy setup.
+
+[HTTP serving internals]: https://drfed.org/internals/http-serving
 
 
 Exports
@@ -58,52 +56,25 @@ them.
 Activity deliveries
 -------------------
 
-`createFederation()` captures Fedify's inbox completion reports and tracks
-outbound spans and measurements.  It observes the outbox queue when one is
-given, so that each delivery
-can be recorded in `activity_deliveries`.  Wrap the federation's HTTP surface
-with `createInboundRecorder()` to record every inbox request, and send
-activities with `deliverActivity()`.  Both are also exported from the package
-root.  The GraphQL fields that read these records are documented in
-[`@drfed/graphql`].
+Wrap the HTTP surface of a federation made by `createFederation()` with
+`createInboundRecorder()`, and send activities with `deliverActivity()`. Both
+are exported from the package root and `@drfed/federation/activity-delivery`.
+See [activity delivery internals] for completion reports,
+queue observations and storage, and the
+[GraphQL package README](../graphql/README.md#activity-deliveries) for query
+fields and access rules.
 
-[`@drfed/graphql`]: https://github.com/fedify-dev/drfed/tree/main/packages/graphql
+[activity delivery internals]: https://drfed.org/internals/activity-deliveries
 
 
 Received activities
 -------------------
 
-The inbox listeners store a received `Create` in `activities`, with its remote
-actor and object, when:
+See [inbox persistence internals] for received `Create`
+acceptance, idempotence, original document retention and links to deliveries
+and resource revisions.
 
- -  it has an ID, and its actor is not a local actor, whose activities DrFed
-    stores as it sends them;
- -  its object is a `Note` or an `Article` with an ID on the origin of the
-    actor, attributed to the actor, and with content, as [FEP-fe34] requires
-    of an object its actor creates;
- -  its actor has an inbox;
- -  its text holds neither U+0000 nor an unpaired surrogate, which PostgreSQL
-    would refuse or alter; the delivery keeps such text as received; and
- -  `createInboundRecorder()` recorded the request, which tells the listener
-    what the request carried and when it arrived.
-
-An IRI already stored is kept as it is: a `Create` received again, or by
-several instances, is stored once, and nothing it carries is written then, even
-an object it names anew.  One that claims another actor's object or an IRI of
-another kind is not stored.  The activity and its embedded object are stored as
-received, whatever terms their context uses.  DrFed looks for the embedded
-object in at most 64 places of the activity, expanding the document once for
-each; when it is not among them, the object is stored without its document,
-and the activity's document still holds it as received.
-A remote actor's `username` is its `preferredUsername`, which may be missing.
-
-Fedify authenticates an activity before answering it with 2xx, and Fedify
-2.4.3 or later refuses one whose ID is on another origin than its actors, so
-every inbound delivery that was verified and answered with 2xx is linked to the
-stored activity its ID names, a duplicate Fedify skips included.  An outbound
-delivery is linked to the activity it sends.
-
-[FEP-fe34]: https://w3id.org/fep/fe34
+[inbox persistence internals]: https://drfed.org/internals/inbox-persistence
 
 
 Signing key recovery

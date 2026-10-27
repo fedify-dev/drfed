@@ -70,22 +70,10 @@ drfed-server --root-origin http://drfed.localhost:8888 \
   --data-path .pgdata
 ~~~~
 
-Requests are routed by the authority they arrive on:
-
-| Authority                             | Serves                                |
-| ------------------------------------- | ------------------------------------- |
-| `<slug>.<root domain>`                | ActivityPub only; GraphQL answers 404 |
-| the public web authority              | Frontend and exact `/graphql`         |
-| other control authorities             | Exact `/graphql`; web paths are 421   |
-| anything deeper under the root domain | 421 Misdirected Request               |
-| an unusable `Host` header             | 400 Bad Request                       |
-
-The authority has to match in full, port included.  A request for
-`foo.drfed.example.com:8888` against a root origin of
-`https://drfed.example.com` does not name an instance and is served the control
-surface, not a 404, so do not read the table above as isolating GraphQL by host
-name alone.  Ports 80 and 443 both count as no port at all, since which of them
-is the default depends on a scheme that is deliberately not compared.
+One-label instance authorities serve ActivityPub only. The public web
+authority serves the frontend and `/graphql`; other control authorities serve
+only `/graphql`. See [HTTP serving internals] for full authority
+classification, port comparison and invalid-host responses.
 
 The first-release reverse proxy contract preserves the original `Host` header.
 Set the root origin's external scheme for federation and the public web
@@ -101,6 +89,8 @@ HTTPS, a wildcard TLS certificate to match.
 Changing the root origin after instances exist does not move them.  Their host
 names are already part of the actor URIs the rest of the fediverse has stored,
 so the server only warns at startup about instances it can no longer reach.
+
+[HTTP serving internals]: https://drfed.org/internals/http-serving
 
 
 Login origins
@@ -384,51 +374,19 @@ It does not publish anything to npm.
 Resource ownership
 ------------------
 
-Server startup registers each resource as it is acquired.  Startup failures and
-shutdown stop new work, drain active requests, GraphQL resolvers and the task
-worker, then close
-owned resources in reverse order.  Cleanup continues if one resource fails;
-startup errors retain their original cause.  SIGTERM allows ten seconds for
-shutdown and force-closes stalled HTTP connections after five seconds.
+`@drfed/drfed/resources` and `@drfed/drfed/operations` expose `ResourceOwner`
+and `OperationRegistry`. See [runtime lifecycle internals] for
+acquisition, cancellation, draining, borrowed resources and shutdown deadlines.
 
-The `@drfed/drfed/resources` and `@drfed/drfed/operations` subpaths export
-`ResourceOwner` and `OperationRegistry` for code that manages its own runtime.
-Register borrowed resources with `owned: false`; the owner leaves them open.
-Operations receive a shared abort signal and remain tracked until their
-promises settle.  HTTP response streams in the CLI remain drained by srvx.
-
-The CLI also tracks GraphQL context loading and field/type resolvers separately
-from the HTTP handler.  [Yoga execution cancellation] stops further execution
-when a client disconnects, but a resolver already waiting on a database or mail
-operation can still be running.  Its resources remain open until it settles.
-
-Use `run()` to admit new work and `track()` only for continuations of requests
-already accepted.  Stop admitting requests and stop background producers before
-calling `drain()`.  Draining also waits for continuations registered during
-shutdown, so an accepted GraphQL response can finish during the grace period.
-
-[Yoga execution cancellation]: https://the-guild.dev/graphql/yoga-server/docs/features/execution-cancellation
+[runtime lifecycle internals]: https://drfed.org/internals/runtime-lifecycle
 
 
 Shared configuration bindings
 -----------------------------
 
-`@drfed/drfed/configuration` supplies the common setting registry, strict TOML
-structure, and isolated [Optique environment] and [configuration] contexts.
-Bindings preserve `CLI > DRFED_* > TOML > default`, including `false` and
-empty arrays. Array sources replace each other. Each result carries its source
-and, for TOML values, the absolute configuration file path; provenance maps
-contain no setting values.
-
-Commands must check required values after resolution. An absent optional
-setting has a default-sourced result whose `value` is `undefined`; wrapping
-a binding in `optional()` can hide invalid environment values and should be
-avoided. Bind only the settings a command consumes: the entire TOML file is
-checked for unknown keys and wrong types, while unused environment values
-remain unread. `configurationPath()` resolves CLI and environment paths
-against the supplied working directory and TOML paths against the file's
-directory. The loader reads only an explicitly selected file and fails if
-that file is missing. It neither searches for configuration nor loads *.env*.
+`@drfed/drfed/configuration` supplies shared setting bindings. Contributor
+contracts for registry entries, validation and source metadata are in
+[configuration resolution internals].
 
 The server CLI uses these bindings. Set `DRFED_CONFIG` or pass `--config`
 to select one TOML file; explicit CLI settings take priority over environment
@@ -569,8 +527,7 @@ policy.
 same database selection contract, returning plain runtime settings and
 source-only metadata for ignored fields.
 
-[Optique environment]: https://optique.dev/integrations/env.md
-[configuration]: https://optique.dev/integrations/config.md
+[configuration resolution internals]: https://drfed.org/internals/configuration-resolution
 [Upyo SMTP documentation]: https://upyo.org/transports/smtp
 
 

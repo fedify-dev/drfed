@@ -11,6 +11,10 @@ adapters. Reads return local documents, which may contain `bto` and `bcc`;
 callers must authorize access and prepare a separate document for serving or
 sending.
 
+See [inbox persistence](inbox-persistence.md) for accepted remote writers,
+[activity deliveries](activity-deliveries.md) for transport observations, and
+[database lifecycle](database-lifecycle.md) for migration preparation.
+
 
 Documents and history
 ---------------------
