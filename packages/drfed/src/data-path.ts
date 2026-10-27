@@ -24,25 +24,36 @@ import { env } from "node:process";
  */
 export function defaultPgliteDataPath(
   platform: NodeJS.Platform = process.platform,
-  home = homedir(),
+  home: string | (() => string) = homedir,
   environment: Readonly<Record<string, string | undefined>> = env,
 ): string {
+  // Look the home directory up only when no absolute OS override replaces it,
+  // so an arbitrary container UID with neither HOME nor passwd entry works.
+  const resolveHome = typeof home === "string" ? () => home : home;
   if (platform === "win32") {
     const local = environment.LOCALAPPDATA;
     return win32.join(
       local && win32.isAbsolute(local)
         ? local
-        : win32.join(home, "AppData", "Local"),
+        : win32.join(resolveHome(), "AppData", "Local"),
       "DrFed",
       "data",
     );
   }
   if (platform === "darwin") {
-    return posix.join(home, "Library", "Application Support", "DrFed", "data");
+    return posix.join(
+      resolveHome(),
+      "Library",
+      "Application Support",
+      "DrFed",
+      "data",
+    );
   }
   const xdg = environment.XDG_DATA_HOME;
   return posix.join(
-    xdg && posix.isAbsolute(xdg) ? xdg : posix.join(home, ".local", "share"),
+    xdg && posix.isAbsolute(xdg)
+      ? xdg
+      : posix.join(resolveHome(), ".local", "share"),
     "drfed",
     "data",
   );
