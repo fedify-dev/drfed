@@ -1050,6 +1050,210 @@
           }
         ]
       }
+    },
+    {
+      "id": "travel-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "actor": "https://example.com/alice",
+        "origin": "https://example.com/places/home",
+        "target": "https://example.com/places/work"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "travel-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "travel-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "travel-origin-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "origin": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-open-ended",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "content": "How was your day?"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-question",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Question",
+          "content": "How was your day?"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-question",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Question",
+          "content": "What changed?"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-choices-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "oneOf": [
+          {
+            "type": "Note",
+            "content": "Yes"
+          }
+        ]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["oneOf"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-closed-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "closed": true
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["closed"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-both-choice-modes-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "oneOf": [
+          {
+            "type": "Note",
+            "content": "Yes"
+          }
+        ],
+        "anyOf": [
+          {
+            "type": "Note",
+            "content": "No"
+          }
+        ]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["anyOf"]
+          },
+          {
+            "reason": "unsupported_property",
+            "path": ["oneOf"]
+          }
+        ]
+      }
     }
   ]
 }

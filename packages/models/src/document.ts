@@ -37,11 +37,13 @@ import {
   Move,
   Note,
   Offer,
+  Question,
   Read,
   Reject,
   Remove,
   TentativeAccept,
   TentativeReject,
+  Travel,
   Undo,
   Update,
   View,
@@ -155,6 +157,41 @@ type Report = (
   path: FieldPath,
   message: string,
 ) => void;
+
+// Unsupported custom types by Fedify are not in this checker's coverage.
+const implementedTypes: ReadonlySet<$EntityType> = new Set<$EntityType>([
+  Note,
+  Activity,
+  Like,
+  Create,
+  Undo,
+  Accept,
+  Follow,
+  IntransitiveActivity,
+  Arrive,
+  Travel,
+  Add,
+  Announce,
+  Block,
+  Delete,
+  Dislike,
+  Flag,
+  Ignore,
+  Invite,
+  Join,
+  Leave,
+  Listen,
+  Move,
+  Offer,
+  Question,
+  Read,
+  Reject,
+  Remove,
+  TentativeAccept,
+  TentativeReject,
+  Update,
+  View,
+]);
 
 // Owns diagnostic collection and completion state for one validation call.
 function createReporter() {
@@ -428,39 +465,6 @@ function checkContext(
   return false;
 }
 
-// Unsupported custom types by Fedify are not in this checker's coverage.
-const implementedTypes: ReadonlySet<$EntityType> = new Set<$EntityType>([
-  Note,
-  Activity,
-  Like,
-  Create,
-  Undo,
-  Accept,
-  Follow,
-  IntransitiveActivity,
-  Arrive,
-  Add,
-  Announce,
-  Block,
-  Delete,
-  Dislike,
-  Flag,
-  Ignore,
-  Invite,
-  Join,
-  Leave,
-  Listen,
-  Move,
-  Offer,
-  Read,
-  Reject,
-  Remove,
-  TentativeAccept,
-  TentativeReject,
-  Update,
-  View,
-]);
-
 function checkType(
   value: unknown,
   path: FieldPath,
@@ -618,9 +622,9 @@ function checkDocumentValue(
 
 /**
  * Checks the implemented Activity Vocabulary types, including nested
- * activity objects, without network access or writes. Travel and Question
- * remain unsupported pending their dedicated coverage. Embedded objects
- * inherit the parent's context.
+ * activity objects, without network access or writes. Embedded objects inherit
+ * the parent's context. Question uses shared intransitive rules; poll-specific
+ * fields remain unsupported pending #155.
  *
  * Supports standard string contexts, single types, id, string content,
  * and reference-only attributedTo/actor values. Object location and activity

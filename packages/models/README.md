@@ -12,19 +12,22 @@ Document validation
 
 `@drfed/models/document` exports `validateDocument()` and its diagnostic types.
 The implementation checks plain document roots with a single supported type:
-both activity base types, Arrive, all twenty-five ordinary named activity
-subtypes, and Note. Travel and Question remain unsupported. Activities accept
-optional `actor` references. Their `object`, `target`, `origin`, `result`, and
-`instrument` values accept references or supported embedded activities/Notes,
-individually or in nonempty flat lists. Embedded objects inherit the parent
-context unless they supply their own. Shared checks cover `id`, reference-only
-`attributedTo`, and string `content` (including HTML and empty strings), and
-`location` reference/embedded values. IntransitiveActivity and Arrive accept an
-omitted or null `object`; a non-null value receives `property_not_applicable`.
-This restriction does not make other properties required or remove their shared
-checks. Unsupported embedded types such as Place and Link still produce support
-findings. It performs no network access, database writes, permission checks, or
-normalization.
+both activity base types, all twenty-eight named activity subtypes, and Note.
+Travel and Question use the shared intransitive checks. Question-specific
+`oneOf`, `anyOf`, and `closed` fields remain unsupported until #155 adds their
+rules; their input is preserved with `complete: false`. Open-ended questions
+need no choices, and Create/Update-embedded Questions share the same checks.
+Activities accept optional `actor` references. Their `object`, `target`,
+`origin`, `result`, and `instrument` values accept references or supported
+embedded activities/Notes, individually or in nonempty flat lists. Embedded
+objects inherit the parent context unless they supply their own. Shared checks
+cover `id`, reference-only `attributedTo`, and string `content` (including HTML
+and empty strings), and `location` reference/embedded values.
+IntransitiveActivity and Arrive accept an omitted or null `object`; a non-null
+value receives `property_not_applicable`. This restriction does not make other
+properties required or remove their shared checks. Unsupported embedded types
+such as Place and Link still produce support findings. It performs no network
+access, database writes, permission checks, or normalization.
 
 Type detection belongs to this package. It uses Fedify's public
 `getEntityTypeById()` and class inheritance, with an explicit

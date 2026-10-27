@@ -109,6 +109,18 @@ describe("validateDocument() supported document checks", () => {
     "move-origin-list-number",
     "tentativeaccept-nested-number",
     "update-note-number",
+    "travel-no-object",
+    "travel-null-object",
+    "travel-with-object",
+    "travel-origin-list-number",
+    "question-open-ended",
+    "question-null-object",
+    "question-with-object",
+    "create-question",
+    "update-question",
+    "question-choices-pending",
+    "question-closed-pending",
+    "question-both-choice-modes-pending",
   ]) {
     it(`matches the ${id} draft fixture`, () => {
       const fixture = fixtures.find((entry) => entry.id === id);
@@ -182,7 +194,7 @@ describe("validateDocument() supported document checks", () => {
     for (const input of [
       { ...like, published: "2026-10-26T00:00:00Z" },
       { ...like, object: { type: "Article", content: "Hello" } },
-      { ...like, type: "Travel" },
+      { ...like, type: "Person" },
       { ...like, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
@@ -551,7 +563,13 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("recognizes base and intransitive types in short and full IRI forms without requiring fields", () => {
-    for (const type of ["Activity", "IntransitiveActivity", "Arrive"]) {
+    for (const type of [
+      "Activity",
+      "IntransitiveActivity",
+      "Arrive",
+      "Travel",
+      "Question",
+    ]) {
       for (const spelling of [type, `${context}#${type}`]) {
         assert.deepEqual(
           validateDocument({ "@context": context, type: spelling }),
@@ -566,7 +584,7 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("does not admit types recognized by Fedify until their checker rules are implemented", () => {
-    for (const type of ["Person", "Collection", "Travel", "Question"]) {
+    for (const type of ["Person", "Collection", "Article", "Place"]) {
       assert.ok(
         getEntityTypeById(`${context}#${type}`),
         `Fedify must recognize ${type}`,
@@ -738,7 +756,12 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("reports a non-null intransitive object as inapplicable regardless of its shape", () => {
-    for (const type of ["IntransitiveActivity", "Arrive"]) {
+    for (const type of [
+      "IntransitiveActivity",
+      "Arrive",
+      "Travel",
+      "Question",
+    ]) {
       for (const object of [
         false,
         123,
@@ -800,7 +823,13 @@ describe("validateDocument() supported document checks", () => {
     const fetch = test.mock.method(globalThis, "fetch", () => {
       throw new Error("Unexpected network access");
     });
-    for (const type of ["Activity", "IntransitiveActivity", "Arrive"]) {
+    for (const type of [
+      "Activity",
+      "IntransitiveActivity",
+      "Arrive",
+      "Travel",
+      "Question",
+    ]) {
       const input = Object.freeze({
         "@context": context,
         type,
@@ -862,6 +891,84 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["location", 2] },
       ],
     );
+  });
+
+  it("checks standalone and nested Travel and Question through inherited rules", () => {
+    const input = {
+      ...like,
+      type: "Create",
+      object: [
+        {
+          type: `${context}#Travel`,
+          actor: false,
+          object: { type: "Note", content: false },
+          origin: [like.object, 123],
+          target: like.object,
+        },
+        {
+          type: `${context}#Question`,
+          object: false,
+          result: { type: "Travel", object: 123 },
+        },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["object", 0, "actor"] },
+        { reason: "property_not_applicable", path: ["object", 0, "object"] },
+        { reason: "invalid_value_shape", path: ["object", 0, "origin", 1] },
+        { reason: "property_not_applicable", path: ["object", 1, "object"] },
+        {
+          reason: "property_not_applicable",
+          path: ["object", 1, "result", "object"],
+        },
+      ],
+    );
+    assert.deepEqual(input, original);
+  });
+
+  it("keeps new intransitive types offline and safely handles nested contexts and accessors", (test) => {
+    const fetch = test.mock.method(globalThis, "fetch", () => {
+      throw new Error("Unexpected network access");
+    });
+    let evaluated = false;
+    const result = validateDocument({
+      ...like,
+      type: "Create",
+      object: [
+        {
+          "@context": "https://remote.example/context",
+          type: "Question",
+          object: 123,
+        },
+        {
+          type: "Travel",
+          get target() {
+            evaluated = true;
+            throw new Error("Do not invoke accessors");
+          },
+        },
+        { type: "Question", content: 123 },
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "context_unavailable_offline",
+          path: ["object", 0, "@context"],
+        },
+        { reason: "non_json_value", path: ["object", 1, "target"] },
+        { reason: "invalid_value_shape", path: ["object", 2, "content"] },
+      ],
+    );
+    assert.equal(evaluated, false);
+    assert.equal(fetch.mock.callCount(), 0);
   });
 
   for (const property of ["target", "origin", "result", "instrument"]) {
