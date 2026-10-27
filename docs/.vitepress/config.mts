@@ -33,6 +33,29 @@ const extraNav =
     ? [{ text: EXTRA_NAV_TEXT, link: EXTRA_NAV_LINK }]
     : [];
 
+// The image tag that Compose snippets and examples name.  CI builds that
+// deploy pass the exact version the same workflow run published, so every
+// example names an image that exists; other builds keep the checked-in tag.
+// oxlint-disable-next-line node/no-process-env
+const { DRFED_IMAGE_VERSION } = process.env;
+if (
+  DRFED_IMAGE_VERSION !== undefined &&
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(DRFED_IMAGE_VERSION)
+) {
+  throw new Error(
+    `DRFED_IMAGE_VERSION must be a published version; got ${JSON.stringify(DRFED_IMAGE_VERSION)}.`,
+  );
+}
+const imageReference = /\bghcr\.io\/fedify-dev\/drfed:\d[0-9A-Za-z.-]*/gu;
+function publishedImage(text: string): string {
+  return DRFED_IMAGE_VERSION === undefined
+    ? text
+    : text.replaceAll(
+        imageReference,
+        `ghcr.io/fedify-dev/drfed:${DRFED_IMAGE_VERSION}`,
+      );
+}
+
 // Star-orbit symbol from https://github.com/hackers-pub/visual-identity
 // (exports/starorbit-transparent-17x12.svg), © 2025 Bak Eunji,
 // CC BY-SA 4.0 <https://creativecommons.org/licenses/by-sa/4.0/>.
@@ -46,6 +69,20 @@ export default defineConfig({
   description:
     "Documentation for DrFed, a web-based platform for developing and debugging ActivityPub apps.",
   cleanUrls: true,
+  markdown: {
+    // Wrapping the default renderers before VitePress applies its plugins
+    // runs this after code snippet imports have read their files.
+    preConfig(md) {
+      for (const rule of ["fence", "code_inline"] as const) {
+        const render = md.renderer.rules[rule]!;
+        md.renderer.rules[rule] = (tokens, idx, ...rest) => {
+          const token = tokens[idx]!;
+          token.content = publishedImage(token.content);
+          return render(tokens, idx, ...rest);
+        };
+      }
+    },
+  },
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/icon.svg" }],
     ["link", { rel: "me", href: "https://hackers.pub/@drfed" }],
@@ -55,7 +92,7 @@ export default defineConfig({
     logo: { src: "/icon.svg", alt: "" },
     nav: [
       { text: "What is DrFed?", link: "/what-is-drfed" },
-      { text: "Installation", link: "/installation/manual-installation" },
+      { text: "Installation", link: "/installation/docker" },
       { text: "Manual", link: "/manual/self-hosting" },
       { text: "CLI reference", link: "/reference/cli" },
       { text: "Changelog", link: "/changelog" },
@@ -69,6 +106,7 @@ export default defineConfig({
       {
         text: "Installation",
         items: [
+          { text: "Docker", link: "/installation/docker" },
           {
             text: "Run from source",
             link: "/installation/run-from-source",

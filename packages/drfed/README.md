@@ -20,12 +20,13 @@ drfed-server --root-origin https://drfed.example.com \
 ~~~~
 
 The server listens on `localhost:8888` by default.  Pass `--listen HOST:PORT`
-to override.  Automatic database migrations run on startup unless `--no-migrate`
-is given. The frontend and exact `/graphql` endpoint share this listener. Open
-the configured root origin for the frontend, or set `--public-origin` to a
-different control authority. Instance and deeper subdomains cannot be selected
-as its authority. Other control authorities still serve `/graphql`, but web
-requests on them receive 421.
+to override.  The official container image sets `DRFED_CONTAINER=1`, which
+changes only that default host to `0.0.0.0`.  Automatic database migrations run
+on startup unless `--no-migrate` is given. The frontend and exact `/graphql`
+endpoint share this listener. Open the configured root origin for the frontend,
+or set `--public-origin` to a different control authority. Instance and deeper
+subdomains cannot be selected as its authority. Other control authorities still
+serve `/graphql`, but web requests on them receive 421.
 
 CLI parsing validates settings before opening database or mail resources.
 `--help`, `--version`, and `--generate-graphql-schema` can run without starting

@@ -24,6 +24,14 @@ a fresh database automatically. An existing account with the same normalized
 email is returned without changing its name or privileges. Newly created
 accounts are not administrators.
 
+In the official container image, run the command through the server's Compose
+service, as described in [Docker]:
+
+~~~~ sh
+docker compose run --rm drfed drfed-account create \
+  --email alice@example.com --name "Alice"
+~~~~
+
 For a configured deployment, use the same TOML file:
 
 ~~~~ sh
@@ -50,6 +58,7 @@ to print login links; their contents are excluded by default.
 
 See [Configuration] for shared settings and mail setup.
 
+[Docker]: /installation/docker
 [Configuration]: /manual/configuration
 
 

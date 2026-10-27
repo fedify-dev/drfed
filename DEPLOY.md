@@ -14,13 +14,14 @@ Running a DrFed server is documented on the documentation site, not here:
  -  [Configuration] (*docs/manual/configuration.md*)
  -  [Installation] (*docs/installation/*)
 
-Publishing the npm packages and GitHub Releases is covered in
+Publishing the npm packages, the container image, and GitHub Releases is
+covered in
 [*CONTRIBUTING.md*](./CONTRIBUTING.md#automated-npm-and-github-releases).
 The rest of this guide covers the documentation site only.
 
 [Self-hosting]: https://drfed.org/manual/self-hosting
 [Configuration]: https://drfed.org/manual/configuration
-[Installation]: https://drfed.org/installation/manual-installation
+[Installation]: https://drfed.org/installation/docker
 
 
 Documentation site requirements
@@ -38,16 +39,19 @@ has no server code.  A host must:
  -  serve HTTPS.
 
 The build reads `EXTRA_NAV_TEXT` and `EXTRA_NAV_LINK` to add a navigation link
-to the other public site.  Without them no link is added.
+to the other public site.  Without them no link is added.  It also reads
+`DRFED_IMAGE_VERSION`, which replaces the image tag in container examples with
+the version the same workflow run published; without it the examples keep the
+checked-in version.
 
 There are three targets:
 
  -  *Release* (`https://drfed.org`): built from a release tag with a `Canary`
-    link.  Deployed only after the tag's npm publication and GitHub Release
-    have both succeeded.
+    link.  Deployed only after the tag's npm publication, image publication,
+    and GitHub Release have all succeeded.
  -  *Canary* (`https://canary.drfed.org`): built from a `main` commit with a
-    `Release` link.  Deployed only after that commit's checks, tests, and `dev`
-    npm publication have all succeeded.
+    `Release` link.  Deployed only after that commit's checks, tests, `dev`
+    npm publication, and image publication have all succeeded.
  -  *Preview*: built from a pull request's merge ref
     (*refs/pull/<n>/merge*, the head merged into the base branch) with no
     extra link, at a fixed URL per pull request.  The preview comment names
