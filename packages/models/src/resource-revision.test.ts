@@ -674,6 +674,120 @@ for (const backend of revisionBackends) {
   );
 
   it(
+    `continues a caller transaction after an append savepoint fails on ${backend}`,
+    options,
+    async () => {
+      await withRevisionDatabase(backend, async (fixture) => {
+        await fixture.query(`CREATE FUNCTION fail_savepoint_relation() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN IF NEW.property = 'urn:fail-savepoint' THEN RAISE EXCEPTION 'injected savepoint failure'; END IF; RETURN NEW; END $$`);
+        await fixture.query(
+          "CREATE TRIGGER fail_savepoint_relation BEFORE INSERT ON revision_relations FOR EACH ROW EXECUTE FUNCTION fail_savepoint_relation()",
+        );
+        const iri = `urn:savepoint:${uuidV7()}`;
+        const beforeIri = `urn:before-savepoint:${uuidV7()}`;
+        const afterIri = `urn:after-savepoint:${uuidV7()}`;
+        const committed = await fixture.db.transaction(async (tx) => {
+          const before = await ensureResource(tx, beforeIri);
+          const resource = await ensureResource(tx, iri);
+          const document = { type: "Note", content: "committed" };
+          // A SQL error after inserting content and addressing must roll back
+          // only the append, including its initial canonical-kind promotion.
+          await assert.rejects(
+            appendResourceRevision(tx, {
+              resourceId: resource.id,
+              resourceKind: "object",
+              expectedRevisionId: null,
+              kind: "snapshot",
+              capture: "local",
+              document: { type: "Note", content: "must disappear" },
+              addressing: { to: ["urn:failed-recipient"] },
+              relations: [
+                {
+                  property: "urn:fail-savepoint",
+                  representation: "reference",
+                  targetIri: "urn:failed-target",
+                },
+              ],
+            }),
+            (error: unknown) => {
+              assert.ok(error instanceof Error);
+              assert.match(
+                String(error.cause ?? error),
+                /injected savepoint failure/u,
+              );
+              return true;
+            },
+          );
+          assert.equal((await ensureResource(tx, iri)).kind, "unknown");
+          assert.equal(
+            await loadCurrentResourceRevision(tx, resource.id),
+            null,
+          );
+          assert.deepEqual(await listResourceRevisions(tx, resource.id), []);
+          // Work before the error survives, and new writes can still commit.
+          assert.equal((await ensureResource(tx, beforeIri)).id, before.id);
+          const after = await ensureResource(tx, afterIri);
+          const revision = await appendResourceRevision(tx, {
+            resourceId: resource.id,
+            resourceKind: "object",
+            expectedRevisionId: null,
+            kind: "snapshot",
+            capture: "local",
+            document,
+            addressing: { to: ["urn:committed-recipient"] },
+            relations: [
+              {
+                property: "object",
+                representation: "reference",
+                targetIri: "urn:committed-target",
+              },
+            ],
+          });
+          assert.equal(revision.sequence, 1);
+          return { resource, revision, before, after, document };
+        });
+        assert.equal(
+          (await loadCurrentResourceRevision(fixture.db, committed.resource.id))
+            ?.id,
+          committed.revision.id,
+        );
+        assert.deepEqual(
+          (await loadResourceRevision(fixture.db, committed.revision.id))
+            ?.document,
+          committed.document,
+        );
+        assert.deepEqual(
+          (await listResourceRevisions(fixture.db, committed.resource.id)).map(
+            ({ id }) => id,
+          ),
+          [committed.revision.id],
+        );
+        assert.equal(
+          (await ensureResource(fixture.db, beforeIri)).id,
+          committed.before.id,
+        );
+        assert.equal(
+          (await ensureResource(fixture.db, afterIri)).id,
+          committed.after.id,
+        );
+        assert.deepEqual(
+          (await fixture.query("SELECT iri FROM revision_addressing")).rows,
+          [{ iri: "urn:committed-recipient" }],
+        );
+        assert.deepEqual(
+          (await fixture.query("SELECT target_iri FROM revision_relations"))
+            .rows,
+          [{ target_iri: "urn:committed-target" }],
+        );
+        assert.equal(
+          (await fixture.query("SELECT * FROM resource_heads")).rows.length,
+          1,
+        );
+      });
+    },
+  );
+
+  it(
     `rolls back invalid JSON, projections, and mid-write failures on ${backend}`,
     options,
     async () => {
