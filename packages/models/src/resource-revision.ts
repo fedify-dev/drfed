@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import { LegacyResourceRevisionError } from "./legacy-resource-revision-error.ts";
@@ -568,7 +568,37 @@ export async function listResourceRevisions(
     )
     .orderBy(desc(resourceRevisions.sequence))
     .limit(limit);
-  return await Promise.all(revisions.map((revision) => hydrate(db, revision)));
+  if (revisions.length === 0) return [];
+  const revisionIds = revisions.map(({ id }) => id);
+  const [addressing, relations] = await Promise.all([
+    db
+      .select()
+      .from(revisionAddressing)
+      .where(inArray(revisionAddressing.revisionId, revisionIds))
+      .orderBy(revisionAddressing.property, revisionAddressing.position),
+    db
+      .select()
+      .from(revisionRelations)
+      .where(inArray(revisionRelations.revisionId, revisionIds))
+      .orderBy(revisionRelations.occurrence),
+  ]);
+  const addressingByRevision = new Map<Uuid, RevisionAddressing[]>();
+  for (const row of addressing) {
+    const rows = addressingByRevision.get(row.revisionId) ?? [];
+    rows.push(row);
+    addressingByRevision.set(row.revisionId, rows);
+  }
+  const relationsByRevision = new Map<Uuid, RevisionRelation[]>();
+  for (const row of relations) {
+    const rows = relationsByRevision.get(row.revisionId) ?? [];
+    rows.push(row);
+    relationsByRevision.set(row.revisionId, rows);
+  }
+  return revisions.map((revision) => ({
+    ...revision,
+    addressing: addressingByRevision.get(revision.id) ?? [],
+    relations: relationsByRevision.get(revision.id) ?? [],
+  }));
 }
 
 export { captureLegacyResourceRevision } from "./legacy-resource-revision.ts";

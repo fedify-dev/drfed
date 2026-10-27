@@ -674,6 +674,126 @@ for (const backend of revisionBackends) {
   );
 
   it(
+    `batches history projections without changing page contents on ${backend}`,
+    options,
+    async () => {
+      await withRevisionDatabase(backend, async (fixture) => {
+        const first = await initial(
+          fixture,
+          { type: "Note", content: "first" },
+          {
+            addressing: { cc: ["urn:cc"], to: ["urn:first", "urn:first"] },
+            relations: [
+              {
+                property: "target",
+                representation: "reference",
+                targetIri: "urn:first-target",
+              },
+              {
+                property: "object",
+                representation: "embedded",
+                path: ["object"],
+              },
+            ],
+          },
+        );
+        const second = await appendResourceRevision(fixture.db, {
+          resourceId: first.resource.id,
+          resourceKind: "object",
+          expectedRevisionId: first.revision.id,
+          kind: "snapshot",
+          capture: "local",
+          document: { type: "Note", content: "no projections" },
+        });
+        const third = await appendResourceRevision(fixture.db, {
+          resourceId: first.resource.id,
+          resourceKind: "object",
+          expectedRevisionId: second.id,
+          kind: "snapshot",
+          capture: "local",
+          document: { type: "Note", content: "third" },
+          addressing: {
+            bcc: ["urn:blind"],
+            to: ["urn:third", "urn:third-next"],
+          },
+          relations: [
+            {
+              property: "object",
+              representation: "link",
+              path: ["object"],
+              targetIri: "urn:third-target",
+            },
+            {
+              property: "target",
+              representation: "reference",
+              targetIri: "urn:third-target",
+            },
+          ],
+        });
+        const whiteout = await appendResourceRevision(fixture.db, {
+          resourceId: first.resource.id,
+          resourceKind: "object",
+          expectedRevisionId: third.id,
+          kind: "whiteout",
+          deleted: Temporal.Now.instant(),
+          formerTypes: ["Note"],
+        });
+        await initial(
+          fixture,
+          { type: "Note", content: "unrelated" },
+          {
+            addressing: { to: ["urn:unrelated"] },
+            relations: [
+              {
+                property: "object",
+                representation: "reference",
+                targetIri: "urn:unrelated-target",
+              },
+            ],
+          },
+        );
+        // Count the select builders used by this read without changing the
+        // driver or bypassing the published package implementation.
+        let selects = 0;
+        const counted = new Proxy(fixture.db, {
+          get(target, property, receiver) {
+            if (property === "select") {
+              return (...args: Parameters<typeof target.select>) => {
+                selects += 1;
+                return Reflect.apply(target.select, target, args);
+              };
+            }
+            return Reflect.get(target, property, receiver);
+          },
+        });
+        const page = await listResourceRevisions(counted, first.resource.id, {
+          limit: 3,
+        });
+        assert.equal(selects, 3);
+        assert.deepEqual(page, [whiteout, third, second]);
+        selects = 0;
+        const older = await listResourceRevisions(counted, first.resource.id, {
+          beforeSequence: second.sequence,
+          limit: 3,
+        });
+        assert.equal(selects, 3);
+        assert.deepEqual(older, [first.revision]);
+        selects = 0;
+        assert.deepEqual(
+          await listResourceRevisions(counted, first.resource.id, {
+            beforeSequence: first.revision.sequence,
+          }),
+          [],
+        );
+        assert.equal(selects, 1);
+        selects = 0;
+        assert.deepEqual(await listResourceRevisions(counted, uuidV7()), []);
+        assert.equal(selects, 1);
+      });
+    },
+  );
+
+  it(
     `continues a caller transaction after an append savepoint fails on ${backend}`,
     options,
     async () => {
