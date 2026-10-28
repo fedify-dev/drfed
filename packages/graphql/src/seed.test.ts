@@ -51,7 +51,8 @@ export function globalId(
     | "Instance"
     | "Object"
     | "Activity"
-    | "Collection",
+    | "Collection"
+    | "Resource",
   id: string,
 ): string {
   return Buffer.from(`${type}:${id}`).toString("base64");

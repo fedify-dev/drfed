@@ -640,6 +640,32 @@ describe("ActivityPub outbox", () => {
       assert.equal(last.next, undefined);
     });
   });
+  it("keeps a legacy activity with a removed target out of federation reads", async () => {
+    await withFederation(async ({ db, federation }) => {
+      await seedLocalActor(db);
+      const object = values(uuid());
+      await seedObjects(db, object);
+      await db
+        .delete(schema.resources)
+        .where(eq(schema.resources.id, object.id));
+      const activity = await db.query.activities.findFirst({
+        where: { id: object.activityId },
+      });
+      assert.ok(activity);
+      assert.equal(activity.objectId, null);
+      const response = await federation.fetch(
+        new Request(createIri(object.activityId), { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 404);
+      const outbox = await federation.fetch(
+        new Request(`${actorIri}/outbox?cursor=`, { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal(outbox.status, 200);
+      assert.deepEqual((await outbox.json()).orderedItems ?? [], []);
+    });
+  });
   it("serves an empty outbox", async () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);

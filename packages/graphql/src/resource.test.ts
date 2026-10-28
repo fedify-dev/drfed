@@ -20,6 +20,8 @@ import { it } from "node:test";
 
 import {
   type Database,
+  appendResourceRevision,
+  ensureResource,
   promoteResource,
   schema,
   storeAddressing,
@@ -603,3 +605,61 @@ it("pages a collection backward in the same edge order as forward", async () => 
     assert.equal(head.pageInfo.hasPreviousPage, false);
   });
 });
+
+it("reads a retained legacy activity after its target resource is removed", async () => {
+  await withTestHarness(async ({ db, post }) => {
+    await seedLocalActor(db);
+    const id = uuid();
+    const activityId = uuid();
+    await seedObjects(db, [
+      {
+        id,
+        activityId,
+        actorId: localActorId,
+        iri: `https://test.example/${id}`,
+        type: "Note",
+        contentHtml: "old content",
+      },
+    ]);
+    await db.delete(schema.resources).where(eq(schema.resources.id, id));
+    const body = await (
+      await post({
+        query: `query($id: ID!) { node(id: $id) { ... on Activity { type object { iri } expectedClassifications { classification } } } }`,
+        variables: { id: globalId("Activity", activityId) },
+      })
+    ).json();
+    assert.deepEqual(body, {
+      data: {
+        node: { type: "Create", object: null, expectedClassifications: [] },
+      },
+    });
+  });
+});
+
+for (const kind of ["object", "activity"] as const) {
+  it(`returns unavailable legacy details for a generic ${kind} without exposing its JSON`, async () => {
+    await withTestHarness(async ({ db, post }) => {
+      const resource = await ensureResource(db, `urn:generic:${uuid()}`);
+      await appendResourceRevision(db, {
+        resourceId: resource.id,
+        resourceKind: kind,
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "received",
+        document: {
+          type: kind === "object" ? "Question" : "Arrive",
+          secret: "private revision contents",
+        },
+      });
+      const body = await (
+        await post({
+          query: `query($id: ID!) { node(id: $id) { ... on Resource { iri kind detail { __typename } } } }`,
+          variables: { id: globalId("Resource", resource.id) },
+        })
+      ).json();
+      assert.deepEqual(body, {
+        data: { node: { iri: resource.iri, kind, detail: null } },
+      });
+    });
+  });
+}

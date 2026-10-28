@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 
 import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
+import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
 import { uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
@@ -833,6 +834,24 @@ describe("explicit addressing and persisted activities", () => {
         where: { id: object.uuid },
       });
       assert.deepEqual(stored?.document, object.document);
+      for (const [resourceId, document] of [
+        [object.uuid, object.document],
+        [activity.id, activity.document],
+      ] as const) {
+        const revision = await loadCurrentResourceRevision(db, resourceId);
+        assert.equal(revision?.kind, "snapshot");
+        assert.equal(revision?.capture, "local");
+        assert.equal(revision?.backfilled, false);
+        assert.deepEqual(revision?.document, document);
+        for (const [property, values] of Object.entries(addressing)) {
+          assert.deepEqual(
+            revision?.addressing
+              .filter((row) => row.property === property)
+              .map((row) => row.iri),
+            values,
+          );
+        }
+      }
       assert.deepEqual(
         activity.document,
         object.activities.edges[0].node.document,

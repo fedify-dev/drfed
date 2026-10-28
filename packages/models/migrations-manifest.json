@@ -104,6 +104,18 @@
     {
       "name": "20261011192718_record_actor_followers",
       "sha256": "7ad5dafd71aae445354315e4bec4466196228dabd081bb76171874817cb38ff4"
+    },
+    {
+      "name": "20261026181201_resource_revision_storage",
+      "sha256": "9732dae475a6fa9cf6aafc4b5335a4b49949e34b630bcd1645da3a048d866458"
+    },
+    {
+      "name": "20261026181206_guard_resource_revisions",
+      "sha256": "f14d53654677fc3150a6bed8b0093dc6d2d6dc02c62e3be1e29c85074a3f1e9b"
+    },
+    {
+      "name": "20261026192411_capture_legacy_resource_revisions",
+      "sha256": "25deff8bc6684620fb679c1d339c8803cdcb1b5a8c5f9a9771c95411a185eee3"
     }
   ]
 }

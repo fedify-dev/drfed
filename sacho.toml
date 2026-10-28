@@ -17,3 +17,44 @@ paths = []
 
 [links]
 "#" = "https://github.com/fedify-dev/drfed/issues/{n}"
+
+# Keep these explicit sections in publication order. Classify each entry by
+# the interface its readers use, rather than the package containing the code.
+# A change may need different entries for different audiences; describe each
+# audience's observable effect instead of repeating implementation details.
+# Section paths stay empty because source paths cannot determine the audience.
+# Internal refactors with no observable effect do not need a changelog entry.
+
+# Web UI and product-wide behavior, including data retention, installation,
+# shared operating defaults, deployment, and upgrade instructions. This also
+# covers changes to the user documentation site. Changes to a specific command
+# or API belong in that interface's section below.
+[[sections]]
+id = "DrFed"
+directory = "drfed"
+paths = []
+
+# DrFed command-line interfaces: commands, flags, help, output, exit status, and
+# configuration behavior as observed by someone invoking a command. Classify
+# these by their CLI effect even when the implementation is in a shared module.
+[[sections]]
+id = "CLIs"
+directory = "cli"
+paths = []
+
+# GraphQL client contracts: schema fields and types, nullability, query and
+# mutation behavior, errors, pagination, and authorization visible to API clients.
+# Resolver or database implementation changes alone do not need an entry.
+[[sections]]
+id = "GraphQL APIs"
+directory = "graphql"
+paths = []
+
+# Programmatic interfaces imported from the published @drfed/* packages:
+# exports, signatures, types, return values, errors, and runtime behavior that
+# callers rely on. Name the affected package or subpath in each entry. Internal
+# refactors with no effect on callers do not need an entry in this section.
+[[sections]]
+id = "JavaScript/TypeScript APIs"
+directory = "javascript"
+paths = []

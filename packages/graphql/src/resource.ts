@@ -103,10 +103,8 @@ export async function resolveResource(
         : row.kind === "activity"
           ? await db.query.activities.findFirst({ where })
           : await db.query.collections.findFirst({ where });
-  if (result == null) {
-    throw new Error(`Missing ${row.kind} record for ${row.iri}.`);
-  }
-  return result;
+  // Generic revision-backed resources have no legacy typed details yet.
+  return result ?? null;
 }
 
 export function registerAddressingFields(

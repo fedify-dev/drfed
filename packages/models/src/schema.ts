@@ -233,9 +233,9 @@ export const resourceKindEnum = pgEnum("resource_kind", [
 ]);
 
 /**
- * Canonical IRI registry. Physical deletion of an actor, object, activity or
- * collection must also delete its source addressing and resource in the same
- * transaction. References from other resources intentionally restrict deletion.
+ * Canonical IRI registry. Retained revisions keep their resource identity
+ * even after a current typed row is deleted. Other references may also
+ * intentionally restrict physical removal of the resource.
  */
 export const resources = pgTable("resources", {
   id: uuid().$type<Uuid>().primaryKey(),
@@ -537,7 +537,7 @@ export const activities = pgTable(
       .references(() => actors.id, { onDelete: "cascade" }),
     objectId: uuid("object_id")
       .$type<Uuid>()
-      .references(() => resources.id, { onDelete: "cascade" }),
+      .references(() => resources.id, { onDelete: "set null" }),
     published: instant().notNull(),
     document: json(),
     created: instant().notNull().default(currentTimestamp),
@@ -933,3 +933,164 @@ export type ActivityDeliveryVerificationMechanism =
   (typeof activityDeliveryVerificationMechanismEnum.enumValues)[number];
 export type ActivityDeliveryVerificationResult =
   (typeof activityDeliveryVerificationResultEnum.enumValues)[number];
+
+export const resourceRevisionKindEnum = pgEnum("resource_revision_kind", [
+  "snapshot",
+  "unavailable",
+  "whiteout",
+]);
+export const resourceRevisionCaptureEnum = pgEnum("resource_revision_capture", [
+  "local",
+  "received",
+  "embedded",
+  "fetched",
+]);
+export const resourceRevisionProjectionEnum = pgEnum(
+  "resource_revision_projection",
+  ["partial", "complete"],
+);
+
+/** Immutable parsed documents, independently of current typed rows. */
+export const resourceRevisions = pgTable(
+  "resource_revisions",
+  {
+    id: uuid().$type<Uuid>().primaryKey().defaultRandom(),
+    resourceId: uuid("resource_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resources.id, { onDelete: "restrict" }),
+    sequence: integer().notNull(),
+    kind: resourceRevisionKindEnum().notNull(),
+    capture: resourceRevisionCaptureEnum().notNull(),
+    backfilled: boolean().notNull().default(false),
+    document: json(),
+    formerTypes: text("former_types").array(),
+    deleted: instant(),
+    projection: resourceRevisionProjectionEnum().notNull().default("partial"),
+    created: instant().notNull().default(currentTimestamp),
+  },
+  (t) => [
+    unique("resource_revisions_resource_sequence_key").on(
+      t.resourceId,
+      t.sequence,
+    ),
+    unique("resource_revisions_resource_id_key").on(t.resourceId, t.id),
+    check("resource_revisions_sequence_check", sql`${t.sequence} > 0`),
+    check(
+      "resource_revisions_document_check",
+      sql`(${t.kind} = 'snapshot' AND ${t.document} IS NOT NULL)
+        OR (${t.kind} IN ('unavailable', 'whiteout') AND ${t.document} IS NULL)`,
+    ),
+    check(
+      "resource_revisions_deletion_check",
+      sql`(${t.kind} = 'whiteout' AND ${t.deleted} IS NOT NULL AND ${t.formerTypes} IS NOT NULL)
+        OR (${t.kind} <> 'whiteout' AND ${t.deleted} IS NULL AND ${t.formerTypes} IS NULL)`,
+    ),
+  ],
+);
+
+/** The current revision of one canonical resource. */
+export const resourceHeads = pgTable(
+  "resource_heads",
+  {
+    resourceId: uuid("resource_id")
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resources.id, { onDelete: "restrict" }),
+    revisionId: uuid("revision_id").$type<Uuid>().notNull(),
+  },
+  (t) => [
+    foreignKey({
+      name: "resource_heads_resource_revision_fkey",
+      columns: [t.resourceId, t.revisionId],
+      foreignColumns: [resourceRevisions.resourceId, resourceRevisions.id],
+    }).onDelete("restrict"),
+  ],
+);
+
+/** Root addressing occurrences, including blind recipients and duplicates. */
+export const revisionAddressing = pgTable(
+  "revision_addressing",
+  {
+    revisionId: uuid("revision_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resourceRevisions.id, { onDelete: "restrict" }),
+    property: addressingPropertyEnum().notNull(),
+    position: integer().notNull(),
+    iri: text().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.revisionId, t.property, t.position] }),
+    check("revision_addressing_position_check", sql`${t.position} >= 0`),
+    index("revision_addressing_iri_property_index").on(t.iri, t.property),
+  ],
+);
+
+export const revisionRelationRepresentationEnum = pgEnum(
+  "revision_relation_representation",
+  ["reference", "embedded", "link"],
+);
+/** Caller-supplied relation occurrences; the saved JSON remains authoritative. */
+export const revisionRelations = pgTable(
+  "revision_relations",
+  {
+    revisionId: uuid("revision_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resourceRevisions.id, { onDelete: "restrict" }),
+    occurrence: integer().notNull(),
+    property: text().notNull(),
+    path: json().$type<readonly (string | number)[]>(),
+    representation: revisionRelationRepresentationEnum().notNull(),
+    targetIri: text("target_iri"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.revisionId, t.occurrence] }),
+    check("revision_relations_occurrence_check", sql`${t.occurrence} >= 0`),
+    check(
+      "revision_relations_path_check",
+      sql`${t.path} IS NULL OR json_typeof(${t.path}) = 'array'`,
+    ),
+    check(
+      "revision_relations_reference_check",
+      sql`${t.representation} <> 'reference' OR ${t.targetIri} IS NOT NULL`,
+    ),
+    index("revision_relations_property_target_index").on(
+      t.property,
+      t.targetIri,
+      t.revisionId,
+    ),
+  ],
+);
+
+export const revisionReceiptRoleEnum = pgEnum("revision_receipt_role", [
+  "activity",
+  "object",
+]);
+/** Mutable index of delivery evidence, not part of immutable document history. */
+export const revisionReceipts = pgTable(
+  "revision_receipts",
+  {
+    deliveryId: uuid("delivery_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => activityDeliveries.id, { onDelete: "cascade" }),
+    revisionId: uuid("revision_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resourceRevisions.id, { onDelete: "restrict" }),
+    role: revisionReceiptRoleEnum().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.deliveryId, t.revisionId, t.role] }),
+    index("revision_receipts_revision_index").on(t.revisionId),
+  ],
+);
+
+export type ResourceRevision = typeof resourceRevisions.$inferSelect;
+export type NewResourceRevision = typeof resourceRevisions.$inferInsert;
+export type ResourceHead = typeof resourceHeads.$inferSelect;
+export type RevisionAddressing = typeof revisionAddressing.$inferSelect;
+export type RevisionRelation = typeof revisionRelations.$inferSelect;
+export type RevisionReceipt = typeof revisionReceipts.$inferSelect;

@@ -778,7 +778,15 @@ try {
       [
         "--input-type=module",
         "-e",
-        `import { verifyMigrationManifest } from ${JSON.stringify(pathToFileURL(join(modules, "@drfed/models/dist/migration-manifest.mjs")).href)}; await verifyMigrationManifest();`,
+        `
+import assert from "node:assert/strict";
+import { verifyMigrationManifest } from ${JSON.stringify(pathToFileURL(join(modules, "@drfed/models/dist/migration-manifest.mjs")).href)};
+const revisions = await import(${JSON.stringify(pathToFileURL(require.resolve("@drfed/models/resource-revision")).href)});
+for (const name of ["appendResourceRevision", "loadCurrentResourceRevision", "loadResourceRevision", "listResourceRevisions"]) {
+  assert.equal(typeof revisions[name], "function", name);
+}
+await verifyMigrationManifest();
+`,
       ],
       prefix,
     );

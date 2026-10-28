@@ -66,50 +66,28 @@ await web.close();
 ~~~~
 
 Importing the package and creating the runtime open no listening socket or
-process signal/error handlers. `fetch()` serves SolidStart SSR, server functions
-and bundled static assets. Deployment settings live in one external Node module
-shared by the adapter and Nitro bundle, rather than argv or serialized runtime
-configuration. Each server-side Relay request reads its own SolidStart request
-context and forwards only a validated session token as Bearer authorization.
-Other cookies and incoming authorization/proxy headers are not forwarded.
+process signal/error handlers. `fetch()` serves SSR, server functions and
+bundled assets. Initialize only one runtime per process, including after close;
+`close()` is idempotent and the injected GraphQL handler remains caller-owned.
+See [runtime lifecycle internals] for cancellation, draining
+and HMR, and [HTTP serving internals] for the shared binding,
+request validation and cookie policy.
 
-Nitro uses process-wide state, so initialize one runtime per process. A second
-initialization is rejected, including after close. `close()` is idempotent,
-cancels active GraphQL work and waits for its response bodies to finish before
-running Nitro close hooks. An injected GraphQL handler remains caller-owned;
-a handler that ignores cancellation can delay close until the caller's deadline.
-Vite uses Nitro's in-process development runner so SSR shares the external
-binding. Frontend HMR retains it; a Vite config or environment restart installs
-a new development binding and drains the previous server's GraphQL work.
-
-The [Nitro configuration] controls the listener-free Node entry and external
-binding. [Solid's request context] supplies the request cancellation signal.
-
-[Nitro configuration]: https://nitro.build/docs/configuration
-[Solid's request context]: https://docs.solidjs.com/reference/server-utilities/get-request-event
+[runtime lifecycle internals]: https://drfed.org/internals/runtime-lifecycle
+[HTTP serving internals]: https://drfed.org/internals/http-serving
 
 
 Request and cookie policy
 -------------------------
 
-Serve the web app only through the configured public origin's authority.
-Host-preserving reverse proxies may terminate TLS: DrFed restores the request
-URL's scheme from the public origin and strips forwarded headers. It does not
-trust forwarded host or protocol headers. A different authority receives 421;
-malformed or inconsistent URL/Host values receive 400.
+Use a Host-preserving proxy and configure the external public origin. The web
+runtime ignores forwarded headers. Server functions require a same-origin POST;
+session cookies are HttpOnly, SameSite=Lax and host-only, with Secure following
+the configured HTTPS origin. See the
+[full request policy]
+for authority errors and validation before body deserialization.
 
-[Server functions] accept POST only, with an Origin matching the public origin.
-When Origin is absent, a same-origin Referer is required. Missing, opaque,
-malformed and cross-origin sources are rejected before body deserialization;
-instance subdomains are also cross-origin. The same policy runs in embedded
-and development servers, including encoded server-function path aliases.
-Regular login-link GET pages still render, while confirmation uses POST.
-
-Session cookies use HttpOnly, SameSite=Lax and path `/`, without Domain.
-Secure follows the configured public origin's HTTPS scheme, including behind
-TLS termination; forwarded headers cannot downgrade it.
-
-[Server functions]: https://docs.solidjs.com/solid-start/v2/guides/security#csrf-cross-site-request-forgery
+[full request policy]: https://drfed.org/internals/http-serving#request-and-cookie-policy
 
 
 Verification

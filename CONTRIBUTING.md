@@ -204,18 +204,23 @@ Changelog and release notes
 All five packages share one changelog.  Run `mise run changelog:setup` once
 after cloning to register the Git merge drivers declared in *.gitattributes*.
 Add a short user-facing entry with
-`mise run changelog:add <topic>` and edit the resulting fragment in
-*changes.d/*.  Describe the behavior users receive, not the commit history.
+`mise run changelog:add --section DrFed <topic>` and edit the resulting
+fragment under *changes.d/*.  Choose `DrFed`, `CLIs`, `GraphQL APIs`, or
+`JavaScript/TypeScript APIs` by the interface the reader uses.  Quote section
+names containing spaces, as in
+`mise run changelog:add --section "GraphQL APIs" <topic>`.
+The section comments in *sacho.toml* define their scope and publication order.
+Describe the behavior users receive, not the commit history.
 Changes with no user-visible effect, including internal refactors, CI, and
 contributor instructions, do not need an entry.  Historical commits are not
 checked for fragment coverage.
 
-Run `mise run fmt:changelog`, `mise run changelog:preview`, and
+Run `mise exec -- sacho sync` after editing fragments, then run
+`mise run fmt:changelog`, `mise run changelog:preview`, and
 `mise run check:changelog` before committing.  Sacho owns formatting of
 *CHANGES.md* and *changes.d/*; Hongdown excludes them.  With
 `materialize = true` in *sacho.toml*, Sacho also keeps the unreleased section
-of *CHANGES.md* in sync.  Run `mise exec -- sacho sync` after editing fragments
-and commit the generated changelog with them.
+of *CHANGES.md* in sync.  Commit the generated changelog with the fragments.
 
 Before a release, verify all package versions with `mise run check:versions`,
 run `mise run changelog:next <version>`, and review the preview.  Run
@@ -513,7 +518,10 @@ mise run generate:migrate --custom --name your_migration_name
 
 Review generated SQL before committing it.  Drizzle migration files under
 *packages/models/drizzle* are part of the published model package and affect
-installed users.
+installed users. See [database lifecycle internals] for migration integrity,
+preparation and persistent-store ownership.
+
+[database lifecycle internals]: https://drfed.org/internals/database-lifecycle
 
 
 Federation changes
@@ -550,6 +558,13 @@ The `Create` listener stores what it accepts through *src/inbox-persist.ts*.
 An inbound delivery that was verified and answered with 2xx is linked to
 `activities` by the activity IRI it recorded, through `linkInboundActivity`,
 never by what a listener reports.
+
+See [inbox persistence internals] for acceptance and idempotence, and
+[activity delivery internals] for completion reports, receipts and queue
+observations.
+
+[inbox persistence internals]: https://drfed.org/internals/inbox-persistence
+[activity delivery internals]: https://drfed.org/internals/activity-deliveries
 
 
 GraphQL changes

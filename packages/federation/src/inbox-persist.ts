@@ -20,8 +20,10 @@
 import {
   type AddressingInput,
   type Database,
+  LegacyResourceRevisionError,
   ResourceKindConflictError,
   type Transaction,
+  captureLegacyResourceRevision,
   ensureRemoteInstance,
   ensureResource,
   lockResources,
@@ -527,6 +529,8 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
         await storeAddressing(inner, resource.id, activityAddressing);
       },
     );
+    await captureLegacyResourceRevision(tx, stored.id);
+    await captureLegacyResourceRevision(tx, activityId);
   });
 }
 
@@ -544,7 +548,9 @@ async function reuseObject(
     columns: { id: true, actorId: true, published: true },
     where: { id },
   });
-  if (row == null) throw new Error(`Object ${id} has no row.`);
+  if (row == null) {
+    throw new Refusal("its object has no supported typed details");
+  }
   if (row.actorId !== actorId) {
     throw new Refusal("its object is already another actor's");
   }
@@ -586,7 +592,11 @@ export async function persistCreate(
     await store(db, await accept(ctx, activity, actorIri, receipt));
   } catch (error) {
     if (
-      !(error instanceof Refusal || error instanceof ResourceKindConflictError)
+      !(
+        error instanceof Refusal ||
+        error instanceof ResourceKindConflictError ||
+        error instanceof LegacyResourceRevisionError
+      )
     ) {
       throw error;
     }
