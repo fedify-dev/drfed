@@ -1255,10 +1255,9 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
     return;
   }
   const { minute, second, fraction, offset } = match.groups!;
+  // Check calendar components separately from representation support.
   try {
-    void Temporal.Instant.from(
-      `${minute}${second ?? ":00"}${fraction?.slice(0, 10) ?? ""}${offset}`,
-    );
+    void Temporal.Instant.from(`${minute}${second ?? ":00"}${offset}`);
   } catch (error) {
     if (!(error instanceof RangeError)) throw error;
     report(
@@ -1273,6 +1272,37 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
       "unsupported_value_form",
       path,
       "Leap-second timestamps are not checked by the current date-time parser.",
+    );
+    return;
+  }
+  // Native Temporal can be more permissive than Fedify's parser. Require
+  // explicit seconds and nanosecond precision before parsing the original.
+  if (second == null) {
+    report(
+      "unsupported_value_form",
+      path,
+      fraction != null
+        ? "ActivityStreams permits fractions without seconds, but Fedify requires explicit seconds before a fractional component."
+        : "ActivityStreams permits omitted seconds, but Fedify requires explicit seconds, such as 12:34:00Z.",
+    );
+    return;
+  }
+  if (fraction != null && fraction.length > 10) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Fractional seconds exceeding nine digits cannot be preserved through Fedify parsing; provide at most nine fractional digits.",
+    );
+    return;
+  }
+  try {
+    void Temporal.Instant.from(value);
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    report(
+      "unsupported_value_form",
+      path,
+      "This date-time matches the ActivityStreams format, but cannot be parsed as an instant without rewriting; provide a timestamp such as 2024-01-01T12:34:00Z.",
     );
   }
 }
@@ -1305,13 +1335,11 @@ function checkCommonProperty(
   ) {
     checkSingleValue(value, path, report, checkDateTime);
   } else if (property === "id") {
-    checkSingleValue(value, path, report, (entry, entryPath) => {
-      if (entry !== null && typeof entry === "object") {
-        report("invalid_value_shape", entryPath, "Expected an IRI identifier.");
-      } else {
-        checkReference(entry, entryPath, report);
-      }
-    });
+    if (typeof value !== "string") {
+      report("invalid_value_shape", path, "Expected an IRI identifier string.");
+    } else {
+      checkReference(value, path, report);
+    }
   } else if (property === "mediaType") {
     checkSingleValue(value, path, report, (entry, entryPath) =>
       checkLinkProperty(property, entry, entryPath, report),

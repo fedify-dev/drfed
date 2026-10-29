@@ -64,19 +64,58 @@
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Note",
-        "published": [null, "2024-02-29T12:34Z"],
-        "updated": "2024-02-29T12:34:56.123456789123+01:30",
-        "startTime": "2024-02-29T12:34.5-00:00",
+        "published": [null, "2024-02-29T12:34:00Z"],
+        "updated": "2024-02-29T12:34:56.123456789+01:30",
+        "startTime": "2024-02-29T12:34:00.5-00:00",
         "endTime": null
       },
       "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-unsupported-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": [null, "2024-02-29T12:34Z"],
+        "updated": "2024-02-29T12:34:56.1234567891+01:30",
+        "startTime": "2024-02-29T12:34.5-00:00"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["published", 1] },
+          { "reason": "unsupported_value_form", "path": ["startTime"] },
+          { "reason": "unsupported_value_form", "path": ["updated"] }
+        ]
+      }
+    },
+    {
+      "id": "common-invalid-calendar-with-unsupported-representation",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Note",
+          "published": "2023-02-29T12:34Z",
+          "startTime": "2024-02-30T12:34.5-00:00",
+          "updated": "2024-02-30T12:34:56.1234567891Z"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_datetime", "path": ["object", "published"] },
+          { "reason": "invalid_datetime", "path": ["object", "startTime"] },
+          { "reason": "invalid_datetime", "path": ["object", "updated"] }
+        ]
+      }
     },
     {
       "id": "common-invalid-timestamps",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Note",
-        "published": ["2023-02-29T12:34:56Z", "2024-01-01T12:00Z"],
+        "published": ["2023-02-29T12:34:56Z", "2024-01-01T12:00:00Z"],
         "updated": false
       },
       "expected": {

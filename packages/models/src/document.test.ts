@@ -263,7 +263,7 @@ describe("validateDocument() supported document checks", () => {
         { when: { "@id": `${context}#published`, "@type": "xsd:dateTime" } },
       ],
       type: "Note",
-      published: "2026-10-27T12:00Z",
+      published: "2026-10-27T12:00:00Z",
       when: [null, "not-a-date"],
     };
     const original = structuredClone(input);
@@ -280,7 +280,7 @@ describe("validateDocument() supported document checks", () => {
     const single = validateDocument({
       ...input,
       published: null,
-      when: [null, "2026-10-27T12:00Z"],
+      when: [null, "2026-10-27T12:00:00Z"],
     });
     assert.deepEqual(single, { complete: true, diagnostics: [], changes: [] });
     assert.deepEqual(input, original);
@@ -616,8 +616,8 @@ describe("validateDocument() supported document checks", () => {
   it("checks all timestamp properties with ActivityStreams calendar and lexical rules", () => {
     for (const property of ["published", "updated", "startTime", "endTime"]) {
       for (const value of [
-        "2024-02-29T12:34Z",
-        "2026-10-27T12:34:56.123456789123+05:30",
+        "2024-02-29T12:34:00Z",
+        "2026-10-27T12:34:56.123456789+05:30",
         null,
         [null],
       ]) {
@@ -629,6 +629,27 @@ describe("validateDocument() supported document checks", () => {
           }),
           { complete: true, diagnostics: [], changes: [] },
         );
+      }
+      for (const value of [
+        "2024-02-29T12:34Z",
+        "2024-02-29T12:34.5-00:00",
+        "2026-10-27T12:34:56.1234567891+05:30",
+      ]) {
+        const input = Object.freeze({
+          "@context": context,
+          type: "Note",
+          [property]: Object.freeze([null, value]),
+        });
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, false);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "unsupported_value_form", path: [property, 1] }],
+        );
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+        assert.deepEqual(input, original);
       }
       for (const value of [
         "2023-02-29T12:34Z",
@@ -661,6 +682,33 @@ describe("validateDocument() supported document checks", () => {
     });
     assert.equal(leap.complete, false);
     assert.equal(leap.diagnostics[0]?.reason, "unsupported_value_form");
+  });
+
+  it("preserves supported timestamp precision through Fedify parsing", async () => {
+    await Promise.all(
+      [
+        "2024-02-29T12:34:00Z",
+        "2024-02-29T12:34:56.1-00:00",
+        "2024-02-29T12:34:56.123456789+05:30",
+      ].map(async (published) => {
+        const input = { "@context": context, type: "Note", published };
+        assert.deepEqual(validateDocument(input).diagnostics, []);
+        const parsed = await APObject.fromJsonLd(input, {
+          contextLoader: (url) => {
+            assert.equal(url, context);
+            return Promise.resolve({
+              contextUrl: null,
+              documentUrl: url,
+              document: structuredClone(preloadedContexts[context]),
+            });
+          },
+        });
+        assert.equal(
+          parsed.published?.epochNanoseconds,
+          Temporal.Instant.from(published).epochNanoseconds,
+        );
+      }),
+    );
   });
 
   it("checks functional values and preserves scalar, list, and null-entry paths", () => {

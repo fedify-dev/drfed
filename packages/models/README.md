@@ -169,9 +169,14 @@ typed decoders.
 
 Text accepts strings, flat lists, and supported `@value`/`@language` objects.
 Language maps contain strings or null. Complex text attributes are unsupported.
-Dates require a timezone and uppercase T/Z; seconds are optional. Calendar
-checks use Temporal; leap-second timestamps remain unsupported. Timestamp
-validation does not establish server ownership or ordering between fields.
+Dates require a timezone and uppercase T/Z. Calendar checks use Temporal;
+invalid dates receive `invalid_datetime`. ActivityStreams permits omitted
+seconds, but representations Fedify cannot consume without failure or precision
+loss receive `unsupported_value_form`: omitted seconds, fractions without
+seconds, and fractions exceeding nine digits. Leap-second timestamps remain
+unsupported. Validation preserves these values without adding seconds or
+truncating precision. Timestamp validation does not establish server ownership
+or ordering between fields.
 
 Question is supported standalone and inside Create/Update using shared rules.
 Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending #155's
