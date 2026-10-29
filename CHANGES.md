@@ -16,11 +16,20 @@ To be released.
     highest released version, prereleases included, along with a changelog
     page. Documentation for the development version is available at
     <https://canary.drfed.org/>.  [[#134], [#137] by ChanHaeng Lee\]
+ -  Published the official container image `ghcr.io/fedify-dev/drfed` for
+    `linux/amd64` and `linux/arm64`, with all four commands, along with
+    installation guides for Docker, Podman, and other container tools and
+    Compose examples for PGlite and PostgreSQL. Inside the image,
+    `drfed-server` and `drfed-web` listen on `0.0.0.0` by default; any
+    configured listen address still takes precedence.
+    [[#135], [#167] by ChanHaeng Lee\]
 
 [#134]: https://github.com/fedify-dev/drfed/issues/134
+[#135]: https://github.com/fedify-dev/drfed/issues/135
 [#137]: https://github.com/fedify-dev/drfed/pull/137
 [#150]: https://github.com/fedify-dev/drfed/issues/150
 [#164]: https://github.com/fedify-dev/drfed/pull/164
+[#167]: https://github.com/fedify-dev/drfed/pull/167
 
 ### GraphQL APIs
 
