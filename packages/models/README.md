@@ -260,11 +260,13 @@ Those still block validation. Passing validation does not guarantee custom
 fields survive Fedify serialization or sending. This supersedes the earlier
 policy that rejected all custom properties.
 
-Diagnostics are capped at 100, including a final `diagnostic_limit_reached`
-error diagnostic when truncated; checking then remains incomplete and no
-preview is returned. Traversal is iterative, with no depth/value-count limit
-currently. Cycles in traversed values receive `non_json_value`; shared sibling
-objects are allowed.
+Diagnostics are capped at 100. Exactly 100 findings are retained without a
+truncation marker. If a further finding occurs, the last slot becomes a
+`diagnostic_limit_reached` error; checking remains incomplete and no preview
+is returned. This limits diagnostic output, not the amount of processing.
+Traversal is iterative, with no depth/value-count or work budget currently.
+Cycles in traversed values receive `non_json_value`; shared sibling objects
+are allowed.
 
 ### Executable examples
 

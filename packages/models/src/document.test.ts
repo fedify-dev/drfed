@@ -2842,24 +2842,100 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(malformed.diagnostics[0]?.reason, "invalid_iri");
   });
 
-  it("limits findings without claiming the remaining checks completed", () => {
-    const properties = Object.fromEntries(
-      Array.from({ length: 150 }, (_, index) => [`extra${index}`, index]),
-    );
-    const result = validateDocument({ ...like, ...properties });
-    assert.equal(result.complete, false);
-    assert.equal(result.diagnostics.length, 100);
-    assert.equal(result.diagnostics.at(-1)?.reason, "diagnostic_limit_reached");
-    const exact = validateDocument({
-      ...like,
-      ...Object.fromEntries(Object.entries(properties).slice(0, 99)),
-    });
-    assert.equal(exact.diagnostics.length, 99);
-    assert.ok(
-      exact.diagnostics.every(
-        ({ reason }) => reason !== "diagnostic_limit_reached",
-      ),
-    );
+  it("retains exactly 100 warnings and marks truncation only for further findings", () => {
+    for (const count of [99, 100, 101]) {
+      const properties = Object.fromEntries(
+        Array.from({ length: count }, (_, index) => [
+          `extra${String(index).padStart(3, "0")}`,
+          index,
+        ]),
+      );
+      const input = { ...like, ...properties };
+      const result = validateDocument(input);
+      assert.equal(result.complete, count <= 100);
+      assert.equal(result.diagnostics.length, Math.min(count, 100));
+      const findings =
+        count > 100 ? result.diagnostics.slice(0, -1) : result.diagnostics;
+      assert.ok(
+        findings.every(
+          ({ reason, severity }) =>
+            reason === "extension_property_unchecked" && severity === "warning",
+        ),
+      );
+      assert.deepEqual(
+        findings.map(({ path }) => path),
+        Object.keys(properties)
+          .slice(0, findings.length)
+          .map((key) => [key]),
+      );
+      assert.equal(
+        result.diagnostics.at(-1)?.reason,
+        count > 100
+          ? "diagnostic_limit_reached"
+          : "extension_property_unchecked",
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+  });
+
+  it("distinguishes complete vocabulary errors from diagnostic truncation at the boundary", () => {
+    for (const count of [99, 100, 101]) {
+      const result = validateDocument({
+        ...like,
+        actor: Array(count).fill(false),
+      });
+      assert.equal(result.complete, count <= 100);
+      assert.equal(result.diagnostics.length, Math.min(count, 100));
+      assert.equal(
+        result.diagnostics.at(-1)?.reason,
+        count > 100 ? "diagnostic_limit_reached" : "invalid_value_shape",
+      );
+      if (count <= 100) {
+        assert.deepEqual(result.diagnostics.at(-1)?.path, ["actor", count - 1]);
+      }
+      assert.ok(
+        result.diagnostics.every(({ severity }) => severity === "error"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+  });
+
+  it("allows an omission preview with exactly 100 warnings but withholds a truncated one", () => {
+    for (const count of [99, 100, 101]) {
+      const input = {
+        ...like,
+        object: Array.from({ length: count }, () => ({
+          type: "Note",
+          content: [],
+        })),
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, count <= 100);
+      assert.equal(result.diagnostics.length, Math.min(count, 100));
+      if (count <= 100) {
+        assert.equal(result.changes.length, count);
+        assert.ok(
+          result.diagnostics.every(
+            ({ reason }) => reason === "empty_property_list",
+          ),
+        );
+        assert.deepEqual(result.normalizedDocument, {
+          ...input,
+          object: Array.from({ length: count }, () => ({ type: "Note" })),
+        });
+      } else {
+        assert.equal(
+          result.diagnostics.at(-1)?.reason,
+          "diagnostic_limit_reached",
+        );
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+      }
+      assert.deepEqual(input, original);
+    }
   });
 });
 

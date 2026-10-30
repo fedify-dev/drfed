@@ -277,18 +277,19 @@ const implementedTypes: ReadonlySet<VocabularyType> = new Set<VocabularyType>([
 function createReporter() {
   const diagnostics: Diagnostic[] = [];
   let complete = true;
+  let truncated = false;
 
   const report: Report = (reason, path, message) => {
-    if (diagnostics.length >= maximumDiagnostics - 1) {
+    if (truncated) return;
+    if (diagnostics.length === maximumDiagnostics) {
       complete = false;
-      if (diagnostics.length < maximumDiagnostics) {
-        diagnostics.push({
-          reason: "diagnostic_limit_reached",
-          ...diagnosticReasons.diagnostic_limit_reached,
-          path: [],
-          message: "Further diagnostics were omitted.",
-        });
-      }
+      truncated = true;
+      diagnostics[maximumDiagnostics - 1] = {
+        reason: "diagnostic_limit_reached",
+        ...diagnosticReasons.diagnostic_limit_reached,
+        path: [],
+        message: "Further diagnostics were omitted.",
+      };
       return;
     }
     const classification = diagnosticReasons[reason];
@@ -298,7 +299,7 @@ function createReporter() {
 
   return {
     report,
-    isFull: () => diagnostics.length >= maximumDiagnostics,
+    isFull: () => truncated,
     result: (): DocumentValidationResult => ({
       complete,
       diagnostics,
