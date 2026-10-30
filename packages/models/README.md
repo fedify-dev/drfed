@@ -208,7 +208,8 @@ implemented rules, such as Place, receive support findings.
 
 For 0.2.0, Object property rules for `tag`, `inReplyTo`, `url`, `attachment`,
 `replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`
-remain unimplemented. On Object documents, these fields produce
+remain unimplemented. Null values are treated as absent and preserved without
+diagnostics or normalization. On Object documents, non-null values produce
 `unsupported_property` errors and set `complete: false`, preventing successful
 validation even when their values are valid ActivityStreams. This limits which
 documents pasted from fediverse servers can pass validation. Unknown custom
@@ -256,7 +257,8 @@ at the original keyword path. A null language tag leaves the value untagged.
 
 This warning policy does not admit unknown types, unsupported contexts,
 JSON-LD keywords, or known vocabulary properties without implemented rules.
-Those still block validation. Passing validation does not guarantee custom
+Known unimplemented properties set to null are treated as absent; otherwise,
+those forms still block validation. Passing validation does not guarantee custom
 fields survive Fedify serialization or sending. This supersedes the earlier
 policy that rejected all custom properties.
 

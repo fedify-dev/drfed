@@ -1457,7 +1457,8 @@ function checkCommonProperty(
       checkLinkProperty(property, entry, entryPath, report),
     );
   } else {
-    return false;
+    // Null is absent even when this vocabulary property has no value rules yet.
+    return value === null;
   }
   return true;
 }
@@ -1790,7 +1791,7 @@ function checkDocumentValue(
         } else if (
           checkCommonProperty(commonKind, key, value, fieldPath, report)
         ) {
-          // Common scalar and language properties were checked above.
+          // Common properties and null absence were checked above.
         } else if (intransitiveObject) {
           checkReferenceValues(value, fieldPath, report, (entry, entryPath) => {
             if (entry !== null) {

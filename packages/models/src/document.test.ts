@@ -375,6 +375,55 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(known.diagnostics[0]?.reason, "unsupported_property");
   });
 
+  it("treats null known unimplemented properties as absent without changing input", () => {
+    const properties = [
+      "tag",
+      "inReplyTo",
+      "url",
+      "attachment",
+      "replies",
+      "icon",
+      "image",
+      "context",
+      "source",
+      "duration",
+      "generator",
+    ];
+    const input = {
+      "@context": [
+        context,
+        { reply: { "@id": `${context}#inReplyTo`, "@type": "@id" } },
+      ],
+      type: "Create",
+      object: [
+        {
+          type: "Note",
+          ...Object.fromEntries(properties.map((key) => [key, null])),
+        },
+        { type: "Note", reply: null },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.diagnostics, []);
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+    assert.deepEqual(input, original);
+
+    for (const value of [false, [], "https://example.com/reply"]) {
+      const unsupported = validateDocument({
+        ...input,
+        object: [{ type: "Note", reply: value }],
+      });
+      assert.equal(unsupported.complete, false);
+      assert.deepEqual(
+        unsupported.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "unsupported_property", path: ["object", 0, "reply"] }],
+      );
+    }
+  });
+
   it("preserves opaque nested extensions in independent successful previews", () => {
     const data = { type: "Custom", values: [[], null, { content: 123 }] };
     const input = {
