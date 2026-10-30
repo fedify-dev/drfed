@@ -637,7 +637,16 @@ try {
     "--force",
     "0.2.0",
     (
-      await git("commit-tree", "-m", "moved", `${releaseSha}^{tree}`)
+      await git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit-tree",
+        "-m",
+        "moved",
+        `${releaseSha}^{tree}`,
+      )
     ).stdout.trim(),
   );
   await assert.rejects(
