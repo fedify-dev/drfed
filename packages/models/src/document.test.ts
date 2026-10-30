@@ -15,8 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
+import { promisify } from "node:util";
 
 import {
   type DiagnosticReason,
@@ -73,6 +75,44 @@ const like = {
 };
 
 describe("validateDocument() supported document checks", () => {
+  it("initializes bundled contexts lazily and caches only a successful initialization", async () => {
+    await promisify(execFile)(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `
+      import assert from "node:assert/strict";
+      import { preloadedContexts } from "@fedify/vocab-runtime";
+      const standard = "https://www.w3.org/ns/activitystreams";
+      const security = "https://w3id.org/security/v1";
+      const originalStandard = structuredClone(preloadedContexts[standard]);
+      const originalSecurity = structuredClone(preloadedContexts[security]);
+      const unsupported = { "@id": "https://example.com/future", "@container": "@index" };
+      preloadedContexts[security]["@context"].future = unsupported;
+
+      // Import succeeds even when a dependency's bundled context is unsupported.
+      const { validateDocument } = await import("@drfed/models/document");
+      const document = { "@context": [standard, security], type: "Note" };
+      assert.throws(() => validateDocument(document), /container form/);
+
+      // A failed attempt must not retain even the first context's partial work.
+      preloadedContexts[security] = originalSecurity;
+      preloadedContexts[standard]["@context"].future = unsupported;
+      assert.throws(() => validateDocument(document), /container form/);
+      preloadedContexts[standard] = originalStandard;
+      assert.deepEqual(validateDocument(document), { complete: true, diagnostics: [], changes: [] });
+      assert.deepEqual(validateDocument({ ...document, "@context": standard }), { complete: true, diagnostics: [], changes: [] });
+
+      // Once initialized, validation uses the successful cached tables.
+      preloadedContexts[security]["@context"].future = unsupported;
+      assert.deepEqual(validateDocument(document), { complete: true, diagnostics: [], changes: [] });
+    `,
+      ],
+      { cwd: new URL(".", import.meta.url) },
+    );
+  });
+
   it("recognizes public Link classes separately from the entity registry", () => {
     for (const Type of [Link, Mention]) {
       assert.equal(getEntityTypeById(Type.typeId.href), undefined);

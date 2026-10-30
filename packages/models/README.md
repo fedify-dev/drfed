@@ -11,11 +11,14 @@ Document validation
 -------------------
 
 `@drfed/models/document` exports synchronous
-`validateDocument(document: unknown)` and the `DocumentValidationResult`,
-`Diagnostic`, `DiagnosticReason`, `FieldPath`, and `NormalizationChange` types,
-plus the `diagnosticReasons` registry. Pass parsed JSON, not JSON text.
-Validation performs no network access, database writes, permission checks, or
-delivery, and never mutates input.
+`validateDocument(document: unknown)` and `prepareDocument(document, options)`,
+plus the `diagnosticReasons` registry. Public types are
+`DocumentValidationResult`, `Diagnostic`, `DiagnosticReason`,
+`DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`, `JsonValue`,
+`NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`, and
+`DocumentPreparationOptions`. Pass parsed JSON, not JSON text. Validation
+performs no network access, database writes, permission checks, or delivery,
+and never mutates input.
 
 ### Consumer contract
 
@@ -224,6 +227,10 @@ arrays and simple inline term/prefix definitions are supported. Effective
 contexts must include the standard ActivityStreams vocabulary; standard terms
 cannot be overridden. Embedded values inherit context; local alias overrides
 are isolated from siblings.
+
+Bundled context tables initialize on first use, not module import; an
+unsupported bundled definition can throw during validation, and failed
+initialization is retried rather than cached.
 
 Aliases must have compatible coercion and containers. For example, an object
 alias needs `@type: "@id"`; matching a property IRI alone is insufficient.

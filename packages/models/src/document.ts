@@ -94,23 +94,16 @@ export const diagnosticReasons = {
   unsupported_type: { category: "support", severity: "error" },
   unsupported_property: { category: "support", severity: "error" },
   unsupported_value_form: { category: "support", severity: "error" },
-  fedify_parse_failed: { category: "support", severity: "error" },
-  processing_limit_exceeded: { category: "support", severity: "error" },
   diagnostic_limit_reached: { category: "support", severity: "error" },
   implicit_activitystreams_context: {
     category: "compatibility",
     severity: "warning",
   },
-  extension_type_unchecked: { category: "compatibility", severity: "warning" },
   extension_property_unchecked: {
     category: "compatibility",
     severity: "warning",
   },
   empty_property_list: { category: "compatibility", severity: "warning" },
-  unmapped_extension_property: {
-    category: "compatibility",
-    severity: "warning",
-  },
 } as const satisfies Record<
   string,
   {
@@ -819,26 +812,46 @@ function applyContextTerms(
   return valid;
 }
 
-// Bundled availability is not blanket context admission. Add allowlist entries
-// only when their complete definitions fit this interpreter's bounded profile.
-const bundledContexts = new Map<string, ReadonlyMap<string, ContextTerm>>();
-for (const url of [activityStreamsContext, "https://w3id.org/security/v1"]) {
-  const document = preloadedContexts[url] as {
-    "@context": Record<string, unknown>;
-  };
-  const terms = new Map<string, ContextTerm>();
-  applyContextTerms(
-    document["@context"],
-    [],
-    terms,
-    (_reason, _path, message) => {
-      throw new Error(message);
-    },
-  );
-  bundledContexts.set(url, terms);
+interface ContextTables {
+  readonly bundledContexts: ReadonlyMap<
+    string,
+    ReadonlyMap<string, ContextTerm>
+  >;
+  readonly standardTerms: ReadonlyMap<string, ContextTerm>;
+  readonly standardContext: DocumentContext;
 }
-const standardTerms = bundledContexts.get(activityStreamsContext)!;
-const standardContext: DocumentContext = { terms: standardTerms };
+
+let contextTables: ContextTables | undefined;
+
+// Interpret dependency contexts lazily so a profile mismatch cannot break import.
+function getContextTables(): ContextTables {
+  if (contextTables != null) return contextTables;
+  // Bundled availability is not blanket admission to this bounded profile.
+  const bundledContexts = new Map<string, ReadonlyMap<string, ContextTerm>>();
+  for (const url of [activityStreamsContext, "https://w3id.org/security/v1"]) {
+    const document = preloadedContexts[url] as {
+      "@context": Record<string, unknown>;
+    };
+    const terms = new Map<string, ContextTerm>();
+    applyContextTerms(
+      document["@context"],
+      [],
+      terms,
+      (_reason, _path, message) => {
+        throw new Error(message);
+      },
+    );
+    bundledContexts.set(url, terms);
+  }
+  const standardTerms = bundledContexts.get(activityStreamsContext)!;
+  // Publish the cache only after all definitions have been interpreted.
+  contextTables = {
+    bundledContexts,
+    standardTerms,
+    standardContext: { terms: standardTerms },
+  };
+  return contextTables;
+}
 
 function applyContextEntry(
   value: unknown,
@@ -846,6 +859,7 @@ function applyContextEntry(
   terms: Map<string, ContextTerm>,
   report: Report,
 ): boolean {
+  const { bundledContexts, standardTerms } = getContextTables();
   if (typeof value === "string") {
     const url =
       value === "http://www.w3.org/ns/activitystreams"
@@ -887,6 +901,7 @@ function checkContext(
   report: Report,
   inherited?: DocumentContext,
 ): DocumentContext | undefined {
+  const { standardContext, standardTerms } = getContextTables();
   if (!Object.hasOwn(values, "@context")) {
     if (inherited != null) return inherited;
     report(
@@ -942,6 +957,7 @@ function resolveProperty(
   source: string,
   context: DocumentContext,
 ): SourceProperty {
+  const { standardTerms } = getContextTables();
   const term = context.terms.get(source);
   const iri = term?.iri ?? resolveTerm(source, context.terms);
   for (const [name, standard] of standardTerms) {
@@ -965,6 +981,7 @@ function resolveProperty(
 }
 
 function isOpaqueExtension(field: SourceProperty): boolean {
+  const { standardTerms } = getContextTables();
   return (
     !field.source.startsWith("@") &&
     !field.iri?.startsWith("@") &&
@@ -2043,6 +2060,7 @@ function checkServerOwnedFields(
       );
       if (blocked || truncated) {
         const source = field.path.at(-1) as string;
+        const { standardContext } = getContextTables();
         if (resolveProperty(source, standardContext).name != null) {
           checkServerOwnedField(field, standardContext, seen);
         }
