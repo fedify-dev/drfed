@@ -1550,6 +1550,7 @@ function checkDocumentValue(
     path: FieldPath,
     context: DocumentContext,
   ) => void,
+  onUnavailableDocument: (path: FieldPath) => void = () => undefined,
 ): void {
   const { report, isFull } = reporter;
   const pending: (() => void)[] = [];
@@ -1617,27 +1618,36 @@ function checkDocumentValue(
       ancestors.has(document)
     ) {
       report("non_json_value", path, "JSON documents cannot contain cycles.");
+      onUnavailableDocument(path);
       return;
     }
     const values = readDocument(document, path, report);
     if (values == null) {
+      onUnavailableDocument(path);
       return;
     }
     const sourceDocument = document as object;
     const context = checkContext(values, path, report, inherited);
-    if (context == null) return;
+    if (context == null) {
+      onUnavailableDocument(path);
+      return;
+    }
     const fields = Object.keys(values)
       .filter((source) => source !== "@context")
       .sort()
       .map((source) => resolveProperty(source, context));
     const Type = checkDocumentType(values, fields, path, context, report);
-    if (Type == null) return;
+    if (Type == null) {
+      onUnavailableDocument(path);
+      return;
+    }
     if (expectedTypes?.every((Expected) => !isTypeOrSubtype(Type, Expected))) {
       report(
         "invalid_value_shape",
         path,
         "The embedded type is outside this property's collection range.",
       );
+      onUnavailableDocument(path);
       return;
     }
     checkEmbeddedFedifyRange(Type, fedifyTypes, path, report);
@@ -1995,19 +2005,68 @@ function checkPreparationOptions(options: DocumentPreparationOptions): void {
   }
 }
 
-// Compare against one server-owned creation value without rewriting a claim.
-// Resolve aliases first so an existing identity cannot be bypassed by adding
-// the same semantic field under another spelling. Null remains explicit absence.
-function proposeServerField(
+// Inspect source paths without executing accessors, even on invalid documents.
+function isMissingPreparationParent(
+  document: unknown,
+  path: FieldPath,
+): boolean {
+  let value = document;
+  for (const [index, part] of path.entries()) {
+    if (value === null || typeof value !== "object") return index > 0;
+    const descriptor = Object.getOwnPropertyDescriptor(value, part);
+    if (descriptor == null) return true;
+    if (!("value" in descriptor)) return false;
+    ({ value } = descriptor);
+  }
+  return false;
+}
+
+function checkServerOwnedFields(
+  document: unknown,
+  fields: readonly ServerOwnedField[],
+  targets: ReadonlyMap<string, PreparationTarget>,
+  unavailable: readonly FieldPath[],
+  truncated: boolean,
+): { field: ServerOwnedField; target: PreparationTarget; property: string }[] {
+  const seen = new Set<string>();
+  const checked = [];
+  for (const field of fields) {
+    const parent = field.path.slice(0, -1);
+    if (isMissingPreparationParent(document, parent)) {
+      throw new TypeError("Server-owned field parent path does not exist.");
+    }
+    const target = targets.get(JSON.stringify(parent));
+    if (target == null) {
+      // A failed type/context check cannot establish semantic target identity.
+      const blocked = unavailable.some((path) =>
+        path.every((part, index) => parent[index] === part),
+      );
+      if (blocked || truncated) {
+        const source = field.path.at(-1) as string;
+        if (resolveProperty(source, standardContext).name != null) {
+          checkServerOwnedField(field, standardContext, seen);
+        }
+        continue;
+      }
+      throw new TypeError(
+        "Server-owned field parents must be existing supported documents, not references or opaque data.",
+      );
+    }
+    const property = checkServerOwnedField(field, target.context, seen);
+    checked.push({ field, target, property });
+  }
+  return checked;
+}
+
+// Validate caller configuration before document errors can stop preparation.
+function checkServerOwnedField(
   field: ServerOwnedField,
-  target: PreparationTarget,
+  context: DocumentContext,
   seen: Set<string>,
-  report: Report,
-  changes: NormalizationChange[],
-): void {
+): string {
   const parentPath = field.path.slice(0, -1);
   const source = field.path.at(-1) as string;
-  const resolved = resolveProperty(source, target.context);
+  const resolved = resolveProperty(source, context);
   const property = resolved.name;
   if (
     !resolved.compatible ||
@@ -2033,6 +2092,19 @@ function proposeServerField(
   } else {
     checkReference(field.value, field.path, invalidServerValue);
   }
+  return property;
+}
+
+// Compare a checked server-owned value without rewriting a submitted claim.
+function proposeServerField(
+  field: ServerOwnedField,
+  target: PreparationTarget,
+  property: string,
+  report: Report,
+  changes: NormalizationChange[],
+): void {
+  const parentPath = field.path.slice(0, -1);
+  const source = field.path.at(-1) as string;
   const aliases = Object.keys(target.values).filter(
     (key) => resolveProperty(key, target.context).name === property,
   );
@@ -2110,6 +2182,7 @@ export function prepareDocument(
     ),
   );
   const targets = new Map<string, PreparationTarget>();
+  const unavailable: FieldPath[] = [];
   // Use only documents reached by vocabulary traversal: arbitrary extension
   // objects and unresolved IRI references must not become local write targets.
   checkDocumentValue(
@@ -2121,6 +2194,17 @@ export function prepareDocument(
       const key = JSON.stringify(path);
       if (requested.has(key)) targets.set(key, { values, context });
     },
+    (path) => unavailable.push(path),
+  );
+  const structural = reporter.result();
+  const checkedFields = checkServerOwnedFields(
+    document,
+    options.serverOwnedFields,
+    targets,
+    unavailable,
+    structural.diagnostics.some(
+      ({ reason }) => reason === "diagnostic_limit_reached",
+    ),
   );
   for (const outcome of options.authority) {
     if (!outcome.allowed) {
@@ -2138,15 +2222,8 @@ export function prepareDocument(
   ) {
     return result;
   }
-  const seen = new Set<string>();
-  for (const field of options.serverOwnedFields) {
-    const target = targets.get(JSON.stringify(field.path.slice(0, -1)));
-    if (target == null) {
-      throw new TypeError(
-        "Server-owned field parents must be existing supported documents, not references or opaque data.",
-      );
-    }
-    proposeServerField(field, target, seen, reporter.report, changes);
+  for (const { field, target, property } of checkedFields) {
+    proposeServerField(field, target, property, reporter.report, changes);
   }
   result = reporter.result();
   if (

@@ -3160,6 +3160,130 @@ describe("prepareDocument() trusted creation inputs", () => {
     }
   });
 
+  it("preflights caller configuration independently of document errors and authority denials", () => {
+    for (const content of ["Hello", 123]) {
+      for (const allowed of [true, false]) {
+        const input = {
+          "@context": [context, { identity: "@id" }],
+          type: "Note",
+          content,
+        };
+        const original = structuredClone(input);
+        for (const serverOwnedFields of [
+          [{ path: ["missing", "id"], value: like.object }],
+          [{ path: ["content"], value: "server text" }],
+          [{ path: ["id"], value: "relative" }],
+          [{ path: ["published"], value: "not-a-date" }],
+          [
+            { path: ["id"], value: like.object },
+            { path: ["identity"], value: like.object },
+          ],
+        ]) {
+          assert.throws(
+            () =>
+              prepareDocument(input, {
+                authority: [{ allowed, path: [] }],
+                serverOwnedFields,
+              }),
+            TypeError,
+          );
+        }
+        assert.deepEqual(input, original);
+      }
+    }
+  });
+
+  it("keeps document diagnostics when malformed type or context blocks target resolution", () => {
+    for (const input of [
+      null,
+      123,
+      { "@context": context, type: 123 },
+      { "@context": context, type: "Unknown" },
+      { "@context": 123, type: "Note" },
+      { "@context": "https://unknown.example/context", type: "Note" },
+      { "@context": context },
+    ]) {
+      const expected = validateDocument(input);
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [{ path: ["id"], value: like.object }],
+      });
+      assert.deepEqual(result, expected);
+      assert.ok(
+        result.diagnostics.some(({ severity }) => severity === "error"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+  });
+
+  it("distinguishes a blocked nested target from a definitely missing parent", () => {
+    const input = { ...like, object: [{ type: "Unknown" }] };
+    assert.deepEqual(
+      prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [{ path: ["object", 0, "id"], value: like.object }],
+      }),
+      validateDocument(input),
+    );
+    for (const path of [
+      ["missing", "id"],
+      ["object", 1, "id"],
+    ]) {
+      assert.throws(
+        () =>
+          prepareDocument(input, {
+            authority: [{ allowed: true, path: [] }],
+            serverOwnedFields: [{ path, value: like.object }],
+          }),
+        TypeError,
+      );
+    }
+  });
+
+  it("does not invoke getters while checking blocked preparation targets", () => {
+    let evaluated = false;
+    const input = { ...like };
+    Object.defineProperty(input, "object", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    const result = prepareDocument(input, {
+      authority: [{ allowed: true, path: [] }],
+      serverOwnedFields: [{ path: ["object", "id"], value: like.object }],
+    });
+    assert.equal(evaluated, false);
+    assert.ok(
+      result.diagnostics.some(({ reason }) => reason === "non_json_value"),
+    );
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+  });
+
+  it("preserves authority paths as diagnostic locations without requiring document targets", () => {
+    const input = { "@context": context, type: "Note", content: 123 };
+    const path = ["externalIdentity", 5, "actor"];
+    const result = prepareDocument(input, {
+      authority: [{ allowed: false, path }],
+      serverOwnedFields: [{ path: ["id"], value: like.object }],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path: location }) => ({
+        reason,
+        path: location,
+      })),
+      [
+        { reason: "invalid_value_shape", path: ["content"] },
+        { reason: "unauthorized_local_identity", path },
+      ],
+    );
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+  });
+
   it("revalidates generated fields and keeps incomplete documents without a preview", () => {
     const link = prepareDocument(
       { "@context": context, type: "Link" },

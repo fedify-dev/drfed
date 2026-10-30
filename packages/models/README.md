@@ -90,6 +90,8 @@ use `[]` for an operation-level denial. The function only reports this outcome:
 `allowed: true` is not an authorization check or a reusable permission token.
 Nested creations need the caller's separate permission outcomes. Embedded
 values alone never request creation or modification of resources.
+Authority paths are caller-supplied diagnostic locations; they are not checked
+against writable document targets. This differs from server-owned field paths.
 
 Owned-field paths must name id, actor, attributedTo, published, or updated on
 existing supported root/nested documents. Supported aliases resolve to the same
@@ -114,7 +116,12 @@ rewriting, or remote lookup. Structural multiplicity errors remain vocabulary
 errors. Both identity strings and timestamps supplied by the server are checked
 for supported syntax. Invalid trusted configuration, duplicate semantic field
 declarations, or paths outside existing supported documents throw TypeError
-when preparation reaches those checks; these are caller programming errors.
+before document errors or denied authority stop preparation; these are caller
+programming errors. Missing parent paths are checked without evaluating
+accessors. If malformed documents, unsupported types/contexts, or truncated
+checking prevent target or alias resolution, preparation retains document
+diagnostics instead of treating that uncertainty as a caller path error.
+Resolvable standard property names and trusted values are still checked.
 
 The preview combines server-field additions with existing empty-property
 omissions, preserves custom properties, and is structurally revalidated. It
