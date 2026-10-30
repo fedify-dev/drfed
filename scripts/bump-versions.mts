@@ -19,6 +19,8 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { setComposeImageTags } from "./images/compose-tags.mts";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = join(root, "packages");
 
@@ -57,6 +59,10 @@ if (packageJsonPaths.length === 0) {
   console.error("No packages found under packages/.");
   process.exit(1);
 }
+
+// First, so that a Compose example it cannot change leaves every file as is.
+await setComposeImageTags(version);
+console.log(`Compose examples: ghcr.io/fedify-dev/drfed:${version}`);
 
 await Promise.all(
   packageJsonPaths.map(async (path) => {

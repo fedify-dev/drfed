@@ -3,6 +3,11 @@ Manual installation
 
 Run DrFed on your own server to develop and debug ActivityPub apps.
 
+To run DrFed without installing Node.js, use the official container image; see
+[Container image].
+
+[Container image]: /installation/container/
+
 
 Install from npm
 ----------------

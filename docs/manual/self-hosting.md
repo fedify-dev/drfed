@@ -24,6 +24,10 @@ a fresh database automatically. An existing account with the same normalized
 email is returned without changing its name or privileges. Newly created
 accounts are not administrators.
 
+In the official container image, run the command through the server's Compose
+service, as described for [Docker] and [Podman], or as a container with the
+server's volume and settings, as described for [other container tools].
+
 For a configured deployment, use the same TOML file:
 
 ~~~~ sh
@@ -50,6 +54,9 @@ to print login links; their contents are excluded by default.
 
 See [Configuration] for shared settings and mail setup.
 
+[Docker]: /installation/container/docker
+[Podman]: /installation/container/podman
+[other container tools]: /installation/container/other
 [Configuration]: /manual/configuration
 
 

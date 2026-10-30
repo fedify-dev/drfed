@@ -66,6 +66,57 @@ jobs:
           LOGTAPE_TEST_MODE: ${{ runner.debug == '1' && 'always' || 'on-failure' }}
           LOGTAPE_TEST_LOWEST_LEVEL: ${{ runner.debug == '1' && 'trace' || 'debug' }}
 
+  # Pull requests and other branches build the image from the workspace with
+  # each container engine and test it with that engine on both architectures;
+  # nothing is uploaded or published.
+  image-pr:
+    needs: [version]
+    # The version job is skipped outside main and tags, but a failed one means
+    # the ref is broken and no image needs testing.
+    if: >-
+      ${{ !cancelled() && needs.version.result != 'failure' &&
+      needs.version.outputs.enabled != 'true' }}
+    timeout-minutes: 45
+    concurrency:
+      group: image-pr-${{ github.workflow }}-${{ github.ref }}-${{ matrix.engine }}-${{ matrix.arch }}
+      cancel-in-progress: false
+      queue: max
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [docker, podman]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          cache: true
+          experimental: true
+          log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
+      - uses: ./.github/actions/containerd-image-store
+        if: matrix.engine == 'docker'
+      - uses: ./.github/actions/pasta-apparmor
+        if: matrix.engine == 'podman'
+      # podman compose hands the default API address to its provider.
+      - name: Start the Podman API socket
+        if: matrix.engine == 'podman'
+        run: systemctl --user start podman.socket
+      - name: Show the Podman toolchain
+        if: matrix.engine == 'podman'
+        run: podman version && podman compose version
+      - name: Build the image from the packed workspace
+        run: mise run image:build --engine "${{ matrix.engine }}"
+      - name: Test the exact image layout
+        run: mise run "test:image:${{ matrix.engine }}" --require
+
   version:
     if: >-
       github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
@@ -149,8 +200,151 @@ jobs:
           retention-days: 90
           overwrite: false
 
-  publish:
+  image:
     needs: [version, artifacts]
+    if: needs.version.outputs.enabled == 'true'
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: image-${{ github.workflow }}-${{ github.ref }}-${{ matrix.arch }}
+      cancel-in-progress: false
+      queue: max
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      DRFED_RELEASE_BUILD: ${{ needs.version.outputs.build }}
+      ARTIFACT_NAME: drfed-image-${{ github.run_id }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          cache: false
+          experimental: true
+      # A rerun keeps the layout that was tested first; a rebuild would not
+      # reproduce its digest.
+      # Without it, a version already on npm must not get new image bytes.
+      - name: Find the original image layout from this run
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == env.ARTIFACT_NAME and .expired == false) | .id')
+          if [[ -n "$artifact_id" ]]; then
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          else
+            mise run release:ensure-unpublished
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: drfed-${{ github.run_id }}
+          path: release-artifacts
+      - name: Verify the package tarballs the image is built from
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run release:verify
+      - uses: ./.github/actions/containerd-image-store
+        if: steps.original.outputs.reuse != 'true'
+      - name: Build the image from the verified tarballs
+        if: steps.original.outputs.reuse != 'true'
+        run: >-
+          mise run --skip-deps image:build --engine docker
+          --artifacts release-artifacts --platform "linux/${{ matrix.arch }}"
+      # The bytes to be published must also run in Podman.
+      - uses: ./.github/actions/pasta-apparmor
+        if: steps.original.outputs.reuse != 'true'
+      - name: Start the Podman API socket
+        if: steps.original.outputs.reuse != 'true'
+        run: systemctl --user start podman.socket
+      - name: Test the exact image layout with Docker, then Podman
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run test:image --require
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/linux-${{ matrix.arch }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  image-index:
+    needs: [version, artifacts, image]
+    if: needs.version.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: image-index-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ needs.version.outputs.build }}
+      ARTIFACT_NAME: drfed-image-index-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          cache: false
+          experimental: true
+      - name: Find the original image index from this run
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == env.ARTIFACT_NAME and .expired == false) | .id')
+          if [[ -n "$artifact_id" ]]; then
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-${{ github.run_id }}
+          path: release-artifacts
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-amd64
+          path: image-artifacts/linux-amd64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-arm64
+          path: image-artifacts/linux-arm64
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.original.outputs.reuse == 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/index
+      - name: Merge the platform images into one OCI image index
+        run: mise run release:image-index
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/index/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  publish:
+    needs: [version, artifacts, image-index]
     if: >-
       github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
       !github.event.deleted && needs.version.outputs.enabled == 'true'
@@ -182,8 +376,78 @@ jobs:
           NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/drfed-npmrc
         run: mise run release:publish
 
+  image-publish:
+    needs: [version, publish, image-index]
+    if: >-
+      github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
+      !github.event.deleted && needs.version.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ needs.version.outputs.build }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          cache: false
+          experimental: true
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-amd64
+          path: image-artifacts/linux-amd64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-arm64
+          path: image-artifacts/linux-arm64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-index-${{ github.run_id }}
+          path: image-artifacts/index
+      # crane, gh attestation, actions/attest and @sigstore/oci all read the
+      # credentials this step stores.
+      - name: Log in to the GitHub Container Registry
+        run: >-
+          printf '%s' "$GH_TOKEN" |
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Push the verified image index
+        id: push
+        run: mise run release:image-push
+      - name: Find which copies of the provenance attestation exist
+        id: attestation
+        run: mise run release:image-attestation status
+      # actions/attest writes to the registry; recheck the release tag first.
+      - name: Check that the release tag still names this commit
+        if: steps.attestation.outputs.state == 'none'
+        run: mise run release:tag-target
+      - uses: actions/attest@v4.2.2
+        if: steps.attestation.outputs.state == 'none'
+        with:
+          subject-name: ${{ steps.push.outputs.subject }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Attach the attestation stored on GitHub to the registry
+        if: steps.attestation.outputs.state == 'github-only'
+        run: mise run release:image-attestation attach
+      - name: Verify the attestation from GitHub and from the registry
+        run: mise run release:image-attestation verify
+      - name: Advance the channel tag and check anonymous pulls
+        run: mise run release:image-tags
+
   github-release:
-    needs: [version, publish]
+    needs: [version, publish, image-publish]
     if: >-
       github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
       !github.event.deleted && github.ref_type == 'tag' &&
@@ -211,10 +475,17 @@ jobs:
         with:
           name: drfed-${{ github.run_id }}
           path: release-artifacts
-      - name: Create or verify the frozen release and its exact tarball assets
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-index-${{ github.run_id }}
+          path: image-artifacts/index
+      - name: Create or verify the frozen release and its exact assets
         run: mise run release:github
 
   docs:
+    # Pull requests skip the version job and still build the docs.
+    needs: [version]
+    if: ${{ !cancelled() && needs.version.result != 'failure' }}
     timeout-minutes: 15
     concurrency:
       group: docs-${{ github.workflow }}-${{ github.ref }}
@@ -238,9 +509,13 @@ jobs:
           if [[ "$DEPLOYS" == true && "$GITHUB_REF_TYPE" == tag ]]; then
             : "${CANARY_DOCS_URL:?The CANARY_DOCS_URL variable is required}"
             export EXTRA_NAV_TEXT=Canary EXTRA_NAV_LINK="$CANARY_DOCS_URL"
+            DRFED_IMAGE_VERSION=$(jq --raw-output .version <<<"$DRFED_RELEASE_BUILD")
+            export DRFED_IMAGE_VERSION
           elif [[ "$DEPLOYS" == true && "$GITHUB_REF" == refs/heads/main ]]; then
             : "${RELEASE_DOCS_URL:?The RELEASE_DOCS_URL variable is required}"
             export EXTRA_NAV_TEXT=Release EXTRA_NAV_LINK="$RELEASE_DOCS_URL"
+            DRFED_IMAGE_VERSION=$(jq --raw-output .version <<<"$DRFED_RELEASE_BUILD")
+            export DRFED_IMAGE_VERSION
           fi
           mise run build:docs
         env:
@@ -249,6 +524,7 @@ jobs:
             github.repository == 'fedify-dev/drfed' && !github.event.deleted }}
           RELEASE_DOCS_URL: ${{ vars.RELEASE_DOCS_URL }}
           CANARY_DOCS_URL: ${{ vars.CANARY_DOCS_URL }}
+          DRFED_RELEASE_BUILD: ${{ needs.version.outputs.build }}
       # The docs-preview workflow deploys this artifact for pull requests.
       - uses: actions/upload-artifact@v7.0.2
         with:
@@ -336,7 +612,7 @@ jobs:
           DRFED_DOCS_URL: ${{ steps.deployment.outputs.page_url }}
 
   docs-canary:
-    needs: [version, check, test, docs, publish]
+    needs: [version, check, test, docs, publish, image-publish]
     if: >-
       github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
       !github.event.deleted && github.ref == 'refs/heads/main' &&

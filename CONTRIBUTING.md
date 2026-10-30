@@ -73,6 +73,9 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
  -  *scripts/dev.mts* coordinates watch builds and the local development
     server.
  -  *packages/models/drizzle* contains generated Drizzle migration files.
+ -  *docker/* holds the container image's *Containerfile* (*Dockerfile* is a
+    symbolic link to it), its entrypoint, and the Compose examples that the
+    documentation includes and CI runs.
 
 Keep package boundaries clear.  Database schema changes belong in
 `@drfed/models`; ActivityPub handlers and vocabulary serialization belong in
@@ -352,6 +355,88 @@ and all five shells, named *drfed-server.bash*, *drfed-server.zsh*, and so on.
 These assets are extracted from the same verified application tarball that is
 published to npm.  Their manifest digests and tarball contents are checked
 before release uploads; reruns reuse matching assets and upload missing files.
+Each GitHub Release also attaches *image-manifest.json*, which ties the
+container image digest to the release tarballs.
+
+
+Container images
+----------------
+
+The image `ghcr.io/fedify-dev/drfed` is built from *docker/Containerfile*,
+only from the verified tarballs of the same run, never from a registry
+dist-tag.  Keep the file free of BuildKit-only syntax so that other OCI
+builders can use it.  Build and test it locally with Docker or Podman:
+
+~~~~ sh
+mise run image:build
+mise run test:image
+~~~~
+
+`image:build` packs the workspace unless `--artifacts` names a tarball
+directory, and writes an OCI layout to *image-artifacts/linux-<arch>/*.  It
+builds with `--engine docker` or `--engine podman`; without the option it uses
+Docker when Docker is reachable, and Podman otherwise.  Either engine writes
+one OCI image manifest with gzip layers, the same image labels, and the same
+*drfed-image.json*, and either engine can test the result.  Only Docker layouts
+are released, so the manifest annotations and *index.json* entries that differ
+between the engines are never published.
+
+`test:image` loads that exact layout and runs the four commands, the Compose
+examples under *docker/*, the backup and restore snippets, and an upgrade from
+the source named in *docker/upgrade-source.json*.  It runs
+`test:image:docker`, then `test:image:podman`; `--parallel` runs them at the
+same time, which needs memory for both engines' virtual machines on macOS.  An
+engine whose command is not installed is skipped with a message, and
+`--require` turns that into a failure, as CI does.  An installed engine that
+cannot be reached, such as a stopped Docker Desktop or `podman machine`, always
+fails.  Run the tests after changing *docker/*, packaging, startup, or
+migrations.
+
+The scripts live under *scripts/images/*.  Engine differences are data in
+*scripts/images/engines.mts*: command arguments, the environment, platform and
+image ID formats, and the build steps.  To support another container engine,
+add an entry there, add a `test:image:<tool>` task, and add that task to
+`test:image`. The scenarios under *scripts/images/test/scenarios/* do not name
+any engine. `mise run check:images` tests the calculations in *engines.mts*,
+including how the Podman documentation rewrites the Docker commands.
+
+In CI, pull requests build the image with Docker and with Podman on
+`linux/amd64` and `linux/arm64` runners and test each layout with the engine
+that built it, without uploading anything.  Release builds use Docker and test
+the same layout with Docker, then Podman.  Release builds keep each tested
+layout as a `drfed-image-<run-id>-<arch>` artifact and merge them into one OCI
+image index, kept as `drfed-image-index-<run-id>`.  The npm `publish` job
+requires that index, so a broken image blocks the whole release set.  The
+`image-publish` job then runs in the `npm-publish` concurrency group:
+
+ -  It pushes the index as the immutable `<version>` tag.  An existing tag with
+    the same digest is skipped; a different digest fails the run.
+ -  It attests the index digest with `actions/attest` and requires the
+    attestation to verify both from GitHub and from the registry.  If a
+    previous attempt stored it on GitHub only, the job attaches that stored
+    bundle instead of creating another one.
+ -  It moves the `dev`, `latest`, or `next` channel tag only forward, using
+    the `org.drfed.build` annotation with the same ordering rules as npm.
+ -  It finally resolves the channel tag without credentials.  If the package
+    is private, `latest` and `next` builds fail and `dev` builds only warn.
+
+To recover from a failed image publication after npm publication succeeded,
+rerun the same workflow run; it reuses every artifact and pushes identical
+bytes.  If the artifacts have expired, prepare a new patch release instead of
+rebuilding a published version; the `image` job refuses to build a missing
+layout again once the version is on npm.  Every registry write, including
+attaching an attestation, first checks that the release tag still names the
+built commit.  `mise run check:release` exercises these
+rules with stub `crane` and `gh` commands.
+
+After the first `main` build publishes the package, a maintainer must check its
+visibility in the organization's package settings.  If it is private, make it
+public, which cannot be undone, confirm that the package is linked to this
+repository with Actions write access, and rerun any job that failed the
+anonymous pull check.  After each stable release, the next version bump commit
+should point *docker/upgrade-source.json* at that release's image, pinned by
+digest.  `mise bump-version` updates the image tags of the Compose examples,
+and `mise run check:versions` checks them.
 
 Documentation site deployment and its service setup are described in
 [*DEPLOY.md*](./DEPLOY.md).
@@ -643,7 +728,9 @@ export, checking before building reports missing modules that are not actually
 missing.  This is the order CI uses.
 
 Run `mise run dev` for changes that affect startup, CLI parsing, migration
-execution, the GraphQL server, or package build output.  Manually verify the
+execution, the GraphQL server, or package build output.  Run
+`mise run image:build` and `mise run test:image` for changes to *docker/* or
+to what the container image runs.  Manually verify the
 installed CLI behavior when changing package metadata, `bin` entries, build
 configuration, or files published to npm.
 

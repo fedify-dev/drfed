@@ -27,7 +27,6 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { type IncomingHttpHeaders, request as httpRequest } from "node:http";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -45,6 +44,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { probeCompletionInstallation } from "./completion-installation.mts";
+import { requestInstalledWeb } from "./smoke-http.mts";
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -316,49 +316,6 @@ async function pack(name: string) {
   return { archive, manifest };
 }
 
-interface WebSmokeResponse {
-  readonly status: number;
-  readonly headers: IncomingHttpHeaders;
-  readonly body: string;
-}
-async function requestInstalledWeb(
-  port: number,
-  path: string,
-  headers: Readonly<Record<string, string>> = {},
-  body?: string,
-): Promise<WebSmokeResponse> {
-  const result = Promise.withResolvers<WebSmokeResponse>();
-  const request = httpRequest(
-    {
-      hostname: "127.0.0.1",
-      port,
-      path,
-      method: body === undefined ? "GET" : "POST",
-      headers: { host: "drfed.test", ...headers },
-    },
-    (response) => {
-      let output = "";
-      response.setEncoding("utf8");
-      response.on("data", (chunk: string) => {
-        output += chunk;
-      });
-      response.once("end", () =>
-        result.resolve({
-          status: response.statusCode ?? 0,
-          headers: response.headers,
-          body: output,
-        }),
-      );
-      response.once("error", result.reject);
-    },
-  );
-  request.once("error", result.reject);
-  request.setTimeout(10_000, () =>
-    request.destroy(new Error("Installed web request timed out.")),
-  );
-  request.end(body);
-  return await result.promise;
-}
 interface CrossJsonModule {
   readonly toCrossJSON: (value: unknown) => unknown;
 }

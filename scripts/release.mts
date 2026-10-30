@@ -17,12 +17,34 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+
+import {
+  type Descriptor,
+  type ImageMetadata,
+  imageAnnotations,
+  metadataFile,
+  readBlob,
+  sha256Digest,
+  singleImage,
+  writeBlob,
+} from "./images/layout.mts";
 
 const execute = promisify(execFile);
 const packageOrder = ["models", "federation", "graphql", "web", "drfed"];
@@ -52,6 +74,14 @@ if (fixture) {
       (endpoint.protocol === "http:" && endpoint.hostname === "127.0.0.1"),
   );
 } else assert.equal(githubApi, "https://api.github.com/");
+const images = resolve(option("--images", join(root, "image-artifacts")));
+const imageRepository = option(
+  "--image-repository",
+  "ghcr.io/fedify-dev/drfed",
+);
+if (fixture && imageRepository !== "ghcr.io/fedify-dev/drfed") {
+  assert.match(imageRepository, /^127\.0\.0\.1:\d+\/drfed$/u);
+} else assert.equal(imageRepository, "ghcr.io/fedify-dev/drfed");
 const registry = option("--registry", "https://registry.npmjs.org/");
 if (fixture) {
   const url = new URL(registry);
@@ -618,14 +648,45 @@ async function publishOne(
   }
   throw new Error(`Incomplete publication: ${entry.name}`);
 }
+/**
+ * Order a channel's current build against this one, for npm and images alike.
+ * @returns Whether the current build is newer and must keep the channel.
+ */
+function newerChannelBuild(
+  currentVersion: string,
+  current: Version | undefined,
+  build: Version,
+  subject: string,
+): boolean {
+  if (currentVersion === build.version) return false;
+  if (build.channel !== "dev") {
+    return compare(build.version, currentVersion) < 0;
+  }
+  // A manually seeded dev.0 has no CI run identity. Only accept this exact
+  // same-base bootstrap; every CI dev run has a positive run number.
+  if (
+    current === undefined &&
+    currentVersion === `${build.baseVersion}-dev.0`
+  ) {
+    return false;
+  }
+  assert.equal(
+    current?.workflow,
+    workflow,
+    `Cannot order a foreign dev build of ${subject}`,
+  );
+  const runNumber = current?.runNumber;
+  assert.equal(typeof runNumber, "string");
+  assert.match(runNumber!, /^[1-9]\d*$/u);
+  return BigInt(runNumber!) > BigInt(build.runNumber);
+}
 async function newerChannelVersion(
   entry: Artifact,
   currentVersion: string,
   build: Version,
 ): Promise<boolean> {
-  if (currentVersion === build.version) return false;
-  if (build.channel !== "dev") {
-    return compare(build.version, currentVersion) < 0;
+  if (currentVersion === build.version || build.channel !== "dev") {
+    return newerChannelBuild(currentVersion, undefined, build, entry.name);
   }
   const current = await get<RegistryVersion>(
     new URL(`${encodeURIComponent(entry.name)}/${currentVersion}`, registry)
@@ -634,23 +695,12 @@ async function newerChannelVersion(
   assert.ok(current, `Missing current dev metadata for ${entry.name}`);
   assert.equal(current.name, entry.name);
   assert.equal(current.version, currentVersion);
-  // A manually seeded dev.0 has no CI run identity. Only accept this exact
-  // same-base bootstrap; every CI dev run has a positive run number.
-  if (
-    current.drfedBuild === undefined &&
-    currentVersion === `${build.baseVersion}-dev.0`
-  ) {
-    return false;
-  }
-  assert.equal(
-    current.drfedBuild?.workflow,
-    workflow,
-    "Cannot order a foreign dev build",
+  return newerChannelBuild(
+    currentVersion,
+    current.drfedBuild,
+    build,
+    entry.name,
   );
-  const runNumber = current.drfedBuild?.runNumber;
-  assert.equal(typeof runNumber, "string");
-  assert.match(runNumber!, /^[1-9]\d*$/u);
-  return BigInt(runNumber!) > BigInt(build.runNumber);
 }
 async function publish(): Promise<void> {
   const bundle = await verify();
@@ -754,8 +804,9 @@ async function uploadAsset(
   entry: Artifact,
   existing: Release,
   build: Version,
+  directory = artifacts,
 ): Promise<void> {
-  const bytes = await readFile(join(artifacts, entry.filename));
+  const bytes = await readFile(join(directory, entry.filename));
   const expectedDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
   const asset: Release["assets"][number] | undefined = existing.assets.find(
     (item) => item.name === entry.filename,
@@ -780,7 +831,7 @@ async function uploadAsset(
       "release",
       "upload",
       build.version,
-      join(artifacts, entry.filename),
+      join(directory, entry.filename),
       ...(asset ? ["--clobber"] : []),
       "--repo",
       repository,
@@ -841,6 +892,517 @@ async function release(): Promise<void> {
   assert.equal(existing.prerelease, build.channel === "next");
   for (const entry of [...bundle.packages, ...bundle.completions!]) {
     await uploadAsset(entry, existing, build);
+  }
+  // The image digest, build identity and tarball integrities, so that the
+  // published image traces back to these release packages.
+  const imageDirectory = join(images, "index");
+  const imageManifest = await json<ImageIndexManifest>(
+    join(imageDirectory, "image-manifest.json"),
+  );
+  assert.deepEqual(imageManifest.build, build);
+  assert.deepEqual(imageManifest.packages, bundle.packages);
+  await uploadAsset(
+    {
+      name: "image-manifest.json",
+      filename: "image-manifest.json",
+      integrity: digest(
+        await readFile(join(imageDirectory, "image-manifest.json")),
+      ),
+    },
+    existing,
+    build,
+    imageDirectory,
+  );
+}
+const imageArchitectures = ["amd64", "arm64"] as const;
+const indexMediaType = "application/vnd.oci.image.index.v1+json";
+const provenanceType = "https://slsa.dev/provenance/v1";
+/** The image-manifest.json of the merged index artifact. */
+interface ImageIndexManifest {
+  digest: string;
+  size: number;
+  build: Version;
+  packages: Artifact[];
+  base: ImageMetadata["base"];
+  created: string;
+  platforms: { platform: string; digest: string; size: number }[];
+}
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function writeOutput(values: Record<string, string>): Promise<void> {
+  if (!process.env.GITHUB_OUTPUT) return;
+  await appendFile(
+    process.env.GITHUB_OUTPUT,
+    Object.entries(values)
+      .map(([key, value]) => `${key}=${value}\n`)
+      .join(""),
+  );
+}
+/**
+ * Check that manifest.json names this build and its tarballs are intact.
+ * @returns The bundle manifest.
+ */
+async function bundleIdentity(): Promise<Bundle> {
+  const bundle = await json<Bundle>(join(artifacts, "manifest.json"));
+  assert.deepEqual(bundle.build, buildFromEnvironment());
+  assert.equal(bundle.packages.length, packageOrder.length);
+  for (const [index, entry] of bundle.packages.entries()) {
+    assert.equal(entry.name, `@drfed/${packageOrder[index]}`);
+    assert.equal(
+      entry.integrity,
+      digest(await readFile(join(artifacts, entry.filename))),
+    );
+  }
+  return bundle;
+}
+/**
+ * Merge the verified platform layouts into one deterministic image index.
+ * @returns The serialized index and the manifest describing it.
+ */
+async function composeIndex(
+  bundle: Bundle,
+): Promise<{ bytes: Buffer; manifest: ImageIndexManifest }> {
+  const platforms: Descriptor[] = [];
+  let shared: ImageMetadata | undefined;
+  for (const arch of imageArchitectures) {
+    const layout = join(images, `linux-${arch}`);
+    const metadata = await json<ImageMetadata>(join(layout, metadataFile));
+    assert.equal(metadata.platform, `linux/${arch}`);
+    assert.deepEqual(metadata.build, bundle.build, "Image of another build");
+    assert.deepEqual(
+      metadata.packages,
+      bundle.packages,
+      "Image built from other tarballs",
+    );
+    if (shared) {
+      assert.deepEqual(metadata.base, shared.base, "Mismatched base images");
+      assert.equal(metadata.created, shared.created);
+    }
+    shared = metadata;
+    const { descriptor } = await singleImage(layout);
+    platforms.push({
+      mediaType: descriptor.mediaType,
+      digest: descriptor.digest,
+      size: descriptor.size,
+      platform: { architecture: arch, os: "linux" },
+    });
+  }
+  assert.ok(shared);
+  const annotations = imageAnnotations(shared);
+  // Fixed key order and sorted annotations keep the index bytes, and thus
+  // its digest, a function of the platform images alone.
+  const bytes = Buffer.from(
+    JSON.stringify({
+      schemaVersion: 2,
+      mediaType: indexMediaType,
+      manifests: platforms,
+      annotations: Object.fromEntries(
+        Object.entries(annotations).sort(([left], [right]) =>
+          left < right ? -1 : 1,
+        ),
+      ),
+    }),
+  );
+  return {
+    bytes,
+    manifest: {
+      digest: sha256Digest(bytes),
+      size: bytes.length,
+      build: shared.build,
+      packages: [...shared.packages],
+      base: shared.base,
+      created: shared.created,
+      platforms: platforms.map((item, index) => ({
+        platform: `linux/${imageArchitectures[index]}`,
+        digest: item.digest,
+        size: item.size,
+      })),
+    },
+  };
+}
+async function imageIndex(): Promise<void> {
+  const bundle = await bundleIdentity();
+  const { bytes, manifest } = await composeIndex(bundle);
+  const output = join(images, "index");
+  const file = join(output, "image-manifest.json");
+  if (await exists(file)) {
+    // A rerun reuses the uploaded index; it must still match the layouts.
+    assert.deepEqual(await json<ImageIndexManifest>(file), manifest);
+    await readBlob(output, manifest);
+    console.log(`Verified existing image index ${manifest.digest}`);
+  } else {
+    await mkdir(output, { recursive: true });
+    await writeBlob(output, bytes);
+    await writeFile(
+      join(output, "oci-layout"),
+      '{"imageLayoutVersion":"1.0.0"}',
+    );
+    await writeFile(
+      join(output, "index.json"),
+      JSON.stringify({
+        schemaVersion: 2,
+        mediaType: indexMediaType,
+        manifests: [
+          {
+            mediaType: indexMediaType,
+            digest: manifest.digest,
+            size: manifest.size,
+          },
+        ],
+      }),
+    );
+    await writeFile(file, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`Wrote image index ${manifest.digest}`);
+  }
+  await writeOutput({ digest: manifest.digest });
+}
+/**
+ * Read image-manifest.json and check it against the authorized build.
+ * @returns The merged index manifest.
+ */
+async function imageIdentity(): Promise<ImageIndexManifest> {
+  const manifest = await json<ImageIndexManifest>(
+    join(images, "index", "image-manifest.json"),
+  );
+  assert.deepEqual(manifest.build, buildFromEnvironment());
+  return manifest;
+}
+/** Rebuild the complete multi-platform layout from the three artifacts. */
+async function assembleLayout(
+  manifest: ImageIndexManifest,
+  directory: string,
+): Promise<void> {
+  for (const source of [
+    ...imageArchitectures.map((arch) => `linux-${arch}`),
+    "index",
+  ]) {
+    await cp(join(images, source, "blobs"), join(directory, "blobs"), {
+      recursive: true,
+    });
+  }
+  await cp(join(images, "index", "index.json"), join(directory, "index.json"));
+  await cp(join(images, "index", "oci-layout"), join(directory, "oci-layout"));
+  const index = JSON.parse(
+    (await readBlob(directory, manifest)).toString("utf8"),
+  ) as { manifests: Descriptor[] };
+  assert.deepEqual(
+    index.manifests.map(({ digest: value }) => value),
+    manifest.platforms.map(({ digest: value }) => value),
+  );
+  for (const descriptor of index.manifests) {
+    const image = JSON.parse(
+      (await readBlob(directory, descriptor)).toString("utf8"),
+    ) as { config: Descriptor; layers: Descriptor[] };
+    for (const blob of [image.config, ...image.layers]) {
+      await readBlob(directory, blob);
+    }
+  }
+}
+// Whether a failed crane call means the tag or repository does not exist.
+function missingImage(error: unknown): boolean {
+  return /MANIFEST_UNKNOWN|NAME_UNKNOWN|status code 404|\b404 Not Found/u.test(
+    String((error as { stderr?: unknown }).stderr ?? error),
+  );
+}
+async function crane(args: string[]): Promise<string | null> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return (await run("crane", args)).stdout;
+    } catch (error) {
+      if (missingImage(error)) return null;
+      if (attempt === 2) throw error;
+      await delay(fixture ? 1 : 2000 * (attempt + 1));
+    }
+  }
+  throw new Error("Unreachable request state");
+}
+async function imagePush(): Promise<void> {
+  const manifest = await imageIdentity();
+  const { build } = manifest;
+  const reference = `${imageRepository}:${build.version}`;
+  const directory = await mkdtemp(join(tmpdir(), "drfed-image-push-"));
+  try {
+    await assembleLayout(manifest, directory);
+    const existing = (await crane(["digest", reference]))?.trim();
+    if (existing) {
+      assert.equal(
+        existing,
+        manifest.digest,
+        `Immutable image version conflict for ${reference}`,
+      );
+      console.log(`Image ${reference} already exists with the same digest`);
+    } else {
+      await tagTarget(build);
+      const refs = join(directory, "image-refs");
+      // A single nested index in the layout is pushed as that index.
+      await crane(["push", directory, reference, "--image-refs", refs]);
+      const pushed = (await readFile(refs, "utf8")).trim();
+      assert.equal(pushed, `${imageRepository}@${manifest.digest}`);
+      console.log(`Pushed ${reference} (${manifest.digest})`);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  await writeOutput({
+    digest: manifest.digest,
+    subject: imageRepository,
+  });
+}
+/** Move the channel tag forward, then check that anyone can pull it. */
+async function imageTags(): Promise<void> {
+  const manifest = await imageIdentity();
+  const { build } = manifest;
+  assert.ok(["dev", "latest", "next"].includes(build.channel));
+  const channel = `${imageRepository}:${build.channel}`;
+  const current = await crane(["manifest", channel]);
+  let target = manifest.digest;
+  let write = true;
+  if (current !== null) {
+    const index = JSON.parse(current) as {
+      annotations?: Record<string, string>;
+    };
+    const identity = index.annotations?.["org.drfed.build"];
+    assert.ok(identity, `Cannot order a foreign image at ${channel}`);
+    const currentBuild = JSON.parse(identity) as Version;
+    const currentDigest = sha256Digest(Buffer.from(current));
+    if (currentDigest === manifest.digest) {
+      console.log(`${channel} already names ${build.version}`);
+      write = false;
+    } else if (
+      newerChannelBuild(currentBuild.version, currentBuild, build, channel)
+    ) {
+      console.log(`${channel} names a newer build; preserving it.`);
+      target = currentDigest;
+      write = false;
+    }
+  }
+  if (write) {
+    await tagTarget(build);
+    await crane([
+      "tag",
+      `${imageRepository}@${manifest.digest}`,
+      build.channel,
+    ]);
+    console.log(`Tagged ${channel} as ${build.version}`);
+  }
+  await checkAnonymousPull(channel, target, build);
+}
+// Whether a failed crane call was refused for lack of credentials.
+function unauthorizedImage(error: unknown): boolean {
+  return /UNAUTHORIZED|DENIED|status code 40[13]|\b40[13] (?:Unauthorized|Forbidden)/u.test(
+    String((error as { stderr?: unknown }).stderr ?? error),
+  );
+}
+/**
+ * Resolve a reference with no credentials, as `docker pull` would for anyone.
+ * @returns Its digest, or null when the registry refuses anonymous reads.
+ */
+async function anonymousDigest(reference: string): Promise<string | null> {
+  const config = await mkdtemp(join(tmpdir(), "drfed-anonymous-"));
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const { stdout } = await execute("crane", ["digest", reference], {
+          cwd: root,
+          env: { ...process.env, DOCKER_CONFIG: config },
+          timeout: 120_000,
+        });
+        return stdout.trim();
+      } catch (error) {
+        if (unauthorizedImage(error)) return null;
+        if (attempt === 2) throw error;
+        await delay(fixture ? 1 : 2000 * (attempt + 1));
+      }
+    }
+    throw new Error("Unreachable request state");
+  } finally {
+    await rm(config, { recursive: true, force: true });
+  }
+}
+/**
+ * Check that anyone can pull the channel.  A private package fails releases;
+ * `dev` only warns, because the first main build publishes the package before
+ * a maintainer can make it public.
+ */
+async function checkAnonymousPull(
+  channel: string,
+  expected: string,
+  build: Version,
+): Promise<void> {
+  const resolved = await anonymousDigest(channel);
+  if (resolved === null) {
+    const message = `Anonymous pull of ${channel} is refused; make the package public, then rerun this job.`;
+    if (build.channel !== "dev") throw new Error(message);
+    console.log(`::warning::${message}`);
+    return;
+  }
+  assert.equal(
+    resolved,
+    expected,
+    `Anonymous pull of ${channel} resolves another image`,
+  );
+  console.log(`Anonymous pull of ${channel} resolves ${expected}`);
+}
+/**
+ * The constraints every accepted attestation of this build must meet.
+ * @returns The matching `gh attestation verify` options.
+ */
+function attestationConstraints(build: Version): string[] {
+  return [
+    "--repo",
+    repository,
+    "--signer-workflow",
+    `${repository}/${workflow}`,
+    "--source-ref",
+    build.ref,
+    "--source-digest",
+    build.sha,
+    "--predicate-type",
+    provenanceType,
+    "--deny-self-hosted-runners",
+  ];
+}
+/**
+ * Verify the attestation of an image from one source.
+ * @returns Whether a matching attestation exists there.
+ */
+async function attested(
+  subject: string,
+  build: Version,
+  extra: string[],
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await run("gh", [
+        "attestation",
+        "verify",
+        subject,
+        ...attestationConstraints(build),
+        ...extra,
+      ]);
+      return true;
+    } catch (error) {
+      const stderr = String((error as { stderr?: unknown }).stderr ?? "");
+      // The gh CLI reports absence as an API 404 or as an empty registry.
+      if (
+        /HTTP 404|no attestations found|no matching attestations/u.test(stderr)
+      ) {
+        return false;
+      }
+      if (attempt === 2 || !transientGhFailure(error)) throw error;
+      await delay(fixture ? 1 : 1000 * (attempt + 1));
+    }
+  }
+  throw new Error("Unreachable request state");
+}
+async function attestationState(
+  manifest: ImageIndexManifest,
+): Promise<"both" | "github-only" | "none"> {
+  const subject = `oci://${imageRepository}@${manifest.digest}`;
+  const github = await attested(subject, manifest.build, []);
+  const registryCopy = await attested(subject, manifest.build, [
+    "--bundle-from-oci",
+  ]);
+  // The actions/attest step stores on GitHub before attaching to GHCR.
+  assert.ok(github || !registryCopy, "Registry-only attestation");
+  return github ? (registryCopy ? "both" : "github-only") : "none";
+}
+/** Attach the stored GitHub attestation bundle the way actions/attest does. */
+async function attachAttestation(manifest: ImageIndexManifest): Promise<void> {
+  const subject = `oci://${imageRepository}@${manifest.digest}`;
+  const directory = await mkdtemp(join(tmpdir(), "drfed-attestation-"));
+  try {
+    await execute(
+      "gh",
+      ["attestation", "download", subject, "--repo", repository],
+      { cwd: directory, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 },
+    );
+    const [file] = (await readdir(directory)).filter((name) =>
+      name.endsWith(".jsonl"),
+    );
+    assert.ok(file, "Missing downloaded attestation bundles");
+    const lines = (await readFile(join(directory, file), "utf8"))
+      .split("\n")
+      .filter((line) => line.trim());
+    for (const [index, line] of lines.entries()) {
+      const path = join(directory, `bundle-${index}.json`);
+      await writeFile(path, line);
+      try {
+        await run("gh", [
+          "attestation",
+          "verify",
+          subject,
+          ...attestationConstraints(manifest.build),
+          "--bundle",
+          path,
+        ]);
+      } catch (error) {
+        // Another workflow or ref may have attested the same digest; only a
+        // bundle of this build may be copied to the registry.
+        console.log(
+          `Skipping a stored bundle: ${String((error as { stderr?: unknown }).stderr ?? error).trim()}`,
+        );
+        continue;
+      }
+      const bundle = JSON.parse(line) as { mediaType: string };
+      const options = {
+        imageName: imageRepository,
+        imageDigest: manifest.digest,
+        artifact: Buffer.from(line),
+        mediaType: bundle.mediaType,
+        annotations: {
+          "dev.sigstore.bundle.content": "dsse-envelope",
+          "dev.sigstore.bundle.predicateType": provenanceType,
+        },
+      };
+      // A rerun can come after the release tag moved; recheck before writing.
+      await tagTarget(manifest.build);
+      if (fixture) {
+        const response = await fetch(new URL("__attach", registry), {
+          method: "POST",
+          body: JSON.stringify(options),
+        });
+        assert.ok(response.ok, await response.text());
+      } else {
+        const { attachArtifactToImage, getRegistryCredentials } =
+          await import("@sigstore/oci");
+        await attachArtifactToImage({
+          ...options,
+          credentials: getRegistryCredentials(imageRepository),
+        });
+      }
+      console.log(`Attached the stored attestation to ${manifest.digest}`);
+      return;
+    }
+    throw new Error("No stored attestation meets the build constraints");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+async function imageAttestation(action: string | undefined): Promise<void> {
+  const manifest = await imageIdentity();
+  if (action === "status") {
+    const state = await attestationState(manifest);
+    console.log(`Attestation state of ${manifest.digest}: ${state}`);
+    await writeOutput({ state });
+  } else if (action === "attach") {
+    assert.equal(await attestationState(manifest), "github-only");
+    await attachAttestation(manifest);
+  } else if (action === "verify") {
+    assert.equal(
+      await attestationState(manifest),
+      "both",
+      "The attestation must verify from GitHub and from the registry",
+    );
+    console.log(`Verified the attestation of ${manifest.digest}`);
+  } else {
+    throw new Error("Expected status, attach or verify");
   }
 }
 /** The payload of a docs deployment record, written by `docs-intent`. */
@@ -1213,13 +1775,24 @@ else if (command === "verify") {
   console.log("Verified release artifact identities and contents");
 } else if (command === "publish") await publish();
 else if (command === "github-release") await release();
-else if (command === "docs-current") await docsCurrent();
+else if (command === "image-index") await imageIndex();
+else if (command === "image-push") await imagePush();
+else if (command === "image-tags") await imageTags();
+else if (command === "image-attestation") {
+  // The task declares its argument with `usage`, so mise passes it as
+  // usage_action; fixtures pass it directly.
+  await imageAttestation(
+    cliArgs[0]?.startsWith("--") === false
+      ? cliArgs[0]
+      : process.env.usage_action,
+  );
+} else if (command === "docs-current") await docsCurrent();
 else if (command === "docs-intent") await docsIntent();
 else if (command === "docs-record") await docsRecordDeployment();
 else if (command === "compare") {
   console.log(compare(cliArgs[0]!, cliArgs[1]!));
 } else {
   throw new Error(
-    "Expected version, apply, ensure-unpublished, tag-target, pack, verify, publish, github-release, docs-current, docs-intent, docs-record or compare",
+    "Expected version, apply, ensure-unpublished, tag-target, pack, verify, publish, github-release, image-index, image-push, image-tags, image-attestation, docs-current, docs-intent, docs-record or compare",
   );
 }
