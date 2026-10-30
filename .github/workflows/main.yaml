@@ -90,7 +90,7 @@ jobs:
           - arch: amd64
             runner: ubuntu-latest
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -103,6 +103,8 @@ jobs:
           log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
       - uses: ./.github/actions/containerd-image-store
         if: matrix.engine == 'docker'
+      - uses: ./.github/actions/pasta-apparmor
+        if: matrix.engine == 'podman'
       # podman compose hands the default API address to its provider.
       - name: Start the Podman API socket
         if: matrix.engine == 'podman'
@@ -216,7 +218,7 @@ jobs:
           - arch: amd64
             runner: ubuntu-latest
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     env:
       DRFED_RELEASE_BUILD: ${{ needs.version.outputs.build }}
@@ -260,6 +262,8 @@ jobs:
           mise run --skip-deps image:build --engine docker
           --artifacts release-artifacts --platform "linux/${{ matrix.arch }}"
       # The bytes to be published must also run in Podman.
+      - uses: ./.github/actions/pasta-apparmor
+        if: steps.original.outputs.reuse != 'true'
       - name: Start the Podman API socket
         if: steps.original.outputs.reuse != 'true'
         run: systemctl --user start podman.socket

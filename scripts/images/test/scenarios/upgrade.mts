@@ -103,7 +103,7 @@ export const checkUpgrade: Scenario = async (engine, context, image) => {
       (await engine.succeed(["port", old, "8888"])).stdout,
     );
     await requestLogin(port, origin);
-    assert.equal((await engine.run(["stop", "--time", "20", old])).code, 0);
+    await engine.succeed(["stop", "--time", "20", old]);
     assert.equal(await exitCode(engine, old), 0);
     const output = join(context.temporary, "account.json");
     await engine.succeed(["cp", `${old}:/tmp/account.json`, output]);
@@ -129,19 +129,14 @@ export const checkUpgrade: Scenario = async (engine, context, image) => {
     project.env.COMPOSE_FILE += `${delimiter}${override}`;
     try {
       await project.up();
-      assert.equal((await project.call(["stop", "drfed"])).code, 0);
-      assert.equal(
-        (
-          await project.call([
-            "run",
-            "--rm",
-            "drfed",
-            "drfed-migrate",
-            "--check",
-          ])
-        ).code,
-        0,
-      );
+      await project.succeed(["stop", "drfed"]);
+      await project.succeed([
+        "run",
+        "--rm",
+        "drfed",
+        "drfed-migrate",
+        "--check",
+      ]);
       const existing = await createAccount(project);
       assert.equal(existing.status, "exists");
       assert.equal(existing.account.id, accountId);

@@ -1,0 +1,17 @@
+name: Let Podman stop pasta
+description: >-
+  Add the rule that Ubuntu 26.04's AppArmor profile for pasta lacks, without
+  which rootless Podman cannot stop a container: "rootless netns: kill network
+  process: permission denied" (https://launchpad.net/bugs/2154379).  Runners
+  without the profile, or with the rule, are left as they are.
+runs:
+  using: composite
+  steps:
+    - name: Allow pasta to receive Podman's signal
+      shell: bash
+      run: |
+        profile=/etc/apparmor.d/usr.bin.pasta
+        if [ -f "$profile" ] && ! sudo grep --quiet 'peer=podman' "$profile"; then
+          sudo sed --in-place '$ i\  signal (receive) set=(term) peer=podman,' "$profile"
+          sudo apparmor_parser --replace "$profile"
+        fi

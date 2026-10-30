@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import { delimiter, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import type { Engine, Resources } from "../engine.mts";
+import { type Engine, type Resources, assertSucceeded } from "../engine.mts";
 import { type ImageMetadata, root } from "../layout.mts";
 
 /** One test run against one engine. */
@@ -74,9 +74,19 @@ export function compose(
   context.resources.projects.set(project, { env, cwd: context.temporary });
   const call = (args: readonly string[], timeout?: number) =>
     engine.compose(env, args, { cwd: context.temporary, timeout });
+  const succeed = async (args: readonly string[], timeout?: number) => {
+    const result = await call(args, timeout);
+    assertSucceeded(
+      engine.spec.binary,
+      [...engine.spec.compose, ...args],
+      result,
+    );
+    return result;
+  };
   return {
     env,
     call,
+    succeed,
     async logs(service = "drfed"): Promise<string> {
       const result = await call(["logs", "--no-color", service]);
       return result.stdout + result.stderr;
@@ -107,18 +117,15 @@ export function compose(
     },
     async up(service = "drfed"): Promise<void> {
       const before = await this.listening(service);
-      const result = await call(["up", "--detach", service]);
-      assert.equal(result.code, 0, result.stderr);
+      await succeed(["up", "--detach", service]);
       await this.waitListening(before, service);
     },
     async port(service = "drfed", target = 8888): Promise<number> {
-      const result = await call(["port", service, String(target)]);
-      assert.equal(result.code, 0, result.stderr);
+      const result = await succeed(["port", service, String(target)]);
       return publishedPort(result.stdout);
     },
     async container(service = "drfed"): Promise<string> {
-      const result = await call(["ps", "--all", "--quiet", service]);
-      assert.equal(result.code, 0, result.stderr);
+      const result = await succeed(["ps", "--all", "--quiet", service]);
       const id = result.stdout.trim();
       assert.match(id, /^[a-f0-9]+$/u);
       return id;
@@ -141,13 +148,12 @@ export async function exitCode(
   engine: Engine,
   container: string,
 ): Promise<number> {
-  const result = await engine.run([
+  const result = await engine.succeed([
     "inspect",
     "--format",
     "{{.State.ExitCode}}",
     container,
   ]);
-  assert.equal(result.code, 0, result.stderr);
   return Number(result.stdout.trim());
 }
 
@@ -159,7 +165,7 @@ export async function createAccount(
   project: Project,
   email = "operator@example.com",
 ): Promise<{ status: string; account: { id: string } }> {
-  const result = await project.call([
+  const result = await project.succeed([
     "run",
     "--rm",
     "drfed",
@@ -170,7 +176,6 @@ export async function createAccount(
     "--name",
     "Operator",
   ]);
-  assert.equal(result.code, 0, result.stderr);
   return JSON.parse(result.stdout) as {
     status: string;
     account: { id: string };

@@ -54,7 +54,7 @@ export const checkSeparateWeb: Scenario = async (engine, context, image) => {
     image,
   );
   try {
-    assert.equal((await project.call(["up", "--detach"])).code, 0);
+    await project.succeed(["up", "--detach"]);
     await project.waitListening(0);
     await project.waitListening(0, "web");
     const backend = await requestInstalledWeb(await project.port(), "/about", {
@@ -63,7 +63,7 @@ export const checkSeparateWeb: Scenario = async (engine, context, image) => {
     assert.equal(backend.status, 404);
     await expectPage(await project.port("web", 3000), "localhost:3000");
     const container = await project.container("web");
-    assert.equal((await project.call(["stop"])).code, 0);
+    await project.succeed(["stop"]);
     assert.equal(await exitCode(engine, container), 0);
     console.log(`Separate frontend example passed (${engine.spec.label})`);
   } catch (error) {

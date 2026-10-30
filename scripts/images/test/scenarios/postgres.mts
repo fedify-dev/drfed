@@ -36,20 +36,16 @@ export const checkPostgres: Scenario = async (engine, context, image) => {
     image,
   );
   try {
-    assert.equal((await project.call(["up", "--detach"], 300_000)).code, 0);
+    await project.succeed(["up", "--detach"], 300_000);
     await project.waitListening(0);
     // No lock: accounts can be created while the server runs.
     const created = await createAccount(project);
     assert.equal(created.status, "created");
     await requestLogin(await project.port(), "https://drfed.example.com");
     const container = await project.container();
-    assert.equal((await project.call(["stop", "drfed"])).code, 0);
+    await project.succeed(["stop", "drfed"]);
     assert.equal(await exitCode(engine, container), 0);
-    assert.equal(
-      (await project.call(["run", "--rm", "drfed", "drfed-migrate", "--check"]))
-        .code,
-      0,
-    );
+    await project.succeed(["run", "--rm", "drfed", "drfed-migrate", "--check"]);
     console.log(`PostgreSQL example passed (${engine.spec.label})`);
   } catch (error) {
     console.error(await project.logs());

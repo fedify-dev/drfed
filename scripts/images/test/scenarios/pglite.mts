@@ -115,19 +115,18 @@ async function checkBackup(
     await runSnippet(engine, "restore.sh", directory, restored.env);
     await restored.waitListening(0);
     assert.ok(await logIn(restored, await restored.port(), origin));
-    assert.equal((await restored.call(["stop", "drfed"])).code, 0);
+    await restored.succeed(["stop", "drfed"]);
     // A stopped server stays stopped, which the PGlite lock below relies on.
     const stopped = await mkdtemp(join(context.temporary, "stopped-backup-"));
     await runSnippet(engine, "backup.sh", stopped, restored.env);
     assert.ok((await stat(join(stopped, "drfed-data.tgz"))).size > 0);
-    const running = await restored.call([
+    const running = await restored.succeed([
       "ps",
       "--status",
       "running",
       "--quiet",
       "drfed",
     ]);
-    assert.equal(running.code, 0, running.stderr);
     assert.equal(running.stdout.trim(), "");
     const existing = await createAccount(restored);
     assert.equal(existing.status, "exists");
@@ -173,26 +172,19 @@ export const checkPglite: Scenario = async (engine, context, image) => {
 
     const first = await project.container();
     const stopping = Date.now();
-    assert.equal((await project.call(["stop", "drfed"])).code, 0);
+    await project.succeed(["stop", "drfed"]);
     assert.ok(Date.now() - stopping < 10_000, "Shutdown beats its deadline.");
     assert.equal(await exitCode(engine, first), 0);
-    assert.equal(
-      (await project.call(["run", "--rm", "drfed", "drfed-migrate", "--check"]))
-        .code,
-      0,
-    );
-    assert.equal(
-      (await project.call(["run", "--rm", "drfed", "drfed-migrate"])).code,
-      0,
-    );
+    await project.succeed(["run", "--rm", "drfed", "drfed-migrate", "--check"]);
+    await project.succeed(["run", "--rm", "drfed", "drfed-migrate"]);
 
     // A new container on the same volume keeps the data.
-    assert.equal((await project.call(["rm", "--force", "drfed"])).code, 0);
+    await project.succeed(["rm", "--force", "drfed"]);
     await project.up();
     assert.notEqual(await project.container(), first);
     port = await project.port();
     assert.ok(await logIn(project, port, origin));
-    assert.equal((await project.call(["stop", "drfed"])).code, 0);
+    await project.succeed(["stop", "drfed"]);
     const existing = await createAccount(project);
     assert.equal(existing.status, "exists");
     assert.equal(existing.account.id, created.account.id);

@@ -39,6 +39,19 @@ export interface Result {
   readonly stderr: string;
 }
 
+/** Assert that a captured command succeeded without hiding its diagnostics. */
+export function assertSucceeded(
+  command: string,
+  args: readonly string[],
+  result: Result,
+): void {
+  assert.equal(
+    result.code,
+    0,
+    `${command} ${args.join(" ")}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+  );
+}
+
 export interface ExecOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly cwd?: string;
@@ -88,11 +101,7 @@ export async function succeed(
   options?: ExecOptions,
 ): Promise<Result> {
   const result = await exec(command, args, options);
-  assert.equal(
-    result.code,
-    0,
-    `${command} ${args.join(" ")}\n${result.stdout}\n${result.stderr}`,
-  );
+  assertSucceeded(command, args, result);
   return result;
 }
 
@@ -163,11 +172,7 @@ export async function detect(
   assert.equal(reported.code, 0, reported.stderr);
   const succeedWith = async (args: readonly string[], opts?: ExecOptions) => {
     const result = await run(args, opts);
-    assert.equal(
-      result.code,
-      0,
-      `${spec.binary} ${args.join(" ")}\n${result.stdout}\n${result.stderr}`,
-    );
+    assertSucceeded(spec.binary, args, result);
     return result;
   };
   const composeVersion = options.compose
