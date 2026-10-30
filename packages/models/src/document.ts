@@ -104,6 +104,7 @@ export const diagnosticReasons = {
     severity: "warning",
   },
   empty_property_list: { category: "compatibility", severity: "warning" },
+  absent_identifier: { category: "compatibility", severity: "warning" },
 } as const satisfies Record<
   string,
   {
@@ -1463,37 +1464,49 @@ function checkCommonProperty(
   return true;
 }
 
-function proposeEmptyPropertyOmission(
+function proposePropertyOmission(
   value: unknown,
   path: FieldPath,
   report: Report,
   changes: NormalizationChange[],
+  identifier: boolean,
 ): boolean {
-  if (!Array.isArray(value) || value.length !== 0) return false;
+  const emptyArray = Array.isArray(value) && value.length === 0;
+  if (!emptyArray && !identifier) return false;
+  if (value !== null && !Array.isArray(value)) return false;
   let safe = true;
-  visitList(
-    value,
-    path,
-    (...args) => {
-      safe = false;
-      report(...args);
-    },
-    () => undefined,
-  );
-  if (safe) {
-    report(
-      "empty_property_list",
+  let absent = true;
+  if (Array.isArray(value)) {
+    visitList(
+      value,
       path,
-      "ActivityStreams represents empty property arrays by omission or null; the preview omits this property.",
+      (...args) => {
+        safe = false;
+        report(...args);
+      },
+      (entry) => {
+        if (entry !== null) absent = false;
+      },
     );
-    changes.push({
-      operation: "remove",
-      reason: "omit_empty_property_list",
-      path,
-      before: [],
-      message: "Omit an empty property array from the wire representation.",
-    });
   }
+  if (!safe) return true;
+  if (!absent) return false;
+  report(
+    emptyArray ? "empty_property_list" : "absent_identifier",
+    path,
+    emptyArray
+      ? "ActivityStreams represents empty property arrays by omission or null; the preview omits this property."
+      : "This identifier is absent; the preview omits it so Fedify receives no non-string identifier.",
+  );
+  changes.push({
+    operation: "remove",
+    reason: emptyArray ? "omit_empty_property_list" : "omit_absent_identifier",
+    path,
+    before: value as JsonValue,
+    message: emptyArray
+      ? "Omit an empty property array from the wire representation."
+      : "Omit an absent identifier from the wire representation.",
+  });
   return true;
 }
 
@@ -1771,10 +1784,16 @@ function checkDocumentValue(
           omittableProperties.has(key) ||
           collectionRange != null ||
           commonKind != null;
-        // Check empty supported property arrays for an omission preview.
+        // Preview omission of empty supported arrays and absent identifiers.
         if (
           supported &&
-          proposeEmptyPropertyOmission(value, fieldPath, report, changes)
+          proposePropertyOmission(
+            value,
+            fieldPath,
+            report,
+            changes,
+            commonKind === "id",
+          )
         ) {
           return;
         }
@@ -1930,7 +1949,8 @@ function createPreview(
  * non-null value, preserving array-index paths. Common text/language maps,
  * timestamps, actor preferredUsername, and addressing are checked.
  * @returns Findings at original-input paths, with an explicit omission preview
- * for empty supported property arrays only when validation completes without errors.
+ * for empty supported property arrays and absent identifiers only when validation
+ * completes without errors.
  */
 export function validateDocument(document: unknown): DocumentValidationResult {
   const reporter = createReporter();

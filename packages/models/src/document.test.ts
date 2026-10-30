@@ -947,11 +947,9 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
-  it("rejects null and nonempty identifier arrays at their original property paths", () => {
+  it("rejects identifier arrays containing values at their original property paths", () => {
     for (const property of ["id", "@id", "identity"]) {
       for (const value of [
-        null,
-        [null],
         [like.object],
         [null, like.object],
         [like.object, like.object],
@@ -973,6 +971,94 @@ describe("validateDocument() supported document checks", () => {
         assert.deepEqual(input, original);
       }
     }
+  });
+
+  it("proposes omission of absent identifiers at original nested alias paths", async () => {
+    const previews: unknown[] = [];
+    for (const property of ["id", "@id", "identity"]) {
+      for (const value of [null, [], [null], [null, null]]) {
+        const input = {
+          ...like,
+          "@context": [context, { identity: "@id" }],
+          object: [{ type: "Note", [property]: value }],
+        };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, true);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [
+            {
+              reason:
+                Array.isArray(value) && value.length === 0
+                  ? "empty_property_list"
+                  : "absent_identifier",
+              path: ["object", 0, property],
+            },
+          ],
+        );
+        assert.ok(
+          result.diagnostics.every(({ severity }) => severity === "warning"),
+        );
+        assert.deepEqual(
+          result.changes.map((change) => ({
+            operation: change.operation,
+            path: change.path,
+            before: "before" in change ? change.before : undefined,
+          })),
+          [
+            {
+              operation: "remove",
+              path: ["object", 0, property],
+              before: value,
+            },
+          ],
+        );
+        assert.deepEqual(result.normalizedDocument, {
+          ...input,
+          object: [{ type: "Note" }],
+        });
+        assert.deepEqual(input, original);
+        previews.push(result.normalizedDocument);
+      }
+    }
+    await Promise.all(
+      previews.map((preview) =>
+        APObject.fromJsonLd(preview, {
+          documentLoader: (url) => {
+            assert.equal(url, context);
+            return Promise.resolve({
+              contextUrl: null,
+              documentUrl: url,
+              document: structuredClone(preloadedContexts[url]),
+            });
+          },
+        }),
+      ),
+    );
+  });
+
+  it("does not read identifier-array accessors or omit sparse identifier arrays", () => {
+    let evaluated = false;
+    const accessor = [null];
+    Object.defineProperty(accessor, "0", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        return null;
+      },
+    });
+    const sparse = [null];
+    sparse.length = 2;
+    for (const id of [accessor, sparse]) {
+      const result = validateDocument({ ...like, id });
+      assert.ok(
+        result.diagnostics.some(({ reason }) => reason === "non_json_value"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+    assert.equal(evaluated, false);
   });
 
   it("checks actor usernames without adding actor requirements or applying them to other types", () => {
@@ -3143,21 +3229,47 @@ describe("prepareDocument() trusted creation inputs", () => {
     }
   });
 
-  it("keeps null identifiers invalid instead of replacing them during preparation", () => {
-    const input = { ...like, id: null };
-    const result = prepareDocument(input, {
-      authority: [{ allowed: true, path: [] }],
-      serverOwnedFields: [
-        { path: ["id"], value: "https://example.com/activities/new" },
-      ],
-    });
-    assert.deepEqual(
-      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
-      [{ reason: "invalid_value_shape", path: ["id"] }],
-    );
-    assert.deepEqual(result.changes, []);
-    assert.equal(result.normalizedDocument, undefined);
-    assert.equal(input.id, null);
+  it("prepares server-owned identifiers from null and null-only arrays", () => {
+    for (const value of [null, [], [null], [null, null]]) {
+      const input = { ...like, id: value };
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [
+          { path: ["id"], value: "https://example.com/activities/new" },
+        ],
+      });
+      assert.equal(result.complete, true);
+      assert.ok(
+        result.diagnostics.every(({ severity }) => severity === "warning"),
+      );
+      assert.deepEqual(
+        result.changes.map((change) => ({
+          operation: change.operation,
+          path: change.path,
+          before: "before" in change ? change.before : undefined,
+          after: "after" in change ? change.after : undefined,
+        })),
+        [
+          {
+            operation: "remove",
+            path: ["id"],
+            before: value,
+            after: undefined,
+          },
+          {
+            operation: "replace",
+            path: ["id"],
+            before: value,
+            after: "https://example.com/activities/new",
+          },
+        ],
+      );
+      assert.deepEqual(result.normalizedDocument, {
+        ...input,
+        id: "https://example.com/activities/new",
+      });
+      assert.deepEqual(input.id, value);
+    }
   });
 
   it("rejects conflicting identities and timestamps without changing their values", () => {

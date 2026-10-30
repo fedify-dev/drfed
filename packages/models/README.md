@@ -62,6 +62,11 @@ applicable properties. For example, a Note with `to: []` receives the
 `empty_property_list` warning and a removal change with reason
 `omit_empty_property_list`; its preview omits `to`. Present changes for an
 explicit caller decision. Validation does not apply them or save the preview.
+Identifiers set to null or a nonempty array containing only null receive an
+`absent_identifier` warning and a removal change with reason
+`omit_absent_identifier`. This also applies to `@id` and supported aliases.
+The preview omits these absent identifiers so Fedify can parse it; the submitted
+document is preserved. Arrays containing any non-null identifier remain errors.
 It does not assign IDs or timestamps, replace actor/attribution identities,
 deduplicate recipients, or convert references to embedded values.
 
@@ -110,7 +115,7 @@ invented, and no values are generated from the clock or random IDs here.
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | Missing                                                           | Propose an add change with reason assign\_server\_owned\_field.                     |
 | Null or a supported array containing only null                    | Propose a replace change retaining the original value in before.                    |
-| Exactly one non-null string matching the server value             | Preserve the submitted representation, including a singleton array.                 |
+| Exactly one non-null string matching the server value             | Preserve the submitted representation; non-null id arrays remain invalid.           |
 | Different value, embedded identity, or additional non-null values | Report server\_owned\_field\_conflict (authority/error); never silently replace it. |
 | Structurally malformed or unsupported input                       | Return its vocabulary/support diagnostics; do not prepare a successful preview.     |
 
@@ -129,6 +134,8 @@ Resolvable standard property names and trusted values are still checked.
 The preview combines server-field additions with existing empty-property
 omissions, preserves custom properties, and is structurally revalidated. It
 is returned only when checking completes without errors and changes exist.
+For absent identifiers, preparation combines the omission proposal with the
+server-owned replacement; the final preview contains the supplied identifier.
 Denied authority, conflicts, unsupported input, and truncated diagnostics
 withhold both preview and changes. The input and trusted options are unchanged.
 
@@ -172,23 +179,26 @@ indexes.
 | OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                         |
 | Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only content/location are unsupported.         |
 
-Single-value properties accept a scalar or array containing at most one
-non-null value; multiple values receive `invalid_multiplicity`. Null means
-absence, including null list entries. Empty arrays on supported properties
-receive `empty_property_list` and an inspectable omission preview; nested lists
-remain unsupported. Type and context arrays do not use this omission rule.
-Unknown custom arrays are preserved as opaque data, while empty arrays on
-unsupported or inapplicable fields retain their existing errors.
+Except for id, single-value properties accept a scalar or array containing at
+most one non-null value; multiple values receive `invalid_multiplicity`. Null
+means absence, including null list entries. Empty arrays on supported
+properties receive `empty_property_list` and an inspectable omission preview;
+nested lists remain unsupported. Type and context arrays do not use this
+omission rule. Unknown custom arrays are preserved as opaque data, while empty
+arrays on unsupported or inapplicable fields retain their existing errors.
+Identifiers require an IRI string when present. Null, empty arrays, and
+null-only arrays receive omission previews; arrays containing non-null values
+receive `invalid_value_shape`, even when they contain only one identifier.
 Embedded activity actors and Object `attributedTo` values must use Application,
 Group, Organization, Person, or Service for Fedify compatibility. Other
-ActivityStreams-permitted embedded types receive `unsupported_value_form`;
-IRI references remain supported without remote type checks. Object-only fields
-such as `attributedTo` on Link receive `property_not_applicable`. Link `preview`
-and `nameMap` remain supported by the vocabulary and Fedify's decoder.
-Collection navigation accepts embedded CollectionPage values for current,
-first, last, next, and prev, and Collection values for partOf, including
-subtypes. Embedded Links in these fields receive `unsupported_value_form`
-because Fedify rejects them. Diagnostics retain the original field/list paths.
+ActivityStreams-permitted embedded types receive `unsupported_value_form`; IRI
+references remain supported without remote type checks. Object-only fields such
+as `attributedTo` on Link receive `property_not_applicable`. Link `preview` and
+`nameMap` remain supported by the vocabulary and Fedify's decoder. Collection
+navigation accepts embedded CollectionPage values for current, first, last,
+next, and prev, and Collection values for partOf, including subtypes. Embedded
+Links in these fields receive `unsupported_value_form` because Fedify rejects
+them. Diagnostics retain the original field/list paths.
 
 Text accepts strings, flat lists, and supported `@value`/`@language` objects.
 Language maps contain strings or null. Complex text attributes are unsupported.
