@@ -2095,8 +2095,8 @@ function isMissingPreparationParent(
   path: FieldPath,
 ): boolean {
   let value = document;
-  for (const [index, part] of path.entries()) {
-    if (value === null || typeof value !== "object") return index > 0;
+  for (const part of path) {
+    if (value === null || typeof value !== "object") return true;
     const descriptor = Object.getOwnPropertyDescriptor(value, part);
     if (descriptor == null) return true;
     if (!("value" in descriptor)) return false;
@@ -2220,6 +2220,15 @@ function proposeServerField(
     ? source
     : (aliases[0] ?? source);
   const path = [...parentPath, key];
+  // Replace an omission at this source path with the authoritative proposal.
+  const omission = changes.findIndex(
+    (change) =>
+      change.operation === "remove" &&
+      (change.reason === "omit_empty_property_list" ||
+        change.reason === "omit_absent_identifier") &&
+      JSON.stringify(change.path) === JSON.stringify(path),
+  );
+  if (omission >= 0) changes.splice(omission, 1);
   const common = {
     reason: "assign_server_owned_field",
     path,
@@ -2318,19 +2327,15 @@ export function prepareDocument(
   ) {
     return result;
   }
-  // A server-owned replacement supersedes omission at the same source path.
+  // Warnings describe the final server-owned replacement, not an omission.
   const replacedPaths = new Set(
     changes
       .filter((change) => change.operation === "replace")
       .map(({ path }) => JSON.stringify(path)),
   );
-  const preparedChanges = changes.filter(
-    ({ operation, path }) =>
-      operation !== "remove" || !replacedPaths.has(JSON.stringify(path)),
-  );
   const preview = createPreview(
     document as { [key: string]: JsonValue },
-    preparedChanges,
+    changes,
   );
   const checked = validateDocument(preview);
   // Trusted values can still be inapplicable to the target's vocabulary type.
@@ -2357,7 +2362,7 @@ export function prepareDocument(
           }
         : diagnostic,
     ),
-    changes: preparedChanges,
+    changes,
     normalizedDocument: preview,
   };
 }

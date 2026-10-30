@@ -3413,6 +3413,36 @@ describe("prepareDocument() trusted creation inputs", () => {
     }
   });
 
+  it("returns exactly one replacement for an empty server-owned id or published field", () => {
+    for (const [property, value] of [
+      ["id", "https://example.com/owned"],
+      ["published", "2024-01-01T12:34:00Z"],
+    ] as const) {
+      const input = { "@context": context, type: "Note", [property]: [] };
+      const original = structuredClone(input);
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [{ path: [property], value }],
+      });
+      assert.equal(result.complete, true);
+      assert.equal(result.changes.length, 1);
+      assert.deepEqual(result.changes[0], {
+        operation: "replace",
+        reason: "assign_server_owned_field",
+        path: [property],
+        before: [],
+        after: value,
+        message: `Use the server-proposed ${property} for this creation operation.`,
+      });
+      assert.deepEqual(result.normalizedDocument, {
+        ...input,
+        [property]: value,
+      });
+      assert.match(result.diagnostics[0]!.message, /replaced.*server-owned/u);
+      assert.deepEqual(input, original);
+    }
+  });
+
   it("supersedes owned-field omissions while retaining unrelated omissions", () => {
     for (const property of [
       "id",
@@ -3690,6 +3720,37 @@ describe("prepareDocument() trusted creation inputs", () => {
         }
         assert.deepEqual(input, original);
       }
+    }
+  });
+
+  it("rejects nonempty parent paths below scalar roots before document-error returns", () => {
+    for (const input of [5, null, false, "text"]) {
+      for (const allowed of [true, false]) {
+        for (const path of [
+          ["missing", "id"],
+          [0, "id"],
+          ["missing", "nested", "id"],
+        ]) {
+          assert.throws(
+            () =>
+              prepareDocument(input, {
+                authority: [{ allowed, path: [] }],
+                serverOwnedFields: [{ path, value: like.object }],
+              }),
+            {
+              name: "TypeError",
+              message: "Server-owned field parent path does not exist.",
+            },
+          );
+        }
+      }
+      assert.deepEqual(
+        prepareDocument(input, {
+          authority: [{ allowed: true, path: [] }],
+          serverOwnedFields: [{ path: ["id"], value: like.object }],
+        }),
+        validateDocument(input),
+      );
     }
   });
 
