@@ -78,6 +78,10 @@
       "types": "./dist/resource.d.mts",
       "default": "./dist/resource.mjs"
     },
+    "./document": {
+      "types": "./dist/document.d.mts",
+      "default": "./dist/document.mjs"
+    },
     "./slug": {
       "types": "./dist/slug.d.mts",
       "default": "./dist/slug.mjs"
@@ -139,6 +143,7 @@
       "src/uuid.ts",
       "src/login.ts",
       "src/resource.ts",
+      "src/document.ts",
       "src/slug.ts",
       "src/key.ts",
       "src/activity-delivery.ts",
@@ -170,6 +175,8 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "catalog:",
+    "@fedify/vocab": "catalog:",
+    "@fedify/vocab-runtime": "catalog:",
     "@logtape/logtape": "catalog:",
     "@types/pg": "8.20.0",
     "drizzle-orm": "catalog:",
