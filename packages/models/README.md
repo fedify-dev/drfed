@@ -187,8 +187,21 @@ or ordering between fields.
 
 Question is supported standalone and inside Create/Update using shared rules.
 Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending #155's
-poll rules. Open-ended Question needs no choices. Other types/properties without
-implemented rules, such as Place or duration, receive support findings.
+poll rules. Open-ended Question needs no choices. Other types without
+implemented rules, such as Place, receive support findings.
+
+For 0.2.0, Object property rules for `tag`, `inReplyTo`, `url`, `attachment`,
+`replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`
+remain unimplemented. On Object documents, these fields produce
+`unsupported_property` errors and set `complete: false`, preventing successful
+validation even when their values are valid ActivityStreams. This limits which
+documents pasted from fediverse servers can pass validation. Unknown custom
+properties instead receive `extension_property_unchecked` warnings and can
+survive successful validation without their semantics being checked. Full
+coverage for the listed properties is deferred beyond 0.2.0 and tracked in
+[#168].
+
+[#168]: https://github.com/fedify-dev/drfed/issues/168
 
 ### Context and preservation limits
 
