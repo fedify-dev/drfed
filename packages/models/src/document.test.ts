@@ -828,7 +828,6 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks functional values and preserves scalar, list, and null-entry paths", () => {
     for (const [type, property, value] of [
-      ["Note", "id", like.object],
       ["Link", "href", like.object],
       ["Link", "width", 0],
       ["Link", "height", 1],
@@ -856,6 +855,34 @@ describe("validateDocument() supported document checks", () => {
         repeated.diagnostics.map(({ reason, path }) => ({ reason, path })),
         [{ reason: "invalid_multiplicity", path: [property] }],
       );
+    }
+  });
+
+  it("rejects null and nonempty identifier arrays at their original property paths", () => {
+    for (const property of ["id", "@id", "identity"]) {
+      for (const value of [
+        null,
+        [null],
+        [like.object],
+        [null, like.object],
+        [like.object, like.object],
+      ]) {
+        const input = {
+          ...like,
+          "@context": [context, { identity: "@id" }],
+          [property]: value,
+        };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, true);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [{ reason: "invalid_value_shape", path: [property] }],
+        );
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+        assert.deepEqual(input, original);
+      }
     }
   });
 
@@ -941,6 +968,196 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
+  it("proposes omission for empty arrays across supported property families", () => {
+    const cases = [
+      [
+        "Note",
+        [
+          "id",
+          "name",
+          "nameMap",
+          "summary",
+          "summaryMap",
+          "content",
+          "contentMap",
+          "published",
+          "updated",
+          "startTime",
+          "endTime",
+          "mediaType",
+          "attributedTo",
+          "preview",
+          "location",
+          "to",
+          "cc",
+          "bto",
+          "bcc",
+          "audience",
+        ],
+      ],
+      ["Like", ["actor", "object", "target", "origin", "result", "instrument"]],
+      [
+        "Person",
+        [
+          "preferredUsername",
+          "inbox",
+          "outbox",
+          "following",
+          "followers",
+          "liked",
+        ],
+      ],
+      [
+        "OrderedCollectionPage",
+        [
+          "items",
+          "orderedItems",
+          "totalItems",
+          "startIndex",
+          "current",
+          "first",
+          "last",
+          "next",
+          "prev",
+          "partOf",
+        ],
+      ],
+      [
+        "Link",
+        [
+          "id",
+          "name",
+          "nameMap",
+          "href",
+          "hreflang",
+          "rel",
+          "mediaType",
+          "width",
+          "height",
+          "preview",
+        ],
+      ],
+    ] as const;
+    for (const [type, properties] of cases) {
+      for (const property of properties) {
+        const input = Object.freeze({
+          "@context": context,
+          type,
+          [property]: Object.freeze([]),
+        });
+        const result = validateDocument(input);
+        assert.equal(result.complete, true, `${type}.${property}`);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path, severity }) => ({
+            reason,
+            path,
+            severity,
+          })),
+          [
+            {
+              reason: "empty_property_list",
+              path: [property],
+              severity: "warning",
+            },
+          ],
+          `${type}.${property}`,
+        );
+        assert.deepEqual(
+          result.changes.map((change) => {
+            assert.equal(change.operation, "remove");
+            assert.ok("before" in change);
+            const { reason, operation, path, before } = change;
+            return { reason, operation, path, before };
+          }),
+          [
+            {
+              reason: "omit_empty_property_list",
+              operation: "remove",
+              path: [property],
+              before: [],
+            },
+          ],
+        );
+        assert.deepEqual(result.normalizedDocument, {
+          "@context": context,
+          type,
+        });
+        assert.deepEqual(input[property], []);
+        assert.deepEqual(validateDocument(result.normalizedDocument), {
+          complete: true,
+          diagnostics: [],
+          changes: [],
+        });
+      }
+    }
+  });
+
+  it("uses original nested alias paths for empty-property changes and retains custom arrays", () => {
+    const input = {
+      ...like,
+      "@context": [
+        context,
+        { title: "as:name", payload: { "@id": "as:object", "@type": "@id" } },
+      ],
+      object: [{ type: "Like", title: [], payload: [], custom: [] }],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.changes.map(({ path }) => path),
+      [
+        ["object", 0, "payload"],
+        ["object", 0, "title"],
+      ],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      ...input,
+      object: [{ type: "Like", custom: [] }],
+    });
+    assert.deepEqual(input, original);
+  });
+
+  it("does not omit malformed empty arrays, type/context declarations, or unsupported fields", () => {
+    let evaluated = false;
+    const accessor: unknown[] = [];
+    Object.defineProperty(accessor, "extra", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    const symbol: unknown[] = [];
+    Object.defineProperty(symbol, Symbol("extra"), { value: true });
+    for (const value of [
+      Object.assign([], { extra: true }),
+      accessor,
+      symbol,
+    ]) {
+      const result = validateDocument({ ...like, object: value });
+      assert.ok(
+        result.diagnostics.some(({ reason }) => reason === "non_json_value"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+    assert.equal(evaluated, false);
+    for (const input of [
+      { ...like, type: [] },
+      { ...like, "@context": [] },
+      { ...like, duration: [] },
+      { "@context": context, type: "Link", content: [] },
+    ]) {
+      const result = validateDocument(input);
+      assert.ok(
+        result.diagnostics.some(({ severity }) => severity === "error"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+  });
+
   it("preserves addressing values and proposes nested empty-list omission in an independent preview", (t) => {
     const fetch = t.mock.method(globalThis, "fetch", () => {
       throw new Error("Unexpected network access");
@@ -970,12 +1187,12 @@ describe("validateDocument() supported document checks", () => {
       })),
       [
         {
-          reason: "omit_empty_addressing_list",
+          reason: "omit_empty_property_list",
           operation: "remove",
           path: ["bcc"],
         },
         {
-          reason: "omit_empty_addressing_list",
+          reason: "omit_empty_property_list",
           operation: "remove",
           path: ["object", 0, "to"],
         },
@@ -2459,7 +2676,6 @@ describe("validateDocument() supported document checks", () => {
   it("keeps undecided relation forms unsupported and restricts the new properties to activities", () => {
     for (const property of ["target", "origin", "result", "instrument"]) {
       for (const [value, expectedPath] of [
-        [[], [property]],
         [[[like.object]], [property, 0]],
         ["/relative", [property]],
       ] as const) {
@@ -2511,16 +2727,11 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
-  it("keeps empty non-addressing and nested lists incomplete", () => {
-    for (const [object, path] of [
-      [[], ["object"]],
-      [[[like.object]], ["object", 0]],
-    ] as const) {
-      const result = validateDocument({ ...like, object });
-      assert.equal(result.complete, false);
-      assert.equal(result.diagnostics[0]?.reason, "unsupported_value_form");
-      assert.deepEqual(result.diagnostics[0]?.path, path);
-    }
+  it("keeps nested lists incomplete", () => {
+    const result = validateDocument({ ...like, object: [[like.object]] });
+    assert.equal(result.complete, false);
+    assert.equal(result.diagnostics[0]?.reason, "unsupported_value_form");
+    assert.deepEqual(result.diagnostics[0]?.path, ["object", 0]);
   });
 
   it("does not evaluate list accessors or silently skip sparse entries", () => {
@@ -2697,8 +2908,8 @@ describe("prepareDocument() trusted creation inputs", () => {
   it("preserves matching singleton representations and explicitly replaces null absence", () => {
     const input = {
       ...like,
-      id: [null, creationOptions.serverOwnedFields[0]!.value],
-      attributedTo: [like.actor],
+      id: creationOptions.serverOwnedFields[0]!.value,
+      attributedTo: [null, like.actor],
       published: "2026-10-27T12:00:00Z",
     };
     assert.deepEqual(prepareDocument(input, creationOptions), {
@@ -2707,10 +2918,10 @@ describe("prepareDocument() trusted creation inputs", () => {
       changes: [],
     });
     const absent = prepareDocument(
-      { ...like, id: null },
+      { ...like, actor: null },
       {
         ...creationOptions,
-        serverOwnedFields: [creationOptions.serverOwnedFields[0]!],
+        serverOwnedFields: [{ path: ["actor"], value: like.actor }],
       },
     );
     assert.equal(absent.changes[0]?.operation, "replace");
@@ -2720,10 +2931,68 @@ describe("prepareDocument() trusted creation inputs", () => {
         : undefined,
       null,
     );
-    assert.equal(
-      absent.normalizedDocument!.id,
-      creationOptions.serverOwnedFields[0]!.value,
+    assert.equal(absent.normalizedDocument!.actor, like.actor);
+  });
+
+  it("identifies original list entries in server-owned field conflicts", () => {
+    const input = { ...like, actor: [null, "https://other.example/actor"] };
+    const original = structuredClone(input);
+    const result = prepareDocument(input, {
+      authority: [{ allowed: true, path: [] }],
+      serverOwnedFields: [{ path: ["actor"], value: like.actor }],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "server_owned_field_conflict", path: ["actor", 1] }],
     );
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+    assert.deepEqual(input, original);
+  });
+
+  it("replaces the requested present alias and falls back to an existing absent alias", () => {
+    const declaration = [
+      context,
+      { performer: { "@id": "as:actor", "@type": "@id" } },
+    ];
+    for (const [fields, requested, replaced] of [
+      [{ actor: null, performer: null }, "performer", "performer"],
+      [{ performer: null }, "actor", "performer"],
+    ] as const) {
+      const input = { "@context": declaration, type: "Like", ...fields };
+      const original = structuredClone(input);
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [{ path: [requested], value: like.actor }],
+      });
+      assert.deepEqual(result.diagnostics, []);
+      assert.deepEqual(
+        result.changes.map(({ operation, path }) => ({ operation, path })),
+        [{ operation: "replace", path: [replaced] }],
+      );
+      assert.deepEqual(result.normalizedDocument, {
+        ...input,
+        [replaced]: like.actor,
+      });
+      assert.deepEqual(input, original);
+    }
+  });
+
+  it("keeps null identifiers invalid instead of replacing them during preparation", () => {
+    const input = { ...like, id: null };
+    const result = prepareDocument(input, {
+      authority: [{ allowed: true, path: [] }],
+      serverOwnedFields: [
+        { path: ["id"], value: "https://example.com/activities/new" },
+      ],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "invalid_value_shape", path: ["id"] }],
+    );
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+    assert.equal(input.id, null);
   });
 
   it("rejects conflicting identities and timestamps without changing their values", () => {
@@ -2809,12 +3078,15 @@ describe("prepareDocument() trusted creation inputs", () => {
       "@context": [
         context,
         {
-          identity: "@id",
+          created: { "@id": "as:published", "@type": "xsd:dateTime" },
           author: { "@id": "as:attributedTo", "@type": "@id" },
         },
       ],
       type: "Create",
-      object: [null, { type: "Note", identity: null, author: like.actor }],
+      object: [
+        null,
+        { type: "Note", created: null, author: [null, like.actor] },
+      ],
     };
     const options: DocumentPreparationOptions = {
       authority: [
@@ -2822,7 +3094,7 @@ describe("prepareDocument() trusted creation inputs", () => {
         { allowed: true, path: ["object", 1, "author"] },
       ],
       serverOwnedFields: [
-        { path: ["object", 1, "id"], value: "https://example.com/objects/new" },
+        { path: ["object", 1, "published"], value: "2026-10-27T12:00:00Z" },
         { path: ["object", 1, "attributedTo"], value: like.actor },
       ],
     };
@@ -2830,7 +3102,7 @@ describe("prepareDocument() trusted creation inputs", () => {
     const result = prepareDocument(input, options);
     assert.deepEqual(
       result.changes.map(({ path }) => path),
-      [["object", 1, "identity"]],
+      [["object", 1, "created"]],
     );
     assert.deepEqual(result.normalizedDocument, {
       ...input,
@@ -2838,8 +3110,8 @@ describe("prepareDocument() trusted creation inputs", () => {
         null,
         {
           type: "Note",
-          identity: "https://example.com/objects/new",
-          author: like.actor,
+          created: "2026-10-27T12:00:00Z",
+          author: [null, like.actor],
         },
       ],
     });
@@ -2858,7 +3130,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       [
         {
           reason: "server_owned_field_conflict",
-          path: ["object", 1, "author"],
+          path: ["object", 1, "author", 1],
         },
       ],
     );

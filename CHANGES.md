@@ -39,7 +39,8 @@ To be released.
     ActivityStreams documents. It returns structured errors and compatibility
     warnings with original nested field and list-entry paths, preserves custom
     properties as opaque JSON with warnings, and offers inspectable omission
-    previews for empty addressing arrays. [[#151], [#166] by Jiwon Kwon\]
+    previews for empty arrays on supported properties.
+    [[#151], [#166] by Jiwon Kwon\]
  -  Added `prepareDocument()` to compare documents with trusted server-supplied
     authority outcomes and creation values. It reports denied identities and
     server-owned-field conflicts and returns explicit generated-field changes

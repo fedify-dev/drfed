@@ -559,13 +559,13 @@
         "complete": true,
         "diagnostics": [
           {
-            "reason": "empty_addressing_list",
+            "reason": "empty_property_list",
             "path": ["to"]
           }
         ],
         "changes": [
           {
-            "reason": "omit_empty_addressing_list",
+            "reason": "omit_empty_property_list",
             "operation": "remove",
             "path": ["to"],
             "before": []
@@ -2092,13 +2092,26 @@
         "items": []
       },
       "expected": {
-        "complete": false,
+        "complete": true,
         "diagnostics": [
           {
-            "reason": "unsupported_value_form",
+            "reason": "empty_property_list",
             "path": ["items"]
           }
-        ]
+        ],
+        "changes": [
+          {
+            "reason": "omit_empty_property_list",
+            "operation": "remove",
+            "path": ["items"],
+            "before": []
+          }
+        ],
+        "normalizedDocument": {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          "type": "Collection",
+          "totalItems": 0
+        }
       }
     },
     {

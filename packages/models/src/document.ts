@@ -106,7 +106,7 @@ export const diagnosticReasons = {
     category: "compatibility",
     severity: "warning",
   },
-  empty_addressing_list: { category: "compatibility", severity: "warning" },
+  empty_property_list: { category: "compatibility", severity: "warning" },
   unmapped_extension_property: {
     category: "compatibility",
     severity: "warning",
@@ -496,7 +496,7 @@ function checkReferenceValues(
     report(
       "unsupported_value_form",
       path,
-      "Empty non-addressing lists are not supported.",
+      "Empty lists are not supported in this value position.",
     );
     return;
   }
@@ -1189,7 +1189,7 @@ function checkSingleValue(
     report(
       "unsupported_value_form",
       path,
-      "Empty non-addressing lists are not supported.",
+      "Empty lists are not supported in this value position.",
     );
     return;
   }
@@ -1385,45 +1385,95 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
   }
 }
 
+// Share coverage classification with empty-array omission admission.
+function getCommonPropertyKind(
+  Type: VocabularyType,
+  property: string,
+): "text" | "languageMap" | "datetime" | "id" | "mediaType" | undefined {
+  const object = isTypeOrSubtype(Type, APObject);
+  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
+  const textProperties = object ? ["name", "summary", "content"] : ["name"];
+  if (actor) textProperties.push("preferredUsername");
+  if (textProperties.includes(property)) return "text";
+  if (
+    textProperties.some(
+      (name) => property === `${name}Map` && name !== "preferredUsername",
+    )
+  ) {
+    return "languageMap";
+  }
+  if (
+    object &&
+    ["published", "updated", "startTime", "endTime"].includes(property)
+  ) {
+    return "datetime";
+  }
+  if (property === "id" || property === "mediaType") return property;
+  return undefined;
+}
+
 // Scalar/common properties share checks; embedded references use the work stack.
 function checkCommonProperty(
-  Type: VocabularyType,
+  kind: ReturnType<typeof getCommonPropertyKind>,
   property: string,
   value: unknown,
   path: FieldPath,
   report: Report,
 ): boolean {
-  const object = isTypeOrSubtype(Type, APObject);
-  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
-  const textProperties = object ? ["name", "summary", "content"] : ["name"];
-  if (actor) textProperties.push("preferredUsername");
-  if (textProperties.includes(property)) {
+  if (kind === "text") {
     checkReferenceValues(value, path, report, (entry, entryPath) =>
       checkText(entry, entryPath, report, property === "name"),
     );
-  } else if (
-    textProperties.some(
-      (name) => property === `${name}Map` && name !== "preferredUsername",
-    )
-  ) {
+  } else if (kind === "languageMap") {
     checkLanguageMap(value, path, report, property === "nameMap");
-  } else if (
-    object &&
-    ["published", "updated", "startTime", "endTime"].includes(property)
-  ) {
+  } else if (kind === "datetime") {
     checkSingleValue(value, path, report, checkDateTime);
-  } else if (property === "id") {
+  } else if (kind === "id") {
     if (typeof value !== "string") {
       report("invalid_value_shape", path, "Expected an IRI identifier string.");
     } else {
       checkReference(value, path, report);
     }
-  } else if (property === "mediaType") {
+  } else if (kind === "mediaType") {
     checkSingleValue(value, path, report, (entry, entryPath) =>
       checkLinkProperty(property, entry, entryPath, report),
     );
   } else {
     return false;
+  }
+  return true;
+}
+
+function proposeEmptyPropertyOmission(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  changes: NormalizationChange[],
+): boolean {
+  if (!Array.isArray(value) || value.length !== 0) return false;
+  let safe = true;
+  visitList(
+    value,
+    path,
+    (...args) => {
+      safe = false;
+      report(...args);
+    },
+    () => undefined,
+  );
+  if (safe) {
+    report(
+      "empty_property_list",
+      path,
+      "ActivityStreams represents empty property arrays by omission or null; the preview omits this property.",
+    );
+    changes.push({
+      operation: "remove",
+      reason: "omit_empty_property_list",
+      path,
+      before: [],
+      message: "Omit an empty property array from the wire representation.",
+    });
   }
   return true;
 }
@@ -1570,9 +1620,10 @@ function checkDocumentValue(
       return;
     }
     const values = readDocument(document, path, report);
-    if (values == null || document == null) {
+    if (values == null) {
       return;
     }
+    const sourceDocument = document as object;
     const context = checkContext(values, path, report, inherited);
     if (context == null) return;
     const fields = Object.keys(values)
@@ -1626,16 +1677,22 @@ function checkDocumentValue(
       );
     }
     if (isCollection) referenceProperties.push("items", "orderedItems");
+    const omittableProperties = new Set([
+      ...integerProperties,
+      ...linkProperties,
+      ...referenceProperties,
+    ]);
     const multipleAliases = findMultipleAliases(Type, fields, values);
 
-    ancestors.add(document);
+    ancestors.add(sourceDocument);
     pending.push(() => {
-      ancestors.delete(document);
+      ancestors.delete(sourceDocument);
     });
     // LIFO work preserves the same depth-first, sorted-property order.
     for (const field of fields.reverse()) {
       const { source, name: key } = field;
       if (key === "type") continue;
+      const intransitiveObject = isIntransitive && key === "object";
       pending.push(() => {
         const value = values[source];
         const fieldPath = [...path, source];
@@ -1680,6 +1737,18 @@ function checkDocumentValue(
           );
         }
         const collectionRange = getCollectionRange(Type, key);
+        const commonKind = getCommonPropertyKind(Type, key);
+        const supported =
+          omittableProperties.has(key) ||
+          collectionRange != null ||
+          commonKind != null;
+        // Check empty supported property arrays for an omission preview.
+        if (
+          supported &&
+          proposeEmptyPropertyOmission(value, fieldPath, report, changes)
+        ) {
+          return;
+        }
         if (integerProperties.includes(key)) {
           checkSingleValue(value, fieldPath, report, checkNonNegativeInteger);
         } else if (linkProperties.includes(key)) {
@@ -1690,9 +1759,11 @@ function checkDocumentValue(
               checkLinkProperty(key, entry, entryPath, report),
             );
           }
-        } else if (checkCommonProperty(Type, key, value, fieldPath, report)) {
+        } else if (
+          checkCommonProperty(commonKind, key, value, fieldPath, report)
+        ) {
           // Common scalar and language properties were checked above.
-        } else if (isIntransitive && key === "object") {
+        } else if (intransitiveObject) {
           checkReferenceValues(value, fieldPath, report, (entry, entryPath) => {
             if (entry !== null) {
               report(
@@ -1706,26 +1777,6 @@ function checkDocumentValue(
           referenceProperties.includes(key) ||
           collectionRange != null
         ) {
-          if (
-            addressingProperties.includes(key) &&
-            Array.isArray(value) &&
-            value.length === 0
-          ) {
-            visitList(value, fieldPath, report, () => undefined);
-            report(
-              "empty_addressing_list",
-              fieldPath,
-              "Empty addressing is retained; omit this property in the wire preview.",
-            );
-            changes.push({
-              operation: "remove",
-              reason: "omit_empty_addressing_list",
-              path: fieldPath,
-              before: [],
-              message: "Omit empty addressing from the wire representation.",
-            });
-            return;
-          }
           const checks: (() => void)[] = [];
           const checkValues =
             collectionRange == null
@@ -1837,7 +1888,8 @@ function createPreview(
  * single types, id, string content,
  * attribution/location and activity actor, object, target, origin, result,
  * and instrument values. These can be IRI references or supported
- * embedded types, singly or in nonempty flat lists. Intransitive activities
+ * embedded types, singly or in flat lists. Empty supported property arrays
+ * receive omission previews. Intransitive activities
  * reject a non-null object property. Other forms produce
  * support diagnostics and `complete: false`. This is not a permission check,
  * a Fedify parsability check, or full ActivityStreams validation.
@@ -1849,7 +1901,7 @@ function createPreview(
  * non-null value, preserving array-index paths. Common text/language maps,
  * timestamps, actor preferredUsername, and addressing are checked.
  * @returns Findings at original-input paths, with an explicit omission preview
- * for empty addressing only when validation completes without errors.
+ * for empty supported property arrays only when validation completes without errors.
  */
 export function validateDocument(document: unknown): DocumentValidationResult {
   const reporter = createReporter();
@@ -1863,14 +1915,43 @@ export function validateDocument(document: unknown): DocumentValidationResult {
   ) {
     return result;
   }
-  return {
-    ...result,
+  const preview = createPreview(
+    document as { [key: string]: JsonValue },
     changes,
-    normalizedDocument: createPreview(
-      document as { [key: string]: JsonValue },
-      changes,
-    ),
-  };
+  );
+  const checked = validateDocument(preview);
+  reportPreviewDiagnostics(result, checked, reporter.report);
+  const previewResult = reporter.result();
+  if (
+    !checked.complete ||
+    !previewResult.complete ||
+    previewResult.diagnostics.some(({ severity }) => severity === "error")
+  ) {
+    return {
+      ...previewResult,
+      complete: checked.complete && previewResult.complete,
+    };
+  }
+  return { ...previewResult, changes, normalizedDocument: preview };
+}
+
+// Preview checks retain source diagnostics without repeating unchanged findings.
+function reportPreviewDiagnostics(
+  original: DocumentValidationResult,
+  checked: DocumentValidationResult,
+  report: Report,
+): void {
+  for (const diagnostic of checked.diagnostics) {
+    if (
+      !original.diagnostics.some(
+        (existing) =>
+          existing.reason === diagnostic.reason &&
+          JSON.stringify(existing.path) === JSON.stringify(diagnostic.path),
+      )
+    ) {
+      report(diagnostic.reason, diagnostic.path, diagnostic.message);
+    }
+  }
 }
 
 interface PreparationTarget {
@@ -1957,24 +2038,30 @@ function proposeServerField(
   );
   const supplied = aliases.flatMap((key) => {
     const value = target.values[key];
-    const entries = Array.isArray(value) ? value : [value];
-    return entries
-      .filter((entry) => entry !== null)
-      .map((entry) => ({ key, entry }));
+    const path = [...parentPath, key];
+    if (Array.isArray(value)) {
+      return value.flatMap((entry, index) =>
+        entry === null ? [] : [{ entry, path: [...path, index] }],
+      );
+    }
+    return value === null ? [] : [{ entry: value, path }];
   });
   if (supplied.length > 0) {
     if (supplied.length !== 1 || supplied[0]!.entry !== field.value) {
-      for (const key of new Set(supplied.map((entry) => entry.key))) {
+      for (const suppliedValue of supplied) {
         report(
           "server_owned_field_conflict",
-          [...parentPath, key],
+          suppliedValue.path,
           "This field must match the server-owned value for this creation operation.",
         );
       }
     }
     return;
   }
-  const key = aliases[0] ?? source;
+  // Prefer the requested source spelling even when another null alias exists.
+  const key = Object.hasOwn(target.values, source)
+    ? source
+    : (aliases[0] ?? source);
   const path = [...parentPath, key];
   const common = {
     reason: "assign_server_owned_field",
@@ -2075,18 +2162,8 @@ export function prepareDocument(
   );
   const checked = validateDocument(preview);
   // Trusted values can still be inapplicable to the target's vocabulary type.
-  // Retain original warnings (e.g. empty addressing) without duplicating them.
-  for (const diagnostic of checked.diagnostics) {
-    if (
-      !result.diagnostics.some(
-        (existing) =>
-          existing.reason === diagnostic.reason &&
-          JSON.stringify(existing.path) === JSON.stringify(diagnostic.path),
-      )
-    ) {
-      reporter.report(diagnostic.reason, diagnostic.path, diagnostic.message);
-    }
-  }
+  // Retain original warnings (e.g. empty arrays) without duplicating them.
+  reportPreviewDiagnostics(result, checked, reporter.report);
   result = reporter.result();
   if (
     !checked.complete ||

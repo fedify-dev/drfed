@@ -54,10 +54,10 @@ authority category is used by prepareDocument for caller-reported denials and
 server-owned-field conflicts. validateDocument itself emits no authority
 findings.
 
-The document-only normalization is omission of empty `to`, `cc`, `bto`, `bcc`,
-and `audience` arrays. For example, a Note with `to: []` receives the
-`empty_addressing_list` warning and a removal change with reason
-`omit_empty_addressing_list`; its preview omits `to`. Present changes for an
+Document-only normalization proposes omission of empty arrays on supported,
+applicable properties. For example, a Note with `to: []` receives the
+`empty_property_list` warning and a removal change with reason
+`omit_empty_property_list`; its preview omits `to`. Present changes for an
 explicit caller decision. Validation does not apply them or save the preview.
 It does not assign IDs or timestamps, replace actor/attribution identities,
 deduplicate recipients, or convert references to embedded values.
@@ -94,6 +94,9 @@ values alone never request creation or modification of resources.
 Owned-field paths must name id, actor, attributedTo, published, or updated on
 existing supported root/nested documents. Supported aliases resolve to the same
 field; diagnostics and changes retain original source spellings and indexes.
+Conflicts in arrays point to the non-null entries. When filling an absent value,
+preparation prefers the requested key if it exists, then an existing alias,
+and otherwise adds the requested key.
 References and opaque extension data cannot be targets. The caller lists only
 the fields it owns for that explicit creation operation; no default fields are
 invented, and no values are generated from the clock or random IDs here.
@@ -113,7 +116,7 @@ for supported syntax. Invalid trusted configuration, duplicate semantic field
 declarations, or paths outside existing supported documents throw TypeError
 when preparation reaches those checks; these are caller programming errors.
 
-The preview combines server-field additions with existing empty-addressing
+The preview combines server-field additions with existing empty-property
 omissions, preserves custom properties, and is structurally revalidated. It
 is returned only when checking completes without errors and changes exist.
 Denied authority, conflicts, unsupported input, and truncated diagnostics
@@ -161,8 +164,11 @@ indexes.
 
 Single-value properties accept a scalar or array containing at most one
 non-null value; multiple values receive `invalid_multiplicity`. Null means
-absence, including null list entries. Empty non-addressing arrays and nested
-lists remain unsupported. Type arrays are excluded from this single-value rule.
+absence, including null list entries. Empty arrays on supported properties
+receive `empty_property_list` and an inspectable omission preview; nested lists
+remain unsupported. Type and context arrays do not use this omission rule.
+Unknown custom arrays are preserved as opaque data, while empty arrays on
+unsupported or inapplicable fields retain their existing errors.
 Embedded activity actors and Object `attributedTo` values must use Application,
 Group, Organization, Person, or Service for Fedify compatibility. Other
 ActivityStreams-permitted embedded types receive `unsupported_value_form`;
