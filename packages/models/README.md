@@ -134,8 +134,10 @@ Resolvable standard property names and trusted values are still checked.
 The preview combines server-field additions with existing empty-property
 omissions, preserves custom properties, and is structurally revalidated. It
 is returned only when checking completes without errors and changes exist.
-For absent identifiers, preparation combines the omission proposal with the
-server-owned replacement; the final preview contains the supplied identifier.
+When a server-owned replacement targets a proposed omission at the same source
+path, preparation returns only the replacement and updates the warning to
+describe it. The final preview contains the supplied value; unrelated omission
+proposals remain unchanged.
 Denied authority, conflicts, unsupported input, and truncated diagnostics
 withhold both preview and changes. The input and trusted options are unchanged.
 

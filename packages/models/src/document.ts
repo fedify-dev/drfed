@@ -2273,9 +2273,19 @@ export function prepareDocument(
   ) {
     return result;
   }
+  // A server-owned replacement supersedes omission at the same source path.
+  const replacedPaths = new Set(
+    changes
+      .filter((change) => change.operation === "replace")
+      .map(({ path }) => JSON.stringify(path)),
+  );
+  const preparedChanges = changes.filter(
+    ({ operation, path }) =>
+      operation !== "remove" || !replacedPaths.has(JSON.stringify(path)),
+  );
   const preview = createPreview(
     document as { [key: string]: JsonValue },
-    changes,
+    preparedChanges,
   );
   const checked = validateDocument(preview);
   // Trusted values can still be inapplicable to the target's vocabulary type.
@@ -2289,5 +2299,20 @@ export function prepareDocument(
   ) {
     return { ...result, complete: checked.complete && result.complete };
   }
-  return { ...result, changes, normalizedDocument: preview };
+  return {
+    ...result,
+    diagnostics: result.diagnostics.map((diagnostic) =>
+      (diagnostic.reason === "empty_property_list" ||
+        diagnostic.reason === "absent_identifier") &&
+      replacedPaths.has(JSON.stringify(diagnostic.path))
+        ? {
+            ...diagnostic,
+            message:
+              "This absent value is replaced by the trusted server-owned value in the preview.",
+          }
+        : diagnostic,
+    ),
+    changes: preparedChanges,
+    normalizedDocument: preview,
+  };
 }

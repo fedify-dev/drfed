@@ -3251,12 +3251,6 @@ describe("prepareDocument() trusted creation inputs", () => {
         })),
         [
           {
-            operation: "remove",
-            path: ["id"],
-            before: value,
-            after: undefined,
-          },
-          {
             operation: "replace",
             path: ["id"],
             before: value,
@@ -3269,7 +3263,90 @@ describe("prepareDocument() trusted creation inputs", () => {
         id: "https://example.com/activities/new",
       });
       assert.deepEqual(input.id, value);
+      assert.match(result.diagnostics[0]!.message, /replaced.*server-owned/u);
     }
+  });
+
+  it("supersedes owned-field omissions while retaining unrelated omissions", () => {
+    for (const property of [
+      "id",
+      "actor",
+      "attributedTo",
+      "published",
+      "updated",
+    ]) {
+      const value =
+        property === "published" || property === "updated"
+          ? "2024-01-01T12:34:00Z"
+          : "https://example.com/owned";
+      const input = {
+        "@context": context,
+        type: "Create",
+        [property]: [],
+        to: [],
+      };
+      const original = structuredClone(input);
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [{ path: [property], value }],
+      });
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.changes.map(({ operation, path }) => ({ operation, path })),
+        [
+          { operation: "remove", path: ["to"] },
+          { operation: "replace", path: [property] },
+        ],
+      );
+      assert.deepEqual(result.normalizedDocument, {
+        "@context": context,
+        type: "Create",
+        [property]: value,
+      });
+      assert.match(
+        result.diagnostics.find(({ path }) => path[0] === property)!.message,
+        /replaced.*server-owned/u,
+      );
+      assert.match(
+        result.diagnostics.find(({ path }) => path[0] === "to")!.message,
+        /omits/u,
+      );
+      assert.deepEqual(input, original);
+    }
+  });
+
+  it("supersedes omissions at the actual nested source alias", () => {
+    const input = {
+      "@context": [
+        context,
+        { performer: { "@id": "as:actor", "@type": "@id" } },
+      ],
+      type: "Create",
+      object: [{ type: "Like", performer: [], to: [] }],
+    };
+    const original = structuredClone(input);
+    const result = prepareDocument(input, {
+      authority: [{ allowed: true, path: [] }],
+      serverOwnedFields: [{ path: ["object", 0, "actor"], value: like.actor }],
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.changes.map(({ operation, path }) => ({ operation, path })),
+      [
+        { operation: "remove", path: ["object", 0, "to"] },
+        { operation: "replace", path: ["object", 0, "performer"] },
+      ],
+    );
+    assert.deepEqual(result.normalizedDocument, {
+      ...input,
+      object: [{ type: "Like", performer: like.actor }],
+    });
+    assert.match(
+      result.diagnostics.find(({ path }) => path.at(-1) === "performer")!
+        .message,
+      /replaced.*server-owned/u,
+    );
+    assert.deepEqual(input, original);
   });
 
   it("rejects conflicting identities and timestamps without changing their values", () => {
