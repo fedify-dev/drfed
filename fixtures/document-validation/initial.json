@@ -160,9 +160,10 @@
         ]
       },
       "expected": {
-        "complete": true,
+        "complete": false,
         "diagnostics": [
           { "reason": "invalid_multiplicity", "path": ["next"] },
+          { "reason": "unsupported_value_form", "path": ["next", 1] },
           { "reason": "invalid_value_shape", "path": ["next", 1, "href"] }
         ]
       }
@@ -1725,8 +1726,10 @@
         }
       },
       "expected": {
-        "complete": true,
-        "diagnostics": []
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["attributedTo"] }
+        ]
       }
     },
     {
@@ -1741,8 +1744,10 @@
         "object": "https://example.com/posts/42"
       },
       "expected": {
-        "complete": true,
-        "diagnostics": []
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["actor"] }
+        ]
       }
     },
     {
@@ -2154,8 +2159,15 @@
         }
       },
       "expected": {
-        "complete": true,
-        "diagnostics": []
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["current"] },
+          { "reason": "unsupported_value_form", "path": ["first"] },
+          { "reason": "unsupported_value_form", "path": ["last"] },
+          { "reason": "unsupported_value_form", "path": ["next"] },
+          { "reason": "unsupported_value_form", "path": ["partOf"] },
+          { "reason": "unsupported_value_form", "path": ["prev"] }
+        ]
       }
     },
     {
@@ -2253,14 +2265,14 @@
         "location": "https://example.com/place"
       },
       "expected": {
-        "complete": false,
+        "complete": true,
         "diagnostics": [
           {
-            "reason": "unsupported_property",
+            "reason": "property_not_applicable",
             "path": ["content"]
           },
           {
-            "reason": "unsupported_property",
+            "reason": "property_not_applicable",
             "path": ["location"]
           }
         ]
@@ -2337,8 +2349,10 @@
         }
       },
       "expected": {
-        "complete": true,
-        "diagnostics": []
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["actor"] }
+        ]
       }
     }
   ]

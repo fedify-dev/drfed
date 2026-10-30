@@ -147,25 +147,32 @@ actors, and collections. References are absolute IRIs or supported embedded
 Object/Link values. Reference lists retain order, duplicates, and source
 indexes.
 
-| Applies to              | Properties and rules                                                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Object and Link         | id: one IRI; mediaType: one MIME type; attributedTo and preview: references/lists; name/nameMap: text without HTML.                                                                  |
-| Object                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location: references/lists.                                                                       |
-| Object                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                        |
-| Activity                | actor, object, target, origin, result, instrument: references/lists. IntransitiveActivity, Arrive, Travel, and Question reject non-null object values.                               |
-| Actor types             | preferredUsername: text; inbox/outbox: one IRI or embedded OrderedCollection or OrderedCollectionPage; following/followers/liked: one IRI or embedded Collection subtype.            |
-| Collection and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI, CollectionPage subtype, or Link subtype. Counts need not match visible members. |
-| CollectionPage subtypes | partOf: one IRI, Collection subtype, or Link subtype; next/prev: one IRI, CollectionPage subtype, or Link subtype.                                                                   |
-| OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                                    |
-| Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only content/location are unsupported.                    |
+| Applies to              | Properties and rules                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Object and Link         | id: one IRI; mediaType: one MIME type; preview: references/lists; name/nameMap: text without HTML.                                                                        |
+| Object                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location and attributedTo: references/lists.                                           |
+| Object                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                             |
+| Activity                | actor, object, target, origin, result, instrument: references/lists. IntransitiveActivity, Arrive, Travel, and Question reject non-null object values.                    |
+| Actor types             | preferredUsername: text; inbox/outbox: one IRI or embedded OrderedCollection or OrderedCollectionPage; following/followers/liked: one IRI or embedded Collection subtype. |
+| Collection and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI or CollectionPage subtype. Counts need not match visible members.     |
+| CollectionPage subtypes | partOf: one IRI or Collection subtype; next/prev: one IRI or CollectionPage subtype.                                                                                      |
+| OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                         |
+| Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only content/location are unsupported.         |
 
 Single-value properties accept a scalar or array containing at most one
 non-null value; multiple values receive `invalid_multiplicity`. Null means
 absence, including null list entries. Empty non-addressing arrays and nested
 lists remain unsupported. Type arrays are excluded from this single-value rule.
-Actor and attribution vocabulary ranges are Object-or-Link, not restricted to
-actor classes; this does not guarantee compatibility with Fedify's narrower
-typed decoders.
+Embedded activity actors and Object `attributedTo` values must use Application,
+Group, Organization, Person, or Service for Fedify compatibility. Other
+ActivityStreams-permitted embedded types receive `unsupported_value_form`;
+IRI references remain supported without remote type checks. Object-only fields
+such as `attributedTo` on Link receive `property_not_applicable`. Link `preview`
+and `nameMap` remain supported by the vocabulary and Fedify's decoder.
+Collection navigation accepts embedded CollectionPage values for current,
+first, last, next, and prev, and Collection values for partOf, including
+subtypes. Embedded Links in these fields receive `unsupported_value_form`
+because Fedify rejects them. Diagnostics retain the original field/list paths.
 
 Text accepts strings, flat lists, and supported `@value`/`@language` objects.
 Language maps contain strings or null. Complex text attributes are unsupported.

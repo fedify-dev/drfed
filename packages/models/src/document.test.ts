@@ -895,8 +895,8 @@ describe("validateDocument() supported document checks", () => {
         type: "Link",
         [property]: [],
       });
-      assert.equal(result.complete, false);
-      assert.equal(result.diagnostics[0]?.reason, "unsupported_property");
+      assert.equal(result.complete, true);
+      assert.equal(result.diagnostics[0]?.reason, "property_not_applicable");
     }
   });
 
@@ -1660,7 +1660,7 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(fetch.mock.callCount(), 0);
   });
 
-  it("applies Object-or-Link shape rules without inventing an actor-only vocabulary restriction", () => {
+  it("reports unsupported actor ranges separately from nested vocabulary errors", () => {
     const result = validateDocument({
       ...like,
       actor: [
@@ -1676,13 +1676,18 @@ describe("validateDocument() supported document checks", () => {
         ],
       },
     });
-    assert.equal(result.complete, true);
+    assert.equal(result.complete, false);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
+        { reason: "unsupported_value_form", path: ["actor", 0] },
         { reason: "invalid_value_shape", path: ["actor", 0, "content"] },
         { reason: "invalid_value_shape", path: ["actor", 1, "id"] },
         { reason: "invalid_value_shape", path: ["actor", 2] },
+        {
+          reason: "unsupported_value_form",
+          path: ["object", "attributedTo", 0],
+        },
         {
           reason: "invalid_value_shape",
           path: ["object", "attributedTo", 0, "object"],
@@ -1710,6 +1715,7 @@ describe("validateDocument() supported document checks", () => {
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
+        { reason: "unsupported_value_form", path: ["actor", 0] },
         { reason: "invalid_value_shape", path: ["actor", 0, "href"] },
         {
           reason: "unsupported_property",
@@ -1717,6 +1723,125 @@ describe("validateDocument() supported document checks", () => {
         },
       ],
     );
+  });
+
+  it("retains nested source aliases and indices for unsupported embedded ranges", () => {
+    for (const [type, property] of [
+      ["Like", "actor"],
+      ["Note", "attributedTo"],
+      ...["current", "first", "last", "next", "prev", "partOf"].map(
+        (navigation) => ["CollectionPage", navigation],
+      ),
+    ]) {
+      for (const embeddedType of ["Link", "Mention"]) {
+        const input = {
+          ...like,
+          "@context": [
+            context,
+            { relation: { "@id": `${context}#${property}`, "@type": "@id" } },
+          ],
+          object: [
+            {
+              type,
+              relation: [null, { type: embeddedType, href: like.actor }],
+            },
+          ],
+        };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, false);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+          [
+            {
+              reason: "unsupported_value_form",
+              path: ["object", 0, "relation", 1],
+            },
+          ],
+        );
+        assert.deepEqual(input, original);
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+      }
+    }
+  });
+
+  it("reports Object-only properties as inapplicable to Link and Mention", () => {
+    for (const type of ["Link", "Mention"]) {
+      const properties = [
+        "attachment",
+        "attributedTo",
+        "audience",
+        "content",
+        "contentMap",
+        "context",
+        "duration",
+        "endTime",
+        "generator",
+        "icon",
+        "image",
+        "inReplyTo",
+        "location",
+        "published",
+        "replies",
+        "startTime",
+        "summary",
+        "summaryMap",
+        "tag",
+        "updated",
+        "url",
+        "to",
+        "bto",
+        "cc",
+        "bcc",
+      ];
+      const input = {
+        "@context": context,
+        type,
+        ...Object.fromEntries(properties.map((property) => [property, true])),
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        properties.sort().map((property) => ({
+          reason: "property_not_applicable",
+          path: [property],
+        })),
+      );
+      assert.deepEqual(input, original);
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+  });
+
+  it("preserves Link language maps and embedded previews supported by Fedify", async () => {
+    const input = {
+      "@context": context,
+      type: "Link",
+      nameMap: { en: "Hello", ko: "안녕" },
+      preview: { type: "Note", content: "Preview" },
+    };
+    const options = {
+      contextLoader: (url: string) =>
+        Promise.resolve({
+          contextUrl: null,
+          documentUrl: url,
+          document: structuredClone(preloadedContexts[url]),
+        }),
+    };
+    const parsed = await Link.fromJsonLd(input, options);
+    const serialized = await parsed.toJsonLd({ ...options, format: "compact" });
+    assert.ok(serialized !== null && typeof serialized === "object");
+    assert.ok("nameMap" in serialized && "preview" in serialized);
+    assert.deepEqual(serialized.nameMap, input.nameMap);
+    assert.deepEqual(serialized.preview, input.preview);
+    assert.deepEqual(validateDocument(input), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
   });
 
   it("detects actor/attribution cycles without rejecting shared actors in separate branches", () => {
@@ -2085,7 +2210,7 @@ describe("validateDocument() supported document checks", () => {
       prev: { type: "Link", href: 123 },
       startIndex: -1,
     });
-    assert.equal(result.complete, true);
+    assert.equal(result.complete, false);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
@@ -2093,6 +2218,7 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["first", "items"] },
         { reason: "invalid_value_shape", path: ["last"] },
         { reason: "invalid_value_shape", path: ["partOf", "totalItems"] },
+        { reason: "unsupported_value_form", path: ["prev"] },
         { reason: "invalid_value_shape", path: ["prev", "href"] },
         { reason: "invalid_value_shape", path: ["startIndex"] },
       ],

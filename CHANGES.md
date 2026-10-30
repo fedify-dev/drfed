@@ -53,10 +53,6 @@ To be released.
     poll-specific rules remain separate work. The supported properties and
     representation limits are documented in *packages/models/README.md*.
     [[#151], [#166] by Jiwon Kwon\]
- -  Changed <https://drfed.org> to serve the DrFed documentation for the highest
-    released version, prereleases included, along with a changelog page.
-    Documentation for the development version is available at
-    <https://canary.drfed.org>. [[#134], [#137] by ChanHaeng Lee\]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 [#166]: https://github.com/fedify-dev/drfed/pull/166

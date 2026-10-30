@@ -195,6 +195,34 @@ const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const maximumDiagnostics = 100;
 const actorTypes = [Application, Group, Organization, Person, Service];
 const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
+// AS2 vocabulary Object properties that do not also apply to Link.
+const objectOnlyProperties: ReadonlySet<string> = new Set([
+  "attachment",
+  "attributedTo",
+  "audience",
+  "content",
+  "contentMap",
+  "context",
+  "endTime",
+  "generator",
+  "icon",
+  "image",
+  "inReplyTo",
+  "location",
+  "published",
+  "replies",
+  "startTime",
+  "summary",
+  "summaryMap",
+  "tag",
+  "updated",
+  "url",
+  "to",
+  "bto",
+  "cc",
+  "bcc",
+  "duration",
+]);
 
 type Report = (
   reason: DiagnosticReason,
@@ -972,6 +1000,29 @@ function isTypeOrSubtype(Type: VocabularyType, Base: VocabularyType): boolean {
   return Type === Base || Type.prototype instanceof Base;
 }
 
+function checkEmbeddedFedifyRange(
+  Type: VocabularyType,
+  expected: readonly VocabularyType[] | undefined,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (expected?.every((Expected) => !isTypeOrSubtype(Type, Expected))) {
+    report(
+      "unsupported_value_form",
+      path,
+      `Fedify cannot preserve this embedded type for this property. Use ${expected.map((Expected) => Expected.name).join(", ")} or an IRI reference.`,
+    );
+  }
+}
+
+function getEmbeddedFedifyRange(
+  property: string,
+  collectionRange: readonly VocabularyType[] | undefined,
+): readonly VocabularyType[] | undefined {
+  if (property === "actor" || property === "attributedTo") return actorTypes;
+  return collectionRange?.filter((Expected) => Expected !== Link);
+}
+
 function checkDocumentType(
   values: Record<string, unknown>,
   fields: readonly SourceProperty[],
@@ -1461,6 +1512,7 @@ function checkDocumentValue(
     path: FieldPath,
     inherited?: DocumentContext,
     expectedTypes?: readonly VocabularyType[],
+    fedifyTypes?: readonly VocabularyType[],
   ): void {
     if (
       document !== null &&
@@ -1490,6 +1542,7 @@ function checkDocumentValue(
       );
       return;
     }
+    checkEmbeddedFedifyRange(Type, fedifyTypes, path, report);
     onDocument?.(values, path, context);
     const isObject = isTypeOrSubtype(Type, APObject);
     const isLink = isTypeOrSubtype(Type, Link);
@@ -1507,8 +1560,14 @@ function checkDocumentValue(
         : isCollection
           ? ["totalItems"]
           : [];
-    const referenceProperties = ["attributedTo", "preview"];
-    if (isObject) referenceProperties.push("location", ...addressingProperties);
+    const referenceProperties = ["preview"];
+    if (isObject) {
+      referenceProperties.push(
+        "attributedTo",
+        "location",
+        ...addressingProperties,
+      );
+    }
     if (isActivity) {
       referenceProperties.push(
         "actor",
@@ -1555,6 +1614,14 @@ function checkDocumentValue(
             "unsupported_value_form",
             fieldPath,
             "This spelling's type coercion differs from the supported vocabulary term.",
+          );
+          return;
+        }
+        if (isLink && objectOnlyProperties.has(key)) {
+          report(
+            "property_not_applicable",
+            fieldPath,
+            "This property applies to Object documents, not Link documents.",
           );
           return;
         }
@@ -1627,7 +1694,15 @@ function checkDocumentValue(
                 typeof entry === "object" &&
                 !Array.isArray(entry)
               ) {
-                checkDocument(entry, entryPath, context, collectionRange);
+                // AS ranges can be wider than Fedify's typed decoders. Keep
+                // vocabulary errors distinct from unsupported embedded forms.
+                checkDocument(
+                  entry,
+                  entryPath,
+                  context,
+                  collectionRange,
+                  getEmbeddedFedifyRange(key, collectionRange),
+                );
               } else {
                 checkReference(entry, entryPath, report);
               }
