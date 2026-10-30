@@ -683,6 +683,152 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
+  it("rejects malformed explicit identifiers and types in opaque nested values", async () => {
+    for (const [keyword, value, suffix] of [
+      ["@id", 5, []],
+      ["@id", null, []],
+      ["@id", [], []],
+      ["@id", {}, []],
+      ["@type", 5, []],
+      ["@type", null, []],
+      ["@type", {}, []],
+      ["@type", ["https://example.com/Type", 5], [1]],
+    ] as const) {
+      const input = {
+        ...like,
+        to: [],
+        object: { type: "Note", custom: [{ data: { [keyword]: value } }] },
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics
+          .filter(({ severity }) => severity === "error")
+          .map(({ reason, path }) => ({ reason, path })),
+        [
+          {
+            reason: "invalid_value_shape",
+            path: ["object", "custom", 0, "data", keyword, ...suffix],
+          },
+        ],
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(input, original);
+    }
+    await Promise.all(
+      ["@id", "@type"].map((keyword) =>
+        assert.rejects(
+          APObject.fromJsonLd(
+            {
+              "@context": [context, { custom: "https://example.com/custom" }],
+              type: "Note",
+              custom: { [keyword]: 5 },
+            },
+            {
+              contextLoader: (url) => {
+                assert.equal(url, context);
+                return Promise.resolve({
+                  contextUrl: null,
+                  documentUrl: url,
+                  document: structuredClone(preloadedContexts[url]),
+                });
+              },
+            },
+          ),
+          { name: "jsonld.SyntaxError" },
+        ),
+      ),
+    );
+  });
+
+  it("preserves supported opaque keyword forms in independent previews", async () => {
+    const previews: unknown[] = [];
+    for (const custom of [
+      { "@id": "https://example.com/node" },
+      { "@type": "https://example.com/Type" },
+      { "@type": ["https://example.com/Type", "https://example.com/Other"] },
+      { "@type": [] },
+      { "@value": 1 },
+      { "@list": [{ "@value": 1 }, { "@id": "https://example.com/node" }] },
+      {
+        "@type": "@json",
+        "@value": {
+          "@id": 5,
+          "@type": null,
+          nested: [{ "@id": null, "@language": 123, "@value": 5 }],
+        },
+      },
+      { "@type": ["@json"], "@value": { "@id": 5, "@type": {} } },
+    ]) {
+      const input = {
+        "@context": [context, { custom: "https://example.com/custom" }],
+        type: "Note",
+        to: [],
+        custom,
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.ok(
+        result.diagnostics.every(({ severity }) => severity === "warning"),
+      );
+      assert.deepEqual(result.normalizedDocument?.custom, custom);
+      assert.notEqual(result.normalizedDocument?.custom, custom);
+      assert.deepEqual(input, original);
+      previews.push(result.normalizedDocument);
+    }
+    await Promise.all(
+      previews.map((preview) =>
+        APObject.fromJsonLd(preview, {
+          contextLoader: (url) => {
+            assert.equal(url, context);
+            return Promise.resolve({
+              contextUrl: null,
+              documentUrl: url,
+              document: structuredClone(preloadedContexts[url]),
+            });
+          },
+        }),
+      ),
+    );
+  });
+
+  it("retains JSON-safety checks inside opaque JSON literals and type arrays", () => {
+    const cyclic: Record<string, unknown> = { "@id": 5 };
+    cyclic.self = cyclic;
+    let evaluated = false;
+    const accessor = Object.defineProperty({}, "@id", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    const types = ["https://example.com/Type"];
+    Object.defineProperty(types, "0", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    for (const custom of [
+      { "@type": "@json", "@value": cyclic },
+      { "@type": "@json", "@value": accessor },
+      { "@type": types },
+    ]) {
+      const result = validateDocument({ ...like, custom, to: [] });
+      assert.ok(
+        result.diagnostics.some(({ reason }) => reason === "non_json_value"),
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+    assert.equal(evaluated, false);
+  });
+
   it("preserves safe language extensions and escaped context IRIs in previews", async () => {
     const input = {
       ...like,

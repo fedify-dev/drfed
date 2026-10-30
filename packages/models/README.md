@@ -266,6 +266,14 @@ without interpreting nested type or context keys as ActivityStreams.
 Language-tagged value objects also require a string or null `@value` and a
 string or null `@language`; malformed values receive `invalid_value_shape`
 at the original keyword path. A null language tag leaves the value untagged.
+Explicit `@id` values inside extensions must be strings. Explicit `@type`
+values must be strings or arrays of strings; malformed entries receive
+`invalid_value_shape` at the original keyword or list-entry path. These shape
+checks do not require custom type strings to appear in the implemented-type
+set. An `@json` value's payload remains ordinary JSON, including keys spelled
+`@id` or `@type`, and is checked only for JSON safety. These bounded checks do
+not establish full JSON-LD validity or interpret nested contexts and keyword
+aliases.
 
 This warning policy does not admit unknown types, unsupported contexts,
 JSON-LD keywords, or known vocabulary properties without implemented rules.

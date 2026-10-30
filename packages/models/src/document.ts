@@ -1572,6 +1572,61 @@ function checkLinkProperty(
   }
 }
 
+// Check explicit keyword shapes, without expanding contexts or keyword aliases.
+// Return whether @value contains literal JSON rather than nested JSON-LD.
+function checkExtensionKeywords(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  report: Report,
+): boolean {
+  if (Object.hasOwn(values, "@id") && typeof values["@id"] !== "string") {
+    report(
+      "invalid_value_shape",
+      [...path, "@id"],
+      "Expected a string JSON-LD identifier.",
+    );
+  }
+  let jsonLiteral = values["@type"] === "@json";
+  if (Object.hasOwn(values, "@type")) {
+    const type = values["@type"];
+    if (Array.isArray(type)) {
+      visitList(type, [...path, "@type"], report, (entry, entryPath) => {
+        if (typeof entry !== "string") {
+          report(
+            "invalid_value_shape",
+            entryPath,
+            "Expected a JSON-LD type string.",
+          );
+        }
+        if (type.length === 1 && entry === "@json") jsonLiteral = true;
+      });
+    } else if (typeof type !== "string") {
+      report(
+        "invalid_value_shape",
+        [...path, "@type"],
+        "Expected a JSON-LD type string or array of strings.",
+      );
+    }
+  }
+  if (Object.hasOwn(values, "@value") && values["@language"] != null) {
+    if (typeof values["@language"] !== "string") {
+      report(
+        "invalid_value_shape",
+        [...path, "@language"],
+        "Expected a string language tag or null.",
+      );
+    }
+    if (values["@value"] !== null && typeof values["@value"] !== "string") {
+      report(
+        "invalid_value_shape",
+        [...path, "@value"],
+        "A JSON-LD language-tagged value must have a string @value or null absence.",
+      );
+    }
+  }
+  return jsonLiteral;
+}
+
 function checkDocumentValue(
   rootDocument: unknown,
   rootPath: FieldPath,
@@ -1588,9 +1643,13 @@ function checkDocumentValue(
   const pending: (() => void)[] = [];
   const ancestors = new WeakSet<object>();
 
-  // Opaque extensions need JSON-safe data and valid language-tagged value
-  // shapes so an unchecked extension cannot break whole-document parsing.
-  function checkExtension(value: unknown, path: FieldPath): void {
+  // Check JSON safety and selected explicit keyword shapes. This is not full
+  // JSON-LD validation; extension semantics and nested contexts remain unchecked.
+  function checkExtension(
+    value: unknown,
+    path: FieldPath,
+    keywords = true,
+  ): void {
     if (!isJsonValueShape(value)) {
       report("non_json_value", path, "Expected a JSON value.");
       return;
@@ -1605,32 +1664,18 @@ function checkDocumentValue(
     const children: (() => void)[] = [];
     if (Array.isArray(value)) {
       visitList(value, path, report, (entry, entryPath) => {
-        children.push(() => checkExtension(entry, entryPath));
+        children.push(() => checkExtension(entry, entryPath, keywords));
       });
     } else {
       const values = readDocument(value, path, report);
       if (values != null) {
-        if (Object.hasOwn(values, "@value") && values["@language"] != null) {
-          if (typeof values["@language"] !== "string") {
-            report(
-              "invalid_value_shape",
-              [...path, "@language"],
-              "Expected a string language tag or null.",
-            );
-          }
-          if (
-            values["@value"] !== null &&
-            typeof values["@value"] !== "string"
-          ) {
-            report(
-              "invalid_value_shape",
-              [...path, "@value"],
-              "A JSON-LD language-tagged value must have a string @value or null absence.",
-            );
-          }
-        }
+        const jsonLiteral =
+          keywords && checkExtensionKeywords(values, path, report);
         for (const key of Object.keys(values)) {
-          children.push(() => checkExtension(values[key], [...path, key]));
+          const childKeywords = keywords && !(jsonLiteral && key === "@value");
+          children.push(() =>
+            checkExtension(values[key], [...path, key], childKeywords),
+          );
         }
       }
     }
