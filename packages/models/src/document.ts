@@ -551,6 +551,22 @@ function sameContextTerm(
   );
 }
 
+function isSupportedContextUri(value: string): boolean {
+  // URL parsing alone accepts characters that JSON-LD IRI mappings forbid.
+  return (
+    /^[a-z][a-z\d+.-]*:/iu.test(value) &&
+    !Array.from(value).some((character) => {
+      const point = character.codePointAt(0)!;
+      return (
+        point <= 0x20 ||
+        (point >= 0x7f && point <= 0x9f) ||
+        '<>"{}|\\^`'.includes(character)
+      );
+    }) &&
+    URL.canParse(value)
+  );
+}
+
 // Resolve only explicit terms, defined prefixes, keywords, and absolute IRIs.
 // This profile deliberately does not implement general JSON-LD expansion.
 function resolveTerm(
@@ -566,8 +582,11 @@ function resolveTerm(
   if (colon < 0) return undefined;
   if (pending?.has(value.slice(0, colon))) return undefined;
   const prefix = terms.get(value.slice(0, colon));
-  if (prefix?.prefix) return prefix.iri + value.slice(colon + 1);
-  return URL.canParse(value) ? value : undefined;
+  if (prefix?.prefix) {
+    const expanded = prefix.iri + value.slice(colon + 1);
+    return isSupportedContextUri(expanded) ? expanded : undefined;
+  }
+  return isSupportedContextUri(value) ? value : undefined;
 }
 
 function readContextTerm(
@@ -734,6 +753,14 @@ function applyContextTerms(
     let resolved = false;
     for (const name of pending) {
       const fieldPath = [...path, name];
+      if (name.length === 0) {
+        localReport(
+          "invalid_context",
+          fieldPath,
+          "A context term cannot be empty.",
+        );
+        continue;
+      }
       if (name.includes(":")) {
         localReport(
           "unsupported_context_form",
@@ -1478,7 +1505,8 @@ function checkDocumentValue(
   const pending: (() => void)[] = [];
   const ancestors = new WeakSet<object>();
 
-  // Opaque extensions still need JSON-safe data for an independent preview.
+  // Opaque extensions need JSON-safe data and valid language-tagged value
+  // shapes so an unchecked extension cannot break whole-document parsing.
   function checkExtension(value: unknown, path: FieldPath): void {
     if (!isJsonValueShape(value)) {
       report("non_json_value", path, "Expected a JSON value.");
@@ -1499,6 +1527,25 @@ function checkDocumentValue(
     } else {
       const values = readDocument(value, path, report);
       if (values != null) {
+        if (Object.hasOwn(values, "@value") && values["@language"] != null) {
+          if (typeof values["@language"] !== "string") {
+            report(
+              "invalid_value_shape",
+              [...path, "@language"],
+              "Expected a string language tag or null.",
+            );
+          }
+          if (
+            values["@value"] !== null &&
+            typeof values["@value"] !== "string"
+          ) {
+            report(
+              "invalid_value_shape",
+              [...path, "@value"],
+              "A JSON-LD language-tagged value must have a string @value or null absence.",
+            );
+          }
+        }
         for (const key of Object.keys(values)) {
           children.push(() => checkExtension(values[key], [...path, key]));
         }

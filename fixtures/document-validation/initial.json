@@ -4,6 +4,56 @@
   "description": "Validation expectations; all cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
   "fixtures": [
     {
+      "id": "context-empty-term",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "": "https://example.com/custom" }
+        ],
+        "type": "Note"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_context", "path": ["@context", 1, ""] }
+        ]
+      }
+    },
+    {
+      "id": "context-mapping-unescaped-space",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "custom": "https://example.com/bad iri" }
+        ],
+        "type": "Note"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_context", "path": ["@context", 1, "custom"] }
+        ]
+      }
+    },
+    {
+      "id": "extension-language-non-string",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "custom": "https://example.com/custom" }
+        ],
+        "type": "Note",
+        "custom": { "@value": 123, "@language": "en" }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "extension_property_unchecked", "path": ["custom"] },
+          { "reason": "invalid_value_shape", "path": ["custom", "@value"] }
+        ]
+      }
+    },
+    {
       "id": "common-localized-text",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",

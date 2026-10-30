@@ -205,6 +205,8 @@ Functional aliases are counted together without merging source values.
 Malformed context definitions receive `invalid_context`; unavailable contexts
 receive `context_unavailable_offline`, not an empty replacement. There are no
 remote lookups or remote lookup failures to interpret in this API.
+Inline terms must be nonempty, and resolved mapping IRIs must not contain
+unescaped whitespace, control characters, or forbidden IRI punctuation.
 
 Scoped contexts, custom base/vocabulary/default-language directives, context
 resets, JSON literals, and other complex forms remain unsupported. Relative
@@ -215,6 +217,9 @@ Otherwise supported documents can finish with `complete: true` and no errors;
 normalization previews preserve the custom fields and their nested values.
 Opaque values are checked for JSON safety, including cycles and accessors,
 without interpreting nested type or context keys as ActivityStreams.
+Language-tagged value objects also require a string or null `@value` and a
+string or null `@language`; malformed values receive `invalid_value_shape`
+at the original keyword path. A null language tag leaves the value untagged.
 
 This warning policy does not admit unknown types, unsupported contexts,
 JSON-LD keywords, or known vocabulary properties without implemented rules.

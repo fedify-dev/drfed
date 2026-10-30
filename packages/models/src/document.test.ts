@@ -445,6 +445,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("distinguishes malformed inline contexts from unsupported JSON-LD features", () => {
     for (const [inline, reason, suffix] of [
+      [{ "": "https://example.com/extension" }, "invalid_context", ""],
       [{ bad: { "@id": 123 } }, "invalid_context", "bad"],
       [{ bad: "@graph" }, "unsupported_context_form", "bad"],
       [{ "as:object": "as:target" }, "unsupported_context_form", "as:object"],
@@ -508,6 +509,120 @@ describe("validateDocument() supported document checks", () => {
         ["@context", 1, "b"],
       ],
     );
+  });
+
+  it("rejects malformed absolute context IRIs before parsing can escape them", () => {
+    for (const character of [
+      " ",
+      "\t",
+      "\n",
+      "\u0000",
+      "\u007f",
+      "\u0080",
+      "<",
+      ">",
+      '"',
+      "{",
+      "}",
+      "|",
+      "\\",
+      "^",
+      "`",
+    ]) {
+      for (const inline of [
+        { custom: `https://example.com/a${character}b` },
+        { ns: "https://example.com/", custom: `ns:a${character}b` },
+      ]) {
+        const input = { ...like, "@context": [context, inline] };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, true);
+        assert.ok(
+          result.diagnostics.some(
+            ({ reason, path }) =>
+              reason === "invalid_context" &&
+              JSON.stringify(path) ===
+                JSON.stringify(["@context", 1, "custom"]),
+          ),
+        );
+        assert.deepEqual(input, original);
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+      }
+    }
+  });
+
+  it("checks language value objects in opaque extensions at original nested paths", () => {
+    for (const value of [123, false, [], {}]) {
+      const input = {
+        ...like,
+        object: {
+          type: "Note",
+          custom: [{ data: { "@value": value, "@language": "en" } }],
+        },
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [
+          {
+            reason: "extension_property_unchecked",
+            path: ["object", "custom"],
+          },
+          {
+            reason: "invalid_value_shape",
+            path: ["object", "custom", 0, "data", "@value"],
+          },
+        ],
+      );
+      assert.deepEqual(input, original);
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+    }
+    const invalidLanguage = validateDocument({
+      ...like,
+      custom: { "@value": "Hello", "@language": 123 },
+    });
+    assert.ok(
+      invalidLanguage.diagnostics.some(
+        ({ reason, path }) =>
+          reason === "invalid_value_shape" &&
+          JSON.stringify(path) === JSON.stringify(["custom", "@language"]),
+      ),
+    );
+  });
+
+  it("preserves safe language extensions and escaped context IRIs in previews", async () => {
+    const input = {
+      ...like,
+      "@context": [context, { custom: "https://example.com/a%20b" }],
+      to: [],
+      custom: [
+        { "@value": "Hello", "@language": "en" },
+        { "@value": null, "@language": "en" },
+        { "@value": false, "@language": null },
+      ],
+    };
+    const original = structuredClone(input);
+    const result = validateDocument(input);
+    assert.equal(result.complete, true);
+    assert.ok(
+      result.diagnostics.every(({ severity }) => severity === "warning"),
+    );
+    assert.deepEqual(result.normalizedDocument?.custom, input.custom);
+    assert.notEqual(result.normalizedDocument?.custom, input.custom);
+    assert.deepEqual(input, original);
+    // Fedify can parse this JSON-LD; preservation here belongs to our preview.
+    await APObject.fromJsonLd(input, {
+      contextLoader: (url) =>
+        Promise.resolve({
+          contextUrl: null,
+          documentUrl: url,
+          document: structuredClone(preloadedContexts[url]),
+        }),
+    });
   });
 
   it("never invokes context or term-definition accessors", () => {
