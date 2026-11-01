@@ -1,0 +1,2422 @@
+{
+  "status": "draft",
+  "entryPoint": "validateDocument",
+  "description": "Validation expectations; all cases are executed by document.test.ts. Diagnostic categories and severities are defined by diagnosticReasons in @drfed/models/document. Unspecified changes default to []; unspecified normalizedDocument is absent. Every case also requires unchanged input and no network or database operations.",
+  "fixtures": [
+    {
+      "id": "context-empty-term",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "": "https://example.com/custom" }
+        ],
+        "type": "Note"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_context", "path": ["@context", 1, ""] }
+        ]
+      }
+    },
+    {
+      "id": "context-mapping-unescaped-space",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "custom": "https://example.com/bad iri" }
+        ],
+        "type": "Note"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_context", "path": ["@context", 1, "custom"] }
+        ]
+      }
+    },
+    {
+      "id": "extension-language-non-string",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          { "custom": "https://example.com/custom" }
+        ],
+        "type": "Note",
+        "custom": { "@value": 123, "@language": "en" }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "extension_property_unchecked", "path": ["custom"] },
+          { "reason": "invalid_value_shape", "path": ["custom", "@value"] }
+        ]
+      }
+    },
+    {
+      "id": "common-localized-text",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "name": "A title",
+        "nameMap": { "en": "A title", "ko": "제목" },
+        "summary": [null, "<p>Summary</p>"],
+        "content": ["", { "@value": "Bonjour", "@language": "fr" }],
+        "contentMap": { "und": "<p>Content</p>" }
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-invalid-language-map",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "contentMap": { "en": 123, "en_US": "Text" },
+        "summary": ["Text", false]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_value_shape", "path": ["contentMap", "en"] },
+          { "reason": "invalid_value_shape", "path": ["contentMap", "en_US"] },
+          { "reason": "invalid_value_shape", "path": ["summary", 1] }
+        ]
+      }
+    },
+    {
+      "id": "common-name-markup",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Mention",
+        "nameMap": { "en": "<b>Alice</b>" }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_value_shape", "path": ["nameMap", "en"] }
+        ]
+      }
+    },
+    {
+      "id": "actor-preferred-username",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "preferredUsername": [
+          "alice",
+          { "@value": "앨리스", "@language": "ko" }
+        ]
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": [null, "2024-02-29T12:34:00Z"],
+        "updated": "2024-02-29T12:34:56.123456789+01:30",
+        "startTime": "2024-02-29T12:34:00.5-00:00",
+        "endTime": null
+      },
+      "expected": { "complete": true, "diagnostics": [] }
+    },
+    {
+      "id": "common-unsupported-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": [null, "2024-02-29T12:34Z"],
+        "updated": "2024-02-29T12:34:56.1234567891+01:30",
+        "startTime": "2024-02-29T12:34.5-00:00"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["published", 1] },
+          { "reason": "unsupported_value_form", "path": ["startTime"] },
+          { "reason": "unsupported_value_form", "path": ["updated"] }
+        ]
+      }
+    },
+    {
+      "id": "common-invalid-calendar-with-unsupported-representation",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Note",
+          "published": "2023-02-29T12:34Z",
+          "startTime": "2024-02-30T12:34.5-00:00",
+          "updated": "2024-02-30T12:34:56.1234567891Z"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_datetime", "path": ["object", "published"] },
+          { "reason": "invalid_datetime", "path": ["object", "startTime"] },
+          { "reason": "invalid_datetime", "path": ["object", "updated"] }
+        ]
+      }
+    },
+    {
+      "id": "common-invalid-timestamps",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "published": ["2023-02-29T12:34:56Z", "2024-01-01T12:00:00Z"],
+        "updated": false
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "invalid_multiplicity", "path": ["published"] },
+          { "reason": "invalid_datetime", "path": ["published", 0] },
+          { "reason": "invalid_value_shape", "path": ["updated"] }
+        ]
+      }
+    },
+    {
+      "id": "addressing-null-and-nested",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "audience": [null, { "type": "Person", "preferredUsername": 123 }],
+        "bcc": ["https://example.com/alice", "https://example.com/alice"],
+        "bto": null,
+        "cc": { "type": "Mention", "href": "https://example.com/alice" },
+        "to": [null, "https://example.com/alice"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["audience", 1, "preferredUsername"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "functional-reference-multiplicity",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "next": [
+          null,
+          { "type": "Link", "href": 123 },
+          "https://example.com/page"
+        ]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "invalid_multiplicity", "path": ["next"] },
+          { "reason": "unsupported_value_form", "path": ["next", 1] },
+          { "reason": "invalid_value_shape", "path": ["next", 1, "href"] }
+        ]
+      }
+    },
+    {
+      "id": "like-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-multiple-actors",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": ["https://example.com/alice", "https://example.com/bob"],
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-embedded-actor",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Person",
+          "id": "https://example.com/alice"
+        },
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-missing-fields",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-invalid-iri",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/not valid"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_iri",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": "Hello"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-empty-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": ""
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-invalid-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-like",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-nested-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "accept-follow-list",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": "https://example.com/alice",
+            "object": "https://example.com/bob"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "accept-follow-list-actor",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": 123,
+            "object": "https://example.com/bob"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 0, "actor"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "accept-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "actor": "https://example.com/bob",
+        "object": {
+          "type": "Note",
+          "content": "A proposal"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "arrive-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "location": "https://example.com/places/work"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "arrive-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "arrive-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "actor": "https://example.com/alice",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "addressing-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "to": []
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "empty_property_list",
+            "path": ["to"]
+          }
+        ],
+        "changes": [
+          {
+            "reason": "omit_empty_property_list",
+            "operation": "remove",
+            "path": ["to"],
+            "before": []
+          }
+        ],
+        "normalizedDocument": {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          "type": "Like",
+          "actor": "https://example.com/alice",
+          "object": "https://example.com/posts/42"
+        }
+      }
+    },
+    {
+      "id": "addressing-duplicates",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "to": ["https://example.com/bob", "https://example.com/bob"],
+        "cc": ["https://example.com/alice", "https://example.com/bob"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "extension-field",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          {
+            "testData": "https://example.com/ns#testData"
+          }
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "testData": {
+          "type": "not-an-activity",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          { "reason": "extension_property_unchecked", "path": ["testData"] }
+        ]
+      }
+    },
+    {
+      "id": "extension-unmapped",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "testField": "keep me"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "extension_property_unchecked",
+            "path": ["testField"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "extension-mixed-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": ["Like", "https://example.com/ns#CustomLike"],
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["type"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "extension-custom-only",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "https://example.com/ns#CustomActivity",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_type",
+            "path": ["type"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-remote",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          "https://remote.example/context"
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "context_unavailable_offline",
+            "path": ["@context", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "context-alias-number",
+      "input": {
+        "@context": [
+          "https://www.w3.org/ns/activitystreams",
+          {
+            "payload": {
+              "@id": "https://www.w3.org/ns/activitystreams#object",
+              "@type": "@id"
+            }
+          }
+        ],
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "payload": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["payload"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "type-full-iri-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "https://www.w3.org/ns/activitystreams#Like",
+        "actor": "https://example.com/alice",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "timestamp-invalid",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "published": "not-a-date"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_datetime",
+            "path": ["published"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "root-number",
+      "input": 123,
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_document_root",
+            "path": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-target-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "target": "https://example.com/collection"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-origin-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "origin": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-result-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "result": {
+          "type": "Note",
+          "content": "Hello"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "undo-instrument-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Undo",
+        "instrument": [
+          "https://example.com/tool",
+          {
+            "type": "Like",
+            "object": 123
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["instrument", 1, "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "activity-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Activity",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "activity-object-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Activity",
+        "object": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "intransitive-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "origin": "https://example.com/start"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "intransitive-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "intransitive-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "IntransitiveActivity",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "arrive-location-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Arrive",
+        "location": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["location"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "add-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "announce-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Announce",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "block-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Block",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "delete-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Delete",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "dislike-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Dislike",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "flag-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Flag",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "ignore-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Ignore",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "invite-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Invite",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "join-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Join",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "leave-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Leave",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "listen-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Listen",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "move-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Move",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination",
+        "origin": "https://example.com/collections/source"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "offer-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Offer",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "read-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Read",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "reject-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Reject",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "remove-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Remove",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42",
+        "target": "https://example.com/collections/destination"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "tentativeaccept-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeAccept",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "tentativereject-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeReject",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-note",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Note",
+          "content": "Updated"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "view-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "View",
+        "actor": "https://example.com/alice",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "add-target-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "object": "https://example.com/posts/42",
+        "target": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["target"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "move-origin-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Move",
+        "object": "https://example.com/posts/42",
+        "origin": ["https://example.com/collections/source", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "tentativeaccept-nested-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "TentativeAccept",
+        "object": {
+          "type": "Offer",
+          "actor": "https://example.com/alice",
+          "object": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "update-note-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "travel-no-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "actor": "https://example.com/alice",
+        "origin": "https://example.com/places/home",
+        "target": "https://example.com/places/work"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "travel-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "travel-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "travel-origin-list-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Travel",
+        "origin": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["origin", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-open-ended",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "content": "How was your day?"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-null-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "object": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-with-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["object"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-question",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Question",
+          "content": "How was your day?"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-question",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "actor": "https://example.com/alice",
+        "object": {
+          "type": "Question",
+          "content": "What changed?"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "question-choices-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "oneOf": [
+          {
+            "type": "Note",
+            "content": "Yes"
+          }
+        ]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["oneOf"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-closed-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "closed": true
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["closed"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "question-both-choice-modes-pending",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Question",
+        "oneOf": [
+          {
+            "type": "Note",
+            "content": "Yes"
+          }
+        ],
+        "anyOf": [
+          {
+            "type": "Note",
+            "content": "No"
+          }
+        ]
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_property",
+            "path": ["anyOf"]
+          },
+          {
+            "reason": "unsupported_property",
+            "path": ["oneOf"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "object-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Object"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-empty-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "content": ""
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-null-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "content": null
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "object-invalid-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Object",
+        "content": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "article-invalid-id",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "id": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["id"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "create-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Object",
+          "content": "A base object"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "create-article",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "object": {
+          "type": "Article",
+          "content": "An article"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Object",
+          "content": "Updated base object"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "update-article",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Update",
+        "object": {
+          "type": "Article",
+          "content": "Updated article"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-result-article-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "result": [
+          "https://example.com/posts/42",
+          {
+            "type": "Article",
+            "content": 123
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["result", 1, "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "application-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Application",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "group-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Group",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "organization-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Organization",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "person-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "service-object",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Service",
+        "id": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "like-actor-list-person",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": [
+          "https://example.com/alice",
+          {
+            "type": "Person",
+            "id": "https://example.com/alice"
+          },
+          "https://example.com/alice"
+        ],
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "article-attribution-service",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Article",
+        "attributedTo": {
+          "type": "Service",
+          "id": "https://example.com/alice"
+        },
+        "content": "Text"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "actor-invalid-id",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Create",
+        "actor": {
+          "type": "Person",
+          "id": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["actor", "id"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "nested-actor-content",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Accept",
+        "object": [
+          {
+            "type": "Follow",
+            "actor": {
+              "type": "Group",
+              "content": 123
+            }
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["object", 0, "actor", "content"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "attribution-activity",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "attributedTo": {
+          "type": "Create",
+          "object": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["attributedTo"] }
+        ]
+      }
+    },
+    {
+      "id": "actor-object-range",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Object",
+          "id": "https://example.com/alice"
+        },
+        "object": "https://example.com/posts/42"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["actor"] }
+        ]
+      }
+    },
+    {
+      "id": "collection-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": 5,
+        "items": [
+          "https://example.com/posts/42",
+          {
+            "type": "Article",
+            "content": "Text"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "orderedcollection-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollection",
+        "totalItems": 9,
+        "orderedItems": [
+          "https://example.com/posts/42",
+          "https://example.com/posts/42",
+          {
+            "type": "Note",
+            "content": ""
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collectionpage-links",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "partOf": "https://example.com/collection",
+        "next": "https://example.com/collection?page=2",
+        "prev": null,
+        "items": {
+          "type": "Object",
+          "id": "https://example.com/posts/42"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "orderedcollectionpage-index",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "partOf": {
+          "type": "OrderedCollection",
+          "totalItems": 0
+        },
+        "startIndex": 0,
+        "orderedItems": [
+          {
+            "type": "Article",
+            "content": "Text"
+          }
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "add-collection-target",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Add",
+        "object": "https://example.com/posts/42",
+        "target": {
+          "type": "Collection",
+          "items": ["https://example.com/posts/42"]
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "actor-collection-links",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "inbox": {
+          "type": "OrderedCollection",
+          "totalItems": 0
+        },
+        "outbox": {
+          "type": "OrderedCollectionPage",
+          "startIndex": 0,
+          "orderedItems": [
+            {
+              "type": "Create",
+              "object": "https://example.com/posts/42"
+            }
+          ]
+        },
+        "following": {
+          "type": "Collection",
+          "totalItems": 0
+        },
+        "followers": "https://example.com/collection",
+        "liked": "https://example.com/collection"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-total-negative",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": -1
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["totalItems"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "orderedpage-start-fraction",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "startIndex": 0.5
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["startIndex"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-member-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "items": ["https://example.com/posts/42", 123]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["items", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-first-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "first": {
+          "type": "Note",
+          "content": 123
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["first"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-partof-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "partOf": {
+          "type": "Note"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["partOf"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-next-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "OrderedCollectionPage",
+        "next": {
+          "type": "Collection"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["next"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "actor-inbox-wrong-type",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "inbox": {
+          "type": "Collection"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["inbox"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "actor-followers-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Person",
+        "followers": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["followers"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "collection-navigation-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "first": ["https://example.com/collection?page=2"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-empty-members",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": 0,
+        "items": []
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "empty_property_list",
+            "path": ["items"]
+          }
+        ],
+        "changes": [
+          {
+            "reason": "omit_empty_property_list",
+            "operation": "remove",
+            "path": ["items"],
+            "before": []
+          }
+        ],
+        "normalizedDocument": {
+          "@context": "https://www.w3.org/ns/activitystreams",
+          "type": "Collection",
+          "totalItems": 0
+        }
+      }
+    },
+    {
+      "id": "collection-count-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Collection",
+        "totalItems": [0]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-metadata",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": "https://example.com/post",
+        "rel": ["alternate", "https://example.com/relation", "alternate"],
+        "mediaType": "text/html; charset=utf-8",
+        "hreflang": "en-US",
+        "height": 0,
+        "width": 640
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "mention-reference",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Mention",
+        "href": "https://example.com/alice"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-empty",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-preview",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "preview": {
+          "type": "Note",
+          "content": "Preview"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "object-preview-link",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Note",
+        "preview": {
+          "type": "Mention",
+          "href": "https://example.com/alice"
+        }
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "collection-link-navigation",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "CollectionPage",
+        "current": {
+          "type": "Link",
+          "href": "https://example.com/current"
+        },
+        "first": {
+          "type": "Mention"
+        },
+        "last": {
+          "type": "Link"
+        },
+        "partOf": {
+          "type": "Link"
+        },
+        "next": {
+          "type": "Link"
+        },
+        "prev": {
+          "type": "Link"
+        }
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["current"] },
+          { "reason": "unsupported_value_form", "path": ["first"] },
+          { "reason": "unsupported_value_form", "path": ["last"] },
+          { "reason": "unsupported_value_form", "path": ["next"] },
+          { "reason": "unsupported_value_form", "path": ["partOf"] },
+          { "reason": "unsupported_value_form", "path": ["prev"] }
+        ]
+      }
+    },
+    {
+      "id": "link-href-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": 123
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["href"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-rel-list",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "rel": ["alternate", 123, "two words", "a,b"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 1]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 2]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["rel", 3]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-invalid-metadata",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "height": -1,
+        "hreflang": "en_US",
+        "mediaType": "invalid",
+        "width": 1.5
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["height"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["hreflang"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["mediaType"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["width"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-functional-array",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "href": ["https://example.com/"]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-object-properties",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "content": "Text",
+        "location": "https://example.com/place"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "property_not_applicable",
+            "path": ["content"]
+          },
+          {
+            "reason": "property_not_applicable",
+            "path": ["location"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-name",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "name": "Read more"
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "link-preview-number",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "preview": [
+          {
+            "type": "Link",
+            "href": false
+          },
+          123
+        ]
+      },
+      "expected": {
+        "complete": true,
+        "diagnostics": [
+          {
+            "reason": "invalid_value_shape",
+            "path": ["preview", 0, "href"]
+          },
+          {
+            "reason": "invalid_value_shape",
+            "path": ["preview", 1]
+          }
+        ]
+      }
+    },
+    {
+      "id": "link-language-parser-limit",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Link",
+        "hreflang": "x-private"
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          {
+            "reason": "unsupported_value_form",
+            "path": ["hreflang"]
+          }
+        ]
+      }
+    },
+    {
+      "id": "like-actor-link",
+      "input": {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "type": "Like",
+        "actor": {
+          "type": "Mention",
+          "href": "https://example.com/alice"
+        },
+        "object": {
+          "type": "Link",
+          "href": "https://example.com/post"
+        }
+      },
+      "expected": {
+        "complete": false,
+        "diagnostics": [
+          { "reason": "unsupported_value_form", "path": ["actor"] }
+        ]
+      }
+    }
+  ]
+}
