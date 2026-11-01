@@ -1553,18 +1553,18 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
-  it("creates an empty-addressing preview for deep documents without recursive cloning", () => {
+  it("creates an omission preview within the nesting limit", () => {
     let input: Record<string, unknown> = { type: "Note", to: [] };
-    for (let index = 0; index < 3000; index += 1) {
+    for (let index = 0; index < 63; index += 1) {
       input = { type: "Create", object: input };
     }
     input["@context"] = context;
     const result = validateDocument(input);
     assert.equal(result.complete, true);
     assert.equal(result.diagnostics.length, 1);
-    assert.equal(result.changes[0]?.path.length, 3001);
+    assert.equal(result.changes[0]?.path.length, 64);
     let preview = result.normalizedDocument!;
-    for (let index = 0; index < 3000; index += 1) {
+    for (let index = 0; index < 63; index += 1) {
       preview = preview.object as typeof preview;
     }
     assert.deepEqual(preview, { type: "Note" });
@@ -1942,19 +1942,137 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
-  it("handles deep activity nesting without recursive calls or a new depth limit", () => {
-    const depth = 3000;
-    let input: unknown = { type: "Like", object: 123 };
-    for (let index = 0; index < depth; index += 1) {
-      input = { type: "Undo", object: input };
+  it("bounds embedded document paths at 64 segments including list indexes", () => {
+    for (const depth of [64, 65]) {
+      for (const list of [false, true]) {
+        let input: Record<string, unknown> = { type: "Note" };
+        for (let index = 0; index < depth - (list ? 2 : 0); index += 1) {
+          input = { type: "Create", object: input };
+        }
+        if (list) input = { type: "Create", object: [input] };
+        input["@context"] = context;
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, depth === 64);
+        assert.deepEqual(
+          result.diagnostics.map(({ reason, category, path }) => ({
+            reason,
+            category,
+            path,
+          })),
+          depth === 64
+            ? []
+            : [
+                {
+                  reason: "processing_limit_exceeded",
+                  category: "support",
+                  path: list
+                    ? ["object", 0, ...Array(depth - 2).fill("object")]
+                    : Array(depth).fill("object"),
+                },
+              ],
+        );
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+        assert.deepEqual(input, original);
+      }
     }
+  });
+
+  it("bounds opaque objects, arrays, and JSON literals at their original paths", () => {
+    for (const depth of [64, 65]) {
+      for (const shape of ["object", "array", "json"]) {
+        let value: unknown = null;
+        const nesting = depth - (shape === "json" ? 2 : 1);
+        for (let index = 0; index < nesting; index += 1) {
+          value = shape === "object" ? { child: value } : [value];
+        }
+        if (shape === "json") value = { "@type": "@json", "@value": value };
+        const input = { "@context": context, type: "Note", debugData: value };
+        const original = structuredClone(input);
+        const result = validateDocument(input);
+        assert.equal(result.complete, depth === 64);
+        const errors = result.diagnostics.filter(
+          ({ severity }) => severity === "error",
+        );
+        assert.deepEqual(
+          errors.map(({ reason, path }) => ({ reason, path })),
+          depth === 64
+            ? []
+            : [
+                {
+                  reason: "processing_limit_exceeded",
+                  path: [
+                    "debugData",
+                    ...(shape === "json" ? ["@value"] : []),
+                    ...Array(nesting).fill(shape === "object" ? "child" : 0),
+                  ],
+                },
+              ],
+        );
+        assert.deepEqual(result.changes, []);
+        assert.equal(result.normalizedDocument, undefined);
+        assert.deepEqual(input, original);
+      }
+    }
+  });
+
+  it("stops before reading an over-depth document while checking its siblings", () => {
+    let evaluated = false;
+    const leaf = Object.defineProperty({ type: "Note" }, "trap", {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("Unexpected getter");
+      },
+    });
+    let input: Record<string, unknown> = leaf;
+    for (let index = 0; index < 65; index += 1) {
+      input = { type: "Create", object: input };
+    }
+    input["@context"] = context;
+    input.result = false;
+    input.to = [];
     const result = validateDocument(input);
-    assert.equal(result.complete, true);
-    const failure = result.diagnostics.find(
-      ({ reason }) => reason === "invalid_value_shape",
+    assert.equal(evaluated, false);
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics
+        .filter(({ severity }) => severity === "error")
+        .map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "processing_limit_exceeded", path: Array(65).fill("object") },
+        { reason: "invalid_value_shape", path: ["result"] },
+      ],
     );
-    assert.ok(failure);
-    assert.deepEqual(failure.path, Array(depth + 1).fill("object"));
+    assert.deepEqual(result.changes, []);
+    assert.equal(result.normalizedDocument, undefined);
+    assert.deepEqual(input.to, []);
+    assert.ok(Object.getOwnPropertyDescriptor(leaf, "trap")?.get);
+
+    let opaque: unknown = leaf;
+    for (let index = 0; index < 64; index += 1) opaque = { child: opaque };
+    const extension = validateDocument({
+      "@context": context,
+      type: "Note",
+      debugData: opaque,
+      to: [],
+    });
+    assert.equal(evaluated, false);
+    assert.equal(extension.complete, false);
+    assert.deepEqual(
+      extension.diagnostics
+        .filter(({ severity }) => severity === "error")
+        .map(({ reason, path }) => ({ reason, path })),
+      [
+        {
+          reason: "processing_limit_exceeded",
+          path: ["debugData", ...Array(64).fill("child")],
+        },
+      ],
+    );
+    assert.deepEqual(extension.changes, []);
+    assert.equal(extension.normalizedDocument, undefined);
   });
 
   it("keeps sparse and accessor entry findings in nested source order", () => {
@@ -3856,6 +3974,39 @@ describe("prepareDocument() trusted creation inputs", () => {
           }),
         TypeError,
       );
+    }
+  });
+
+  it("keeps preparation targets beyond the nesting limit unavailable rather than invalid caller paths", () => {
+    for (const depth of [65, 66]) {
+      let input: Record<string, unknown> = { type: "Note" };
+      for (let index = 0; index < depth; index += 1) {
+        input = { type: "Create", object: input };
+      }
+      input["@context"] = context;
+      input.to = [];
+      const original = structuredClone(input);
+      const result = prepareDocument(input, {
+        authority: [{ allowed: true, path: [] }],
+        serverOwnedFields: [
+          { path: [...Array(depth).fill("object"), "id"], value: like.object },
+        ],
+      });
+      assert.equal(result.complete, false);
+      assert.deepEqual(
+        result.diagnostics
+          .filter(({ severity }) => severity === "error")
+          .map(({ reason, path }) => ({ reason, path })),
+        [
+          {
+            reason: "processing_limit_exceeded",
+            path: Array(65).fill("object"),
+          },
+        ],
+      );
+      assert.deepEqual(result.changes, []);
+      assert.equal(result.normalizedDocument, undefined);
+      assert.deepEqual(input, original);
     }
   });
 

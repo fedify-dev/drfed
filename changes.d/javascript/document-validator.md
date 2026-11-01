@@ -20,6 +20,8 @@ links:
  -  Added offline validation coverage for all named activity types and selected
     Object, actor, collection, and Link types. Validation and preparation
     preserve input and perform no remote lookups, resource writes, or delivery.
+    Embedded document and extension traversal is limited to 64 path segments;
+    deeper values produce a support error and an incomplete result.
     Unsupported types, properties, and context forms produce support findings;
     poll-specific rules remain separate work. The supported properties and
     representation limits are documented in *packages/models/README.md*.

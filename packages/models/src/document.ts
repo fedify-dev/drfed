@@ -94,6 +94,7 @@ export const diagnosticReasons = {
   unsupported_type: { category: "support", severity: "error" },
   unsupported_property: { category: "support", severity: "error" },
   unsupported_value_form: { category: "support", severity: "error" },
+  processing_limit_exceeded: { category: "support", severity: "error" },
   diagnostic_limit_reached: { category: "support", severity: "error" },
   implicit_activitystreams_context: {
     category: "compatibility",
@@ -187,6 +188,7 @@ export interface DocumentPreparationOptions {
 
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const maximumDiagnostics = 100;
+const maximumPathDepth = 64;
 const actorTypes = [Application, Group, Organization, Person, Service];
 const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
 // AS2 vocabulary Object properties that do not also apply to Link.
@@ -1627,6 +1629,20 @@ function checkExtensionKeywords(
   return jsonLiteral;
 }
 
+function getInapplicableProperties(Type: VocabularyType): ReadonlySet<string> {
+  return isTypeOrSubtype(Type, Link) ? objectOnlyProperties : new Set<string>();
+}
+
+function checkPathDepth(path: FieldPath, report: Report): boolean {
+  if (path.length <= maximumPathDepth) return true;
+  report(
+    "processing_limit_exceeded",
+    path,
+    `Nesting exceeds the supported limit of ${maximumPathDepth} path segments.`,
+  );
+  return false;
+}
+
 function checkDocumentValue(
   rootDocument: unknown,
   rootPath: FieldPath,
@@ -1650,6 +1666,7 @@ function checkDocumentValue(
     path: FieldPath,
     keywords = true,
   ): void {
+    if (!checkPathDepth(path, report)) return;
     if (!isJsonValueShape(value)) {
       report("non_json_value", path, "Expected a JSON value.");
       return;
@@ -1689,6 +1706,10 @@ function checkDocumentValue(
     expectedTypes?: readonly VocabularyType[],
     fedifyTypes?: readonly VocabularyType[],
   ): void {
+    if (!checkPathDepth(path, report)) {
+      onUnavailableDocument(path);
+      return;
+    }
     if (
       document !== null &&
       typeof document === "object" &&
@@ -1770,9 +1791,7 @@ function checkDocumentValue(
       ...referenceProperties,
     ]);
     const multipleAliases = findMultipleAliases(Type, fields, values);
-    const inapplicableProperties = isLink
-      ? objectOnlyProperties
-      : new Set<string>();
+    const inapplicableProperties = getInapplicableProperties(Type);
 
     ancestors.add(sourceDocument);
     pending.push(() => {

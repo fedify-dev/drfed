@@ -286,7 +286,16 @@ Diagnostics are capped at 100. Exactly 100 findings are retained without a
 truncation marker. If a further finding occurs, the last slot becomes a
 `diagnostic_limit_reached` error; checking remains incomplete and no preview
 is returned. This limits diagnostic output, not the amount of processing.
-Traversal is iterative, with no depth/value-count or work budget currently.
+Traversal is iterative. Embedded document and opaque-extension traversal paths
+may contain at most 64 segments, counting property names and list indexes;
+the root has depth zero. At depth 65, checking reports
+`processing_limit_exceeded` (support/error) at the original path without
+descending further. The result is incomplete and has no preview or changes;
+other branches can still be checked. Preparation treats targets beyond this
+boundary as unavailable rather than as caller path errors. This is an
+operational support limit, not an ActivityStreams validity rule.
+There is no total value-count or work budget; the depth limit does not bound
+wide arrays or overall document size.
 Cycles in traversed values receive `non_json_value`; shared sibling objects
 are allowed.
 
