@@ -1770,15 +1770,19 @@ function checkDocumentValue(
       ...referenceProperties,
     ]);
     const multipleAliases = findMultipleAliases(Type, fields, values);
+    const inapplicableProperties = isLink
+      ? objectOnlyProperties
+      : new Set<string>();
 
     ancestors.add(sourceDocument);
     pending.push(() => {
       ancestors.delete(sourceDocument);
     });
     // LIFO work preserves the same depth-first, sorted-property order.
-    for (const field of fields.reverse()) {
+    for (const field of fields
+      .filter(({ name }) => name !== "type")
+      .reverse()) {
       const { source, name: key } = field;
-      if (key === "type") continue;
       const intransitiveObject = isIntransitive && key === "object";
       pending.push(() => {
         const value = values[source];
@@ -1808,7 +1812,8 @@ function checkDocumentValue(
           );
           return;
         }
-        if (isLink && objectOnlyProperties.has(key)) {
+        if (inapplicableProperties.has(key)) {
+          if (value === null) return;
           report(
             "property_not_applicable",
             fieldPath,

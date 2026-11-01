@@ -2469,6 +2469,63 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
+  it("ignores null Object-only properties on Link and Mention without normalization", () => {
+    for (const type of ["Link", "Mention"]) {
+      const properties = [
+        "attachment",
+        "attributedTo",
+        "audience",
+        "content",
+        "contentMap",
+        "context",
+        "duration",
+        "endTime",
+        "generator",
+        "icon",
+        "image",
+        "inReplyTo",
+        "location",
+        "published",
+        "replies",
+        "startTime",
+        "summary",
+        "summaryMap",
+        "tag",
+        "updated",
+        "url",
+        "to",
+        "bto",
+        "cc",
+        "bcc",
+      ];
+      const input = {
+        "@context": [
+          context,
+          { author: { "@id": "as:attributedTo", "@type": "@id" } },
+        ],
+        type,
+        href: "https://example.com/link",
+        author: null,
+        ...Object.fromEntries(properties.map((property) => [property, null])),
+      };
+      const original = structuredClone(input);
+      assert.deepEqual(validateDocument(input), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+      assert.deepEqual(input, original);
+      const nonNullAlias = validateDocument({
+        ...input,
+        author: "https://example.com/actor",
+      });
+      assert.deepEqual(
+        nonNullAlias.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "property_not_applicable", path: ["author"] }],
+      );
+    }
+  });
+
   it("preserves Link language maps and embedded previews supported by Fedify", async () => {
     const input = {
       "@context": context,
