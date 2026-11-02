@@ -24,6 +24,7 @@ import {
   type DiagnosticReason,
   type DocumentPreparationOptions,
   type FieldPath,
+  describeDocument,
   diagnosticReasons,
   prepareDocument,
   validateDocument,
@@ -4095,5 +4096,189 @@ describe("prepareDocument() trusted creation inputs", () => {
       diagnostics: [],
       changes: [],
     });
+  });
+});
+
+describe("describeDocument() semantic view", () => {
+  it("names standard properties of every embedded document, whatever their spelling", () => {
+    const input = {
+      "@context": [
+        context,
+        {
+          v: { "@id": `${context}#`, "@prefix": true },
+          by: { "@id": "as:actor", "@type": "@id" },
+          payload: { "@id": `${context}#object`, "@type": "@id" },
+          identifier: "@id",
+          recipients: { "@id": "as:to", "@type": "@id" },
+        },
+      ],
+      type: "Undo",
+      identifier: "https://example.com/undo",
+      by: "https://example.com/alice",
+      recipients: ["https://example.com/bob"],
+      "v:summary": "Prefixed",
+      payload: [
+        "https://example.com/likes/1",
+        {
+          type: "Like",
+          actor: "https://example.com/alice",
+          object: like.object,
+        },
+      ],
+      custom: { type: "Note", actor: "https://example.com/mallory" },
+    };
+    const original = structuredClone(input);
+    const nodes = describeDocument(input);
+    assert.ok(nodes != null);
+    assert.deepEqual(
+      nodes.map(({ path, property, type, kind }) => ({
+        path,
+        property,
+        type,
+        kind,
+      })),
+      [
+        {
+          path: [],
+          property: undefined,
+          type: `${context}#Undo`,
+          kind: "activity",
+        },
+        {
+          path: ["payload", 1],
+          property: "object",
+          type: `${context}#Like`,
+          kind: "activity",
+        },
+      ],
+    );
+    assert.deepEqual(Object.fromEntries(nodes[0]!.properties), {
+      actor: ["by"],
+      id: ["identifier"],
+      object: ["payload"],
+      summary: ["v:summary"],
+      to: ["recipients"],
+      type: ["type"],
+    });
+    assert.deepEqual(Object.fromEntries(nodes[1]!.properties), {
+      actor: ["actor"],
+      object: ["object"],
+      type: ["type"],
+    });
+    assert.deepEqual(input, original);
+  });
+
+  it("classifies actors, collections, links, and objects", () => {
+    const nodes = describeDocument({
+      "@context": context,
+      type: "Add",
+      actor: { type: "Person", id: "https://example.com/alice" },
+      object: {
+        type: "Note",
+        content: "Hello",
+        preview: { type: "Link", href: "https://example.com/" },
+      },
+      target: { type: "OrderedCollection", id: "https://example.com/c" },
+    });
+    assert.ok(nodes != null);
+    assert.deepEqual(
+      nodes.map(({ path, property, kind }) => ({ path, property, kind })),
+      [
+        { path: [], property: undefined, kind: "activity" },
+        { path: ["actor"], property: "actor", kind: "actor" },
+        { path: ["object"], property: "object", kind: "object" },
+        { path: ["object", "preview"], property: "preview", kind: "link" },
+        { path: ["target"], property: "target", kind: "collection" },
+      ],
+    );
+  });
+
+  it("expands compact IRI values through prefixes, as Fedify reads them", () => {
+    const nodes = describeDocument({
+      "@context": [
+        context,
+        { local: { "@id": "https://other.example/users/", "@prefix": true } },
+      ],
+      type: "Create",
+      actor: "https://own.example/users/owner",
+      to: ["as:Public", "https://example.com/bob"],
+      object: {
+        "@context": {
+          local: { "@id": "https://third.example/users/", "@prefix": true },
+        },
+        type: "Like",
+        actor: "local:victim",
+        object: "https://remote.example/object",
+      },
+    });
+    assert.ok(nodes != null);
+    assert.deepEqual(nodes[0]!.identifiers, [
+      {
+        property: "actor",
+        path: ["actor"],
+        value: "https://own.example/users/owner",
+        iri: "https://own.example/users/owner",
+      },
+      {
+        property: "to",
+        path: ["to", 0],
+        value: "as:Public",
+        iri: `${context}#Public`,
+      },
+      {
+        property: "to",
+        path: ["to", 1],
+        value: "https://example.com/bob",
+        iri: "https://example.com/bob",
+      },
+    ]);
+    assert.deepEqual(
+      nodes[1]!.identifiers.map(({ property, iri }) => ({ property, iri })),
+      [
+        { property: "actor", iri: "https://third.example/users/victim" },
+        { property: "object", iri: "https://remote.example/object" },
+      ],
+    );
+  });
+
+  it("leaves values unexpanded through terms that are not prefixes", () => {
+    const nodes = describeDocument({
+      "@context": [context, { x: { "@id": "https://own.example/users/" } }],
+      type: "Like",
+      actor: "x:owner",
+      object: like.object,
+    });
+    assert.ok(nodes != null);
+    assert.deepEqual(nodes[0]!.identifiers[0], {
+      property: "actor",
+      path: ["actor"],
+      value: "x:owner",
+      iri: "x:owner",
+    });
+  });
+
+  it("returns null unless validation completes without errors", () => {
+    assert.equal(describeDocument({ ...like, actor: false }), null);
+    assert.equal(describeDocument({ ...like, type: "Place" }), null);
+    assert.equal(describeDocument("not a document"), null);
+    assert.ok(describeDocument({ ...like, custom: [] }) != null);
+  });
+
+  it("returns null for sparse arrays and accessors without evaluating them", () => {
+    assert.equal(
+      describeDocument({ type: "Note", content: "x", to: new Array(1) }),
+      null,
+    );
+    const to: unknown[] = [];
+    let evaluated = false;
+    Object.defineProperty(to, 0, {
+      enumerable: true,
+      get() {
+        evaluated = true;
+        throw new Error("evaluated");
+      },
+    });
+    assert.equal(describeDocument({ type: "Note", content: "x", to }), null);
+    assert.equal(evaluated, false);
   });
 });

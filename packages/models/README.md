@@ -11,14 +11,15 @@ Document validation
 -------------------
 
 `@drfed/models/document` exports synchronous
-`validateDocument(document: unknown)` and `prepareDocument(document, options)`,
-plus the `diagnosticReasons` registry. Public types are
-`DocumentValidationResult`, `Diagnostic`, `DiagnosticReason`,
-`DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`, `JsonValue`,
-`NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`, and
-`DocumentPreparationOptions`. Pass parsed JSON, not JSON text. Validation
-performs no network access, database writes, permission checks, or delivery,
-and never mutates input.
+`validateDocument(document: unknown)`, `prepareDocument(document, options)`,
+and `describeDocument(document: unknown)`, plus the `diagnosticReasons`
+registry. Public types are `DocumentValidationResult`, `Diagnostic`,
+`DiagnosticReason`, `DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`,
+`JsonValue`, `NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`,
+`DocumentPreparationOptions`, `DocumentNode`, `DocumentNodeKind`, and
+`DocumentIdentifier`. Pass
+parsed JSON, not JSON text. Validation performs no network access, database
+writes, permission checks, or delivery, and never mutates input.
 
 ### Consumer contract
 
@@ -69,6 +70,40 @@ The preview omits these absent identifiers so Fedify can parse it; the submitted
 document is preserved. Arrays containing any non-null identifier remain errors.
 It does not assign IDs or timestamps, replace actor/attribution identities,
 deduplicate recipients, or convert references to embedded values.
+
+### Describing documents for write paths
+
+`describeDocument(document)` returns the documents the checker reads, as
+`DocumentNode` values, or null unless validation completes without errors. Each
+node has its original path, the standard name of the property embedding it,
+its type IRI, a `kind` (`activity`, `actor`, `collection`, `link`, or
+`object`), and a map from standard property names, including `id` and `type`,
+to the source keys that supply them. Aliases, prefixed or full-IRI keys, and
+`@id`/`@type` aliases are mapped exactly as validation maps them; custom
+extension values are neither listed nor descended into. Each node also lists
+the string IRI references in its own reference properties (`id`, `actor`,
+`object`, addressing, `href`, and so on) as `DocumentIdentifier` values, with
+the original path and value and the IRI after compact-IRI prefix expansion:
+`as:Public` resolves to the full Public IRI, and a context-defined prefix can
+make `local:alice` name another host.
+
+~~~~ ts
+import { describeDocument } from "@drfed/models/document";
+
+const nodes = describeDocument({
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    { by: { "@id": "as:actor", "@type": "@id" } },
+  ],
+  type: "Like",
+  by: "https://example.com/alice",
+  object: "https://example.com/posts/1",
+});
+// nodes?.[0].properties.get("actor") → ["by"]
+~~~~
+
+Write paths use it to find identity claims, addressing, and relations by their
+meaning instead of their spelling.
 
 ### Preparing server-owned creation fields
 
