@@ -443,6 +443,37 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
+  it("handles a nested resource under a key spelled __proto__ as an own property", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      // JSON.parse, unlike an object literal, makes __proto__ an own key.
+      const document = JSON.parse(
+        JSON.stringify({
+          "@context": [AS, { payload: { "@id": "as:object", "@type": "@id" } }],
+          type: "Create",
+          payload: { type: "Note", content: "x" },
+        }).replaceAll("payload", "__proto__"),
+      ) as JsonObject;
+      const { result } = await save(
+        env,
+        create(document, [
+          { path: [], kind: "activity" },
+          { path: ["__proto__"], kind: "object", representation: "reference" },
+        ]),
+      );
+      const [nested, root] = result.resources;
+      assert.ok(nested != null && root != null);
+      assert.ok(Object.hasOwn(root.document, "__proto__"));
+      assert.equal(
+        Object.getOwnPropertyDescriptor(root.document, "__proto__")?.value,
+        nested.iri,
+      );
+      assert.equal(Object.getPrototypeOf(root.document), Object.prototype);
+      assert.equal(({} as Record<string, unknown>).type, undefined);
+    });
+  });
+
   it("keeps addressing occurrences at their source positions", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);

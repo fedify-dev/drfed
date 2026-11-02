@@ -250,21 +250,34 @@ export function allocate(resources: readonly NewResource[]): Allocation {
   };
 }
 
+// Paths come from submitted documents, whose keys may be spelled
+// `__proto__`; only own properties are read or defined.
 function valueAt(document: JsonValue, path: FieldPath): JsonValue | undefined {
   let value: JsonValue | undefined = document;
   for (const segment of path) {
-    if (value === null || typeof value !== "object") return undefined;
+    if (
+      value === null ||
+      typeof value !== "object" ||
+      !Object.hasOwn(value, segment)
+    ) {
+      return undefined;
+    }
     value = (value as Record<string | number, JsonValue>)[segment];
   }
   return value;
 }
 
 function setAt(document: JsonObject, path: FieldPath, value: JsonValue): void {
-  const parent = valueAt(document, path.slice(0, -1)) as Record<
-    string | number,
-    JsonValue
-  >;
-  parent[path.at(-1)!] = value;
+  const parent = valueAt(document, path.slice(0, -1));
+  if (parent === null || typeof parent !== "object") {
+    throw new TypeError("The parent of a nested resource is not a document.");
+  }
+  Object.defineProperty(parent, path.at(-1)!, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
 }
 
 function resourceIri(
