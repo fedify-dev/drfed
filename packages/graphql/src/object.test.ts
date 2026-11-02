@@ -19,15 +19,24 @@
 
 import assert from "node:assert/strict";
 
+import {
+  type LocalWriteRequest,
+  commitLocalWrite,
+  previewLocalWrite,
+} from "@drfed/federation/local-write";
 import { schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
-import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
-import { uuidV7 as uuid } from "@drfed/models/uuid";
+import {
+  listResourceRevisions,
+  loadCurrentResourceRevision,
+} from "@drfed/models/resource-revision";
+import { type Uuid, uuidV7 as uuid } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "./harness.test.ts";
 import {
+  accountId,
   globalId,
   localActorId,
   localInstanceId,
@@ -842,6 +851,10 @@ describe("explicit addressing and persisted activities", () => {
         assert.equal(revision?.kind, "snapshot");
         assert.equal(revision?.capture, "local");
         assert.equal(revision?.backfilled, false);
+        // Legacy creation keeps the legacy capture's metadata.
+        assert.equal(revision?.sequence, 1);
+        assert.equal(revision?.projection, "partial");
+        assert.deepEqual(revision?.relations, []);
         assert.deepEqual(revision?.document, document);
         for (const [property, values] of Object.entries(addressing)) {
           assert.deepEqual(
@@ -947,6 +960,82 @@ describe("explicit addressing and persisted activities", () => {
         assert.match(result.version, /^[0-9a-f]{40}$/u);
         assert.match(result.reason, /Expected/u);
       }
+    });
+  });
+});
+
+describe("objects created by createObject", () => {
+  it("can be edited and deleted through the common write, keeping their Create", async () => {
+    await withTestHarness(async ({ db, post, federation }) => {
+      const auth = await seedAuthenticatedLocalInstance(db);
+      await seedLocalActor(db);
+      const response = await post(
+        {
+          query: mutation,
+          variables: { ...variables, language: "en" },
+        },
+        auth,
+      );
+      const created = (await response.json()).data.createObject;
+      assert.equal(created.resultType, "Object");
+      const env = {
+        db,
+        federation,
+        rootOrigin: new URL("https://drfed.org"),
+        previewKey: await crypto.subtle.generateKey(
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign", "verify"],
+        ),
+      };
+      const principal = { accountId: accountId as Uuid };
+      const run = async (request: LocalWriteRequest) => {
+        const preview = await previewLocalWrite(env, principal, request);
+        assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
+        const outcome = await commitLocalWrite(env, principal, request, {
+          previewToken: preview.preview.token,
+          reserveDispatch: () => Promise.resolve(),
+        });
+        assert.ok(outcome.ok, JSON.stringify(!outcome.ok && outcome.error));
+        return outcome.result;
+      };
+      const head = await loadCurrentResourceRevision(db, created.uuid);
+      assert.ok(head?.document != null);
+      const document = head.document as Record<string, unknown>;
+      await run({
+        operation: "edit",
+        actorId: localActorId,
+        objectId: created.uuid,
+        expectedRevisionId: head.id,
+        document: {
+          ...document,
+          content: "<p>Edited</p>",
+          contentMap: { en: "<p>Edited</p>" },
+        } as never,
+      });
+      const fetched = await federation.fetch(
+        new Request(created.iri, { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal((await fetched.json()).content, "<p>Edited</p>");
+      const activity = await db.query.activities.findFirst({
+        where: { objectId: created.uuid },
+      });
+      assert.ok(activity != null);
+      assert.equal((await listResourceRevisions(db, activity.id)).length, 1);
+      const edited = await loadCurrentResourceRevision(db, created.uuid);
+      assert.ok(edited != null);
+      await run({
+        operation: "delete",
+        actorId: localActorId,
+        objectId: created.uuid,
+        expectedRevisionId: edited.id,
+      });
+      const gone = await federation.fetch(
+        new Request(created.iri, { headers: accept }),
+        { contextData: undefined },
+      );
+      assert.equal(gone.status, 410);
     });
   });
 });

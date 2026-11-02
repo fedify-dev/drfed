@@ -14,26 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import {
-  activitySelection,
-  objectSelection,
-  toCreate,
-  toObject,
-} from "@drfed/federation/object";
-import {
-  addActorCollectionItem,
-  captureLegacyResourceRevision,
-  ensureResource,
-  lockActorCollection,
-  promoteResource,
-  schema,
-  storeAddressing,
-} from "@drfed/models";
+import { createLegacyObject } from "@drfed/federation/local-write";
+import { schema } from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
-import { uuidV7 as uuid, validateUuid } from "@drfed/models/uuid";
-import { Object as APObject, Create } from "@fedify/vocab";
+import { validateUuid } from "@drfed/models/uuid";
 import { drizzleConnectionHelpers } from "@pothos/plugin-drizzle";
-import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { Actor } from "./actor.ts";
 import builder, { type DrFedObjectRef } from "./builder.ts";
@@ -267,7 +253,10 @@ builder.mutationFields((t) => ({
   createObject: t.field({
     type: CreateObjectResult,
     description:
-      "Create a local ActivityPub object without delivering it to remote servers.",
+      "Create a local Note or Article together with a `Create` activity in " +
+      "the author's outbox, without delivering it to remote servers.  This " +
+      "mutation keeps that established behavior; it does not save an object " +
+      "alone.",
     authScopes: { authenticated: true },
     args: {
       actor: t.arg.globalID({
@@ -343,138 +332,22 @@ builder.mutationFields((t) => ({
         throw new Error("You must be authenticated to create objects.");
       }
       if (!validateUuid(actorId)) return actorNotFound;
-      // Keep host validation and resource creation under the same actor lock.
-      return await ctx.db.transaction(async (tx) => {
-        const [actor] = await tx
-          .select({ id: schema.actors.id, host: schema.instances.host })
-          .from(schema.actors)
-          .for("update", { of: schema.actors })
-          .innerJoin(
-            schema.instances,
-            eq(schema.actors.instanceId, schema.instances.id),
-          )
-          .innerJoin(
-            schema.localInstances,
-            eq(schema.instances.localId, schema.localInstances.id),
-          )
-          .innerJoin(
-            schema.instanceMembers,
-            eq(schema.instanceMembers.instanceId, schema.instances.id),
-          )
-          .where(
-            and(
-              eq(schema.actors.id, actorId),
-              isNotNull(schema.actors.localId),
-              isNull(schema.actors.deleted),
-              gt(schema.localInstances.expires, Temporal.Now.instant()),
-              eq(schema.instanceMembers.accountId, account.id),
-              isNotNull(schema.instanceMembers.accepted),
-            ),
-          )
-          .limit(1);
-        if (actor == null) return actorNotFound;
-        const instanceUrl = `${ctx.rootOrigin.protocol}//${actor.host}`;
-        // Stored authorities can outlive the runtime that accepted them.
-        if (!URL.canParse(instanceUrl)) {
-          return {
-            type: "InvalidInstanceHost" as const,
-            message:
-              `The instance host ${JSON.stringify(actor.host)} cannot be ` +
-              "parsed by this server. Contact the server administrator.",
-          };
-        }
-        await lockActorCollection(tx, actorId, "outbox");
-        const published = Temporal.Now.instant();
-        const id = uuid();
-        const fedCtx = ctx.federation.createContext(
-          new URL(instanceUrl),
-          undefined,
-        );
-        const iri = fedCtx.getObjectUri(APObject, {
-          identifier: actorId,
-          id,
-        }).href;
-        const activityId = uuid();
-        const activityIri = fedCtx.getObjectUri(Create, {
-          id: activityId,
-        }).href;
-        await ensureResource(tx, activityIri, activityId);
-        const object = await promoteResource(
-          tx,
-          iri,
-          "object",
-          async (inner, resource) => {
-            const [row] = await inner
-              .insert(schema.objects)
-              .values({
-                ...input,
-                name: normalizeOptionalText(input.name),
-                summary: normalizeOptionalText(input.summary),
-                id: resource.id,
-                actorId,
-                activityId,
-                language: canonicalLanguage,
-                published,
-              })
-              .returning();
-            if (row == null) {
-              throw new Error("Object insertion returned no row.");
-            }
-            return row;
-          },
-          id,
-        );
-        await storeAddressing(tx, object.id, addressing);
-        await promoteResource(
-          tx,
-          activityIri,
-          "activity",
-          async (inner, resource) => {
-            await inner.insert(schema.activities).values({
-              id: resource.id,
-              type: "Create",
-              actorId,
-              objectId: object.id,
-              published: object.published,
-            });
-            await storeAddressing(inner, resource.id, addressing);
-            await addActorCollectionItem(inner, actorId, "outbox", resource.id);
-          },
-          activityId,
-        );
-        const storedObject = await tx.query.objects.findFirst({
-          where: { id: object.id },
-          with: objectSelection,
-        });
-        const storedActivity = await tx.query.activities.findFirst({
-          where: { id: activityId },
-          with: activitySelection,
-        });
-        if (storedObject == null || storedActivity == null) {
-          throw new Error("Missing newly created resource.");
-        }
-        // Preserve blind recipients in the local snapshot; serving strips them.
-        const snapshot = {
-          ...asDocument(await toObject(fedCtx, storedObject).toJsonLd()),
-          ...addressing,
-        };
-        await tx
-          .update(schema.objects)
-          .set({ document: snapshot, updated: object.updated })
-          .where(eq(schema.objects.id, object.id));
-        await tx
-          .update(schema.activities)
-          .set({
-            document: {
-              ...asDocument(await toCreate(fedCtx, storedActivity).toJsonLd()),
-              ...addressing,
-            },
-          })
-          .where(eq(schema.activities.id, activityId));
-        await captureLegacyResourceRevision(tx, object.id);
-        await captureLegacyResourceRevision(tx, activityId);
-        return { ...object, actor: storedObject.actor, document: snapshot };
-      });
+      const result = await createLegacyObject(
+        ctx,
+        { accountId: account.id },
+        {
+          ...input,
+          actorId,
+          name: normalizeOptionalText(input.name),
+          summary: normalizeOptionalText(input.summary),
+          language: canonicalLanguage,
+          addressing,
+        },
+      );
+      if (!("type" in result && "diagnostics" in result)) return result;
+      return result.type === "invalid_instance_host"
+        ? { type: "InvalidInstanceHost" as const, message: result.message }
+        : actorNotFound;
     },
   }),
 }));
@@ -483,11 +356,4 @@ function normalizeOptionalText(
   value: string | null | undefined,
 ): string | null {
   return value == null || value.trim() === "" ? null : value;
-}
-
-function asDocument(value: unknown): Record<string, unknown> {
-  if (value == null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("Expected a JSON-LD object.");
-  }
-  return value as Record<string, unknown>;
 }

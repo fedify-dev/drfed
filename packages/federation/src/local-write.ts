@@ -25,6 +25,11 @@
  */
 
 export {
+  type LegacyObject,
+  type LegacyObjectInput,
+  createLegacyObject,
+} from "./local-write/legacy.ts";
+export {
   commitLocalWrite,
   previewLocalWrite,
 } from "./local-write/operation.ts";
