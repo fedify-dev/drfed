@@ -324,6 +324,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.0.0
+      postgres:
+        specifier: 'catalog:'
+        version: 3.4.9
       tsdown:
         specifier: 'catalog:'
         version: 0.22.14(typescript@7.0.2)
