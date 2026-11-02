@@ -54,9 +54,9 @@ Vocabulary errors describe malformed supported input. Support errors describe
 unimplemented types, properties, or representations and make `complete` false.
 Compatibility warnings do not automatically reject the document. An omitted
 context uses the standard ActivityStreams context with a warning. The exported
-authority category is used by prepareDocument for caller-reported denials and
-server-owned-field conflicts. validateDocument itself emits no authority
-findings.
+authority category is used by `prepareDocument()` for caller-reported denials
+and server-owned-field conflicts. `validateDocument()` itself emits no
+authority findings.
 
 Document-only normalization proposes omission of empty arrays on supported,
 applicable properties. For example, a `Note` with `to: []` receives the
@@ -136,15 +136,15 @@ values alone never request creation or modification of resources.
 Authority paths are caller-supplied diagnostic locations; they are not checked
 against writable document targets. This differs from server-owned field paths.
 
-Owned-field paths must name id, actor, attributedTo, published, or updated on
-existing supported root/nested documents. Supported aliases resolve to the same
-field; diagnostics and changes retain original source spellings and indexes.
-Conflicts in arrays point to the non-null entries. When filling an absent value,
-preparation prefers the requested key if it exists, then an existing alias,
-and otherwise adds the requested key.
-References and opaque extension data cannot be targets. The caller lists only
-the fields it owns for that explicit creation operation; no default fields are
-invented, and no values are generated from the clock or random IDs here.
+Owned-field paths must name `id`, `actor`, `attributedTo`, `published`, or
+`updated` on existing supported root/nested documents. Supported aliases
+resolve to the same field; diagnostics and changes retain original source
+spellings and indexes. Conflicts in arrays point to the non-null entries. When
+filling an absent value, preparation prefers the requested key if it exists,
+then an existing alias, and otherwise adds the requested key. References and
+opaque extension data cannot be targets. The caller lists only the fields it
+owns for that explicit creation operation; no default fields are invented, and
+no values are generated from the clock or random IDs here.
 
 | Submitted value                                                   | Preparation behavior                                                                |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -191,7 +191,7 @@ The checker admits both activity base types and all 28 named activity subtypes,
 plus `Object`, `Note`, `Article`, `Application`, `Group`, `Organization`,
 `Person`, `Service`, `Collection`, `OrderedCollection`, `CollectionPage`,
 `OrderedCollectionPage`, `Link`, and `Mention`. Optional properties stay
-optional. Each document needs one supported type string; all type arrays,
+optional. Each document needs one supported `type` string; all `type` arrays,
 including singleton arrays, are unsupported. Unknown types are retained without
 being converted to `Note`.
 
@@ -208,23 +208,23 @@ actors, and collections. References are absolute IRIs or supported embedded
 `Object`/`Link` values. Reference lists retain order, duplicates, and source
 indexes.
 
-| Applies to                | Properties and rules                                                                                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Object` and `Link`       | id: one IRI; mediaType: one MIME type; preview: references/lists; name/nameMap: text without HTML.                                                                                                         |
-| `Object`                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location and attributedTo: references/lists.                                                                            |
-| `Object`                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                                              |
-| `Activity`                | actor, object, target, origin, result, instrument: references/lists. `IntransitiveActivity`, `Arrive`, `Travel`, and `Question` reject non-null object values.                                             |
-| Actor types               | preferredUsername: text; inbox/outbox: one IRI or embedded `OrderedCollection` or `OrderedCollectionPage`; following/followers/liked: one IRI or embedded `Collection` subtype.                            |
-| `Collection` and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI or `CollectionPage` subtype. Counts need not match visible members.                                    |
-| `CollectionPage` subtypes | partOf: one IRI or `Collection` subtype; next/prev: one IRI or `CollectionPage` subtype.                                                                                                                   |
-| `OrderedCollectionPage`   | startIndex: non-negative integer.                                                                                                                                                                          |
-| `Link` and `Mention`      | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. `Object`-only fields, such as content and location, receive property\_not\_applicable. |
+| Applies to                | Properties and rules                                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Object` and `Link`       | `id`: one IRI; `mediaType`: one MIME type; `preview`: references/lists; `name`/`nameMap`: text without HTML.                                                                                                             |
+| `Object`                  | `summary`/`content` and `summaryMap`/`contentMap`: text, including HTML and empty strings; `location` and `attributedTo`: references/lists.                                                                              |
+| `Object`                  | `published`, `updated`, `startTime`, `endTime`: one date-time each; `to`, `cc`, `bto`, `bcc`, `audience`: references/lists, with empty-array omission previews.                                                          |
+| `Activity`                | `actor`, `object`, `target`, `origin`, `result`, `instrument`: references/lists. `IntransitiveActivity`, `Arrive`, `Travel`, and `Question` reject non-null `object` values.                                             |
+| Actor types               | `preferredUsername`: text; `inbox`/`outbox`: one IRI or embedded `OrderedCollection` or `OrderedCollectionPage`; `following`/`followers`/`liked`: one IRI or embedded `Collection` subtype.                              |
+| `Collection` and subtypes | `items`/`orderedItems`: references/lists; `totalItems`: non-negative integer; `current`/`first`/`last`: one IRI or `CollectionPage` subtype. Counts need not match visible members.                                      |
+| `CollectionPage` subtypes | `partOf`: one IRI or `Collection` subtype; `next`/`prev`: one IRI or `CollectionPage` subtype.                                                                                                                           |
+| `OrderedCollectionPage`   | `startIndex`: non-negative integer.                                                                                                                                                                                      |
+| `Link` and `Mention`      | `href`: one IRI; `hreflang`: one language tag; `rel`: relation tokens/IRIs or lists; `height`/`width`: non-negative integers. `Object`-only fields, such as `content` and `location`, receive `property_not_applicable`. |
 
-Except for id, single-value properties accept a scalar or array containing at
+Except for `id`, single-value properties accept a scalar or array containing at
 most one non-null value; multiple values receive `invalid_multiplicity`. Null
 means absence, including null list entries. Empty arrays on supported
 properties receive `empty_property_list` and an inspectable omission preview;
-nested lists remain unsupported. Type and context arrays do not use this
+nested lists remain unsupported. `type` and `@context` arrays do not use this
 omission rule. Unknown custom arrays are preserved as opaque data, while empty
 arrays on unsupported or inapplicable fields retain their existing errors.
 Identifiers require an IRI string when present. Null, empty arrays, and
@@ -237,8 +237,8 @@ compatibility. Other ActivityStreams-permitted embedded types receive
 checks. `Object`-only fields such as `attributedTo` on `Link` receive
 `property_not_applicable`. `Link` `preview` and `nameMap` remain supported by
 the vocabulary and Fedify's decoder. `Collection` navigation accepts embedded
-`CollectionPage` values for current, first, last, next, and prev, and
-`Collection` values for partOf, including subtypes. Embedded `Link` values in
+`CollectionPage` values for `current`, `first`, `last`, `next`, and `prev`, and
+`Collection` values for `partOf`, including subtypes. Embedded `Link` values in
 these fields receive `unsupported_value_form` because Fedify rejects them.
 Diagnostics retain the original field/list paths.
 

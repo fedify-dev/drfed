@@ -664,10 +664,12 @@ Keep documentation short, specific, and tied to the current codebase.  Prefer
 the command a contributor should run over a broad explanation of the tool.  Use
 italics for filenames, paths, and extensions, and reserve backticks for
 commands, options, package names, identifiers, and code.  ActivityStreams and
-ActivityPub vocabulary type names are identifiers too: write `Note`,
-`Article`, `Create`, `Update`, and `Collection` in backticks wherever they name
-the type, including in tables.  When you mean the general idea rather than the
-type, use a lowercase noun, as in “a stored activity” or “a remote object”.  Run
+ActivityPub vocabulary type and property names are identifiers too: write
+types such as `Note`, `Create`, and `Collection` and properties such as
+`attributedTo`, `to`, and `object` in backticks wherever they name the
+vocabulary term, including in tables.  When you mean the general idea rather
+than the term, use a plain noun, as in “a stored activity” or “the object's
+author”.  Run
 `mise run fmt:docs` after editing Markdown.
 
 

@@ -120,7 +120,7 @@ never fetched or modified.
 Resource descriptors name the root, `[]`, and optionally embedded documents
 reached through `object`, `target`, `origin`, `result` or `instrument` of
 another new resource. `kind: "activity"` needs an activity type;
-`kind: "object"` needs a non-activity, non-actor, non-collection, non-Link
+`kind: "object"` needs a non-activity, non-actor, non-collection, non-`Link`
 type, or a `Question`. A nested resource is saved as its own document stating
 the context it inherited, including the implicit ActivityStreams context. Its
 parent keeps it embedded, as submitted, or refers to it by IRI with
