@@ -130,7 +130,7 @@
     "@upyo/mock": "catalog:",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
-    "graphql-scalars": "^1.25.0",
+    "graphql-scalars": "^2.0.1",
     "graphql-yoga": "^5.21.2",
     "uuid": "catalog:"
   },
