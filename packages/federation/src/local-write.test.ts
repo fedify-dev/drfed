@@ -1030,6 +1030,24 @@ describe("edits and deletions of current objects", () => {
     });
   });
 
+  it("accepts the expected revision ID in uppercase", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result } = await save(env, create(note));
+      const saved = result.resources[0]!;
+      const head = await current(harness.db, saved.id);
+      const { result: edited } = await change(
+        env,
+        edit(saved.id, head.id.toUpperCase() as Uuid, {
+          ...(head.document as JsonObject),
+          content: "B",
+        }),
+      );
+      assert.equal(edited.resources[0]?.document.content, "B");
+    });
+  });
+
   it("refuses stale, retyped, foreign, and unreserved edits without changes", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);

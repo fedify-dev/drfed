@@ -33,7 +33,7 @@ import type {
   ActivityPubObject,
   AddressingProperty,
 } from "@drfed/models/schema";
-import { type Uuid, validateUuid } from "@drfed/models/uuid";
+import { type Uuid, areUuidsEqual, validateUuid } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Activity } from "@fedify/vocab";
 import { asc, eq } from "drizzle-orm";
@@ -149,7 +149,7 @@ export async function loadTarget(
   }
   const head = await loadCurrentResourceRevision(db, objectId);
   if (head == null) return unsupported("The object has no saved version.");
-  if (head.id !== expectedRevisionId) {
+  if (!areUuidsEqual(head.id, expectedRevisionId)) {
     return writeError(
       "revision_conflict",
       "The object changed after it was loaded; load it again.",
