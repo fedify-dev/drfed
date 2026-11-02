@@ -210,15 +210,17 @@ Application boundaries
 
 The current editor, lists and federation serializers still use legacy
 Note/Create projections. A generic canonical resource can have no typed detail;
-its GraphQL `Resource.detail` is then `null`. New general-purpose mutation,
-historical authorization and federation surfaces are separate work.
+its GraphQL `Resource.detail` is then `null`. The common write operations
+described in [local writes](local-writes.md) save new resources as revisions
+only and keep legacy typed objects in step when editing or deleting them.
+Historical authorization and generalized federation surfaces are separate work.
 
-Appending a whiteout does not create or send a `Delete` Activity. The later
-application delete operation must append it together with the `Delete`, outbox
-entry and durable dispatch reservation in one transaction, then send
-asynchronously. Generic Tombstone serving with `410 Gone` belongs to that
-federation integration. Dispatch must freeze its own outgoing document;
-retained revisions are not wire payloads.
+Appending a whiteout does not create or send a `Delete` Activity. The common
+delete operation appends it together with the `Delete`, outbox entry and the
+caller's durable dispatch reservation in one transaction; sending happens
+asynchronously. Generic Tombstone serving with `410 Gone` belongs to the
+generalized federation integration. Dispatch must freeze its own outgoing
+document; retained revisions are not wire payloads.
 
 Storage tests cover 30 Activity type fixtures, including Activity and
 IntransitiveActivity, and the Object base. They include nested Undo/Like and

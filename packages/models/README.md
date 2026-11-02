@@ -176,11 +176,14 @@ proposals remain unchanged.
 Denied authority, conflicts, unsupported input, and truncated diagnostics
 withhold both preview and changes. The input and trusted options are unchanged.
 
-#152 owns actual permission checks, value allocation, preview-to-commit
-coordination, persistence, and permission rechecks at write time. It must keep
-the committed values consistent with the accepted preview. This module neither
-saves anything nor adapts createObject. Both editors can display the shared
-results; saving, publication, and sending remain separate operations.
+The common write operations in `@drfed/federation/local-write` own permission
+checks, value allocation, preview-to-commit coordination, persistence, and
+permission rechecks at write time, and commit exactly the values of an
+accepted preview; see the [local write internals]. This module saves nothing.
+Both editors can display the shared results; saving, publication, and sending
+remain separate operations.
+
+[local write internals]: https://drfed.org/internals/local-writes
 
 ### Supported types and properties
 
@@ -344,7 +347,8 @@ category and severity are checked against the registry. Input preservation and
 preview contents are asserted. Additional tests exercise network avoidance,
 contexts, representation limits, and nested traversal. Preparation tests
 exercise supplied authority outcomes and generated-field previews. Database
-permission enforcement and transaction integration remain #152 responsibilities.
+permission enforcement and transaction integration are tested with the common
+write operations in `@drfed/federation`.
 
 [the fixture file]: ../../fixtures/document-validation/initial.json
 [the document tests]: src/document.test.ts
@@ -369,8 +373,11 @@ markers. Existing local and inbound Create writers capture their documents in
 the same transaction. Retained JSON can contain blind recipients; model reads
 do not authorize access or prepare wire documents.
 
-See the [resource revision internals] for API examples, projections, legacy
-upgrades and the boundaries of editor, federation and dispatch integration.
+`writeTypedResourceRevision()` edits or deletes an object that also has a
+legacy typed row, keeping the row, its current addressing, and the history in
+step. See the [resource revision internals] for API examples, projections,
+legacy upgrades and the boundaries of editor, federation and dispatch
+integration.
 
 [resource revision internals]: https://drfed.org/internals/resource-revisions
 

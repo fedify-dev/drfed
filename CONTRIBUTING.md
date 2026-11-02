@@ -554,6 +554,14 @@ acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
 federation through `createFederation`, which observes the outbox queue so that
 each attempt Fedify's worker makes settles its delivery.
 
+Local resources are saved, edited, and deleted through the common write
+operations in *src/local-write/*, exported as `@drfed/federation/local-write`.
+Editors preview a write and commit it with the preview's token; never write
+local resources, typed rows, or revisions directly from a resolver.  Saving
+never delivers; publishing, editing, and deleting require a transactional
+dispatch reservation.  `createObject` keeps its behavior through
+`createLegacyObject()`.  See [local write internals].
+
 The `Create` listener stores what it accepts through *src/inbox-persist.ts*.
 An inbound delivery that was verified and answered with 2xx is linked to
 `activities` by the activity IRI it recorded, through `linkInboundActivity`,
@@ -563,6 +571,7 @@ See [inbox persistence internals] for acceptance and idempotence, and
 [activity delivery internals] for completion reports, receipts and queue
 observations.
 
+[local write internals]: https://drfed.org/internals/local-writes
 [inbox persistence internals]: https://drfed.org/internals/inbox-persistence
 [activity delivery internals]: https://drfed.org/internals/activity-deliveries
 
