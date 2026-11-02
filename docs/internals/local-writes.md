@@ -128,8 +128,8 @@ parent keeps it embedded, as submitted, or refers to it by IRI with
 
 Each saved document gets revision addressing and a current `addressing` index
 from its semantic `to`, `cc`, `bto`, `bcc` and `audience`, each value at its
-source position: IRIs as resolved, embedded documents by `id`, Links by `href`,
-and anonymous values without a row. Relations index `actor`, `object`,
+source position: IRIs as resolved, embedded documents by `id`, `Link` values by
+`href`, and anonymous values without a row. Relations index `actor`, `object`,
 `target`, `origin`, `result`, `instrument` and `attributedTo`. A document that
 spells one of these properties in several ways is refused, since its index
 would otherwise leave occurrences out. Indexes stay `partial`; the documents
@@ -156,8 +156,8 @@ and federation responses ignore them until #153 and #154. Objects created by
 the `createObject` mutation also have legacy typed rows that serving reads;
 `writeTypedResourceRevision()` keeps those rows in step. Before writing, the
 served columns must agree with the current revision, or the object is refused
-as drifted. An edited version must fit the typed columns without loss: a Note
-or Article with non-blank `content`, an optional single-language
+as drifted. An edited version must fit the typed columns without loss: a `Note`
+or `Article` with non-blank `content`, an optional single-language
 `contentMap`, an explicit `sensitive`, plain strings and standard spellings.
 The legacy serializer's Fedify context, which the validator cannot read
 offline, is replaced by
@@ -171,7 +171,7 @@ Compatibility
 -------------
 
 `createObject` keeps its established behavior through
-`createLegacyObject()`: it creates a Note or Article with a `Create` in the
+`createLegacyObject()`: it creates a `Note` or `Article` with a `Create` in the
 outbox, without delivering it, stores Fedify-serialized documents with blind
 recipients, and captures legacy revisions. It shares the actor lock and
 permission check with the common write, but takes no preview and runs no

@@ -59,7 +59,7 @@ server-owned-field conflicts. validateDocument itself emits no authority
 findings.
 
 Document-only normalization proposes omission of empty arrays on supported,
-applicable properties. For example, a Note with `to: []` receives the
+applicable properties. For example, a `Note` with `to: []` receives the
 `empty_property_list` warning and a removal change with reason
 `omit_empty_property_list`; its preview omits `to`. Present changes for an
 explicit caller decision. Validation does not apply them or save the preview.
@@ -188,36 +188,37 @@ remain separate operations.
 ### Supported types and properties
 
 The checker admits both activity base types and all 28 named activity subtypes,
-plus Object, Note, Article, Application, Group, Organization, Person, Service,
-Collection, OrderedCollection, CollectionPage, OrderedCollectionPage, Link,
-and Mention. Optional properties stay optional. Each document needs one
-supported type string; all type arrays, including singleton arrays, are
-unsupported. Unknown types are retained without being converted to Note.
+plus `Object`, `Note`, `Article`, `Application`, `Group`, `Organization`,
+`Person`, `Service`, `Collection`, `OrderedCollection`, `CollectionPage`,
+`OrderedCollectionPage`, `Link`, and `Mention`. Optional properties stay
+optional. Each document needs one supported type string; all type arrays,
+including singleton arrays, are unsupported. Unknown types are retained without
+being converted to `Note`.
 
 Type detection uses Fedify's public registry and inheritance, with an explicit
-implemented-type set. Link and Mention use their exported classes because the
-installed registry excludes them. Models and federation share the catalog
+implemented-type set. `Link` and `Mention` use their exported classes because
+the installed registry excludes them. Models and federation share the catalog
 version of `@fedify/vocab` (currently 2.4.3); context data comes from the
 matching `@fedify/vocab-runtime`. Recognition by Fedify alone does not
 establish checker coverage. No vocabulary parser or full JSON-LD expansion runs
 here.
 
-In the table, Object includes its admitted subtypes, including activities,
+In the table, `Object` includes its admitted subtypes, including activities,
 actors, and collections. References are absolute IRIs or supported embedded
-Object/Link values. Reference lists retain order, duplicates, and source
+`Object`/`Link` values. Reference lists retain order, duplicates, and source
 indexes.
 
-| Applies to              | Properties and rules                                                                                                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Object and Link         | id: one IRI; mediaType: one MIME type; preview: references/lists; name/nameMap: text without HTML.                                                                                                       |
-| Object                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location and attributedTo: references/lists.                                                                          |
-| Object                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                                            |
-| Activity                | actor, object, target, origin, result, instrument: references/lists. IntransitiveActivity, Arrive, Travel, and Question reject non-null object values.                                                   |
-| Actor types             | preferredUsername: text; inbox/outbox: one IRI or embedded OrderedCollection or OrderedCollectionPage; following/followers/liked: one IRI or embedded Collection subtype.                                |
-| Collection and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI or CollectionPage subtype. Counts need not match visible members.                                    |
-| CollectionPage subtypes | partOf: one IRI or Collection subtype; next/prev: one IRI or CollectionPage subtype.                                                                                                                     |
-| OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                                                        |
-| Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only fields, such as content and location, receive property\_not\_applicable. |
+| Applies to                | Properties and rules                                                                                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Object` and `Link`       | id: one IRI; mediaType: one MIME type; preview: references/lists; name/nameMap: text without HTML.                                                                                                         |
+| `Object`                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location and attributedTo: references/lists.                                                                            |
+| `Object`                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                                              |
+| `Activity`                | actor, object, target, origin, result, instrument: references/lists. `IntransitiveActivity`, `Arrive`, `Travel`, and `Question` reject non-null object values.                                             |
+| Actor types               | preferredUsername: text; inbox/outbox: one IRI or embedded `OrderedCollection` or `OrderedCollectionPage`; following/followers/liked: one IRI or embedded `Collection` subtype.                            |
+| `Collection` and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI or `CollectionPage` subtype. Counts need not match visible members.                                    |
+| `CollectionPage` subtypes | partOf: one IRI or `Collection` subtype; next/prev: one IRI or `CollectionPage` subtype.                                                                                                                   |
+| `OrderedCollectionPage`   | startIndex: non-negative integer.                                                                                                                                                                          |
+| `Link` and `Mention`      | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. `Object`-only fields, such as content and location, receive property\_not\_applicable. |
 
 Except for id, single-value properties accept a scalar or array containing at
 most one non-null value; multiple values receive `invalid_multiplicity`. Null
@@ -229,16 +230,17 @@ arrays on unsupported or inapplicable fields retain their existing errors.
 Identifiers require an IRI string when present. Null, empty arrays, and
 null-only arrays receive omission previews; arrays containing non-null values
 receive `invalid_value_shape`, even when they contain only one identifier.
-Embedded activity actors and Object `attributedTo` values must use Application,
-Group, Organization, Person, or Service for Fedify compatibility. Other
-ActivityStreams-permitted embedded types receive `unsupported_value_form`; IRI
-references remain supported without remote type checks. Object-only fields such
-as `attributedTo` on Link receive `property_not_applicable`. Link `preview` and
-`nameMap` remain supported by the vocabulary and Fedify's decoder. Collection
-navigation accepts embedded CollectionPage values for current, first, last,
-next, and prev, and Collection values for partOf, including subtypes. Embedded
-Links in these fields receive `unsupported_value_form` because Fedify rejects
-them. Diagnostics retain the original field/list paths.
+Embedded activity actors and `Object` `attributedTo` values must use
+`Application`, `Group`, `Organization`, `Person`, or `Service` for Fedify
+compatibility. Other ActivityStreams-permitted embedded types receive
+`unsupported_value_form`; IRI references remain supported without remote type
+checks. `Object`-only fields such as `attributedTo` on `Link` receive
+`property_not_applicable`. `Link` `preview` and `nameMap` remain supported by
+the vocabulary and Fedify's decoder. `Collection` navigation accepts embedded
+`CollectionPage` values for current, first, last, next, and prev, and
+`Collection` values for partOf, including subtypes. Embedded `Link` values in
+these fields receive `unsupported_value_form` because Fedify rejects them.
+Diagnostics retain the original field/list paths.
 
 Text accepts strings, flat lists, and supported `@value`/`@language` objects.
 Language maps contain strings or null. Complex text attributes are unsupported.
@@ -251,15 +253,15 @@ unsupported. Validation preserves these values without adding seconds or
 truncating precision. Timestamp validation does not establish server ownership
 or ordering between fields.
 
-Question is supported standalone and inside Create/Update using shared rules.
-Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending #155's
-poll rules. Open-ended Question needs no choices. Other types without
-implemented rules, such as Place, receive support findings.
+`Question` is supported standalone and inside `Create`/`Update` using shared
+rules. Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending
+#155's poll rules. Open-ended `Question` needs no choices. Other types without
+implemented rules, such as `Place`, receive support findings.
 
-For 0.2.0, Object property rules for `tag`, `inReplyTo`, `url`, `attachment`,
+For 0.2.0, `Object` property rules for `tag`, `inReplyTo`, `url`, `attachment`,
 `replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`
 remain unimplemented. Null values are treated as absent and preserved without
-diagnostics or normalization. On Object documents, non-null values produce
+diagnostics or normalization. On `Object` documents, non-null values produce
 `unsupported_property` errors and set `complete: false`, preventing successful
 validation even when their values are valid ActivityStreams. This limits which
 documents pasted from fediverse servers can pass validation. Unknown custom
@@ -369,7 +371,7 @@ Resource revisions
 
 `@drfed/models/resource-revision` provides trusted append and history reads for
 full ActivityStreams JSON, with compare-and-swap heads and terminal deletion
-markers. Existing local and inbound Create writers capture their documents in
+markers. Existing local and inbound `Create` writers capture their documents in
 the same transaction. Retained JSON can contain blind recipients; model reads
 do not authorize access or prepare wire documents.
 

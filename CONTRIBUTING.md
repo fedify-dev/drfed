@@ -663,7 +663,11 @@ Documentation guidance
 Keep documentation short, specific, and tied to the current codebase.  Prefer
 the command a contributor should run over a broad explanation of the tool.  Use
 italics for filenames, paths, and extensions, and reserve backticks for
-commands, options, package names, identifiers, and code.  Run
+commands, options, package names, identifiers, and code.  ActivityStreams and
+ActivityPub vocabulary type names are identifiers too: write `Note`,
+`Article`, `Create`, `Update`, and `Collection` in backticks wherever they name
+the type, including in tables.  When you mean the general idea rather than the
+type, use a lowercase noun, as in “a stored activity” or “a remote object”.  Run
 `mise run fmt:docs` after editing Markdown.
 
 

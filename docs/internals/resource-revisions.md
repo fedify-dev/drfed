@@ -6,7 +6,7 @@ adapters. It describes the internal storage model and the contracts those
 adapters must preserve.
 
 `@drfed/models/resource-revision` stores ActivityStreams JSON independently of
-the current Note/Create tables. It is a trusted database API for application
+the current `Note`/`Create` tables. It is a trusted database API for application
 adapters. Reads return local documents, which may contain `bto` and `bcc`;
 callers must authorize access and prepare a separate document for serving or
 sending.
@@ -21,17 +21,18 @@ Documents and history
 
 A canonical resource keeps its UUID, IRI and kind. Each revision has its own
 UUID and increasing sequence, and `resource_heads` points to the latest one.
-A stored Activity has one revision. An object can have several snapshots,
+A stored activity has one revision. An object can have several snapshots,
 followed by a terminal whiteout. Earlier snapshots, including objects embedded
-in Activities, keep their original values when a related object changes.
+in activities, keep their original values when a related object changes.
 
 Snapshots retain parsed JSON values, including nested objects, arrays,
 extensions, custom contexts and the difference between a reference, an embedded
-object and a Link. They do not preserve source whitespace or numeric spellings.
-An inbound delivery's `body` retains the received bytes. Storage does not fetch
-references, expand contexts, validate vocabulary semantics, or infer a canonical
-kind from the document's `type`. A `Question`, for example, can be stored as an
-object or a stored Activity according to the caller's explicit `resourceKind`.
+object and a `Link`. They do not preserve source whitespace or numeric
+spellings. An inbound delivery's `body` retains the received bytes. Storage
+does not fetch references, expand contexts, validate vocabulary semantics, or
+infer a canonical kind from the document's `type`. A `Question`, for example,
+can be stored as an object or a stored activity according to the caller's
+explicit `resourceKind`.
 
 | Revision kind | Document     | Meaning                                                                                                           |
 | ------------- | ------------ | ----------------------------------------------------------------------------------------------------------------- |
@@ -115,7 +116,7 @@ Generic appends raise `LegacyResourceRevisionError` for resources that have
 legacy typed rows. Application adapters must coordinate the typed
 projection and history instead of changing only one; for typed objects,
 `writeTypedResourceRevision` does that (see below).
-`ResourceRevisionStateError` covers immutable Activities, appending after
+`ResourceRevisionStateError` covers immutable activities, appending after
 deletion, and invalid initial whiteouts; conflicting canonical kinds raise
 `ResourceKindConflictError`. Callers writing several resources in one
 transaction must acquire their canonical locks in IRI order with
@@ -173,9 +174,9 @@ Legacy capture and upgrades
 
 Existing local creation and accepted inbound `Create` paths capture their
 finished documents and root addressing in the same transaction as the typed
-rows. Local capture includes blind recipients. An incoming Activity retains the
+rows. Local capture includes blind recipients. An incoming activity retains the
 received JSON, and a reused object keeps the document from its first accepted
-Create. The legacy projection is `partial` and has no relation rows; nested
+`Create`. The legacy projection is `partial` and has no relation rows; nested
 values remain in the full document.
 
 `captureLegacyResourceRevision(tx, resourceId)` is a trusted compatibility
@@ -189,7 +190,7 @@ For the operator's upgrade procedure, see [Prepare and check the
 database](/manual/self-hosting#prepare-and-check-the-database). Old writers must
 remain stopped throughout migration. The additive migration preserves existing
 UUIDs, IRIs, documents, collection memberships, addressing and delivery marks.
-Every legacy object or Activity gets a snapshot, or `unavailable` for SQL
+Every legacy object or activity gets a snapshot, or `unavailable` for SQL
 `NULL`. Already-deleted objects also get a whiteout using the recorded deletion
 time and former type. Snapshots use the old creation time. Actor soft deletion
 alone does not create a whiteout.
@@ -198,7 +199,7 @@ alone does not create a whiteout.
 It is separate from immutable content. Runtime linkage compares both the
 current typed document and its first retained snapshot before adding a receipt.
 Fetched evidence is recomputed when `recordFetchedObject` changes. Deleting a
-typed object row removes its object receipts; deleting an Activity or removing
+typed object row removes its object receipts; deleting an activity or removing
 a delivery linkage removes that delivery's receipts; deleting a delivery
 cascades them. Unavailable and whiteout revisions receive no legacy receipt.
 Existing GraphQL permission checks still use their current evidence rules; the
@@ -209,23 +210,25 @@ Application boundaries
 ----------------------
 
 The current editor, lists and federation serializers still use legacy
-Note/Create projections. A generic canonical resource can have no typed detail;
-its GraphQL `Resource.detail` is then `null`. The common write operations
-described in [local writes](local-writes.md) save new resources as revisions
-only and keep legacy typed objects in step when editing or deleting them.
-Historical authorization and generalized federation surfaces are separate work.
+`Note`/`Create` projections. A generic canonical resource can have no typed
+detail; its GraphQL `Resource.detail` is then `null`. The common write
+operations described in [local writes](local-writes.md) save new resources as
+revisions only and keep legacy typed objects in step when editing or deleting
+them. Historical authorization and generalized federation surfaces are separate
+work.
 
-Appending a whiteout does not create or send a `Delete` Activity. The common
+Appending a whiteout does not create or send a `Delete` activity. The common
 delete operation appends it together with the `Delete`, outbox entry and the
 caller's durable dispatch reservation in one transaction; sending happens
-asynchronously. Generic Tombstone serving with `410 Gone` belongs to the
+asynchronously. Generic `Tombstone` serving with `410 Gone` belongs to the
 generalized federation integration. Dispatch must freeze its own outgoing
 document; retained revisions are not wire payloads.
 
-Storage tests cover 30 Activity type fixtures, including Activity and
-IntransitiveActivity, and the Object base. They include nested Undo/Like and
-Accept/Follow, Add targets, Arrive without an object, both uses of Question,
-and custom contexts and extensions. These are storage round-trip fixtures, not
-claims of semantic validation or peer interoperability. Run `mise run test` for
-PGlite coverage and `mise run test:postgres` with an isolated
-`DRFED_TEST_POSTGRES_URL` for PostgreSQL migration and concurrency checks.
+Storage tests cover 30 activity type fixtures, including `Activity` and
+`IntransitiveActivity`, and the `Object` base. They include nested
+`Undo`/`Like` and `Accept`/`Follow`, `Add` targets, `Arrive` without an object,
+both uses of `Question`, and custom contexts and extensions. These are storage
+round-trip fixtures, not claims of semantic validation or peer
+interoperability. Run `mise run test` for PGlite coverage and
+`mise run test:postgres` with an isolated `DRFED_TEST_POSTGRES_URL` for
+PostgreSQL migration and concurrency checks.
