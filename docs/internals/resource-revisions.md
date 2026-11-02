@@ -113,12 +113,31 @@ still require storable SQL text.
 
 Generic appends raise `LegacyResourceRevisionError` for resources that have
 legacy typed rows. Application adapters must coordinate the typed
-projection and history instead of changing only one.
+projection and history instead of changing only one; for typed objects,
+`writeTypedResourceRevision` does that (see below).
 `ResourceRevisionStateError` covers immutable Activities, appending after
 deletion, and invalid initial whiteouts; conflicting canonical kinds raise
 `ResourceKindConflictError`. Callers writing several resources in one
 transaction must acquire their canonical locks in IRI order with
 `lockResources` before appending.
+
+### Typed objects
+
+`writeTypedResourceRevision(db, input)` edits or deletes an object that has a
+legacy typed `objects` row, so the typed row, its current addressing and the
+history stay in step. The current revision must be the expected snapshot, and
+the typed row's `document` and current addressing must still equal it (compared
+as JSON text and as occurrence multisets); otherwise it raises
+`RevisionConflictError` or `LegacyResourceRevisionError` and changes nothing.
+A snapshot sets every served column the caller passes, including `updated`,
+writes the same JSON to the typed `document` and the revision, and replaces
+the current addressing with the given occurrences. A whiteout sets the typed
+row's `deleted`, keeps its `updated` and current addressing, which go on
+describing the last content, and inherits the previous projections. The
+caller validates and authorizes the change and checks served columns, such as
+`content_html`, against the old head; the helper does not derive columns from
+documents. The whole write runs in a savepoint. Initial typed creation still
+goes through legacy capture.
 
 
 Projections and provenance
@@ -127,10 +146,15 @@ Projections and provenance
 Documents are authoritative. `addressing` and `relations` are explicit indexes
 provided by the caller; storage never scans arbitrary JSON-LD keys to guess
 their meanings. Addressing retains root `to`, `cc`, `bto`, `bcc` and `audience`
-order and duplicates. Relation occurrences retain a property, optional document
-path, `reference`/`embedded`/`link` representation and optional target IRI.
-An anonymous embedded node needs no canonical resource row, and a referenced
-remote IRI is not promoted to a typed object.
+order and duplicates. A snapshot append may pass `addressingOccurrences`
+instead of `addressing`: explicit `{ property, position, iri }` entries that
+keep each value's source position, so a value with no IRI, such as an anonymous
+embedded object, leaves its position unused rather than shifting later ones.
+`storeAddressingOccurrences` and `replaceAddressing` in `@drfed/models` write
+the current `addressing` index the same way. Relation occurrences retain a
+property, optional document path, `reference`/`embedded`/`link` representation
+and optional target IRI. An anonymous embedded node needs no canonical resource
+row, and a referenced remote IRI is not promoted to a typed object.
 
 Projection status defaults to `partial`. `complete` is a trusted adapter's
 claim that it indexed the supported root addressing and relationship

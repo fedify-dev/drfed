@@ -188,6 +188,89 @@ export async function storeAddressing(
 }
 
 /**
+ * One addressing occurrence at its source position.  Positions need not be
+ * contiguous: a value that names no IRI, such as an anonymous embedded object,
+ * leaves its position unused instead of shifting the later ones.
+ */
+export interface AddressingOccurrence {
+  readonly property: AddressingProperty;
+  readonly position: number;
+  readonly iri: string;
+}
+
+/**
+ * Stores explicit occurrences, keeping each at its own position.
+ * @throws {TypeError} If a property is unknown, a position is not a
+ *         non-negative safe integer, or two occurrences share a position.
+ */
+export async function storeAddressingOccurrences(
+  tx: Transaction,
+  sourceId: Uuid,
+  occurrences: readonly AddressingOccurrence[],
+): Promise<void> {
+  checkAddressingOccurrences(occurrences);
+  const targets = new Map<string, Resource>();
+  for (const iri of [
+    ...new Set(occurrences.map((entry) => entry.iri)),
+  ].sort()) {
+    targets.set(iri, await ensureResource(tx, iri));
+  }
+  for (const { property, position, iri } of occurrences) {
+    await tx.insert(addressing).values({
+      id: uuidV7(),
+      sourceId,
+      property,
+      position,
+      targetId: targets.get(iri)!.id,
+    });
+  }
+}
+
+/**
+ * Replaces the current addressing of a resource with explicit occurrences.
+ * @throws {TypeError} As {@link storeAddressingOccurrences} does.
+ */
+export async function replaceAddressing(
+  tx: Transaction,
+  sourceId: Uuid,
+  occurrences: readonly AddressingOccurrence[],
+): Promise<void> {
+  checkAddressingOccurrences(occurrences);
+  await tx.delete(addressing).where(eq(addressing.sourceId, sourceId));
+  await storeAddressingOccurrences(tx, sourceId, occurrences);
+}
+
+/**
+ * Checks occurrences before any write, so a malformed list writes nothing.
+ * @throws {TypeError} If an occurrence is malformed or duplicated.
+ */
+export function checkAddressingOccurrences(
+  occurrences: readonly AddressingOccurrence[],
+): void {
+  if (!Array.isArray(occurrences)) {
+    throw new TypeError("Addressing occurrences must be an array.");
+  }
+  const seen = new Set<string>();
+  for (const { property, position, iri } of occurrences) {
+    if (
+      !addressingPropertyEnum.enumValues.includes(property) ||
+      !Number.isSafeInteger(position) ||
+      position < 0 ||
+      // Both addressing tables store positions as 32-bit integers.
+      position > 2_147_483_647 ||
+      typeof iri !== "string"
+    ) {
+      throw new TypeError("Invalid addressing occurrence.");
+    }
+    const key = `${property}:${position}`;
+    if (seen.has(key)) {
+      throw new TypeError("Addressing occurrences must not share a position.");
+    }
+    seen.add(key);
+  }
+}
+
+/**
  * Locks an actor's declared collection until the transaction ends.
  * @returns The locked collection ID.
  */
