@@ -15,10 +15,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 /**
- * The common write operations that save local resources: an object alone,
+ * The common write operations on local resources: saving an object alone,
  * an activity referring to existing resources, or an activity with new
- * nested resources, atomically.  Editors preview a write, show its changes,
- * and commit it with the preview's token.  Saving never delivers anything.
+ * nested resources, atomically; and committing an actual edit or deletion
+ * of a current object with its generated `Update` or `Delete`.  Editors
+ * preview a write, show its changes, and commit it with the preview's token.
+ * Saving never delivers anything.
  * @module
  */
 
@@ -30,6 +32,8 @@ export type {
   CommitOptions,
   CommitOutcome,
   CreateRequest,
+  DeleteRequest,
+  EditRequest,
   JsonObject,
   LocalWriteEnvironment,
   LocalWriteError,

@@ -73,7 +73,32 @@ export interface CreateRequest {
   readonly publish?: boolean;
 }
 
-export type LocalWriteRequest = CreateRequest;
+/**
+ * Commits an actual edit of a current local object: its new version, and a
+ * generated `Update` that embeds it, in the actor's outbox.
+ */
+export interface EditRequest {
+  readonly operation: "edit";
+  readonly actorId: Uuid;
+  readonly objectId: Uuid;
+  /** The revision the edit was made from; a newer one is a conflict. */
+  readonly expectedRevisionId: Uuid;
+  /** The complete new version, usually the loaded document changed. */
+  readonly document: JsonObject;
+}
+
+/**
+ * Commits an actual deletion of a current local object: a whiteout, and a
+ * generated `Delete` in the actor's outbox.
+ */
+export interface DeleteRequest {
+  readonly operation: "delete";
+  readonly actorId: Uuid;
+  readonly objectId: Uuid;
+  readonly expectedRevisionId: Uuid;
+}
+
+export type LocalWriteRequest = CreateRequest | EditRequest | DeleteRequest;
 
 export type LocalWriteErrorType =
   | "invalid_request"
@@ -95,7 +120,10 @@ export interface LocalWriteError {
 
 /** A resource as a commit with the same preview token would save it. */
 export interface PreparedResource {
+  /** The submitted path; `[]` for an edited object or generated activity. */
   readonly path: FieldPath;
+  /** Whether the server composed it, as the `Update` of an edit. */
+  readonly generated: boolean;
   readonly kind: "object" | "activity";
   readonly id: Uuid;
   readonly iri: string;
@@ -110,8 +138,13 @@ export interface LocalWritePreview {
   readonly diagnostics: readonly Diagnostic[];
   /** Every change between the submitted and saved documents. */
   readonly changes: readonly NormalizationChange[];
-  /** Root last, after the resources it contains. */
+  /**
+   * Root last, after the resources it contains; for an edit, the new
+   * version then the `Update`; for a deletion, the `Delete`.
+   */
   readonly resources: readonly PreparedResource[];
+  /** For an edit or deletion, the revision it was checked against. */
+  readonly currentRevisionId?: Uuid;
   /** Pass to the commit to save exactly these values. */
   readonly token: string;
 }
@@ -121,9 +154,12 @@ export interface SavedResource extends PreparedResource {
 }
 
 export interface LocalWriteResult {
-  /** Root last, after the resources it contains. */
+  /** In the order of the preview's resources. */
   readonly resources: readonly SavedResource[];
+  /** Whether an activity was added to the actor's outbox. */
   readonly published: boolean;
+  /** For a deletion, the whiteout revision of the deleted object. */
+  readonly whiteoutRevisionId?: Uuid;
 }
 
 export type PreviewOutcome =
@@ -141,7 +177,7 @@ export interface CommitOptions {
    * Reserves the durable dispatch of a published or generated activity.  It
    * runs inside the write's transaction after every other write, may only
    * persist in that transaction, and rolls the whole write back by throwing.
-   * Required to publish; never called otherwise.
+   * Required to publish, edit, or delete; never called otherwise.
    */
   readonly reserveDispatch?: (
     tx: Transaction,

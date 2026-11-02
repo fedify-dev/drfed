@@ -18,18 +18,24 @@
 // oxlint-disable no-await-in-loop
 
 import { type Database, type Transaction, schema } from "@drfed/models";
+import type { Diagnostic, NormalizationChange } from "@drfed/models/document";
 import {
   ResourceKindConflictError,
   addActorCollectionItem,
   ensureResource,
   lockActorCollection,
   lockResources,
+  replaceAddressing,
   storeAddressingOccurrences,
 } from "@drfed/models/resource";
 import {
+  LegacyResourceRevisionError,
+  ResourceRevisionStateError,
   RevisionConflictError,
   appendResourceRevision,
+  writeTypedResourceRevision,
 } from "@drfed/models/resource-revision";
+import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import { inArray } from "drizzle-orm";
 
 import {
@@ -39,13 +45,30 @@ import {
   registeredIris,
 } from "./actor.ts";
 import {
+  type WriteTarget,
+  bindableExisting,
+  checkExistingRequest,
+  currentAddressing,
+  generatedKey,
+  loadTarget,
+  prepareDelete,
+  prepareEdit,
+} from "./existing.ts";
+import {
   type IdentityLookups,
   allocate,
   bindableRequest,
   checkCreateRequest,
   prepareCreate,
 } from "./prepare.ts";
-import { digestRequest, issueToken, readToken } from "./token.ts";
+import {
+  type Allocation,
+  digestRequest,
+  issueToken,
+  readToken,
+  toMicroseconds,
+} from "./token.ts";
+import type { TypedProjection } from "./typed.ts";
 import {
   type CommitOptions,
   type CommitOutcome,
@@ -53,6 +76,7 @@ import {
   type LocalWriteError,
   type LocalWriteRequest,
   LocalWriteRollback,
+  type PreparedResource,
   type PreviewOutcome,
   type SavedResource,
   type WritePrincipal,
@@ -73,11 +97,99 @@ function isError(value: object): value is LocalWriteError {
   return "type" in value && "diagnostics" in value;
 }
 
+function checkRequest(request: LocalWriteRequest): LocalWriteError | null {
+  if (request === null || typeof request !== "object") {
+    return writeError("invalid_request", "Expected a write request.");
+  }
+  switch (request.operation) {
+    case "create":
+      return checkCreateRequest(request);
+    case "edit":
+    case "delete":
+      return checkExistingRequest(request);
+    default:
+      return writeError("invalid_request", "Unknown write operation.");
+  }
+}
+
+function bindable(request: LocalWriteRequest): unknown {
+  return request.operation === "create"
+    ? bindableRequest(request)
+    : bindableExisting(request);
+}
+
+function allocateFor(request: LocalWriteRequest): Allocation {
+  return request.operation === "create"
+    ? allocate(request.resources)
+    : {
+        ids: new Map([[generatedKey, uuidV7()]]),
+        timestamp: toMicroseconds(Temporal.Now.instant()),
+      };
+}
+
+/** A prepared write of any operation. */
+interface PreparedOperation {
+  readonly diagnostics: readonly Diagnostic[];
+  readonly changes: readonly NormalizationChange[];
+  readonly resources: readonly PreparedResource[];
+  /** The object an edit or deletion acts on. */
+  readonly target?: WriteTarget;
+  /** An edit's typed columns, when the object has a typed row. */
+  readonly typed?: TypedProjection | null;
+}
+
+async function prepare(
+  env: LocalWriteEnvironment,
+  db: Database | Transaction,
+  actor: WritingActor,
+  request: LocalWriteRequest,
+  allocation: Allocation,
+): Promise<PreparedOperation | LocalWriteError> {
+  if (request.operation === "create") {
+    return await prepareCreate(
+      env.federation,
+      env.rootOrigin,
+      actor,
+      request,
+      allocation,
+      lookups(db, actor),
+    );
+  }
+  const target = await loadTarget(
+    db,
+    actor,
+    request.objectId,
+    request.expectedRevisionId,
+  );
+  if (isError(target)) return target;
+  const change =
+    request.operation === "edit"
+      ? await prepareEdit(
+          env.federation,
+          env.rootOrigin,
+          actor,
+          target,
+          request,
+          allocation,
+          lookups(db, actor),
+        )
+      : await prepareDelete(env.federation, actor, target, allocation, () =>
+          currentAddressing(db, target.id),
+        );
+  if (isError(change)) return change;
+  if (change.object == null) {
+    return { ...change, resources: [change.activity], target };
+  }
+  const { typed, ...object } = change.object;
+  return { ...change, resources: [object, change.activity], target, typed };
+}
+
 /**
  * Previews a write: checks permission and the document, and shows every
- * value the server will add, including new IRIs and timestamps, with a
- * token that commits exactly them.  It writes nothing and holds no lock; a
- * preview grants no permission.
+ * value the server will add, including new IRIs and timestamps, and for an
+ * edit or deletion the generated activity, with a token that commits
+ * exactly them.  It writes nothing and holds no lock; a preview grants no
+ * permission.
  * @returns The preview, or why the write cannot happen.
  */
 export async function previewLocalWrite(
@@ -85,7 +197,7 @@ export async function previewLocalWrite(
   principal: WritePrincipal,
   request: LocalWriteRequest,
 ): Promise<PreviewOutcome> {
-  const requestError = checkCreateRequest(request);
+  const requestError = checkRequest(request);
   if (requestError != null) return { ok: false, error: requestError };
   const actor = await findWritingActor(
     env.db,
@@ -95,31 +207,114 @@ export async function previewLocalWrite(
     false,
   );
   if (isError(actor)) return { ok: false, error: actor };
-  const allocation = allocate(request.resources);
-  const prepared = await prepareCreate(
-    env.federation,
-    env.rootOrigin,
-    actor,
-    request,
-    allocation,
-    lookups(env.db, actor),
-  );
+  const allocation = allocateFor(request);
+  const prepared = await prepare(env, env.db, actor, request, allocation);
   if (isError(prepared)) return { ok: false, error: prepared };
   const token = await issueToken(
     env.previewKey,
     principal.accountId,
-    await digestRequest(bindableRequest(request)),
+    await digestRequest(bindable(request)),
     allocation,
   );
-  return { ok: true, preview: { ...prepared, token } };
+  const { diagnostics, changes, resources, target } = prepared;
+  return {
+    ok: true,
+    preview: {
+      diagnostics,
+      changes,
+      resources,
+      ...(target == null ? {} : { currentRevisionId: target.head.id }),
+      token,
+    },
+  };
+}
+
+async function writeObjectVersion(
+  tx: Transaction,
+  target: WriteTarget,
+  object: PreparedResource,
+  typed: TypedProjection | null | undefined,
+): Promise<Uuid> {
+  if (target.typed != null && typed != null) {
+    const { attributedTo: _, ...columns } = typed;
+    const revision = await writeTypedResourceRevision(tx, {
+      resourceId: target.id,
+      expectedRevisionId: target.head.id,
+      kind: "snapshot",
+      document: object.document,
+      columns,
+      addressingOccurrences: object.addressing,
+      relations: object.relations,
+    });
+    return revision.id;
+  }
+  const revision = await appendResourceRevision(tx, {
+    resourceId: target.id,
+    resourceKind: "object",
+    expectedRevisionId: target.head.id,
+    kind: "snapshot",
+    document: object.document,
+    capture: "local",
+    addressingOccurrences: object.addressing,
+    relations: object.relations,
+  });
+  await replaceAddressing(tx, target.id, object.addressing);
+  return revision.id;
+}
+
+async function writeWhiteout(
+  tx: Transaction,
+  target: WriteTarget,
+  deleted: Temporal.Instant,
+): Promise<Uuid> {
+  // Former types keep the spelling of ActivityStreams types, as legacy
+  // whiteouts do, whatever key named the type.
+  const prefix = "https://www.w3.org/ns/activitystreams#";
+  const formerTypes = [
+    target.type.startsWith(prefix)
+      ? target.type.slice(prefix.length)
+      : target.type,
+  ];
+  const revision =
+    target.typed == null
+      ? await appendResourceRevision(tx, {
+          resourceId: target.id,
+          resourceKind: "object",
+          expectedRevisionId: target.head.id,
+          kind: "whiteout",
+          deleted,
+          formerTypes,
+        })
+      : await writeTypedResourceRevision(tx, {
+          resourceId: target.id,
+          expectedRevisionId: target.head.id,
+          kind: "whiteout",
+          deleted,
+          formerTypes,
+        });
+  return revision.id;
+}
+
+function conflictError(request: LocalWriteRequest): LocalWriteError {
+  return request.operation === "create"
+    ? writeError(
+        "resource_conflict",
+        "Another write saved these resources first; preview a new write.",
+      )
+    : writeError(
+        "revision_conflict",
+        "The object changed after it was loaded; load it again.",
+      );
 }
 
 /**
  * Commits a previewed write in one transaction: it checks permission again
  * under the actor's lock, prepares the document again with the token's
- * values, and saves every new resource with its revision and indexes.  Any
- * failure leaves nothing.  Saving never delivers anything; publishing adds
- * the root activity to the actor's outbox and requires `reserveDispatch`.
+ * values, and saves every new resource with its revision and indexes; an
+ * edit or deletion also changes the current object and saves the generated
+ * activity in the actor's outbox.  Any failure leaves nothing.  Saving never
+ * delivers anything; publishing, editing, and deleting add an activity to the
+ * outbox and require `reserveDispatch`.
  * @returns The saved resources, or why nothing was saved.
  */
 export async function commitLocalWrite(
@@ -128,7 +323,7 @@ export async function commitLocalWrite(
   request: LocalWriteRequest,
   options: CommitOptions,
 ): Promise<CommitOutcome> {
-  const requestError = checkCreateRequest(request);
+  const requestError = checkRequest(request);
   if (requestError != null) return { ok: false, error: requestError };
   if (
     typeof options?.previewToken !== "string" ||
@@ -139,13 +334,13 @@ export async function commitLocalWrite(
       error: writeError("invalid_request", "A preview token is required."),
     };
   }
-  const publish = request.publish === true;
-  if (publish && typeof options.reserveDispatch !== "function") {
+  const outboxed = request.operation !== "create" || request.publish === true;
+  if (outboxed && typeof options.reserveDispatch !== "function") {
     return {
       ok: false,
       error: writeError(
         "invalid_request",
-        "Publishing requires a dispatch reservation.",
+        "Publishing, editing, and deleting require a dispatch reservation.",
       ),
     };
   }
@@ -153,7 +348,7 @@ export async function commitLocalWrite(
     env.previewKey,
     options.previewToken,
     principal.accountId,
-    await digestRequest(bindableRequest(request)),
+    await digestRequest(bindable(request)),
   );
   if (allocation == null) {
     return {
@@ -178,21 +373,14 @@ export async function commitLocalWrite(
       );
       if (isError(actor)) fail(actor);
       const writer = actor as WritingActor;
-      if (publish) await lockActorCollection(tx, writer.id, "outbox");
-      const prepared = await prepareCreate(
-        env.federation,
-        env.rootOrigin,
-        writer,
-        request,
-        allocation,
-        lookups(tx, writer),
-      );
+      if (outboxed) await lockActorCollection(tx, writer.id, "outbox");
+      const prepared = await prepare(env, tx, writer, request, allocation);
       if (isError(prepared)) fail(prepared);
-      const { resources } = prepared as Exclude<
-        typeof prepared,
-        LocalWriteError
-      >;
-      const newIris = resources.map(({ iri }) => iri);
+      const { resources, target, typed } = prepared as PreparedOperation;
+      const created = resources.filter(
+        ({ id }) => target == null || id !== target.id,
+      );
+      const newIris = created.map(({ iri }) => iri);
       const [existing] = await tx
         .select({ id: schema.resources.id })
         .from(schema.resources)
@@ -208,7 +396,7 @@ export async function commitLocalWrite(
       }
       // Register every IRI once, in one order, so that concurrent writers
       // never wait for each other's registrations in a cycle.
-      const ids = new Map(resources.map(({ iri, id }) => [iri, id]));
+      const ids = new Map(created.map(({ iri, id }) => [iri, id]));
       const iris = new Set([
         ...newIris,
         ...resources.flatMap(({ addressing }) =>
@@ -218,9 +406,30 @@ export async function commitLocalWrite(
       for (const iri of [...iris].sort()) {
         await ensureResource(tx, iri, ids.get(iri));
       }
-      await lockResources(tx, newIris);
+      await lockResources(tx, [
+        ...newIris,
+        ...(target == null ? [] : [target.iri]),
+      ]);
       const saved: SavedResource[] = [];
+      let whiteoutRevisionId: Uuid | undefined;
+      if (request.operation === "delete") {
+        whiteoutRevisionId = await writeWhiteout(
+          tx,
+          target!,
+          allocation.timestamp,
+        );
+      }
       for (const resource of resources) {
+        if (target != null && resource.id === target.id) {
+          const revisionId = await writeObjectVersion(
+            tx,
+            target,
+            resource,
+            typed,
+          );
+          saved.push({ ...resource, revisionId });
+          continue;
+        }
         const revision = await appendResourceRevision(tx, {
           resourceId: resource.id,
           resourceKind: resource.kind,
@@ -234,27 +443,43 @@ export async function commitLocalWrite(
         await storeAddressingOccurrences(tx, resource.id, resource.addressing);
         saved.push({ ...resource, revisionId: revision.id });
       }
-      if (publish) {
-        const root = saved.at(-1)!;
-        await addActorCollectionItem(tx, writer.id, "outbox", root.id);
-        await options.reserveDispatch!(tx, root);
+      if (outboxed) {
+        const activity = saved.at(-1)!;
+        await addActorCollectionItem(tx, writer.id, "outbox", activity.id);
+        await options.reserveDispatch!(tx, activity);
       }
-      return { resources: saved, published: publish };
+      return {
+        resources: saved,
+        published: outboxed,
+        ...(whiteoutRevisionId == null ? {} : { whiteoutRevisionId }),
+      };
     });
     return { ok: true, result };
   } catch (error) {
     if (error instanceof LocalWriteRollback) {
       return { ok: false, error: error.error };
     }
-    if (
-      error instanceof RevisionConflictError ||
-      error instanceof ResourceKindConflictError
-    ) {
+    if (error instanceof RevisionConflictError) {
+      return { ok: false, error: conflictError(request) };
+    }
+    if (error instanceof ResourceKindConflictError) {
       return {
         ok: false,
         error: writeError(
           "resource_conflict",
           "Another write saved these resources first; preview a new write.",
+        ),
+      };
+    }
+    if (
+      error instanceof LegacyResourceRevisionError ||
+      error instanceof ResourceRevisionStateError
+    ) {
+      return {
+        ok: false,
+        error: writeError(
+          "unsupported_edit",
+          "The object's current state cannot be changed safely.",
         ),
       };
     }

@@ -20,15 +20,21 @@
 import assert from "node:assert/strict";
 
 import {
+  type CommitOptions,
   type CreateRequest,
+  type JsonObject,
   type LocalWriteEnvironment,
+  type LocalWriteRequest,
   type SavedResource,
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
+import { objectSelection, toObject } from "@drfed/federation/object";
 import { type Database, schema } from "@drfed/models";
-import { PUBLIC_IRI } from "@drfed/models/resource";
+import { PUBLIC_IRI, ensureResource } from "@drfed/models/resource";
 import {
+  appendResourceRevision,
+  captureLegacyResourceRevision,
   listResourceRevisions,
   loadCurrentResourceRevision,
 } from "@drfed/models/resource-revision";
@@ -42,6 +48,7 @@ import {
   localActorId,
   localInstanceId,
   seedLocalActor,
+  seedObjects,
 } from "./seed.test.ts";
 
 const AS = "https://www.w3.org/ns/activitystreams";
@@ -813,6 +820,574 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       );
       assert.ok(!publishedObject.ok);
       assert.equal(publishedObject.error.type, "invalid_request");
+    });
+  });
+});
+
+/**
+ * Seeds a Note the way the legacy createObject mutation stores one.
+ * @returns Its IDs, IRI, and current revision.
+ */
+async function seedLegacyNote(
+  harness: Parameters<Parameters<typeof withFederation>[0]>[0],
+  addressing: Record<string, string[]> = {
+    to: [PUBLIC_IRI],
+    cc: [],
+    bto: [],
+    bcc: ["https://remote.example/users/blind"],
+    audience: [],
+  },
+) {
+  const id = uuidV7();
+  const activityId = uuidV7();
+  await seedObjects(harness.db, {
+    id,
+    activityId,
+    actorId: localActorId,
+    iri: `${actorIri}/${id}`,
+    type: "Note",
+    contentHtml: "<p>First</p>",
+    language: "en",
+    addressing,
+  });
+  const ctx = harness.federation.createContext(
+    new URL("https://test-instance.drfed.org"),
+    undefined,
+  );
+  const stored = await harness.db.query.objects.findFirst({
+    where: { id },
+    with: objectSelection,
+  });
+  assert.ok(stored != null);
+  const document = {
+    ...((await toObject(ctx, stored).toJsonLd()) as Record<string, unknown>),
+    ...addressing,
+  };
+  await harness.db
+    .update(schema.objects)
+    .set({ document, updated: stored.updated })
+    .where(eq(schema.objects.id, id));
+  await harness.db.transaction(async (tx) => {
+    await captureLegacyResourceRevision(tx, id);
+    await captureLegacyResourceRevision(tx, activityId);
+  });
+  const head = await loadCurrentResourceRevision(harness.db, id);
+  assert.ok(head != null);
+  return { id, activityId, iri: `${actorIri}/${id}`, head };
+}
+
+async function current(db: Database, id: Uuid) {
+  const head = await loadCurrentResourceRevision(db, id);
+  assert.ok(head != null);
+  return head;
+}
+
+const reserve = () => Promise.resolve();
+
+async function change(
+  env: LocalWriteEnvironment,
+  request: LocalWriteRequest,
+  reserveDispatch: CommitOptions["reserveDispatch"] = reserve,
+) {
+  const preview = await previewLocalWrite(env, principal, request);
+  assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
+  const outcome = await commitLocalWrite(env, principal, request, {
+    previewToken: preview.preview.token,
+    ...(reserveDispatch == null ? {} : { reserveDispatch }),
+  });
+  assert.ok(outcome.ok, JSON.stringify(!outcome.ok && outcome.error));
+  return { preview: preview.preview, result: outcome.result };
+}
+
+function edit(
+  objectId: Uuid,
+  expectedRevisionId: Uuid,
+  document: JsonObject,
+): LocalWriteRequest {
+  return {
+    operation: "edit",
+    actorId: localActorId,
+    objectId,
+    expectedRevisionId,
+    document,
+  };
+}
+
+function remove(objectId: Uuid, expectedRevisionId: Uuid): LocalWriteRequest {
+  return {
+    operation: "delete",
+    actorId: localActorId,
+    objectId,
+    expectedRevisionId,
+  };
+}
+
+describe("edits and deletions of current objects", () => {
+  it("edits a Note twice from what it loads, leaving the earlier Create intact", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result: initial } = await save(
+        env,
+        create(
+          {
+            "@context": AS,
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: {
+              type: "Note",
+              content: "A",
+              to: [PUBLIC_IRI],
+              bcc: ["https://remote.example/users/blind"],
+            },
+          },
+          [
+            { path: [], kind: "activity" },
+            { path: ["object"], kind: "object" },
+          ],
+        ),
+      );
+      const [noteResource, createResource] = initial.resources;
+      assert.ok(noteResource != null && createResource != null);
+      const reserved: SavedResource[] = [];
+      let head = await current(harness.db, noteResource.id);
+      for (const content of ["B", "C"]) {
+        const { preview, result } = await change(
+          env,
+          edit(noteResource.id, head.id, {
+            ...(head.document as JsonObject),
+            content,
+          }),
+          (_tx, activity) => {
+            reserved.push(activity);
+            return Promise.resolve();
+          },
+        );
+        assert.equal(preview.currentRevisionId, head.id);
+        const [version, update] = result.resources;
+        assert.equal(version?.document.content, content);
+        assert.equal(version?.document.id, noteResource.iri);
+        assert.equal(
+          version?.document.published,
+          noteResource.document.published,
+        );
+        assert.equal(typeof version?.document.updated, "string");
+        assert.equal(update?.generated, true);
+        assert.equal(update?.document.type, "Update");
+        assert.equal(update?.document.actor, actorIri);
+        const { "@context": _, ...embedded } = version!.document;
+        assert.deepEqual(update?.document.object, embedded);
+        assert.deepEqual(update?.document.bcc, [
+          "https://remote.example/users/blind",
+        ]);
+        assert.equal(reserved.at(-1)?.id, update?.id);
+        head = await current(harness.db, noteResource.id);
+        assert.equal(head.id, version?.revisionId);
+      }
+      assert.equal(head.sequence, 3);
+      // The Create keeps the version it embedded when it was saved.
+      const createHead = await current(harness.db, createResource.id);
+      assert.equal(
+        (createHead.document as { object: { content: string } }).object.content,
+        "A",
+      );
+      const outbox = await harness.db.query.collectionItems.findMany();
+      assert.deepEqual(
+        outbox.map(({ itemId }) => itemId).toSorted(),
+        reserved.map(({ id }) => id).toSorted(),
+      );
+    });
+  });
+
+  it("refuses stale, retyped, foreign, and unreserved edits without changes", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result } = await save(env, create(note));
+      const saved = result.resources[0]!;
+      const head = await current(harness.db, saved.id);
+      const document = head.document as JsonObject;
+      const before = await counts(harness.db);
+      const stale = await previewLocalWrite(
+        env,
+        principal,
+        edit(saved.id, uuidV7(), document),
+      );
+      assert.ok(!stale.ok);
+      assert.equal(stale.error.type, "revision_conflict");
+      const retyped = await previewLocalWrite(
+        env,
+        principal,
+        edit(saved.id, head.id, { ...document, type: "Article" }),
+      );
+      assert.ok(!retyped.ok);
+      assert.equal(retyped.error.type, "unsupported_edit");
+      const preview = await previewLocalWrite(
+        env,
+        principal,
+        edit(saved.id, head.id, { ...document, content: "B" }),
+      );
+      assert.ok(preview.ok);
+      const unreserved = await commitLocalWrite(
+        env,
+        principal,
+        edit(saved.id, head.id, { ...document, content: "B" }),
+        { previewToken: preview.preview.token },
+      );
+      assert.ok(!unreserved.ok);
+      assert.equal(unreserved.error.type, "invalid_request");
+      await assert.rejects(
+        commitLocalWrite(
+          env,
+          principal,
+          edit(saved.id, head.id, { ...document, content: "B" }),
+          {
+            previewToken: preview.preview.token,
+            reserveDispatch: () => Promise.reject(new Error("queue down")),
+          },
+        ),
+        /queue down/u,
+      );
+      assert.deepEqual(await counts(harness.db), before);
+      // Another edit committed after the preview wins.
+      await change(env, edit(saved.id, head.id, { ...document, content: "C" }));
+      const late = await commitLocalWrite(
+        env,
+        principal,
+        edit(saved.id, head.id, { ...document, content: "B" }),
+        { previewToken: preview.preview.token, reserveDispatch: reserve },
+      );
+      assert.ok(!late.ok);
+      assert.equal(late.error.type, "revision_conflict");
+
+      // An object attributed to someone else is not the actor's to edit.
+      const foreign = await ensureResource(
+        harness.db,
+        `${actorIri}/${uuidV7()}`,
+      );
+      const foreignHead = await appendResourceRevision(harness.db, {
+        resourceId: foreign.id,
+        resourceKind: "object",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "local",
+        document: {
+          "@context": AS,
+          id: foreign.iri,
+          type: "Note",
+          content: "x",
+          attributedTo: "https://remote.example/users/bob",
+        },
+      });
+      const notOwned = await previewLocalWrite(
+        env,
+        principal,
+        edit(foreign.id, foreignHead.id, {
+          "@context": AS,
+          type: "Note",
+          content: "y",
+        }),
+      );
+      assert.ok(!notOwned.ok);
+      assert.equal(notOwned.error.type, "unsupported_edit");
+    });
+  });
+
+  it("refuses an edited version that spells one indexed property twice", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result } = await save(
+        env,
+        create({
+          "@context": [AS, { hidden: { "@id": "as:bcc", "@type": "@id" } }],
+          type: "Note",
+          content: "x",
+          bcc: ["https://remote.example/users/one"],
+        }),
+      );
+      const saved = result.resources[0]!;
+      const head = await current(harness.db, saved.id);
+      const outcome = await previewLocalWrite(
+        env,
+        principal,
+        edit(saved.id, head.id, {
+          ...(head.document as JsonObject),
+          hidden: ["https://remote.example/users/two"],
+        }),
+      );
+      assert.ok(!outcome.ok);
+      assert.deepEqual(
+        outcome.error.diagnostics.map(({ reason, path }) => [reason, path]),
+        [["unsupported_value_form", ["hidden"]]],
+      );
+    });
+  });
+
+  it("edits and deletes documents that spell their keywords and fields by aliases", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result } = await save(
+        env,
+        create({
+          "@context": [
+            AS,
+            {
+              pub: { "@id": "as:published", "@type": "xsd:dateTime" },
+              xsd: "http://www.w3.org/2001/XMLSchema#",
+            },
+          ],
+          "@type": "Note",
+          content: "x",
+          pub: null,
+        }),
+      );
+      const saved = result.resources[0]!;
+      assert.equal(typeof saved.document.pub, "string");
+      let head = await current(harness.db, saved.id);
+      const { result: edited } = await change(
+        env,
+        edit(saved.id, head.id, {
+          ...(head.document as JsonObject),
+          content: "y",
+        }),
+      );
+      assert.equal(edited.resources[0]?.document.pub, saved.document.pub);
+      // A singleton list is the same publication and updated time.
+      head = await current(harness.db, saved.id);
+      const listed = head.document as JsonObject;
+      await change(
+        env,
+        edit(saved.id, head.id, {
+          ...listed,
+          pub: [listed.pub!],
+          updated: [listed.updated!],
+        }),
+      );
+      head = await current(harness.db, saved.id);
+      await change(
+        env,
+        edit(saved.id, head.id, {
+          ...(head.document as JsonObject),
+          content: "z",
+        }),
+      );
+      head = await current(harness.db, saved.id);
+      await change(env, remove(saved.id, head.id));
+      const whiteout = await current(harness.db, saved.id);
+      assert.deepEqual(whiteout.formerTypes, ["Note"]);
+    });
+  });
+
+  it("keeps a missing publication time missing", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const resource = await ensureResource(
+        harness.db,
+        `${actorIri}/${uuidV7()}`,
+      );
+      const head = await appendResourceRevision(harness.db, {
+        resourceId: resource.id,
+        resourceKind: "object",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "local",
+        document: {
+          "@context": AS,
+          id: resource.iri,
+          type: "Note",
+          content: "x",
+          attributedTo: actorIri,
+        },
+      });
+      const added = await previewLocalWrite(
+        env,
+        principal,
+        edit(resource.id, head.id, {
+          "@context": AS,
+          type: "Note",
+          content: "y",
+          published: "2026-01-01T00:00:00Z",
+        }),
+      );
+      assert.ok(!added.ok);
+      assert.deepEqual(
+        added.error.diagnostics.map(({ reason, path }) => [reason, path]),
+        [["server_owned_field_conflict", ["published"]]],
+      );
+      const { result } = await change(
+        env,
+        edit(resource.id, head.id, {
+          "@context": AS,
+          type: "Note",
+          content: "y",
+          published: null,
+        }),
+      );
+      // Null is absence, as the validator reads it.
+      assert.equal(result.resources[0]?.document.published ?? null, null);
+    });
+  });
+
+  it("edits a legacy typed Note in step with the columns it is served from", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const legacy = await seedLegacyNote(harness);
+      const loaded = legacy.head.document as JsonObject;
+      const { preview, result } = await change(
+        env,
+        edit(legacy.id, legacy.head.id, {
+          ...loaded,
+          content: "<p>Second</p>",
+          contentMap: { en: "<p>Second</p>" },
+        }),
+      );
+      assert.ok(
+        preview.changes.some(
+          ({ reason }) => reason === "replace_legacy_context",
+        ),
+      );
+      const [version] = result.resources;
+      assert.deepEqual(version?.document["@context"], [
+        AS,
+        { sensitive: "as:sensitive" },
+      ]);
+      const row = await harness.db.query.objects.findFirst({
+        where: { id: legacy.id },
+      });
+      assert.equal(row?.contentHtml, "<p>Second</p>");
+      assert.equal(row?.language, "en");
+      assert.equal(row?.updated.toString(), version?.document.updated);
+      const response = await harness.federation.fetch(
+        new Request(legacy.iri, {
+          headers: { accept: "application/activity+json" },
+        }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).content, "<p>Second</p>");
+      // The legacy Create and its revision are untouched.
+      const createHead = await current(harness.db, legacy.activityId as Uuid);
+      assert.equal(createHead.sequence, 1);
+
+      const head = await current(harness.db, legacy.id);
+      for (const content of ["   ", "<p>Third</p>"]) {
+        const document = { ...(head.document as JsonObject), content };
+        if (content.trim() === "") {
+          const blank = await previewLocalWrite(
+            env,
+            principal,
+            edit(legacy.id, head.id, document),
+          );
+          assert.ok(!blank.ok);
+          assert.equal(blank.error.type, "unsupported_edit");
+        }
+      }
+      // A served column changed outside the history is drift.
+      await harness.db
+        .update(schema.objects)
+        .set({ contentHtml: "<p>Drifted</p>" })
+        .where(eq(schema.objects.id, legacy.id));
+      const drifted = await previewLocalWrite(
+        env,
+        principal,
+        edit(legacy.id, head.id, {
+          ...(head.document as JsonObject),
+          contentMap: null,
+          content: "<p>Third</p>",
+        }),
+      );
+      assert.ok(!drifted.ok);
+      assert.equal(drifted.error.type, "unsupported_edit");
+    });
+  });
+
+  it("deletes objects with a whiteout and a Delete addressed as they were", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const context = [AS, { hidden: { "@id": "as:bcc", "@type": "@id" } }];
+      const { result: initial } = await save(
+        env,
+        create({
+          "@context": context,
+          type: "Note",
+          content: "x",
+          to: [PUBLIC_IRI],
+          hidden: [
+            "https://remote.example/users/blind",
+            "https://remote.example/users/blind",
+          ],
+        }),
+      );
+      const saved = initial.resources[0]!;
+      const head = await current(harness.db, saved.id);
+      const before = await counts(harness.db);
+      await assert.rejects(
+        change(env, remove(saved.id, head.id), () =>
+          Promise.reject(new Error("queue down")),
+        ),
+        /queue down/u,
+      );
+      assert.deepEqual(await counts(harness.db), before);
+      const { result } = await change(env, remove(saved.id, head.id));
+      const [deletion] = result.resources;
+      assert.deepEqual(deletion?.document["@context"], context);
+      assert.equal(deletion?.document.type, "Delete");
+      assert.equal(deletion?.document.object, saved.iri);
+      assert.deepEqual(deletion?.document.to, [PUBLIC_IRI]);
+      assert.deepEqual(deletion?.document.hidden, [
+        "https://remote.example/users/blind",
+        "https://remote.example/users/blind",
+      ]);
+      const whiteout = await current(harness.db, saved.id);
+      assert.equal(whiteout.kind, "whiteout");
+      assert.equal(whiteout.id, result.whiteoutRevisionId);
+      assert.deepEqual(whiteout.formerTypes, ["Note"]);
+      // The last content's recipients still describe the deleted object.
+      assert.equal(
+        await harness.db.$count(
+          schema.addressing,
+          eq(schema.addressing.sourceId, saved.id),
+        ),
+        3,
+      );
+      const again = await previewLocalWrite(
+        env,
+        principal,
+        remove(saved.id, whiteout.id),
+      );
+      assert.ok(!again.ok);
+      assert.equal(again.error.type, "unsupported_edit");
+    });
+  });
+
+  it("deletes a legacy typed Note, which is then served as a Tombstone", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const legacy = await seedLegacyNote(harness);
+      const { result } = await change(env, remove(legacy.id, legacy.head.id));
+      const [deletion] = result.resources;
+      assert.equal(deletion?.document["@context"], AS);
+      assert.deepEqual(deletion?.document.to, [PUBLIC_IRI]);
+      assert.deepEqual(deletion?.document.bcc, [
+        "https://remote.example/users/blind",
+      ]);
+      const row = await harness.db.query.objects.findFirst({
+        where: { id: legacy.id },
+      });
+      assert.notEqual(row?.deleted, null);
+      const response = await harness.federation.fetch(
+        new Request(legacy.iri, {
+          headers: { accept: "application/activity+json" },
+        }),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 410);
     });
   });
 });

@@ -649,6 +649,7 @@ export async function prepareCreate(
       kind,
       id,
       iri,
+      generated: false,
       document,
       ...indexDocument(document),
     });
