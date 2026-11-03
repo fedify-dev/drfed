@@ -224,7 +224,7 @@ asynchronously. Generic `Tombstone` serving with `410 Gone` belongs to the
 generalized federation integration. Dispatch must freeze its own outgoing
 document; retained revisions are not wire payloads.
 
-Storage tests cover 30 activity type fixtures, including `Activity` and
+Storage tests cover fixtures for 30 activity types, including `Activity` and
 `IntransitiveActivity`, and the `Object` base. They include nested
 `Undo`/`Like` and `Accept`/`Follow`, `Add` targets, `Arrive` without an object,
 both uses of `Question`, and custom contexts and extensions. These are storage
