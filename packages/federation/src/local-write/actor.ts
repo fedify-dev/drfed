@@ -16,7 +16,7 @@
 
 import { type Database, type Transaction, schema } from "@drfed/models";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
-import { and, eq, gt, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 
 import { instanceUrl } from "../origin.ts";
 import {
@@ -136,7 +136,9 @@ export async function localActorIris(
 }
 
 /**
- * Finds which IRIs are registered resources.
+ * Finds which IRIs are registered resources of a known kind.  A resource of
+ * the `unknown` kind was only registered because a document referred to it,
+ * as an addressing or relation target, so it proves nothing about the IRI.
  * @returns The IRIs among those given that are.
  */
 export async function registeredIris(
@@ -147,6 +149,11 @@ export async function registeredIris(
   const rows = await db
     .select({ iri: schema.resources.iri })
     .from(schema.resources)
-    .where(inArray(schema.resources.iri, [...iris]));
+    .where(
+      and(
+        inArray(schema.resources.iri, [...iris]),
+        ne(schema.resources.kind, "unknown"),
+      ),
+    );
   return new Set(rows.map(({ iri }) => iri));
 }

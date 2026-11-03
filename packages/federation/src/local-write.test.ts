@@ -653,6 +653,42 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
+  it("does not accept an id that is registered only as a reference", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const forged = "https://test-instance.drfed.org/ap/activities/forged";
+      const request = create(
+        {
+          "@context": AS,
+          type: "Undo",
+          object: { type: "Like", id: forged, object: "https://x.example/" },
+        },
+        [{ path: [], kind: "activity" }],
+      );
+      const refused = async () => {
+        const outcome = await previewLocalWrite(env, principal, request);
+        assert.ok(!outcome.ok);
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path }) => [reason, path])
+            : outcome.error.type,
+          [["unauthorized_local_identity", ["object", "id"]]],
+        );
+      };
+      await refused();
+      // Addressing the IRI registers it, but only as a reference.
+      await save(env, create({ ...note, to: forged }));
+      const registered = await harness.db.query.resources.findFirst({
+        where: { iri: forged },
+      });
+      assert.equal(registered?.kind, "unknown");
+      await refused();
+    });
+  });
+
   it("checks membership on every preview and commit", async () => {
     for (const scenario of ["pending", "missing", "expired", "deleted"]) {
       await withFederation(async (harness) => {
