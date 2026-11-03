@@ -232,7 +232,6 @@ export function imageAnnotations(
     "org.opencontainers.image.documentation":
       "https://drfed.org/installation/container",
     "org.opencontainers.image.source": "https://github.com/fedify-dev/drfed",
-    "org.opencontainers.image.licenses": "AGPL-3.0-only",
     "org.opencontainers.image.version": metadata.build.version,
     "org.opencontainers.image.revision": metadata.build.sha,
     "org.opencontainers.image.created": metadata.created,

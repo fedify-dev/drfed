@@ -70,7 +70,6 @@ LABEL org.opencontainers.image.title="DrFed" \
   org.opencontainers.image.url="https://drfed.org/" \
   org.opencontainers.image.documentation="https://drfed.org/installation/container" \
   org.opencontainers.image.source="https://github.com/fedify-dev/drfed" \
-  org.opencontainers.image.licenses="AGPL-3.0-only" \
   org.opencontainers.image.version="$DRFED_VERSION" \
   org.opencontainers.image.revision="$DRFED_REVISION" \
   org.opencontainers.image.created="$DRFED_CREATED" \
