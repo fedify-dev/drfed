@@ -190,7 +190,14 @@ const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const maximumDiagnostics = 100;
 const maximumPathDepth = 64;
 const actorTypes = [Application, Group, Organization, Person, Service];
-const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
+/** The ActivityStreams properties that address a document's recipients. */
+export const addressingProperties = [
+  "to",
+  "cc",
+  "bto",
+  "bcc",
+  "audience",
+] as const;
 // AS2 vocabulary Object properties that do not also apply to Link.
 const objectOnlyProperties: ReadonlySet<string> = new Set([
   "attachment",

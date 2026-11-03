@@ -22,6 +22,7 @@ import {
   type JsonValue,
   type NormalizationChange,
   type ServerOwnedField,
+  addressingProperties,
   describeDocument,
   diagnosticReasons,
   prepareDocument,
@@ -56,7 +57,6 @@ const nestingProperties: ReadonlySet<string> = new Set([
   "result",
   "instrument",
 ]);
-const addressingProperties = ["to", "cc", "bto", "bcc", "audience"] as const;
 const relationProperties = [
   "actor",
   "object",

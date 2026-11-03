@@ -20,6 +20,7 @@ import {
   type JsonValue,
   type NormalizationChange,
   type ServerOwnedField,
+  addressingProperties,
   describeDocument,
   diagnosticReasons,
   prepareDocument,
@@ -64,7 +65,6 @@ import {
 } from "./types.ts";
 
 const activityStreams = "https://www.w3.org/ns/activitystreams";
-const addressingProperties = ["to", "cc", "bto", "bcc", "audience"] as const;
 /** The allocation key of the activity an edit or deletion generates. */
 export const generatedKey = pathKey(["#generated"]);
 
