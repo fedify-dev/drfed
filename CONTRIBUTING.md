@@ -129,6 +129,8 @@ mise run dev
     `node scripts/add-license/main.mts --check`.
  -  Package version sync with `node scripts/check-versions.mts`.
  -  Package order with `node scripts/check-packages.mts`.
+ -  *docker/Containerfile* linting with hadolint and shell script linting of
+    *docker/* with ShellCheck.
  -  GitHub workflow and local composite action validation with jactionlint.
  -  Changelog fragment validation and formatting with Sacho.
 

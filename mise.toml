@@ -5,6 +5,7 @@ experimental = true
 
 [tools]
 "aqua:dahlia/hongdown" = "0.4.3"
+"aqua:hadolint/hadolint" = "2.15.1"
 "github:jdx/jactionlint" = "2.1.0"
 "github:dahlia/sacho" = "0.3.2"
 "aqua:koalaman/shellcheck" = "0.11.0"
@@ -196,6 +197,14 @@ run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
 [tasks."check:images"]
 description = "Exercise the container engine, Compose image tag and layout calculations"
 run = "node --test scripts/images/engines.test.mts scripts/images/compose-tags.test.mts scripts/images/layout.test.mts scripts/images/snippets.test.mts scripts/images/test/harness.test.mts"
+
+[tasks."check:containerfile"]
+description = "Lint the container image's Containerfile"
+run = "hadolint docker/Containerfile"
+
+[tasks."check:shell"]
+description = "Lint the container image's shell scripts"
+run = "shellcheck docker/*.sh"
 
 [tasks."check:packages"]
 description = "Check the package order against packages/ and the Containerfile"
