@@ -23,6 +23,7 @@ import process from "node:process";
 
 import createFederation from "@drfed/federation";
 import {
+  type CommitOutcome,
   type CreateRequest,
   type LocalWriteEnvironment,
   commitLocalWrite,
@@ -40,6 +41,7 @@ import {
   created,
   localActorId,
   localInstanceId,
+  seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
 
@@ -47,6 +49,7 @@ import {
 // oxlint-disable-next-line node/no-process-env
 const postgresUrl = process.env.DRFED_TEST_POSTGRES_URL;
 const accountId = "00000000-0000-4000-8000-000000000301" as Uuid;
+const secondActorId = "00000000-0000-4000-8000-000000000203" as Uuid;
 const principal = { accountId };
 
 interface Connection {
@@ -112,10 +115,33 @@ async function withDatabase<T>(
   }
 }
 
-function note(to: readonly string[]): CreateRequest {
+/** Seeds a second local actor of the member's instance. */
+async function seedSecondActor(db: Database): Promise<void> {
+  await db.insert(schema.localActors).values({ id: secondActorId });
+  await seedActors(
+    db,
+    {
+      id: secondActorId,
+      localId: secondActorId,
+      instanceId: localInstanceId,
+      type: "Person",
+      username: "bob",
+      iri: `https://test-instance.drfed.org/users/${secondActorId}`,
+      inboxUrl: `https://test-instance.drfed.org/users/${secondActorId}/inbox`,
+      profileUrl: "https://test-instance.drfed.org/@bob",
+      created,
+    },
+    { keys: false },
+  );
+}
+
+function note(
+  to: readonly string[],
+  actorId: Uuid = localActorId,
+): CreateRequest {
   return {
     operation: "create",
-    actorId: localActorId,
+    actorId,
     document: {
       "@context": "https://www.w3.org/ns/activitystreams",
       type: "Note",
@@ -179,28 +205,56 @@ describe("commitLocalWrite() on PostgreSQL", () => {
     options,
     async () => {
       await withDatabase(async (url, env) => {
+        // Two actors, so that the writers do not wait for each other on one
+        // actor's lock.  Recipients sort in their array order.
+        await seedSecondActor(env.db);
         const recipients = Array.from(
           { length: 20 },
-          (_, index) => `https://remote.example/users/${index}`,
+          (_, index) =>
+            `https://remote.example/users/${String(index).padStart(2, "0")}`,
         );
-        const requests = [note(recipients), note(recipients.toReversed())];
+        const requests = [
+          note(recipients),
+          note(recipients.toReversed(), secondActorId),
+        ];
         const tokens = await Promise.all(
           requests.map((request) => previewToken(env, request)),
         );
+        const holder = connect(url);
         const connections = [connect(url), connect(url)];
         try {
-          const outcomes = await Promise.all(
-            connections.map((connection, index) =>
-              commitLocalWrite(
-                { ...env, db: connection.db },
-                principal,
-                requests[index]!,
-                { previewToken: tokens[index]! },
+          let pending: Promise<CommitOutcome[]> | undefined;
+          // Holding a recipient in the middle stops both writers there.  In
+          // opposite orders, each would by then hold the recipients the other
+          // needs next, and releasing it would deadlock them.
+          await holder.client.begin(async (tx) => {
+            await tx`
+              INSERT INTO resources (id, iri, kind)
+              VALUES (${randomUUID()}, ${recipients[10]!}, 'unknown')`;
+            pending = Promise.all(
+              connections.map((connection, index) =>
+                commitLocalWrite(
+                  { ...env, db: connection.db },
+                  principal,
+                  requests[index]!,
+                  { previewToken: tokens[index]! },
+                ),
               ),
-            ),
-          );
+            );
+            for (let attempt = 0; attempt < 100; attempt += 1) {
+              const [row] = await tx`
+              SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted`;
+              if ((row?.waiting ?? 0) >= 2) break;
+              await new Promise((resolve) => {
+                setTimeout(resolve, 50);
+              });
+            }
+          });
+          const outcomes = await pending!;
           assert.ok(outcomes.every(({ ok }) => ok));
+          assert.equal(await env.db.$count(schema.resourceRevisions), 2);
         } finally {
+          await holder.client.end();
           await Promise.all(connections.map(({ client }) => client.end()));
         }
       });
