@@ -38,6 +38,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { imageAnnotations } from "./images/layout.mts";
+
 const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./release.mts", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "drfed-release-image-"));
@@ -275,7 +277,8 @@ process.exitCode = code;
 const env: NodeJS.ProcessEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key]) => !/^(?:ACTIONS_|GH_TOKEN|GITHUB_|GIT_)/u.test(key),
+      ([key]) =>
+        !/^(?:ACTIONS_|GH_TOKEN|GITHUB_|GIT_|DOCKER_CONFIG$)/u.test(key),
     ),
   ),
   PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
@@ -473,6 +476,11 @@ try {
       "utf8",
     ),
   );
+  const metadataPath = join(images, "linux-arm64", "drfed-image.json");
+  const metadata = await readFile(metadataPath, "utf8");
+  // The release workflow alone builds an index, so this is its only check
+  // before a release.
+  assert.deepEqual(index.annotations, imageAnnotations(JSON.parse(metadata)));
   assert.deepEqual(
     JSON.parse(index.annotations["org.drfed.build"]),
     currentBuild,
@@ -482,8 +490,6 @@ try {
     "0.2.0-dev.7",
   );
   assert.equal((await run(["image-index"])).outputs.digest, digest);
-  const metadataPath = join(images, "linux-arm64", "drfed-image.json");
-  const metadata = await readFile(metadataPath, "utf8");
   await writeFile(
     metadataPath,
     metadata.replace('"runNumber":"7"', '"runNumber":"8"'),
