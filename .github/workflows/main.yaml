@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: true
           experimental: true
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: true
           experimental: true
@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: true
           experimental: true
@@ -118,7 +118,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: true
           experimental: true
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -183,7 +183,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -249,7 +249,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -321,7 +321,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -385,7 +385,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -422,7 +422,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -489,7 +489,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -518,7 +518,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: true
           experimental: true
@@ -588,7 +588,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
@@ -665,7 +665,7 @@ jobs:
           persist-credentials: false
       # Keep the Wrangler version in sync with the docs:deploy task in
       # mise.toml.  If they differ, the deployment fails without installing.
-      - uses: jdx/mise-action@v5.1.2
+      - uses: jdx/mise-action@v5.2.6
         with:
           cache: false
           experimental: true
