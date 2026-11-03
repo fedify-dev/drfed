@@ -81,6 +81,6 @@ LABEL org.opencontainers.image.title="DrFed" \
 
 USER node
 WORKDIR /var/lib/drfed
-EXPOSE 8888
+EXPOSE 8888 3000
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["drfed-server"]

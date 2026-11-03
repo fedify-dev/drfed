@@ -110,6 +110,13 @@ Plain HTTP to a backend other than loopback needs
 network.  Set `DRFED_LOGIN_ORIGINS` and `DRFED_PUBLIC_ORIGIN` to the
 frontend's public origin.
 
+The backend stays published on loopback port 8888.  It alone serves instance
+subdomains such as `http://alice.drfed.localhost:8888`, so ActivityPub requests
+and the reverse proxy in [Exposing DrFed to the fediverse] still go to that
+port rather than to the frontend.
+
+[Exposing DrFed to the fediverse]: /installation/container/#exposing-drfed-to-the-fediverse
+
 
 Backups and upgrades
 --------------------
