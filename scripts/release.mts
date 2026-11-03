@@ -49,7 +49,8 @@ import { packageOrder } from "./packages.mts";
 
 const execute = promisify(execFile);
 const repository = "fedify-dev/drfed";
-const workflow = ".github/workflows/main.yaml";
+const releaseWorkflow = ".github/workflows/main.yaml";
+const imageAttestationWorkflow = ".github/workflows/publish.yaml";
 const cliArgs = process.argv.slice(2);
 const command = cliArgs.shift();
 function option(name: string, fallback: string): string {
@@ -258,7 +259,7 @@ async function calculate(): Promise<Version> {
     runNumber,
     runId,
     ref,
-    workflow,
+    workflow: releaseWorkflow,
   };
 }
 function buildFromEnvironment(): Version {
@@ -269,7 +270,7 @@ function buildFromEnvironment(): Version {
   parseVersion(build.version);
   assert.match(build.sha, /^[a-f0-9]{40}$/u);
   assert.equal(build.ref, process.env.GITHUB_REF);
-  assert.equal(build.workflow, workflow);
+  assert.equal(build.workflow, releaseWorkflow);
   assert.equal(process.env.GITHUB_EVENT_NAME, "push");
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   assert.equal(build.runNumber, process.env.GITHUB_RUN_NUMBER);
@@ -672,7 +673,7 @@ function newerChannelBuild(
   }
   assert.equal(
     current?.workflow,
-    workflow,
+    releaseWorkflow,
     `Cannot order a foreign dev build of ${subject}`,
   );
   const runNumber = current?.runNumber;
@@ -1258,7 +1259,7 @@ function attestationConstraints(build: Version): string[] {
     "--repo",
     repository,
     "--signer-workflow",
-    `${repository}/${workflow}`,
+    `${repository}/${imageAttestationWorkflow}`,
     "--source-ref",
     build.ref,
     "--source-digest",

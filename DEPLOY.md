@@ -106,15 +106,16 @@ Current setup: GitHub Pages and Cloudflare Pages
 
 ### Jobs
 
- -  *.github/workflows/main.yaml* `docs`: builds the site on every event and
-    uploads it as the `docs-<run-id>` artifact.  It uses no secrets.
- -  *.github/workflows/main.yaml* `docs-release`: deploys release tags to
-    GitHub Pages after `github-release`.
- -  *.github/workflows/main.yaml* `docs-canary`: uploads `main` builds to
-    Cloudflare Pages as production deployments after `check`, `test`, and
+ -  *.github/workflows/docs.yaml* `docs`: builds the site for documentation
+    changes and release runs, then uploads it as the `docs-<run-id>` artifact.
+    It uses no secrets.
+ -  *.github/workflows/docs-release.yaml* `docs-release`: deploys release tags
+    to GitHub Pages after `github-release`.
+ -  *.github/workflows/docs-canary.yaml* `docs-canary`: uploads `main` builds
+    to Cloudflare Pages as production deployments after `check`, `test`, and
     `publish`.
  -  *.github/workflows/docs-preview.yaml* `preview`: runs on `workflow_run`
-    after a pull request run of `main`, uploads a Cloudflare Pages preview,
+    after a pull request run of `docs`, uploads a Cloudflare Pages preview,
     and posts or updates a comment on the pull request.
 
 ### Repository settings
@@ -194,7 +195,7 @@ Same-repository and fork pull requests take the same path.  Cloudflare's
 automatic Git previews do not exist here, because the project has no Git
 integration.
 
-1.  The pull request run of `main` builds the site from the merge ref without
+1.  The pull request run of `docs` builds the site from the merge ref without
     secrets and uploads the artifact.  A fork's run may first wait for a
     maintainer's approval.
 2.  `preview` runs from the default branch's workflow file and checks out the

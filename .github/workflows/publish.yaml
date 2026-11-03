@@ -1,0 +1,109 @@
+name: publish
+
+on:
+  workflow_call:
+    inputs:
+      build:
+        description: The calculated release build identity
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-${{ github.run_id }}
+          path: release-artifacts
+      - name: Publish the verified tarballs with npm trusted publishing
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/drfed-npmrc
+        run: mise run release:publish
+
+  image-publish:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-amd64
+          path: image-artifacts/linux-amd64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-arm64
+          path: image-artifacts/linux-arm64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-index-${{ github.run_id }}
+          path: image-artifacts/index
+      # crane, gh attestation, actions/attest and @sigstore/oci all read the
+      # credentials this step stores.
+      - name: Log in to the GitHub Container Registry
+        run: >-
+          printf '%s' "$GH_TOKEN" |
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Push the verified image index
+        id: push
+        run: mise run release:image-push
+      - name: Find which copies of the provenance attestation exist
+        id: attestation
+        run: mise run release:image-attestation status
+      # actions/attest writes to the registry; recheck the release tag first.
+      - name: Check that the release tag still names this commit
+        if: steps.attestation.outputs.state == 'none'
+        run: mise run release:tag-target
+      - uses: actions/attest@v4.2.2
+        if: steps.attestation.outputs.state == 'none'
+        with:
+          subject-name: ${{ steps.push.outputs.subject }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Attach the attestation stored on GitHub to the registry
+        if: steps.attestation.outputs.state == 'github-only'
+        run: mise run release:image-attestation attach
+      - name: Verify the attestation from GitHub and from the registry
+        run: mise run release:image-attestation verify
+      - name: Advance the channel tag and check anonymous pulls
+        run: mise run release:image-tags
