@@ -53,6 +53,11 @@ if (!isSemver(version)) {
   console.error(`Invalid semver version: ${version}`);
   process.exit(1);
 }
+// Release tags never carry build metadata, and image tags cannot spell it.
+if (version.includes("+")) {
+  console.error(`Build metadata is not allowed in a version: ${version}`);
+  process.exit(1);
+}
 
 const packageJsonPaths = await findPackageJsonPaths();
 if (packageJsonPaths.length === 0) {

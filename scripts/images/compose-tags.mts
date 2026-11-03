@@ -36,6 +36,9 @@ const imageLine =
   /^(?<prefix>\s+image: ghcr\.io\/fedify-dev\/drfed:)(?<tag>\S+)$/gmu;
 // Any image line that seems to mean DrFed, however it is spelled.
 const looseImageLine = /^\s*image:.*drfed/gmu;
+// The tag grammar of the OCI Distribution Specification; SemVer build
+// metadata, for one, cannot be spelled in it.
+const ociTag = /^\w[\w.-]{0,127}$/u;
 
 /** The DrFed image tag of one Compose example, or why there is none. */
 export type ImageTag =
@@ -45,7 +48,8 @@ export type ImageTag =
 /**
  * Find the single DrFed image tag of a Compose example.  A missing, quoted,
  * misspelled or repeated image line is a problem, so that no example silently
- * escapes the version check and the version bump.
+ * escapes the version check and the version bump, and so is a tag that an
+ * OCI registry cannot store.
  * @returns The tag, or the problem.
  */
 export function findImageTag(content: string): ImageTag {
@@ -53,7 +57,12 @@ export function findImageTag(content: string): ImageTag {
     (match) => match.groups!.tag!,
   );
   const loose = [...content.matchAll(looseImageLine)].length;
-  if (tags.length === 1 && loose === 1) return { tag: tags[0]! };
+  if (tags.length === 1 && loose === 1) {
+    const tag = tags[0]!;
+    return ociTag.test(tag)
+      ? { tag }
+      : { problem: `names ${tag}, which is not a valid image tag` };
+  }
   return {
     problem:
       tags.length === 0 && loose === 0
@@ -74,9 +83,10 @@ export function withImageTag(
   if (found.problem !== undefined) return { problem: found.problem };
   const updated = content.replaceAll(imageLine, `$<prefix>${version}`);
   const result = findImageTag(updated);
+  if (result.problem !== undefined) return { problem: result.problem };
   return result.tag === version
     ? { content: updated }
-    : { problem: `would name ${result.tag ?? "no image"}, not ${version}` };
+    : { problem: `would name ${result.tag}, not ${version}` };
 }
 
 const readExamples = () =>

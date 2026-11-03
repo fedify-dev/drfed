@@ -57,6 +57,22 @@ describe("findImageTag()", () => {
       assert.ok(found.problem, image);
     }
   });
+
+  it("accepts release and prerelease tags", () => {
+    for (const tag of ["0.2.0", "0.2.0-rc.1", "0.2.0-dev.123", "latest"]) {
+      const image = `    image: ghcr.io/fedify-dev/drfed:${tag}\n`;
+      assert.deepEqual(findImageTag(example(image)), { tag });
+    }
+  });
+
+  it("rejects tags that the OCI grammar does not allow", () => {
+    for (const tag of ["0.2.0+build.1", ".0.2.0", "-rc", "a".repeat(129)]) {
+      const image = `    image: ghcr.io/fedify-dev/drfed:${tag}\n`;
+      const found = findImageTag(example(image));
+      assert.equal(found.tag, undefined, tag);
+      assert.match(found.problem ?? "", /not a valid image tag/u, tag);
+    }
+  });
 });
 
 describe("withImageTag()", () => {
@@ -69,5 +85,11 @@ describe("withImageTag()", () => {
   it("refuses an example whose image line it cannot find", () => {
     const quoted = example('    image: "ghcr.io/fedify-dev/drfed:0.2.0"\n');
     assert.ok("problem" in withImageTag(quoted, "0.3.0"));
+  });
+
+  it("refuses a version that is not a valid image tag", () => {
+    assert.deepEqual(withImageTag(example(line), "0.3.0+build.1"), {
+      problem: "names 0.3.0+build.1, which is not a valid image tag",
+    });
   });
 });
