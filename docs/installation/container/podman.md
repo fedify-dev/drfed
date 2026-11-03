@@ -49,12 +49,19 @@ container, and the server's database connections can stall for 20 seconds or
 more.  Use Podman 5.7, the version CI tests, or add `--no-deps` to
 `podman compose run` while PostgreSQL is running.
 
-`podman compose` runs an external Compose provider: `docker-compose` if it is
-installed, otherwise `podman-compose`.  CI tests these steps with
-`docker-compose`.  To choose another provider, set `PODMAN_COMPOSE_PROVIDER` or
-`compose_providers` in *containers.conf*; set
-`PODMAN_COMPOSE_WARNING_LOGS=false` to hide the notice it prints for each
-command.  See [`podman compose`].
+`podman compose` runs an external Compose provider, and Podman includes none, so
+install [Docker Compose] or [podman-compose] first and check that Podman finds
+it:
+
+~~~~ sh
+podman compose version
+~~~~
+
+It runs `docker-compose` if it is installed, otherwise `podman-compose`.  CI
+tests these steps with `docker-compose`.  To choose another provider, set
+`PODMAN_COMPOSE_PROVIDER`, which takes precedence, or `compose_providers` in the
+`[engine]` table of *containers.conf*; set `PODMAN_COMPOSE_WARNING_LOGS=false`
+to hide the notice it prints for each command.  See [`podman compose`].
 
 If `DOCKER_HOST` is set, `podman compose` passes it to the provider, which then
 uses that engine instead of Podman.  Unset it before running these steps.
@@ -64,6 +71,8 @@ Rootless Podman gives a new named volume the image's ownership of
 Podman-specific volume options.
 
 [Launchpad bug #2154379]: https://bugs.launchpad.net/ubuntu/+source/passt/+bug/2154379
+[Docker Compose]: https://docs.docker.com/compose/install/
+[podman-compose]: https://github.com/containers/podman-compose
 [`podman compose`]: https://docs.podman.io/en/latest/markdown/podman-compose.1.html
 
 <!--@include: ./parts/compose-workflow.md-->
