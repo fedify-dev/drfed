@@ -13,3 +13,4 @@ rules:
       actions/download-artifact: ref-pin
       actions/upload-pages-artifact: ref-pin
       actions/deploy-pages: ref-pin
+      actions/attest: ref-pin

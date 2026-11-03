@@ -16,6 +16,8 @@
 
 import { defineConfig } from "vitepress";
 
+import { forEngine } from "../../scripts/images/engines.mts";
+
 // A link to the other deployment (the release site from canary and the other
 // way around), set at build time.  Neither variable set means no extra link;
 // setting only one of them is a misconfigured deployment and fails the build.
@@ -33,6 +35,29 @@ const extraNav =
     ? [{ text: EXTRA_NAV_TEXT, link: EXTRA_NAV_LINK }]
     : [];
 
+// The image tag that Compose snippets and examples name.  CI builds that
+// deploy pass the exact version the same workflow run published, so every
+// example names an image that exists; other builds keep the checked-in tag.
+// oxlint-disable-next-line node/no-process-env
+const { DRFED_IMAGE_VERSION } = process.env;
+if (
+  DRFED_IMAGE_VERSION !== undefined &&
+  !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(DRFED_IMAGE_VERSION)
+) {
+  throw new Error(
+    `DRFED_IMAGE_VERSION must be a published version; got ${JSON.stringify(DRFED_IMAGE_VERSION)}.`,
+  );
+}
+const imageReference = /\bghcr\.io\/fedify-dev\/drfed:\d[0-9A-Za-z.-]*/gu;
+function publishedImage(text: string): string {
+  return DRFED_IMAGE_VERSION === undefined
+    ? text
+    : text.replaceAll(
+        imageReference,
+        `ghcr.io/fedify-dev/drfed:${DRFED_IMAGE_VERSION}`,
+      );
+}
+
 // Star-orbit symbol from https://github.com/hackers-pub/visual-identity
 // (exports/starorbit-transparent-17x12.svg), © 2025 Bak Eunji,
 // CC BY-SA 4.0 <https://creativecommons.org/licenses/by-sa/4.0/>.
@@ -46,6 +71,32 @@ export default defineConfig({
   description:
     "Documentation for DrFed, a web-based platform for developing and debugging ActivityPub apps.",
   cleanUrls: true,
+  // Pages include these parts; they are not pages of their own.
+  srcExclude: ["installation/container/parts/**"],
+  markdown: {
+    // Wrapping the default renderers before VitePress applies its plugins
+    // runs this after code snippet imports have read their files.  A page's
+    // containerEngine rewrites its shell commands, written for Docker, with
+    // the same function the container tests run them through.
+    preConfig(md) {
+      for (const rule of ["fence", "code_inline"] as const) {
+        const render = md.renderer.rules[rule]!;
+        md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
+          const token = tokens[idx]!;
+          const engine = (
+            env as { frontmatter?: { containerEngine?: unknown } }
+          ).frontmatter?.containerEngine;
+          const shell = rule === "code_inline" || /^\s*sh\b/u.test(token.info);
+          token.content = publishedImage(
+            typeof engine === "string" && shell
+              ? forEngine(token.content, engine)
+              : token.content,
+          );
+          return render(tokens, idx, options, env, self);
+        };
+      }
+    },
+  },
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: "/icon.svg" }],
     ["link", { rel: "me", href: "https://hackers.pub/@drfed" }],
@@ -55,7 +106,7 @@ export default defineConfig({
     logo: { src: "/icon.svg", alt: "" },
     nav: [
       { text: "What is DrFed?", link: "/what-is-drfed" },
-      { text: "Installation", link: "/installation/manual-installation" },
+      { text: "Installation", link: "/installation/container/" },
       { text: "Manual", link: "/manual/self-hosting" },
       { text: "CLI reference", link: "/reference/cli" },
       { text: "Changelog", link: "/changelog" },
@@ -69,6 +120,18 @@ export default defineConfig({
       {
         text: "Installation",
         items: [
+          {
+            text: "Container image",
+            items: [
+              { text: "Overview", link: "/installation/container/" },
+              { text: "Docker", link: "/installation/container/docker" },
+              { text: "Podman", link: "/installation/container/podman" },
+              {
+                text: "Other container tools",
+                link: "/installation/container/other",
+              },
+            ],
+          },
           {
             text: "Run from source",
             link: "/installation/run-from-source",

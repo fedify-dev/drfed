@@ -16,6 +16,7 @@
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { env as processEnv } from "node:process";
 
 import {
   type ConfigMeta,
@@ -1057,6 +1058,35 @@ export function configurationProvenance(
 }
 
 /**
+ * A default computed when a parse or help output first needs it, so that
+ * building a parser or completing a command reads nothing.
+ */
+export interface LazyDefault<T> {
+  readonly lazy: () => T;
+}
+
+/**
+ * Defer a default value until it is used.
+ * @param compute Computes the default; called at most once.
+ * @returns A default that {@link createConfigurationBindings}' `bind` accepts.
+ */
+export function lazyDefault<T>(compute: () => T): LazyDefault<T> {
+  let computed: { readonly value: T } | undefined;
+  return {
+    lazy: () => (computed ??= { value: compute() }).value,
+  };
+}
+
+function isLazyDefault<T>(value: T | LazyDefault<T>): value is LazyDefault<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "lazy" in value &&
+    typeof value.lazy === "function"
+  );
+}
+
+/**
  * Create independent contexts for one parse. Environment lookup remains lazy;
  * only the fields bound by the command are consumed. No .env file is loaded.
  * @returns Bindings, independent contexts, and a strict explicit-file loader.
@@ -1079,8 +1109,12 @@ export function createConfigurationBindings(
     definition: ConfigurationSetting<TRaw>,
     valueParser: ValueParser<"sync", T>,
     encode: (value: TRaw) => string,
-    defaultValue?: T,
+    fallback?: T | LazyDefault<T>,
   ) {
+    const defaultValue = (): T | undefined =>
+      fallback !== undefined && isLazyDefault(fallback)
+        ? fallback.lazy()
+        : fallback;
     // Map the whole CLI parser. Mapping its value parser instead loses the
     // source tag when Optique re-validates an env/config fallback as CLI data.
     const tagged = map(
@@ -1108,7 +1142,10 @@ export function createConfigurationBindings(
     // Map() cannot infer how to turn a tagged default back into a CLI value.
     // Supply it explicitly; secret defaults never appear in help output.
     tagged.getDocFragments = (state) =>
-      cli.getDocFragments(state, definition.secret ? undefined : defaultValue);
+      cli.getDocFragments(
+        state,
+        definition.secret ? undefined : defaultValue(),
+      );
     const envValueParser: ValueParser<"sync", T> = {
       ...valueParser,
       parse(input) {
@@ -1139,7 +1176,13 @@ export function createConfigurationBindings(
         },
         // An object sentinel keeps absence distinct from a binding failure.
         // optional(bindEnv(...)) would swallow an invalid environment value.
-        default: { value: defaultValue, source: "default" as const },
+        // The getter keeps a lazy default unread until a parse resolves it.
+        default: {
+          get value() {
+            return defaultValue();
+          },
+          source: "default" as const,
+        },
       }),
       {
         context: envContext,
@@ -1205,6 +1248,8 @@ export function createConfigurationBindings(
     bindConfigPath,
     load,
     contexts: [envContext, configContext] as const,
+    // The environment lookup the bindings read, for non-setting markers.
+    env: options.env ?? ((name: string) => processEnv[name]),
   };
 }
 

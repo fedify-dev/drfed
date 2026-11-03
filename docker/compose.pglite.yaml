@@ -1,0 +1,39 @@
+# DrFed: A web-based platform for developing and debugging ActivityPub apps
+# Copyright (C) 2026 DrFed team
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+# region compose
+name: drfed
+
+services:
+  drfed:
+    image: ghcr.io/fedify-dev/drfed:0.2.0
+    environment:
+      # The origin browsers and other servers reach DrFed at.  Instances are
+      # its subdomains, such as http://alice.drfed.localhost:8888.
+      DRFED_ROOT_ORIGIN: http://drfed.localhost:8888
+      # Print login links to the container log instead of sending mail.
+      DRFED_MAIL_LOG_CONTENT: "true"
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - drfed-data:/var/lib/drfed
+    # Longer than DrFed's own 10-second shutdown deadline.
+    stop_grace_period: 20s
+    restart: unless-stopped
+
+volumes:
+  drfed-data:
+# endregion compose

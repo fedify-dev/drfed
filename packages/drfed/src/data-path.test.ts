@@ -51,3 +51,25 @@ it("uses platform-specific persistent locations and only absolute OS overrides",
     "C:\\Users\\user\\AppData\\Local\\DrFed\\data",
   );
 });
+
+it("looks the home directory up only when no absolute override replaces it", () => {
+  const unavailable = () => {
+    throw new Error("No home directory.");
+  };
+  assert.equal(
+    defaultPgliteDataPath("linux", unavailable, { XDG_DATA_HOME: "/var/lib" }),
+    "/var/lib/drfed/data",
+  );
+  assert.equal(
+    defaultPgliteDataPath("win32", unavailable, { LOCALAPPDATA: "D:\\Data" }),
+    "D:\\Data\\DrFed\\data",
+  );
+  assert.throws(
+    () => defaultPgliteDataPath("linux", unavailable, {}),
+    /No home directory/u,
+  );
+  assert.equal(
+    defaultPgliteDataPath("linux", () => "/home/user", {}),
+    "/home/user/.local/share/drfed/data",
+  );
+});

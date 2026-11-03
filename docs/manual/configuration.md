@@ -88,6 +88,14 @@ Choose either `database.data_path` or `database.url` at the same input source.
 A higher-priority database selector replaces a lower-priority selector. With
 neither set, DrFed uses PGlite in its default persistent OS data directory.
 
+The official container image sets `DRFED_CONTAINER=1`.  This marker is not a
+setting: it only changes the default listening host of `drfed-server` and
+`drfed-web` to `0.0.0.0`, so every configured listen address still replaces it.
+The image also sets `XDG_DATA_HOME=/var/lib`, which places the default PGlite
+directory at */var/lib/drfed/data*.  See [Container image].
+
+[Container image]: /installation/container/
+
 
 Deliver login email
 -------------------

@@ -1,0 +1,4 @@
+# The image runs as the node user of the official Node.js image, whose UID is
+# 1000; the documentation names that UID for bind mounts.
+ignored:
+  - DL3066

@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 // oxlint-disable no-console no-await-in-loop no-magic-numbers node/no-top-level-await
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -33,12 +34,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { packageOrder as names } from "./packages.mts";
+
 const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./release.mts", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "drfed-release-fixture-"));
 const root = join(temporary, "repo");
 const archives = join(root, "release-artifacts");
-const names = ["models", "federation", "graphql", "web", "drfed"];
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     ([key]) =>
@@ -443,6 +445,18 @@ async function run(args: string[], overrides: Record<string, string> = {}) {
 }
 async function git(...args: string[]) {
   return await execute("git", args, { cwd: root, env, timeout: 30_000 });
+}
+async function writeImageManifest(): Promise<void> {
+  // The image-index step writes this; GitHub Releases attach it.
+  const current = JSON.parse(
+    await readFile(join(archives, "manifest.json"), "utf8"),
+  );
+  const directory = join(root, "image-artifacts", "index");
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    join(directory, "image-manifest.json"),
+    `${JSON.stringify({ digest: `sha256:${"a".repeat(64)}`, build: current.build, packages: current.packages }, null, 2)}\n`,
+  );
 }
 function integrity(bytes: Buffer): string {
   return `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
@@ -864,6 +878,7 @@ try {
   tags.clear();
   operations.length = 0;
   await run(["publish"]);
+  await writeImageManifest();
   const ghStub = `#!/usr/bin/env node\nimport {readFileSync} from 'node:fs';import {basename} from 'node:path';import {createHash} from 'node:crypto';const args=process.argv.slice(2);const body={args};if(args[0]==='api')body.input=JSON.parse(readFileSync(0,'utf8'));else if(args[1]==='create')body.notes=readFileSync(args[args.indexOf('--notes-file')+1],'utf8');else{const bytes=readFileSync(args[3]);body.asset={name:basename(args[3]),size:bytes.length,digest:'sha256:'+createHash('sha256').update(bytes).digest('hex')};}const response=await fetch('${registry}__gh',{method:'POST',body:JSON.stringify(body)});process.stdout.write(await response.text());if(!response.ok){process.stderr.write('gh: Fixture failure (HTTP '+response.status+')\\n');process.exitCode=1;}\n`;
   await writeFile(join(bin, "gh"), ghStub, { mode: 0o755 });
   // GitHub release creation trusts the successful publish job, even when
@@ -876,15 +891,15 @@ try {
   }
   await run(["github-release", "--github-api", registry]);
   visibilityMisses.clear();
-  assert.equal(githubRelease?.assets.length, 25);
+  assert.equal(githubRelease?.assets.length, 26);
   const createRelease = githubOperations.find((args) => args[1] === "create")!;
   assert.equal(
     createRelease[createRelease.indexOf("--title") + 1],
     `DrFed ${tagBuild.version}`,
   );
-  assert.equal(githubOperations.length, 26);
+  assert.equal(githubOperations.length, 27);
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubOperations.length, 26);
+  assert.equal(githubOperations.length, 27);
   assert.ok(githubOperations[0]!.includes("--latest=true"));
   // A late backport must preserve npm and GitHub's current Latest release.
   for (const name of names) tags.get(`@drfed/${name}`)!.latest = "0.2.0";
@@ -896,7 +911,7 @@ try {
   githubOperations.length = 0;
   await run(["github-release", "--github-api", registry]);
   assert.ok(githubOperations[0]!.includes("--latest=false"));
-  assert.equal(githubOperations.length, 26);
+  assert.equal(githubOperations.length, 27);
   const frozenBody = githubRelease!.body;
   githubRelease!.body = "Different notes";
   await assert.rejects(run(["github-release", "--github-api", registry]));
@@ -904,7 +919,7 @@ try {
   githubRelease!.prerelease = true;
   await assert.rejects(run(["github-release", "--github-api", registry]));
   githubRelease!.prerelease = false;
-  assert.equal(githubOperations.length, 26);
+  assert.equal(githubOperations.length, 27);
   assert.deepEqual(
     githubRelease!.assets
       .filter((asset) => completionNames.includes(asset.name))
@@ -928,23 +943,23 @@ try {
   const completeAssets = structuredClone(githubRelease!.assets);
   githubRelease!.assets = completeAssets.slice(0, 2);
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubRelease!.assets.length, 25);
-  assert.equal(githubOperations.length, 49);
+  assert.equal(githubRelease!.assets.length, 26);
+  assert.equal(githubOperations.length, 51);
   githubRelease!.assets[3] = {
     name: completeAssets[3]!.name,
     state: "starter",
     size: 0,
   };
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubRelease!.assets.length, 25);
-  assert.equal(githubOperations.length, 50);
+  assert.equal(githubRelease!.assets.length, 26);
+  assert.equal(githubOperations.length, 52);
   assert.ok(githubOperations.at(-1)!.includes("--clobber"));
   githubRelease!.assets[5]!.digest = "sha256:completion-conflict";
   await assert.rejects(run(["github-release", "--github-api", registry]));
   githubRelease!.assets = structuredClone(completeAssets);
   githubRelease!.assets[0]!.digest = "sha256:conflict";
   await assert.rejects(run(["github-release", "--github-api", registry]));
-  assert.equal(githubOperations.length, 50);
+  assert.equal(githubOperations.length, 52);
   // Docs deployments are ordered against the last build that reached the site.
   const githubOutput = join(temporary, "github-output");
   const devEnv = {
@@ -1333,6 +1348,7 @@ try {
   }
   githubRelease = undefined;
   githubOperations.length = 0;
+  await writeImageManifest();
   await run(["github-release", "--github-api", registry]);
   assert.ok(githubRelease!.prerelease);
   assert.equal(

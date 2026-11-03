@@ -82,6 +82,10 @@
       "types": "./dist/data-path.d.mts",
       "default": "./dist/data-path.mjs"
     },
+    "./listen-defaults": {
+      "types": "./dist/listen-defaults.d.mts",
+      "default": "./dist/listen-defaults.mjs"
+    },
     "./postgres-settings": {
       "types": "./dist/postgres-settings.d.mts",
       "default": "./dist/postgres-settings.mjs"
@@ -191,6 +195,7 @@
       "src/database-settings.ts",
       "src/diagnostics.ts",
       "src/data-path.ts",
+      "src/listen-defaults.ts",
       "src/postgres-settings.ts",
       "src/database-runtime.ts",
       "src/commands/migrate.ts",

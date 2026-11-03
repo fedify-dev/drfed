@@ -8,6 +8,7 @@
     "@electric-sql/pglite": "catalog:",
     "@logtape/logtape": "catalog:",
     "@open-circle/agent-skills": "github:open-circle/agent-skills#21d123742218d3cd748056fad78aa88d7da3dc96",
+    "@sigstore/oci": "0.7.2",
     "@types/node": "catalog:",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",

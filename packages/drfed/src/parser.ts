@@ -35,10 +35,12 @@ import {
   configurationBoolean,
   configurationProvenance,
   type createConfigurationBindings,
+  lazyDefault,
   configurationSettings as settings,
   stringArray,
 } from "./configuration.ts";
 import { resolveDatabaseSettings } from "./database-settings.ts";
+import { defaultListenHost } from "./listen-defaults.ts";
 import {
   createLoggingParser,
   loggingValueOptionNames,
@@ -95,7 +97,10 @@ export function createParser(
       settings.listen,
       address,
       identity,
-      { host: "localhost", port: 8888 },
+      lazyDefault(() => ({
+        host: defaultListenHost(bindings.env),
+        port: 8888,
+      })),
     ),
     rootOrigin: bind(
       option(...valueOptionNames.rootOrigin, root, {

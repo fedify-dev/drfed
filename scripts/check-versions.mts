@@ -19,6 +19,11 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import {
+  composeImageTags,
+  upgradeSourceProblem,
+} from "./images/compose-tags.mts";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = join(root, "packages");
 
@@ -46,8 +51,21 @@ for (const pkg of packages) {
 if (versions.size === 1) {
   const [version, names] = [...versions.entries()][0]!;
   const count = names.length;
+  const stale = (await composeImageTags()).flatMap(({ file, tag, problem }) =>
+    problem !== undefined
+      ? [`docker/${file} ${problem}.`]
+      : tag === version
+        ? []
+        : [`docker/${file} names image ${tag}, not ${version}.`],
+  );
+  for (const line of stale) console.error(line);
+  const problem = await upgradeSourceProblem();
+  if (problem !== undefined) {
+    console.error(`docker/upgrade-source.json: ${problem}`);
+  }
+  if (stale.length > 0 || problem !== undefined) process.exit(1);
   console.log(
-    `All ${count} package${count === 1 ? "" : "s"} ${count === 1 ? "is" : "are"} at version ${version}.`,
+    `All ${count} package${count === 1 ? "" : "s"} ${count === 1 ? "is" : "are"} at version ${version}, as are the Compose examples.`,
   );
   process.exit(0);
 }
