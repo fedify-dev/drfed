@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { imageAnnotations } from "./images/layout.mts";
+import { packageOrder as names } from "./packages.mts";
 
 const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./release.mts", import.meta.url));
@@ -46,7 +47,6 @@ const temporary = await mkdtemp(join(tmpdir(), "drfed-release-image-"));
 const root = join(temporary, "repo");
 const archives = join(root, "release-artifacts");
 const images = join(root, "image-artifacts");
-const names = ["models", "federation", "graphql", "web", "drfed"];
 const workflow = ".github/workflows/main.yaml";
 
 interface Build {

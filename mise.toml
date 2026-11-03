@@ -197,6 +197,10 @@ run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
 description = "Exercise the container engine, Compose image tag and layout calculations"
 run = "node --test scripts/images/engines.test.mts scripts/images/compose-tags.test.mts scripts/images/layout.test.mts scripts/images/snippets.test.mts scripts/images/test/harness.test.mts"
 
+[tasks."check:packages"]
+description = "Check the package order against packages/ and the Containerfile"
+run = "node scripts/check-packages.mts"
+
 [tasks."check:docs-preview"]
 description = "Exercise docs preview pull request, build and comment fixtures"
 run = "node --test scripts/test-docs-preview.mts"

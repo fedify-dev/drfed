@@ -23,15 +23,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { packageOrder } from "../packages.mts";
+
 export const root = fileURLToPath(new URL("../../", import.meta.url));
 export const imageRepository = "ghcr.io/fedify-dev/drfed";
-export const packageOrder = [
-  "models",
-  "federation",
-  "graphql",
-  "web",
-  "drfed",
-] as const;
 
 /** The build identity that scripts/release.mts records in manifest.json. */
 export interface Build {

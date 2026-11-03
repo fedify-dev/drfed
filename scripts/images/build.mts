@@ -39,6 +39,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { packageOrder } from "../packages.mts";
 import { type Engine, detect, exec, firstUsable } from "./engine.mts";
 import { engineSpec } from "./engines.mts";
 import {
@@ -50,7 +51,6 @@ import {
   baseImage,
   drfedLayoutProblem,
   metadataFile,
-  packageOrder,
   readJson,
   root,
   singleImage,

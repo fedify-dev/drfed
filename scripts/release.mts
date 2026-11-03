@@ -45,9 +45,9 @@ import {
   singleImage,
   writeBlob,
 } from "./images/layout.mts";
+import { packageOrder } from "./packages.mts";
 
 const execute = promisify(execFile);
-const packageOrder = ["models", "federation", "graphql", "web", "drfed"];
 const repository = "fedify-dev/drfed";
 const workflow = ".github/workflows/main.yaml";
 const cliArgs = process.argv.slice(2);

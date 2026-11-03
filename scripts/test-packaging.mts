@@ -44,6 +44,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { probeCompletionInstallation } from "./completion-installation.mts";
+import { packageOrder as packages } from "./packages.mts";
 import { requestInstalledWeb } from "./smoke-http.mts";
 
 const execute = promisify(execFile);
@@ -54,7 +55,6 @@ const suppliedArtifacts =
   artifactArgument >= 0
     ? resolve(process.argv[artifactArgument + 1]!)
     : undefined;
-const packages = ["models", "federation", "graphql", "web", "drfed"];
 const windows = process.platform === "win32";
 const probeShells = process.env.DRFED_TEST_COMPLETION_SHELLS === "1";
 const npm = windows

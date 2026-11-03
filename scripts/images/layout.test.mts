@@ -17,6 +17,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { packageOrder } from "../packages.mts";
 import { type LayoutContents, drfedLayoutProblem } from "./layout.mts";
 
 const layout: LayoutContents = {
@@ -31,9 +32,7 @@ const layout: LayoutContents = {
   metadata: {
     platform: "linux/arm64",
     build: { version: "0.2.0" },
-    packages: ["models", "federation", "graphql", "web", "drfed"].map(
-      (name) => ({ name: `@drfed/${name}` }),
-    ),
+    packages: packageOrder.map((name) => ({ name: `@drfed/${name}` })),
   },
 };
 const withEntries = (

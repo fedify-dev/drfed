@@ -97,6 +97,13 @@ Packages
 
 Each package has its own *README.md* with a more detailed breakdown.
 
+To add a package, put it in `packageOrder` in *scripts/packages.mts*, after the
+packages it depends on, and add its tarball at the same position in
+*docker/Containerfile*; `mise run check:packages` compares the two with
+*packages/*.  Then add it by hand to the build tasks in *mise.toml*, such as the
+`build:backend` filter, and to the `paths` in the *tsconfig.json* of each
+package that imports it.
+
 
 Common commands
 ---------------
@@ -121,6 +128,7 @@ mise run dev
  -  Source license header checks with
     `node scripts/add-license/main.mts --check`.
  -  Package version sync with `node scripts/check-versions.mts`.
+ -  Package order with `node scripts/check-packages.mts`.
  -  GitHub workflow and local composite action validation with jactionlint.
  -  Changelog fragment validation and formatting with Sacho.
 

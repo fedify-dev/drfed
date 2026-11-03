@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 // oxlint-disable no-console no-await-in-loop no-magic-numbers node/no-top-level-await
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -33,12 +34,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { packageOrder as names } from "./packages.mts";
+
 const execute = promisify(execFile);
 const script = fileURLToPath(new URL("./release.mts", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "drfed-release-fixture-"));
 const root = join(temporary, "repo");
 const archives = join(root, "release-artifacts");
-const names = ["models", "federation", "graphql", "web", "drfed"];
 const env = Object.fromEntries(
   Object.entries(process.env).filter(
     ([key]) =>
