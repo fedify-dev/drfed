@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { createLegacyObject } from "@drfed/federation/local-write";
+import {
+  createLegacyObject,
+  isLocalWriteError,
+} from "@drfed/federation/local-write";
 import { schema } from "@drfed/models";
 import { objectTypeEnum } from "@drfed/models/schema";
 import { validateUuid } from "@drfed/models/uuid";
@@ -344,7 +347,7 @@ builder.mutationFields((t) => ({
           addressing,
         },
       );
-      if (!("type" in result && "diagnostics" in result)) return result;
+      if (!isLocalWriteError(result)) return result;
       return result.type === "invalid_instance_host"
         ? { type: "InvalidInstanceHost" as const, message: result.message }
         : actorNotFound;

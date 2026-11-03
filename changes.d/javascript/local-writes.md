@@ -17,7 +17,9 @@ links:
 
  -  Added `createLegacyObject()` to `@drfed/federation/local-write`, the
     operation behind the `createObject` mutation, which creates a Note or
-    Article with a `Create` in the outbox as before.
+    Article with a `Create` in the outbox as before, and
+    `isLocalWriteError()`, which tells the error it returns from the object
+    it creates.
     [[#152], [#173] by Hong Minhee]
 
  -  Added `describeDocument()` to `@drfed/models/document`, which describes a

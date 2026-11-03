@@ -198,6 +198,14 @@ export function writeError(
 }
 
 /**
+ * Tells an error outcome from the value an operation returns on success.
+ * @returns Whether the value is a {@link LocalWriteError}.
+ */
+export function isLocalWriteError(value: object): value is LocalWriteError {
+  return "type" in value && "diagnostics" in value;
+}
+
+/**
  * Carries an outcome out of a transaction, so that returning a failure can
  * never commit what the transaction wrote before it.
  */

@@ -80,6 +80,7 @@ import {
   type PreviewOutcome,
   type SavedResource,
   type WritePrincipal,
+  isLocalWriteError,
   writeError,
 } from "./types.ts";
 
@@ -91,10 +92,6 @@ function lookups(
     localActors: (iris) => localActorIris(db, actor.instanceId, iris),
     registered: (iris) => registeredIris(db, iris),
   };
-}
-
-function isError(value: object): value is LocalWriteError {
-  return "type" in value && "diagnostics" in value;
 }
 
 function checkRequest(request: LocalWriteRequest): LocalWriteError | null {
@@ -161,7 +158,7 @@ async function prepare(
     request.objectId,
     request.expectedRevisionId,
   );
-  if (isError(target)) return target;
+  if (isLocalWriteError(target)) return target;
   const change =
     request.operation === "edit"
       ? await prepareEdit(
@@ -176,7 +173,7 @@ async function prepare(
       : await prepareDelete(env.federation, actor, target, allocation, () =>
           currentAddressing(db, target.id),
         );
-  if (isError(change)) return change;
+  if (isLocalWriteError(change)) return change;
   if (change.object == null) {
     return { ...change, resources: [change.activity], target };
   }
@@ -206,10 +203,10 @@ export async function previewLocalWrite(
     request.actorId,
     false,
   );
-  if (isError(actor)) return { ok: false, error: actor };
+  if (isLocalWriteError(actor)) return { ok: false, error: actor };
   const allocation = allocateFor(request);
   const prepared = await prepare(env, env.db, actor, request, allocation);
-  if (isError(prepared)) return { ok: false, error: prepared };
+  if (isLocalWriteError(prepared)) return { ok: false, error: prepared };
   const token = await issueToken(
     env.previewKey,
     principal.accountId,
@@ -371,11 +368,11 @@ export async function commitLocalWrite(
         request.actorId,
         true,
       );
-      if (isError(actor)) fail(actor);
+      if (isLocalWriteError(actor)) fail(actor);
       const writer = actor as WritingActor;
       if (outboxed) await lockActorCollection(tx, writer.id, "outbox");
       const prepared = await prepare(env, tx, writer, request, allocation);
-      if (isError(prepared)) fail(prepared);
+      if (isLocalWriteError(prepared)) fail(prepared);
       const { resources, target, typed } = prepared as PreparedOperation;
       const created = resources.filter(
         ({ id }) => target == null || id !== target.id,

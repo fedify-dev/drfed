@@ -33,6 +33,7 @@ export {
   commitLocalWrite,
   previewLocalWrite,
 } from "./local-write/operation.ts";
+export { isLocalWriteError } from "./local-write/types.ts";
 export type {
   CommitOptions,
   CommitOutcome,

@@ -36,10 +36,11 @@ import {
   toObject,
 } from "../object.ts";
 import { type WritingActor, findWritingActor } from "./actor.ts";
-import type {
-  LocalWriteEnvironment,
-  LocalWriteError,
-  WritePrincipal,
+import {
+  type LocalWriteEnvironment,
+  type LocalWriteError,
+  type WritePrincipal,
+  isLocalWriteError,
 } from "./types.ts";
 
 /** The fields the legacy object creation stores, already checked. */
@@ -79,10 +80,6 @@ function asDocument(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function isError(value: object): value is LocalWriteError {
-  return "type" in value && "diagnostics" in value;
-}
-
 /**
  * Creates a Note or Article together with a `Create` in the actor's outbox,
  * without delivering it, exactly as the `createObject` mutation always has:
@@ -109,7 +106,7 @@ export async function createLegacyObject(
       true,
     );
     // Nothing is written yet, so returning a failure commits nothing.
-    if (isError(found)) return found;
+    if (isLocalWriteError(found)) return found;
     const actor: WritingActor = found;
     await lockActorCollection(tx, actorId, "outbox");
     const published = Temporal.Now.instant();
