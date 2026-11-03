@@ -1,0 +1,38 @@
+name: check
+
+on:
+  pull_request:
+  # Validate branch pushes even before a PR exists; PRs also cover forks.
+  push: # jactionlint ignore=duplicate-triggers
+    branches: ["**", "!main"]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    timeout-minutes: 30
+    concurrency:
+      group: check-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: true
+          experimental: true
+          log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
+      - name: Verify migration history against the PR base
+        if: github.event_name == 'pull_request'
+        run: mise run manifest:migrations --base "$MIGRATION_BASE"
+        env:
+          MIGRATION_BASE: ${{ github.event.pull_request.base.sha }}
+      - run: mise build && mise check
+        env:
+          MISE_LOG_LEVEL: ${{ runner.debug == '1' && 'trace' || 'info' }}

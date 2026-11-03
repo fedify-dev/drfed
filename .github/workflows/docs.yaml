@@ -1,0 +1,87 @@
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/docs.yaml
+      - CHANGES.md
+      - docker/**
+      - docs/**
+      - mise.toml
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/images/**
+  # Validate branch pushes even before a PR exists; PRs also cover forks.
+  push: # jactionlint ignore=duplicate-triggers
+    branches: ["**", "!main"]
+    paths:
+      - .github/workflows/docs.yaml
+      - CHANGES.md
+      - docker/**
+      - docs/**
+      - mise.toml
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/images/**
+  workflow_call:
+    inputs:
+      build:
+        description: The calculated release build identity, if this run deploys
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    timeout-minutes: 15
+    concurrency:
+      group: docs-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: true
+          experimental: true
+      # Only the builds that the docs-release and docs-canary jobs deploy link
+      # to the other site, and they fail fast without its URL. Pull requests,
+      # other branches, and pushes to forks or other repositories build without
+      # the link, whatever variables they define.
+      - name: Build the documentation site for its deployment target
+        run: |
+          if [[ "$DEPLOYS" == true && "$GITHUB_REF_TYPE" == tag ]]; then
+            : "${CANARY_DOCS_URL:?The CANARY_DOCS_URL variable is required}"
+            export EXTRA_NAV_TEXT=Canary EXTRA_NAV_LINK="$CANARY_DOCS_URL"
+            DRFED_IMAGE_VERSION=$(jq --raw-output .version <<<"$DRFED_RELEASE_BUILD")
+            export DRFED_IMAGE_VERSION
+          elif [[ "$DEPLOYS" == true && "$GITHUB_REF" == refs/heads/main ]]; then
+            : "${RELEASE_DOCS_URL:?The RELEASE_DOCS_URL variable is required}"
+            export EXTRA_NAV_TEXT=Release EXTRA_NAV_LINK="$RELEASE_DOCS_URL"
+            DRFED_IMAGE_VERSION=$(jq --raw-output .version <<<"$DRFED_RELEASE_BUILD")
+            export DRFED_IMAGE_VERSION
+          fi
+          mise run build:docs
+        env:
+          DEPLOYS: >-
+            ${{ github.event_name == 'push' &&
+            github.repository == 'fedify-dev/drfed' && !github.event.deleted }}
+          RELEASE_DOCS_URL: ${{ vars.RELEASE_DOCS_URL }}
+          CANARY_DOCS_URL: ${{ vars.CANARY_DOCS_URL }}
+          DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      # The docs-preview workflow deploys this artifact for pull requests.
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: docs-${{ github.run_id }}
+          path: docs/.vitepress/dist
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true

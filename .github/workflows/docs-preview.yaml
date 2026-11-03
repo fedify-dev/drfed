@@ -3,7 +3,7 @@ name: docs-preview
 # Read "Pull request previews" in DEPLOY.md before changing this workflow.
 on:
   workflow_run: # jactionlint ignore=dangerous-triggers
-    workflows: [main]
+    workflows: [docs]
     types: [completed]
 
 permissions:
@@ -14,7 +14,7 @@ jobs:
     if: >-
       github.repository == 'fedify-dev/drfed' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.path == '.github/workflows/main.yaml' &&
+      github.event.workflow_run.path == '.github/workflows/docs.yaml' &&
       github.event.workflow_run.conclusion != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 15

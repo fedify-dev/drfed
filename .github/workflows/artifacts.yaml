@@ -1,0 +1,210 @@
+name: artifacts
+
+on:
+  workflow_call:
+    inputs:
+      build:
+        description: The calculated release build identity
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: artifacts-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      ARTIFACT_NAME: drfed-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      - name: Find the original verified artifacts from this run
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == env.ARTIFACT_NAME and .expired == false) | .id')
+          if [[ -n "$artifact_id" ]]; then
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          else
+            mise run release:ensure-unpublished
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.original.outputs.reuse == 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: release-artifacts
+      - name: Apply the single calculated registry version before building
+        run: mise run release:apply
+      - name: Build the versioned packages
+        run: mise run build
+      - name: Pack the complete public package set
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run release:pack
+      - name: Verify artifact identity and installed behavior
+        run: mise run release:verify && mise run --skip-deps test:packaging --artifacts release-artifacts
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: false
+
+  image:
+    needs: [artifacts]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: image-${{ github.workflow }}-${{ github.ref }}-${{ matrix.arch }}
+      cancel-in-progress: false
+      queue: max
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      ARTIFACT_NAME: drfed-image-${{ github.run_id }}-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      # A rerun keeps the layout that was tested first; a rebuild would not
+      # reproduce its digest. Without it, a version already on npm must not get
+      # new image bytes.
+      - name: Find the original image layout from this run
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == env.ARTIFACT_NAME and .expired == false) | .id')
+          if [[ -n "$artifact_id" ]]; then
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          else
+            mise run release:ensure-unpublished
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: drfed-${{ github.run_id }}
+          path: release-artifacts
+      - name: Verify the package tarballs the image is built from
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run release:verify
+      - uses: ./.github/actions/containerd-image-store
+        if: steps.original.outputs.reuse != 'true'
+      - name: Build the image from the verified tarballs
+        if: steps.original.outputs.reuse != 'true'
+        run: >-
+          mise run --skip-deps image:build --engine docker
+          --artifacts release-artifacts --platform "linux/${{ matrix.arch }}"
+      # The bytes to be published must also run in Podman.
+      - uses: ./.github/actions/pasta-apparmor
+        if: steps.original.outputs.reuse != 'true'
+      - name: Start the Podman API socket
+        if: steps.original.outputs.reuse != 'true'
+        run: systemctl --user start podman.socket
+      - name: Test the exact image layout with Docker, then Podman
+        if: steps.original.outputs.reuse != 'true'
+        run: mise run test:image --require
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/linux-${{ matrix.arch }}/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
+
+  image-index:
+    needs: [artifacts, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: image-index-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      ARTIFACT_NAME: drfed-image-index-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      - name: Find the original image index from this run
+        id: original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          artifact_id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[] | select(.name == env.ARTIFACT_NAME and .expired == false) | .id')
+          if [[ -n "$artifact_id" ]]; then
+            echo 'reuse=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'reuse=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-${{ github.run_id }}
+          path: release-artifacts
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-amd64
+          path: image-artifacts/linux-amd64
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: drfed-image-${{ github.run_id }}-arm64
+          path: image-artifacts/linux-arm64
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.original.outputs.reuse == 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/index
+      - name: Merge the platform images into one OCI image index
+        run: mise run release:image-index
+      - uses: actions/upload-artifact@v7.0.2
+        if: steps.original.outputs.reuse != 'true'
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: image-artifacts/index/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90
+          overwrite: false
