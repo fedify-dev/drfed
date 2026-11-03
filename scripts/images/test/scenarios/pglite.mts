@@ -19,11 +19,12 @@
 // oxlint-disable no-console no-await-in-loop
 import assert from "node:assert/strict";
 import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import process from "node:process";
 
 import { type Engine, type Result, exec } from "../../engine.mts";
 import { forEngine } from "../../engines.mts";
+import { snippetRegion } from "../../snippets.mts";
 import {
   type Context,
   type Project,
@@ -37,8 +38,9 @@ import {
 import { expectPage, logIn } from "../login.mts";
 
 /**
- * Run a documented snippet the way the engine's documentation page shows it;
- * the page of the engine the file is written for shows it unchanged.
+ * Run a documented snippet, the region named after its file, the way the
+ * engine's documentation page shows it; the page of the engine the file is
+ * written for shows it unchanged.
  * @returns How the snippet exited.
  */
 async function runSnippet(
@@ -49,10 +51,11 @@ async function runSnippet(
   { expectSuccess = true, readOnly = false } = {},
 ): Promise<Result> {
   const script = join(directory, `${engine.spec.name}-${file}`);
-  await writeFile(
-    script,
-    forEngine(await readFile(join(examples, file), "utf8"), engine.spec.name),
+  const region = snippetRegion(
+    await readFile(join(examples, file), "utf8"),
+    basename(file, ".sh"),
   );
+  await writeFile(script, forEngine(region, engine.spec.name));
   if (readOnly) await chmod(directory, 0o555);
   try {
     const result = await exec("sh", [script], { cwd: directory, env });

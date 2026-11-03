@@ -16,10 +16,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # Back up a PGlite data volume to drfed-data.tgz.  Run it next to the Compose
-# file; the documentation includes the region below verbatim.
-set -e
+# file.  The documentation shows, and the image tests run, only the region
+# below, so it must stop on the first failure by itself.
 
 # region backup
+set -e
 # Start the server again afterwards only if it is running now, and replace an
 # earlier drfed-data.tgz only with a complete backup.
 running=$(docker compose ps --status running --quiet drfed)

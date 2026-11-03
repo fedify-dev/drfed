@@ -16,10 +16,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # Restore drfed-data.tgz into a new, empty PGlite data volume.  Run it next to
-# the Compose file; the documentation includes the region below verbatim.
-set -e
+# the Compose file.  The documentation shows, and the image tests run, only the
+# region below, so it must stop on the first failure by itself.
 
 # region restore
+set -e
 docker compose run --rm -T drfed \
   tar xzf - -C /var/lib/drfed < drfed-data.tgz
 docker compose up -d drfed
