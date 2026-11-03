@@ -293,9 +293,9 @@ Stable tags use `latest`; prerelease tags such as `0.1.0-rc.1` use `next`.
 The `v` prefix, build metadata in tags, invalid versions, and mismatched package
 versions are rejected.  PRs, forks, deleted refs, and other branches only run
 validation and never publish.  Existing Linux/macOS/Windows tests remain
-required.  The release workflow waits for the check and test jobs, then builds
-with the calculated release version and verifies installation of the exact
-packed artifacts through
+required.  The release workflow waits for the check and both test jobs, then
+builds with the calculated release version and verifies installation of the
+exact packed artifacts through
 `mise run --skip-deps test:packaging --artifacts release-artifacts`. Run
 `mise run check:release` to exercise the release scripts locally against a
 loopback registry, including version, recovery, and GitHub Release fixtures.
@@ -407,8 +407,9 @@ The scripts live under *scripts/images/*.  Engine differences are data in
 image ID formats, and the build steps.  To support another container engine,
 add an entry there, add a `test:image:<tool>` task, and add that task to
 `test:image`. The scenarios under *scripts/images/test/scenarios/* do not name
-any engine. `mise run check:images` tests the calculations in *engines.mts*,
-including how the Podman documentation rewrites the Docker commands.
+any engine. `mise run test:image-scripts` tests the calculations in
+*engines.mts*, including how the Podman documentation rewrites the Docker
+commands.
 
 In CI, pull requests build the image with Docker and with Podman on
 `linux/amd64` and `linux/arm64` runners and test each layout with the engine
@@ -436,7 +437,7 @@ bytes.  If the artifacts have expired, prepare a new patch release instead of
 rebuilding a published version; the `image` job refuses to build a missing
 layout again once the version is on npm.  Every registry write, including
 attaching an attestation, first checks that the release tag still names the
-built commit.  `mise run check:release` exercises these
+built commit.  `mise run test:release-image` exercises these
 rules with stub `crane` and `gh` commands.
 
 After the first `main` build publishes the package, a maintainer must check its
@@ -730,7 +731,12 @@ Before sending a pull request, run:
 mise run build
 mise run check
 mise run test
+mise run test:scripts
 ~~~~
+
+`mise run test:scripts` runs the tests of the image and release scripts in
+parallel.  They do not depend on the OS, so CI runs them once in a separate
+job instead of in every OS and shard of the `test` job.
 
 Build first.  `mise run check` type-checks each package against the *dist/* of
 the ones it depends on, so on a fresh checkout, or after adding a subpath

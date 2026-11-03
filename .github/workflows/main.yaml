@@ -37,6 +37,28 @@ jobs:
         env:
           MISE_LOG_LEVEL: ${{ runner.debug == '1' && 'trace' || 'info' }}
 
+  # Script tests that do not depend on the OS run once, outside the test matrix.
+  test-scripts:
+    name: test (scripts)
+    timeout-minutes: 30
+    concurrency:
+      group: test-scripts-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.1.2
+        with:
+          cache: true
+          experimental: true
+          log_level: ${{ runner.debug == '1' && 'trace' || 'info' }}
+      - run: mise run test:scripts
+        env:
+          MISE_LOG_LEVEL: ${{ runner.debug == '1' && 'trace' || 'info' }}
+
   test:
     name: test (${{ matrix.os }}, shard ${{ matrix.shard }})
     timeout-minutes: 30
@@ -143,7 +165,7 @@ jobs:
         run: mise run release:version
 
   artifacts:
-    needs: [version, check, test]
+    needs: [version, check, test, test-scripts]
     if: needs.version.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -612,7 +634,7 @@ jobs:
           DRFED_DOCS_URL: ${{ steps.deployment.outputs.page_url }}
 
   docs-canary:
-    needs: [version, check, test, docs, publish, image-publish]
+    needs: [version, check, test, test-scripts, docs, publish, image-publish]
     if: >-
       github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
       !github.event.deleted && github.ref == 'refs/heads/main' &&

@@ -171,6 +171,22 @@ flag "--layout <dir>" help="OCI layout from image:build; defaults to image-artif
 """
 run = "node scripts/images/test/index.mts --engine podman"
 
+[tasks."test:scripts"]
+description = "Run the script tests that do not depend on the OS, in parallel"
+depends = ["test:image-scripts", "test:release-image", "test:smoke-http"]
+
+[tasks."test:image-scripts"]
+description = "Exercise the container engine, Compose image tag and layout calculations"
+run = "node --test scripts/images/engines.test.mts scripts/images/compose-tags.test.mts scripts/images/layout.test.mts scripts/images/snippets.test.mts scripts/images/test/harness.test.mts"
+
+[tasks."test:release-image"]
+description = "Exercise the release image steps against stub crane and gh commands"
+run = "node scripts/test-release-image.mts"
+
+[tasks."test:smoke-http"]
+description = "Exercise the HTTP helper of the packaging and image tests"
+run = "node --test scripts/smoke-http.test.mts"
+
 [tasks."test:completion-installation"]
 description = "Probe packed completion discovery and manual loading in five shells"
 depends = ["build"]
@@ -191,12 +207,8 @@ description = "Check changelog fragments and frozen release history"
 run = "sacho check"
 
 [tasks."check:release"]
-description = "Exercise release version, registry, artifact, image and recovery fixtures"
-run = ["node scripts/test-release.mts", "node scripts/test-release-image.mts"]
-
-[tasks."check:images"]
-description = "Exercise the container engine, Compose image tag and layout calculations"
-run = "node --test scripts/images/engines.test.mts scripts/images/compose-tags.test.mts scripts/images/layout.test.mts scripts/images/snippets.test.mts scripts/images/test/harness.test.mts"
+description = "Exercise release version, registry, artifact and recovery fixtures"
+run = "node scripts/test-release.mts"
 
 [tasks."check:containerfile"]
 description = "Lint the container image's Containerfile"
