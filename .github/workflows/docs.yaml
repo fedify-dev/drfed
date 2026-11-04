@@ -2,29 +2,9 @@ name: docs
 
 on:
   pull_request:
-    paths:
-      - .github/workflows/docs.yaml
-      - CHANGES.md
-      - docker/**
-      - docs/**
-      - mise.toml
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - scripts/images/**
   # Validate branch pushes even before a PR exists; PRs also cover forks.
   push: # jactionlint ignore=duplicate-triggers
     branches: ["**", "!main"]
-    paths:
-      - .github/workflows/docs.yaml
-      - CHANGES.md
-      - docker/**
-      - docs/**
-      - mise.toml
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - scripts/images/**
   workflow_call:
     inputs:
       build:
