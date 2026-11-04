@@ -99,8 +99,8 @@ Identity and documents
 
 New resources get UUIDv7 IRIs from Fedify's router: objects at
 `/users/{actor}/{id}`, `Create` at `/ap/creates/{id}`, and every other activity
-at `/ap/activities/{id}`, which answers 404 until #153 serves saved
-activities. A new resource's `id`, its author (`actor` for an activity,
+at `/ap/activities/{id}`, where [federation reads](federation-reads.md) serve
+them. A new resource's `id`, its author (`actor` for an activity,
 `attributedTo` for an object) and `published` are server-owned values given to
 `prepareDocument()`; a submitted conflicting value is a
 `server_owned_field_conflict`, never silently replaced. An edit owns `id`,
@@ -154,8 +154,8 @@ describes the last content. The generated `Delete` refers to the object by IRI
 and copies the last version's addressing under its context.
 
 Resources created by the common write have revisions only, so GraphQL details
-and federation responses ignore them until #153 and #154. Objects created by
-the `createObject` mutation also have legacy typed rows that serving reads;
+ignore them until #154; federation reads serve their documents. Objects created
+by the `createObject` mutation also have legacy typed rows that serving reads;
 `writeTypedResourceRevision()` keeps those rows in step. Before writing, the
 served columns must agree with the current revision, or the object is refused
 as drifted. An edited version must fit the typed columns without loss: a `Note`

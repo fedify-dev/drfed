@@ -518,7 +518,7 @@ describe("ActivityPub Create activities", () => {
 });
 
 describe("ActivityPub general activities", () => {
-  it("allocates /ap/activities/ IRIs without serving them yet", async () => {
+  it("does not serve unknown /ap/activities/ IRIs", async () => {
     await withFederation(async ({ federation }) => {
       const response = await federation.fetch(
         new Request(`https://test-instance.drfed.org/ap/activities/${uuid()}`, {
@@ -592,11 +592,13 @@ describe("ActivityPub outbox", () => {
         { contextData: undefined },
       );
       assert.equal(bad.status, 404);
-      for (const published of [
-        "0000-01-01T00:00:00.000000Z",
-        "2026-02-30T00:00:00.000000Z",
+      for (const cursor of [
+        encodeURIComponent(`2026-09-15T00:00:00.000000Z|${uuid()}`),
+        "1.5",
+        "2147483648",
+        "-2147483649",
+        "--1",
       ]) {
-        const cursor = encodeURIComponent(`${published}|${uuid()}`);
         const invalid = await federation.fetch(
           new Request(`${actorIri}/outbox?cursor=${cursor}`, {
             headers: accept,
@@ -607,23 +609,32 @@ describe("ActivityPub outbox", () => {
       }
     });
   });
-  it("orders UUIDv4 backfills by publication and retains microseconds across pages", async () => {
+  it("orders pages by outbox position, whatever the IDs and publication times", async () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const objects = Array.from({ length: 24 }, () => uuid());
+      // Old migrated activities have random UUIDv4 IDs larger than UUIDv7.
+      const activityIds = objects.map((_, index) =>
+        index === 23
+          ? uuid()
+          : (`ffffffff-ffff-4fff-8fff-${String(24 - index).padStart(12, "0")}` as Uuid),
+      );
+      // The outbox migration backfilled positions from publication times;
+      // these deliberately oppose both the IDs and the insertion order.
+      const rank = (index: number) => (index * 7) % 24;
       for (const [index, id] of objects.entries()) {
-        // Old migrated activities have random UUIDv4 IDs larger than UUIDv7.
-        // Reverse IDs deliberately oppose publication order within a page.
-        const activityId =
-          index === 23
-            ? uuid()
-            : (`ffffffff-ffff-4fff-8fff-${String(24 - index).padStart(12, "0")}` as Uuid);
-        await seedObjects(db, { ...values(id), activityId });
-        const published = `2026-09-15T00:00:00.${String(Math.floor(index / 2)).padStart(6, "0")}Z`;
+        await seedObjects(db, {
+          ...values(id),
+          activityId: activityIds[index]!,
+        });
         await db
           .update(schema.activities)
-          .set({ published: sql`${published}::timestamptz` })
-          .where(eq(schema.activities.id, activityId));
+          .set({ published: sql`'2026-09-15T00:00:00Z'::timestamptz` })
+          .where(eq(schema.activities.id, activityIds[index]!));
+        await db
+          .update(schema.collectionItems)
+          .set({ position: -1 - rank(index) })
+          .where(eq(schema.collectionItems.itemId, activityIds[index]!));
       }
       const fetchJson = async (iri: string) => {
         const response = await federation.fetch(
@@ -635,21 +646,23 @@ describe("ActivityPub outbox", () => {
       };
       const first = await fetchJson(`${actorIri}/outbox?cursor=`);
       assert.equal(first.orderedItems.length, 20);
-      // Equal publication times use descending IDs as a stable tie-breaker.
-      const expected = Array.from({ length: 12 }, (_, index) => 22 - 2 * index)
-        .flatMap((index) => [objects[index], objects[index + 1]])
-        .map((id) => values(id!).iri);
+      const order = objects
+        .map((_, index) => index)
+        .toSorted((left, right) => rank(right) - rank(left));
+      const expected = order.map((index) => values(objects[index]!).iri);
       assert.deepEqual(
         first.orderedItems.map((item: { object: string }) => item.object),
         expected.slice(0, 20),
       );
-      // A cursor remains valid even if its activity has since been deleted.
-      const boundary = new URL(first.next).searchParams
-        .get("cursor")!
-        .split("|")[1]!;
+      // The cursor is the position of the page's last item, and remains
+      // valid even if that activity has since been deleted.
+      assert.equal(
+        new URL(first.next).searchParams.get("cursor"),
+        String(-1 - rank(order[19]!)),
+      );
       await db
         .delete(schema.resources)
-        .where(eq(schema.resources.id, boundary as Uuid));
+        .where(eq(schema.resources.id, activityIds[order[19]!]!));
       const last = await fetchJson(first.next);
       assert.deepEqual(
         last.orderedItems.map((item: { object: string }) => item.object),

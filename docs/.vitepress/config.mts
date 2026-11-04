@@ -165,6 +165,7 @@ export default defineConfig({
           { text: "Runtime lifecycle", link: "/internals/runtime-lifecycle" },
           { text: "Inbox persistence", link: "/internals/inbox-persistence" },
           { text: "Local writes", link: "/internals/local-writes" },
+          { text: "Federation reads", link: "/internals/federation-reads" },
           {
             text: "Activity deliveries",
             link: "/internals/activity-deliveries",

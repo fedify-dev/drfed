@@ -25,12 +25,17 @@ import createFederation from "@drfed/federation";
 import {
   type CommitOutcome,
   type CreateRequest,
+  type JsonObject,
   type LocalWriteEnvironment,
+  type LocalWriteRequest,
+  type SavedResource,
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
+import { publicDocument } from "@drfed/federation/serving";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
+import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
 import { describe, it } from "@logtape/testing-node/autoload";
@@ -300,6 +305,113 @@ describe("commitLocalWrite() on PostgreSQL", () => {
           await holder.client.end();
           await writer.client.end();
         }
+      });
+    },
+  );
+});
+
+/**
+ * Previews and commits a write with a no-op dispatch reservation.
+ * @returns The saved resources.
+ */
+async function write(
+  env: LocalWriteEnvironment,
+  request: LocalWriteRequest,
+): Promise<readonly SavedResource[]> {
+  const preview = await previewLocalWrite(env, principal, request);
+  assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
+  const outcome = await commitLocalWrite(env, principal, request, {
+    previewToken: preview.preview.token,
+    reserveDispatch: () => Promise.resolve(),
+  });
+  assert.ok(outcome.ok, JSON.stringify(!outcome.ok && outcome.error));
+  return outcome.result.resources;
+}
+
+describe("federation reads on PostgreSQL", () => {
+  it(
+    "serves saved documents as stored in JSON columns, and hides deleted content",
+    options,
+    async () => {
+      await withDatabase(async (_url, env) => {
+        const AS = "https://www.w3.org/ns/activitystreams";
+        const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+        const get = async (iri: string) => {
+          const response = await env.federation.fetch(
+            new Request(iri, {
+              headers: { accept: "application/activity+json" },
+            }),
+            { contextData: undefined },
+          );
+          return {
+            status: response.status,
+            body:
+              response.ok || response.status === 410
+                ? ((await response.json()) as Record<string, unknown>)
+                : {},
+          };
+        };
+        const [like] = await write(env, {
+          operation: "create",
+          actorId: localActorId,
+          document: {
+            "@context": [
+              AS,
+              { ex: "https://ext.example/ns#", mood: "ex:mood" },
+            ],
+            type: "Like",
+            to: [PUBLIC_IRI],
+            bcc: ["https://remote.example/users/blind"],
+            object: "https://remote.example/notes/1",
+            mood: { text: '안녕 "🙂" \\ é', zeta: 1, alpha: [true, null] },
+          },
+          resources: [{ path: [], kind: "activity" }],
+          publish: true,
+        });
+        const served = await get(like!.iri);
+        assert.equal(served.status, 200);
+        assert.deepEqual(served.body, publicDocument(like!.document));
+        assert.deepEqual(Object.keys(served.body.mood as object), [
+          "text",
+          "zeta",
+          "alpha",
+        ]);
+        const [noteResource, create] = await write(env, {
+          operation: "create",
+          actorId: localActorId,
+          document: {
+            "@context": AS,
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: { type: "Note", content: "x", to: [PUBLIC_IRI] },
+          },
+          resources: [
+            { path: [], kind: "activity" },
+            { path: ["object"], kind: "object" },
+          ],
+          publish: true,
+        });
+        const head = await loadCurrentResourceRevision(
+          env.db,
+          noteResource!.id,
+        );
+        const [deletion] = await write(env, {
+          operation: "delete",
+          actorId: localActorId,
+          objectId: noteResource!.id,
+          expectedRevisionId: head!.id,
+        });
+        assert.equal((await get(noteResource!.iri)).status, 410);
+        assert.equal((await get(create!.iri)).status, 404);
+        assert.equal((await get(deletion!.iri)).status, 200);
+        const collection = await get(`${actorIri}/outbox`);
+        const page = await get(`${actorIri}/outbox?cursor=`);
+        const items = page.body.orderedItems as JsonObject[];
+        assert.deepEqual(
+          items.map(({ id }) => id),
+          [deletion!.iri, like!.iri],
+        );
+        assert.equal(collection.body.totalItems, 2);
       });
     },
   );

@@ -1,0 +1,117 @@
+Federation reads
+================
+
+The federation package serves local resources through the object dispatchers
+in *packages/federation/src/object-dispatchers.ts* and the outbox dispatcher in
+*packages/federation/src/collection.ts*.  Both read through
+*packages/federation/src/serving/*, and share the SQL predicates in
+*packages/federation/src/visibility.ts*, so that a resource is served the same
+way wherever it is read.
+
+
+Routes
+------
+
+| Route                   | Serves                                                    |
+| ----------------------- | --------------------------------------------------------- |
+| `/users/{actor}/{id}`   | Objects attributed to the actor, including a `Question`   |
+| `/ap/creates/{id}`      | `Create` activities                                       |
+| `/ap/activities/{id}`   | Every other activity, including a `Question` saved as one |
+| `/users/{actor}/outbox` | The actor's published activities                          |
+
+The common write operations allocate an IRI from the route of the resource's
+type, so a route answers 404 for a resource allocated to another one.  No IRI
+changes: legacy `Create` activities stay at `/ap/creates/{id}`.
+
+
+Sources
+-------
+
+A `Note` or `Article` created by the `createObject` mutation, and its `Create`,
+have legacy typed rows and are serialized from them by `toObject()` and
+`toCreate()`, as before, also after an edit keeps the rows in step.
+
+Every other resource, saved by the [common write operations](local-writes.md),
+is served from the document of its current revision:
+
+ -  The document is served as saved, with its context, extension properties,
+    IRI references and embedded values.  An activity keeps the version it
+    embedded when it was saved, so editing an object does not change an
+    earlier activity's response.  Nothing is dereferenced.
+ -  `bto` and `bcc` are removed from the root and from every embedded
+    document.  They are found by meaning through `describeDocument()`, so
+    aliases of them are removed as well.  Opaque extension values are not
+    descended into.
+ -  A document saved without `@context` states the ActivityStreams context,
+    which the validator read it with and which Activity Streams 2.0 asks
+    documents to include.
+ -  The document must name its own resource in `id`.  Fedify does not parse
+    it: the dispatchers hand Fedify a vocabulary object whose JSON-LD is the
+    document, so a document with values Fedify 2.4.3 cannot read, such as a
+    `Link` in `audience` or `object`, is served as saved too.
+
+
+Conditions
+----------
+
+Every read needs the request's authority to be the instance of a live local
+actor, and Public `to` or `cc` addressing in the resource's current
+`addressing` index.  Moreover:
+
+ -  An activity must be in the outbox of such an actor.  A saved activity that
+    was not published is not served, nor is a received one.
+ -  A legacy `Create` is not served once its object is deleted.  A saved
+    activity whose `object` refers to a deleted local object is served only
+    if it is a `Delete`: the deletion hides the `Like` and other activities
+    about the object, and leaves its `Delete` retrievable.  A local object is
+    deleted when its typed row is, or when its current revision is a local
+    whiteout.
+ -  A saved document that embeds a deleted local object, at any depth, is
+    not served, so the `Create` and `Update` activities that carried its
+    content, and an `Undo` of a `Like` embedding it, are hidden.
+ -  A saved document that embeds, at any depth, a document addressed to
+    recipients but not to the public in its `to` or `cc` is not served,
+    since its content is theirs.  Its recipients are read as the
+    `addressing` index records them: references as resolved, embedded
+    documents by `id`, and `Link` values by `href`.  An embedded document
+    without recipients of its own goes with the document that embeds it, as
+    the `Like` in an `Undo` usually does.
+ -  An object must be attributed to the actor of its route by its last
+    snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
+    of its `id` and `deleted` time only.
+
+What a saved document embeds and refers to is read from the document, through
+`describeDocument()`; every other condition is SQL.
+
+
+Outbox
+------
+
+Outbox pages hold legacy and saved activities in one order: ascending
+`position` of the outbox's `collection_items`, where the newest item has the
+smallest position.  The cursor is the position of the last item of the
+previous page.  A page leaves out the saved activities their documents do not
+allow after selecting them, so it can hold fewer items than the page size.
+The counter counts what the pages hold, reading the documents of the saved
+activities in the outbox.
+
+
+Outgoing payloads
+-----------------
+
+`@drfed/federation/serving` exports the same serialization for outgoing
+payloads:
+
+ -  `publicDocument(document)` returns a copy without blind recipients and
+    with a stated context, or `null` for a document the validator cannot
+    read offline.
+ -  `parseVocab(ctx, document)` parses a document into a vocabulary object
+    that keeps it as its JSON-LD.  It throws for a document Fedify cannot
+    read, such as one with a `Link` in `audience` or `object`.
+ -  `loadActivitySnapshot(db, id)` loads a saved activity's current document,
+    blind recipients included, and its revision ID, applying no condition
+    above.
+
+An object derived from a parsed one, as by `clone()`, loses that JSON-LD and is
+serialized from the properties Fedify knows, without extensions.  Delivery is
+not part of these reads.

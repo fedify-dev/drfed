@@ -663,11 +663,17 @@ An inbound delivery that was verified and answered with 2xx is linked to
 `activities` by the activity IRI it recorded, through `linkInboundActivity`,
 never by what a listener reports.
 
+The dispatchers serve resources without legacy typed rows from their current
+revisions through *src/serving/*, exported as `@drfed/federation/serving`.
+The activity dispatchers, outbox pages and outbox counter share the predicates
+in *src/visibility.ts*; change them together.  See [federation read internals].
+
 See [inbox persistence internals] for acceptance and idempotence, and
 [activity delivery internals] for completion reports, receipts and queue
 observations.
 
 [local write internals]: https://drfed.org/internals/local-writes
+[federation read internals]: https://drfed.org/internals/federation-reads
 [inbox persistence internals]: https://drfed.org/internals/inbox-persistence
 [activity delivery internals]: https://drfed.org/internals/activity-deliveries
 

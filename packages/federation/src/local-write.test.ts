@@ -195,7 +195,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         where: { id: saved.id },
       });
       assert.equal(resource?.kind, "object");
-      // Revision-only until generalized reads arrive; nothing else changed.
+      // Revision-only, without legacy typed rows; nothing else changed.
       assert.equal(await harness.db.$count(schema.objects), 0);
       assert.equal(await harness.db.$count(schema.activities), 0);
       assert.equal(await harness.db.$count(schema.collectionItems), 0);
@@ -825,7 +825,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         items.map(({ itemId }) => itemId),
         [root.id],
       );
-      // Saved without a legacy typed row, it is not served yet.
+      // Saved without a legacy typed row; it is served from its revision.
       assert.equal(await harness.db.$count(schema.activities), 0);
     });
   });

@@ -14,15 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { type Database, schema } from "@drfed/models";
-import { type Uuid, validateUuid } from "@drfed/models/uuid";
+import type { Database } from "@drfed/models";
+import type { Uuid } from "@drfed/models/uuid";
 import type { Context, FederationBuilder } from "@fedify/fedify";
 import { Object as APObject } from "@fedify/vocab";
-import { and, eq, sql } from "drizzle-orm";
 
 import { findActiveActor } from "./actor.ts";
-import { activitySelection, toCreate } from "./object.ts";
-import { servedActivity } from "./visibility.ts";
+import { countOutbox, loadOutboxPage } from "./serving/resource.ts";
 
 const OUTBOX_PAGE_SIZE = 20;
 
@@ -40,39 +38,22 @@ export function registerCollectionDispatchers(
     .setOutboxDispatcher(
       "/users/{identifier}/outbox",
       async (ctx, identifier, cursor) => {
-        if ((await findActiveActor(db, ctx, identifier)) == null) return null;
-        const boundary = parseOutboxCursor(cursor);
-        if (boundary === false) return null;
-        const rows = await db.query.activities.findMany({
-          where: {
-            actorId: identifier as Uuid,
-            RAW: (table) =>
-              and(
-                servedActivity(table),
-                boundary == null
-                  ? undefined
-                  : sql`(${table.published}, ${table.id}) <
-                      (${boundary.published}::timestamptz, ${boundary.id}::uuid)`,
-              )!,
-          },
-          // Backfilled activity IDs are UUIDv7, so only publication time
-          // determines chronology. Keep full database precision in cursors.
-          extras: {
-            cursorPublished: (table) =>
-              sql<string>`to_char(${table.published} AT TIME ZONE 'UTC',
-                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
-          },
-          orderBy: { published: "desc", id: "desc" },
-          limit: OUTBOX_PAGE_SIZE + 1,
-          with: activitySelection,
-        });
-        const page = rows.slice(0, OUTBOX_PAGE_SIZE);
+        const actor = await findActiveActor(db, ctx, identifier);
+        if (actor == null) return null;
+        const after = parseOutboxCursor(cursor);
+        if (after === false) return null;
+        const outboxId = outboxOf(actor);
+        if (outboxId == null) return { items: [] };
+        const page = await loadOutboxPage(
+          db,
+          ctx,
+          outboxId,
+          after,
+          OUTBOX_PAGE_SIZE,
+        );
         return {
-          items: page.map((object) => toCreate(ctx, object)),
-          nextCursor:
-            rows.length > OUTBOX_PAGE_SIZE
-              ? `${page.at(-1)!.cursorPublished}|${page.at(-1)!.id}`
-              : null,
+          items: [...page.items],
+          nextCursor: page.nextCursor == null ? null : String(page.nextCursor),
         };
       },
     )
@@ -81,15 +62,9 @@ export function registerCollectionDispatchers(
     )
     .setCounter(async (ctx, identifier) => {
       const actor = await findActiveActor(db, ctx, identifier);
-      return actor == null
-        ? null
-        : db.$count(
-            schema.activities,
-            and(
-              eq(schema.activities.actorId, actor.id),
-              servedActivity(schema.activities),
-            ),
-          );
+      if (actor == null) return null;
+      const outboxId = outboxOf(actor);
+      return outboxId == null ? 0 : await countOutbox(db, outboxId);
     });
 
   builder
@@ -153,30 +128,32 @@ export function registerCollectionDispatchers(
 }
 
 /**
- * Parse an opaque boundary without rounding database microseconds.
- * @returns The boundary, null for the first page, or false for invalid input.
+ * Reads the outbox collection an actor declares.
+ * @returns The collection ID, or `null` when it declares none.
  */
-function parseOutboxCursor(
-  cursor: string | null,
-): { published: string; id: string } | null | false {
+function outboxOf(actor: {
+  readonly collectionReferences: readonly {
+    readonly role: string;
+    readonly collectionId: Uuid;
+  }[];
+}): Uuid | null {
+  return (
+    actor.collectionReferences.find(({ role }) => role === "outbox")
+      ?.collectionId ?? null
+  );
+}
+
+/**
+ * Parses an outbox cursor: the position of the last item of the previous
+ * page.
+ * @returns The position, null for the first page, or false for invalid input.
+ */
+function parseOutboxCursor(cursor: string | null): number | null | false {
   if (cursor == null || cursor === "") return null;
-  const [published, id, extra] = cursor.split("|");
-  if (
-    published == null ||
-    published.startsWith("0000-") ||
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/u.test(published) ||
-    id == null ||
-    !validateUuid(id) ||
-    extra != null
-  ) {
-    return false;
-  }
-  try {
-    Temporal.Instant.from(published);
-    return { published, id };
-  } catch {
-    return false;
-  }
+  if (!/^-?\d{1,10}$/u.test(cursor)) return false;
+  const position = Number(cursor);
+  // Positions are PostgreSQL integers.
+  return position >= -(2 ** 31) && position < 2 ** 31 ? position : false;
 }
 
 async function actorCollection(

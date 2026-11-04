@@ -69,6 +69,10 @@
     "./task-queue": {
       "types": "./dist/task-queue.d.mts",
       "default": "./dist/task-queue.mjs"
+    },
+    "./serving": {
+      "types": "./dist/serving.d.mts",
+      "default": "./dist/serving.mjs"
     }
   },
   "files": [
@@ -83,7 +87,8 @@
       "src/local-write.ts",
       "src/origin.ts",
       "src/actor-key.ts",
-      "src/task-queue.ts"
+      "src/task-queue.ts",
+      "src/serving.ts"
     ],
     "dts": {
       "sourcemap": true,
