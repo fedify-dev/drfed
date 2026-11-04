@@ -38,7 +38,7 @@ jobs:
       build: ${{ needs.version.outputs.build }}
 
   publish:
-    needs: [version, artifacts]
+    needs: [version, artifacts, docs]
     if: >-
       github.repository == 'fedify-dev/drfed' && !github.event.deleted &&
       needs.version.outputs.enabled == 'true'
