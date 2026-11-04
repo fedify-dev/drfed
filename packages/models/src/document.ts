@@ -190,7 +190,14 @@ const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const maximumDiagnostics = 100;
 const maximumPathDepth = 64;
 const actorTypes = [Application, Group, Organization, Person, Service];
-const addressingProperties = ["to", "cc", "bto", "bcc", "audience"];
+/** The ActivityStreams properties that address a document's recipients. */
+export const addressingProperties = [
+  "to",
+  "cc",
+  "bto",
+  "bcc",
+  "audience",
+] as const;
 // AS2 vocabulary Object properties that do not also apply to Link.
 const objectOnlyProperties: ReadonlySet<string> = new Set([
   "attachment",
@@ -1652,6 +1659,8 @@ function checkDocumentValue(
     values: Record<string, unknown>,
     path: FieldPath,
     context: DocumentContext,
+    Type: VocabularyType,
+    fields: readonly SourceProperty[],
   ) => void,
   onUnavailableDocument: (path: FieldPath) => void = () => undefined,
 ): void {
@@ -1749,7 +1758,7 @@ function checkDocumentValue(
       return;
     }
     checkEmbeddedFedifyRange(Type, fedifyTypes, path, report);
-    onDocument?.(values, path, context);
+    onDocument?.(values, path, context, Type, fields);
     const isObject = isTypeOrSubtype(Type, APObject);
     const isLink = isTypeOrSubtype(Type, Link);
     const isActivity = isTypeOrSubtype(Type, Activity);
@@ -2389,4 +2398,186 @@ export function prepareDocument(
     changes,
     normalizedDocument: preview,
   };
+}
+
+/** The vocabulary category of a described document. */
+export type DocumentNodeKind =
+  | "activity"
+  | "actor"
+  | "collection"
+  | "link"
+  | "object";
+
+/** One document reached by vocabulary traversal, as the checker read it. */
+export interface DocumentNode {
+  /** Source path of the document; `[]` is the root. */
+  readonly path: FieldPath;
+  /**
+   * The standard name of the property that embeds the document, whatever
+   * its source spelling; absent for the root.
+   */
+  readonly property?: string;
+  /** The ActivityStreams type IRI, such as `…/activitystreams#Note`. */
+  readonly type: string;
+  readonly kind: DocumentNodeKind;
+  /**
+   * Standard property names, including `id` and `type`, mapped to the source
+   * keys that supply them, in source key order.  Custom extension keys are
+   * not listed.
+   */
+  readonly properties: ReadonlyMap<string, readonly string[]>;
+  /**
+   * String IRI references held by this document's own reference properties
+   * (`id`, `actor`, `object`, addressing, `href`, and so on), with compact
+   * IRIs expanded through the context's prefixes.  Values inside embedded
+   * documents belong to those documents' nodes.
+   */
+  readonly identifiers: readonly DocumentIdentifier[];
+}
+
+/** One IRI reference as written and as the context resolves it. */
+export interface DocumentIdentifier {
+  /** The standard property name, such as `actor` or `to`. */
+  readonly property: string;
+  /** Source path of the value, including its list index if any. */
+  readonly path: FieldPath;
+  /** The value as written. */
+  readonly value: string;
+  /** The value with a compact IRI prefix expanded. */
+  readonly iri: string;
+}
+
+const identifierProperties: ReadonlySet<string> = new Set([
+  "id",
+  "actor",
+  "object",
+  "target",
+  "origin",
+  "result",
+  "instrument",
+  "attributedTo",
+  "location",
+  "preview",
+  ...addressingProperties,
+  "items",
+  "orderedItems",
+  "current",
+  "first",
+  "last",
+  "partOf",
+  "next",
+  "prev",
+  "inbox",
+  "outbox",
+  "following",
+  "followers",
+  "liked",
+  "href",
+]);
+
+// IRI values expand compact IRIs through prefixes only; JSON-LD applies terms
+// to property names and types, not to node identifiers.
+function expandIdentifier(value: string, context: DocumentContext): string {
+  const colon = value.indexOf(":");
+  if (colon <= 0 || value.startsWith("//", colon + 1)) return value;
+  const prefix = context.terms.get(value.slice(0, colon));
+  // Like resolveTerm(), only terms flagged as prefixes expand compact IRIs.
+  if (prefix?.prefix !== true || prefix.iri.startsWith("@")) return value;
+  return prefix.iri + value.slice(colon + 1);
+}
+
+function nodeKind(Type: VocabularyType): DocumentNodeKind {
+  if (isTypeOrSubtype(Type, Link)) return "link";
+  if (isTypeOrSubtype(Type, Activity)) return "activity";
+  if (actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor))) return "actor";
+  if (isTypeOrSubtype(Type, Collection)) return "collection";
+  return "object";
+}
+
+/**
+ * Describes the vocabulary documents the checker reads, so that write paths
+ * interpret aliases, full-IRI keys, and keyword aliases exactly as
+ * validation did, instead of matching literal key spellings.  Opaque
+ * extension values are not descended into.
+ * @returns The root and every embedded document in traversal order, or
+ *          `null` unless validation completes without errors.
+ */
+export function describeDocument(
+  document: unknown,
+): readonly DocumentNode[] | null {
+  const reporter = createReporter();
+  const visited: {
+    readonly values: Record<string, unknown>;
+    readonly path: FieldPath;
+    readonly context: DocumentContext;
+    readonly Type: VocabularyType;
+    readonly fields: readonly SourceProperty[];
+  }[] = [];
+  checkDocumentValue(
+    document,
+    [],
+    reporter,
+    [],
+    (values, path, context, Type, fields) => {
+      visited.push({ values, path, context, Type, fields });
+    },
+  );
+  const result = reporter.result();
+  if (
+    !result.complete ||
+    result.diagnostics.some(({ severity }) => severity === "error")
+  ) {
+    return null;
+  }
+  // Read values only now: validation has rejected sparse arrays, accessors,
+  // and other non-JSON shapes without evaluating them.
+  const nodes = visited.map(
+    ({ values, path, context, Type, fields }): DocumentNode => {
+      const properties = new Map<string, string[]>();
+      const identifiers: DocumentIdentifier[] = [];
+      for (const { source, name, compatible } of fields) {
+        if (name == null || !compatible) continue;
+        const sources = properties.get(name) ?? [];
+        sources.push(source);
+        properties.set(name, sources);
+        if (!identifierProperties.has(name)) continue;
+        const value = values[source];
+        const entries: [unknown, FieldPath][] = Array.isArray(value)
+          ? value.map((entry, index) => [entry, [...path, source, index]])
+          : [[value, [...path, source]]];
+        for (const [entry, entryPath] of entries) {
+          if (typeof entry !== "string") continue;
+          identifiers.push({
+            property: name,
+            path: entryPath,
+            value: entry,
+            iri: expandIdentifier(entry, context),
+          });
+        }
+      }
+      return {
+        path,
+        type: Type.typeId.href,
+        kind: nodeKind(Type),
+        properties,
+        identifiers,
+      };
+    },
+  );
+  const byPath = new Map(
+    nodes.map((node) => [JSON.stringify(node.path), node]),
+  );
+  return nodes.map((node) => {
+    if (node.path.length === 0) return node;
+    // An embedded document sits at [...parent, key] or [...parent, key, index].
+    for (const length of [node.path.length - 1, node.path.length - 2]) {
+      const parent = byPath.get(JSON.stringify(node.path.slice(0, length)));
+      const key = node.path[length];
+      if (parent == null || typeof key !== "string") continue;
+      for (const [name, sources] of parent.properties) {
+        if (sources.includes(key)) return { ...node, property: name };
+      }
+    }
+    return node;
+  });
 }

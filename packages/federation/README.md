@@ -38,19 +38,35 @@ The CLI routes instance subdomains to this federation. See
 Exports
 -------
 
-| Import                                | Contents                                                     |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `@drfed/federation`                   | `createFederation()` (default), `buildFederation()`          |
-| `@drfed/federation/activity-delivery` | Inbound recording, outbound delivery, and their observations |
-| `@drfed/federation/actor-key`         | `ensureActorKeyPairs()` for persisted actor signing keys     |
-| `@drfed/federation/task-queue`        | `KeyGenerationQueue` for background actor key generation     |
-| `@drfed/federation/object`            | Query selections, `toObject()`, and `toCreate()`             |
-| `@drfed/federation/origin`            | `instanceHost()`, `classifyHost()`, and other host helpers   |
+| Import                                | Contents                                                      |
+| ------------------------------------- | ------------------------------------------------------------- |
+| `@drfed/federation`                   | `createFederation()` (default), `buildFederation()`           |
+| `@drfed/federation/activity-delivery` | Inbound recording, outbound delivery, and their observations  |
+| `@drfed/federation/actor-key`         | `ensureActorKeyPairs()` for persisted actor signing keys      |
+| `@drfed/federation/task-queue`        | `KeyGenerationQueue` for background actor key generation      |
+| `@drfed/federation/local-write`       | Common write operations that save, edit, and delete resources |
+| `@drfed/federation/object`            | Query selections, `toObject()`, and `toCreate()`              |
+| `@drfed/federation/origin`            | `instanceHost()`, `classifyHost()`, and other host helpers    |
 
 The serializers in `@drfed/federation/object` are the same ones the
 dispatchers use, so documents stored by GraphQL mutations match what is served
 over ActivityPub.  Load rows with the matching selection before serializing
 them.
+
+
+Local writes
+------------
+
+`previewLocalWrite()` and `commitLocalWrite()` from
+`@drfed/federation/local-write` save local resources for editors: an object
+alone, an activity referring to existing resources, or an activity with new
+nested resources, atomically, and actual edits or deletions of a current
+object with a generated `Update` or `Delete`.  A preview shows every value the
+server adds and returns a token; the commit saves exactly those values after
+checking permission again.  Saving never delivers anything.  See the
+[local write internals] for the contract.
+
+[local write internals]: https://drfed.org/internals/local-writes
 
 
 Activity deliveries

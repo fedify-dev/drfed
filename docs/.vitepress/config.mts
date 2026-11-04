@@ -164,6 +164,7 @@ export default defineConfig({
           { text: "Database lifecycle", link: "/internals/database-lifecycle" },
           { text: "Runtime lifecycle", link: "/internals/runtime-lifecycle" },
           { text: "Inbox persistence", link: "/internals/inbox-persistence" },
+          { text: "Local writes", link: "/internals/local-writes" },
           {
             text: "Activity deliveries",
             link: "/internals/activity-deliveries",

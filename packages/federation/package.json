@@ -54,6 +54,10 @@
       "types": "./dist/object.d.mts",
       "default": "./dist/object.mjs"
     },
+    "./local-write": {
+      "types": "./dist/local-write.d.mts",
+      "default": "./dist/local-write.mjs"
+    },
     "./origin": {
       "types": "./dist/origin.d.mts",
       "default": "./dist/origin.mjs"
@@ -76,6 +80,7 @@
       "src/index.ts",
       "src/activity-delivery.ts",
       "src/object.ts",
+      "src/local-write.ts",
       "src/origin.ts",
       "src/actor-key.ts",
       "src/task-queue.ts"
@@ -94,6 +99,7 @@
     "@electric-sql/pglite": "catalog:",
     "@logtape/testing-node": "catalog:",
     "@types/node": "catalog:",
+    "postgres": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"
   },

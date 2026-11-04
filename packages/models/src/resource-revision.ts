@@ -14,19 +14,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
 import { LegacyResourceRevisionError } from "./legacy-resource-revision-error.ts";
 import { ResourceRevisionStateError } from "./resource-revision-state-error.ts";
-import { type AddressingInput, ResourceKindConflictError } from "./resource.ts";
+import {
+  type AddressingInput,
+  type AddressingOccurrence,
+  ResourceKindConflictError,
+  checkAddressingOccurrences,
+  replaceAddressing,
+} from "./resource.ts";
 import { RevisionConflictError } from "./revision-conflict-error.ts";
 import {
+  type NewActivityPubObject,
   type ResourceRevision,
   type RevisionAddressing,
   type RevisionRelation,
   activities,
   addressingPropertyEnum,
+  addressing as addressingTable,
   objects,
   resourceHeads,
   resourceRevisionCaptureEnum,
@@ -72,6 +80,11 @@ export type AppendResourceRevisionInput = AppendBase &
         readonly document: JsonObject;
         readonly capture: ResourceRevision["capture"];
         readonly addressing?: AddressingInput;
+        /**
+         * Explicit occurrences at their source positions, instead of
+         * `addressing`; positions of unindexed values stay unused.
+         */
+        readonly addressingOccurrences?: readonly AddressingOccurrence[];
         readonly relations?: readonly RevisionRelationInput[];
         readonly projection?: ResourceRevision["projection"];
       }
@@ -295,12 +308,27 @@ function prepareSnapshot(
   ) {
     throw new TypeError("Invalid capture or projection category.");
   }
+  let addressing: Omit<RevisionAddressing, "revisionId">[];
+  if (input.addressingOccurrences === undefined) {
+    addressing = projectionRows(input.addressing);
+  } else {
+    if (input.addressing !== undefined) {
+      throw new TypeError("Pass addressing or its occurrences, not both.");
+    }
+    checkAddressingOccurrences(input.addressingOccurrences);
+    addressing = input.addressingOccurrences.map(
+      ({ property, position, iri }) => {
+        text(iri);
+        return { property, position, iri };
+      },
+    );
+  }
   return {
     kind: "snapshot",
     serialized: json(input.document),
     capture: input.capture,
     projection,
-    addressing: projectionRows(input.addressing),
+    addressing,
     relations: relationRows(input.relations),
     deleted: null,
     formerTypes: null,
@@ -363,6 +391,7 @@ function prepareRevision(input: AppendResourceRevisionInput): PreparedRevision {
 async function lockRevisionTarget(
   tx: Transaction,
   input: PreparedRevision,
+  typed = false,
 ): Promise<ResourceRevision | null> {
   const { resourceId, resourceKind, expectedRevisionId, kind } = input;
   const [resource] = await tx
@@ -399,7 +428,8 @@ async function lockRevisionTarget(
       .where(eq(activities.id, resourceId))
       .limit(1),
   ]);
-  if (legacyObject.length > 0 || legacyActivity.length > 0) {
+  // A typed append has verified and changes the typed row itself.
+  if (!typed && (legacyObject.length > 0 || legacyActivity.length > 0)) {
     throw new LegacyResourceRevisionError(resourceId);
   }
   if (resource.kind !== "unknown" && resource.kind !== resourceKind) {
@@ -430,8 +460,9 @@ async function lockRevisionTarget(
 async function appendPrepared(
   tx: Transaction,
   input: PreparedRevision,
+  typed = false,
 ): Promise<StoredResourceRevision> {
-  const previous = await lockRevisionTarget(tx, input);
+  const previous = await lockRevisionTarget(tx, input, typed);
   const {
     resourceId,
     kind,
@@ -599,6 +630,194 @@ export async function listResourceRevisions(
     addressing: addressingByRevision.get(revision.id) ?? [],
     relations: relationsByRevision.get(revision.id) ?? [],
   }));
+}
+
+/** Typed object columns a coordinated edit may set, besides its document. */
+export type TypedObjectColumns = Pick<
+  NewActivityPubObject,
+  | "type"
+  | "url"
+  | "name"
+  | "summary"
+  | "contentHtml"
+  | "language"
+  | "sensitive"
+  | "published"
+  | "updated"
+>;
+
+interface TypedRevisionBase {
+  readonly resourceId: Uuid;
+  /** The current revision; a typed object always has one. */
+  readonly expectedRevisionId: Uuid;
+}
+export type TypedResourceRevisionInput = TypedRevisionBase &
+  (
+    | {
+        readonly kind: "snapshot";
+        readonly document: JsonObject;
+        /** Every column the typed row serves; `updated` is not implied. */
+        readonly columns: Required<Omit<TypedObjectColumns, "type">> &
+          Partial<Pick<TypedObjectColumns, "type">>;
+        readonly addressingOccurrences: readonly AddressingOccurrence[];
+        readonly relations?: readonly RevisionRelationInput[];
+        readonly projection?: ResourceRevision["projection"];
+      }
+    | {
+        readonly kind: "whiteout";
+        readonly deleted: Temporal.Instant;
+        readonly formerTypes: readonly string[];
+      }
+  );
+
+async function sameTypedState(
+  tx: Transaction,
+  resourceId: Uuid,
+  head: ResourceRevision,
+): Promise<boolean> {
+  // Compare JSON text, as legacy capture does, rather than parsed values.
+  const [row] = await tx
+    .select({
+      same: sql<boolean>`${objects.document}::text IS NOT DISTINCT FROM ${resourceRevisions.document}::text
+        AND NOT EXISTS (
+          (SELECT saved.property, saved.position, saved.iri
+            FROM ${revisionAddressing} AS saved
+            WHERE saved.revision_id = ${head.id})
+          EXCEPT ALL
+          (SELECT declared.property, declared.position, target.iri
+            FROM ${addressingTable} AS declared
+            JOIN ${resources} AS target ON target.id = declared.target_id
+            WHERE declared.source_id = ${resourceId})
+        )
+        AND NOT EXISTS (
+          (SELECT declared.property, declared.position, target.iri
+            FROM ${addressingTable} AS declared
+            JOIN ${resources} AS target ON target.id = declared.target_id
+            WHERE declared.source_id = ${resourceId})
+          EXCEPT ALL
+          (SELECT saved.property, saved.position, saved.iri
+            FROM ${revisionAddressing} AS saved
+            WHERE saved.revision_id = ${head.id})
+        )`,
+    })
+    .from(objects)
+    .innerJoin(resourceRevisions, eq(resourceRevisions.id, head.id))
+    .where(and(eq(objects.id, resourceId), isNull(objects.deleted)));
+  return row?.same === true;
+}
+
+/**
+ * Edits or deletes an object that has a legacy typed row, keeping the typed
+ * row, its current addressing, and the revision history in step.  Under the
+ * canonical lock, the current revision must be the expected snapshot, and the
+ * typed row's document and addressing must still equal it; otherwise nothing
+ * changes.  A snapshot sets the typed columns, the typed document to the same
+ * JSON as the new revision, and the current addressing to the occurrences.  A
+ * whiteout soft-deletes the typed row and keeps its addressing, which
+ * continues to describe the last content.  The caller must validate and
+ * authorize the change and check any served column against the old head.
+ * The whole write runs in a savepoint, so a caught error leaves no part of it.
+ * @returns The appended revision, including protected blind addressing.
+ * @throws {RevisionConflictError} If the current revision is not the expected.
+ * @throws {LegacyResourceRevisionError} If the resource has no live typed
+ *         object or the typed state differs from its current revision.
+ * @throws {ResourceRevisionStateError} If the object is already deleted.
+ */
+export async function writeTypedResourceRevision(
+  db: Database | Transaction,
+  input: TypedResourceRevisionInput,
+): Promise<StoredResourceRevision> {
+  const prepared = prepareRevision(
+    input.kind === "snapshot"
+      ? {
+          resourceId: input.resourceId,
+          resourceKind: "object",
+          expectedRevisionId: input.expectedRevisionId,
+          kind: "snapshot",
+          document: input.document,
+          capture: "local",
+          addressingOccurrences: input.addressingOccurrences,
+          ...(input.relations === undefined
+            ? {}
+            : { relations: input.relations }),
+          ...(input.projection === undefined
+            ? {}
+            : { projection: input.projection }),
+        }
+      : {
+          resourceId: input.resourceId,
+          resourceKind: "object",
+          expectedRevisionId: input.expectedRevisionId,
+          kind: "whiteout",
+          deleted: input.deleted,
+          formerTypes: input.formerTypes,
+        },
+  );
+  if (prepared.expectedRevisionId === null) {
+    throw new TypeError("A typed object always has a current revision.");
+  }
+  return await db.transaction(async (tx) => {
+    const [resource] = await tx
+      .select({ kind: resources.kind })
+      .from(resources)
+      .where(eq(resources.id, prepared.resourceId))
+      .for("no key update");
+    const [typed] = await tx
+      .select({ id: objects.id })
+      .from(objects)
+      .where(eq(objects.id, prepared.resourceId))
+      .for("update");
+    if (resource?.kind !== "object" || typed === undefined) {
+      throw new LegacyResourceRevisionError(prepared.resourceId);
+    }
+    const head = await current(tx, prepared.resourceId);
+    if (
+      head === null ||
+      !areUuidsEqual(head.id, prepared.expectedRevisionId!)
+    ) {
+      throw new RevisionConflictError(
+        prepared.resourceId,
+        prepared.expectedRevisionId,
+        head?.id ?? null,
+      );
+    }
+    if (head.kind === "whiteout") {
+      throw new ResourceRevisionStateError("deleted");
+    }
+    if (
+      head.kind !== "snapshot" ||
+      !(await sameTypedState(tx, prepared.resourceId, head))
+    ) {
+      throw new LegacyResourceRevisionError(prepared.resourceId);
+    }
+    if (input.kind === "snapshot") {
+      await tx
+        .update(objects)
+        .set({
+          ...input.columns,
+          // The edited document is local, not a copy fetched from its IRI.
+          fetched: false,
+          document: sql`${prepared.serialized}::json`,
+        })
+        .where(eq(objects.id, prepared.resourceId));
+      await replaceAddressing(
+        tx,
+        prepared.resourceId,
+        input.addressingOccurrences,
+      );
+    } else {
+      // Keep the update hook from moving `updated` past the deletion.
+      const [row] = await tx
+        .select({ updated: objects.updated })
+        .from(objects)
+        .where(eq(objects.id, prepared.resourceId));
+      await tx
+        .update(objects)
+        .set({ deleted: input.deleted, updated: row!.updated })
+        .where(eq(objects.id, prepared.resourceId));
+    }
+    return await appendPrepared(tx, prepared, true);
+  });
 }
 
 export { captureLegacyResourceRevision } from "./legacy-resource-revision.ts";

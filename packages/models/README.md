@@ -11,14 +11,15 @@ Document validation
 -------------------
 
 `@drfed/models/document` exports synchronous
-`validateDocument(document: unknown)` and `prepareDocument(document, options)`,
-plus the `diagnosticReasons` registry. Public types are
-`DocumentValidationResult`, `Diagnostic`, `DiagnosticReason`,
-`DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`, `JsonValue`,
-`NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`, and
-`DocumentPreparationOptions`. Pass parsed JSON, not JSON text. Validation
-performs no network access, database writes, permission checks, or delivery,
-and never mutates input.
+`validateDocument(document: unknown)`, `prepareDocument(document, options)`,
+and `describeDocument(document: unknown)`, plus the `diagnosticReasons`
+registry. Public types are `DocumentValidationResult`, `Diagnostic`,
+`DiagnosticReason`, `DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`,
+`JsonValue`, `NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`,
+`DocumentPreparationOptions`, `DocumentNode`, `DocumentNodeKind`, and
+`DocumentIdentifier`. Pass
+parsed JSON, not JSON text. Validation performs no network access, database
+writes, permission checks, or delivery, and never mutates input.
 
 ### Consumer contract
 
@@ -53,12 +54,12 @@ Vocabulary errors describe malformed supported input. Support errors describe
 unimplemented types, properties, or representations and make `complete` false.
 Compatibility warnings do not automatically reject the document. An omitted
 context uses the standard ActivityStreams context with a warning. The exported
-authority category is used by prepareDocument for caller-reported denials and
-server-owned-field conflicts. validateDocument itself emits no authority
-findings.
+authority category is used by `prepareDocument()` for caller-reported denials
+and server-owned-field conflicts. `validateDocument()` itself emits no
+authority findings.
 
 Document-only normalization proposes omission of empty arrays on supported,
-applicable properties. For example, a Note with `to: []` receives the
+applicable properties. For example, a `Note` with `to: []` receives the
 `empty_property_list` warning and a removal change with reason
 `omit_empty_property_list`; its preview omits `to`. Present changes for an
 explicit caller decision. Validation does not apply them or save the preview.
@@ -69,6 +70,40 @@ The preview omits these absent identifiers so Fedify can parse it; the submitted
 document is preserved. Arrays containing any non-null identifier remain errors.
 It does not assign IDs or timestamps, replace actor/attribution identities,
 deduplicate recipients, or convert references to embedded values.
+
+### Describing documents for write paths
+
+`describeDocument(document)` returns the documents the checker reads, as
+`DocumentNode` values, or null unless validation completes without errors. Each
+node has its original path, the standard name of the property embedding it,
+its type IRI, a `kind` (`activity`, `actor`, `collection`, `link`, or
+`object`), and a map from standard property names, including `id` and `type`,
+to the source keys that supply them. Aliases, prefixed or full-IRI keys, and
+`@id`/`@type` aliases are mapped exactly as validation maps them; custom
+extension values are neither listed nor descended into. Each node also lists
+the string IRI references in its own reference properties (`id`, `actor`,
+`object`, addressing, `href`, and so on) as `DocumentIdentifier` values, with
+the original path and value and the IRI after compact-IRI prefix expansion:
+`as:Public` resolves to the full Public IRI, and a context-defined prefix can
+make `local:alice` name another host.
+
+~~~~ ts
+import { describeDocument } from "@drfed/models/document";
+
+const nodes = describeDocument({
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    { by: { "@id": "as:actor", "@type": "@id" } },
+  ],
+  type: "Like",
+  by: "https://example.com/alice",
+  object: "https://example.com/posts/1",
+});
+// nodes?.[0].properties.get("actor") → ["by"]
+~~~~
+
+Write paths use it to find identity claims, addressing, and relations by their
+meaning instead of their spelling.
 
 ### Preparing server-owned creation fields
 
@@ -101,15 +136,15 @@ values alone never request creation or modification of resources.
 Authority paths are caller-supplied diagnostic locations; they are not checked
 against writable document targets. This differs from server-owned field paths.
 
-Owned-field paths must name id, actor, attributedTo, published, or updated on
-existing supported root/nested documents. Supported aliases resolve to the same
-field; diagnostics and changes retain original source spellings and indexes.
-Conflicts in arrays point to the non-null entries. When filling an absent value,
-preparation prefers the requested key if it exists, then an existing alias,
-and otherwise adds the requested key.
-References and opaque extension data cannot be targets. The caller lists only
-the fields it owns for that explicit creation operation; no default fields are
-invented, and no values are generated from the clock or random IDs here.
+Owned-field paths must name `id`, `actor`, `attributedTo`, `published`, or
+`updated` on existing supported root/nested documents. Supported aliases
+resolve to the same field; diagnostics and changes retain original source
+spellings and indexes. Conflicts in arrays point to the non-null entries. When
+filling an absent value, preparation prefers the requested key if it exists,
+then an existing alias, and otherwise adds the requested key. References and
+opaque extension data cannot be targets. The caller lists only the fields it
+owns for that explicit creation operation; no default fields are invented, and
+no values are generated from the clock or random IDs here.
 
 | Submitted value                                                   | Preparation behavior                                                                |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -141,66 +176,71 @@ proposals remain unchanged.
 Denied authority, conflicts, unsupported input, and truncated diagnostics
 withhold both preview and changes. The input and trusted options are unchanged.
 
-#152 owns actual permission checks, value allocation, preview-to-commit
-coordination, persistence, and permission rechecks at write time. It must keep
-the committed values consistent with the accepted preview. This module neither
-saves anything nor adapts createObject. Both editors can display the shared
-results; saving, publication, and sending remain separate operations.
+The common write operations in `@drfed/federation/local-write` own permission
+checks, value allocation, preview-to-commit coordination, persistence, and
+permission rechecks at write time, and commit exactly the values of an
+accepted preview; see the [local write internals]. This module saves nothing.
+Both editors can display the shared results; saving, publication, and sending
+remain separate operations.
+
+[local write internals]: https://drfed.org/internals/local-writes
 
 ### Supported types and properties
 
 The checker admits both activity base types and all 28 named activity subtypes,
-plus Object, Note, Article, Application, Group, Organization, Person, Service,
-Collection, OrderedCollection, CollectionPage, OrderedCollectionPage, Link,
-and Mention. Optional properties stay optional. Each document needs one
-supported type string; all type arrays, including singleton arrays, are
-unsupported. Unknown types are retained without being converted to Note.
+plus `Object`, `Note`, `Article`, `Application`, `Group`, `Organization`,
+`Person`, `Service`, `Collection`, `OrderedCollection`, `CollectionPage`,
+`OrderedCollectionPage`, `Link`, and `Mention`. Optional properties stay
+optional. Each document needs one supported `type` string; all `type` arrays,
+including singleton arrays, are unsupported. Unknown types are retained without
+being converted to `Note`.
 
 Type detection uses Fedify's public registry and inheritance, with an explicit
-implemented-type set. Link and Mention use their exported classes because the
-installed registry excludes them. Models and federation share the catalog
+implemented-type set. `Link` and `Mention` use their exported classes because
+the installed registry excludes them. Models and federation share the catalog
 version of `@fedify/vocab` (currently 2.4.3); context data comes from the
 matching `@fedify/vocab-runtime`. Recognition by Fedify alone does not
 establish checker coverage. No vocabulary parser or full JSON-LD expansion runs
 here.
 
-In the table, Object includes its admitted subtypes, including activities,
+In the table, `Object` includes its admitted subtypes, including activities,
 actors, and collections. References are absolute IRIs or supported embedded
-Object/Link values. Reference lists retain order, duplicates, and source
+`Object`/`Link` values. Reference lists retain order, duplicates, and source
 indexes.
 
-| Applies to              | Properties and rules                                                                                                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Object and Link         | id: one IRI; mediaType: one MIME type; preview: references/lists; name/nameMap: text without HTML.                                                                                                       |
-| Object                  | summary/content and summaryMap/contentMap: text, including HTML and empty strings; location and attributedTo: references/lists.                                                                          |
-| Object                  | published, updated, startTime, endTime: one date-time each; to, cc, bto, bcc, audience: references/lists, with empty-array omission previews.                                                            |
-| Activity                | actor, object, target, origin, result, instrument: references/lists. IntransitiveActivity, Arrive, Travel, and Question reject non-null object values.                                                   |
-| Actor types             | preferredUsername: text; inbox/outbox: one IRI or embedded OrderedCollection or OrderedCollectionPage; following/followers/liked: one IRI or embedded Collection subtype.                                |
-| Collection and subtypes | items/orderedItems: references/lists; totalItems: non-negative integer; current/first/last: one IRI or CollectionPage subtype. Counts need not match visible members.                                    |
-| CollectionPage subtypes | partOf: one IRI or Collection subtype; next/prev: one IRI or CollectionPage subtype.                                                                                                                     |
-| OrderedCollectionPage   | startIndex: non-negative integer.                                                                                                                                                                        |
-| Link and Mention        | href: one IRI; hreflang: one language tag; rel: relation tokens/IRIs or lists; height/width: non-negative integers. Object-only fields, such as content and location, receive property\_not\_applicable. |
+| Applies to                | Properties and rules                                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Object` and `Link`       | `id`: one IRI; `mediaType`: one MIME type; `preview`: references/lists; `name`/`nameMap`: text without HTML.                                                                                                             |
+| `Object`                  | `summary`/`content` and `summaryMap`/`contentMap`: text, including HTML and empty strings; `location` and `attributedTo`: references/lists.                                                                              |
+| `Object`                  | `published`, `updated`, `startTime`, `endTime`: one date-time each; `to`, `cc`, `bto`, `bcc`, `audience`: references/lists, with empty-array omission previews.                                                          |
+| `Activity`                | `actor`, `object`, `target`, `origin`, `result`, `instrument`: references/lists. `IntransitiveActivity`, `Arrive`, `Travel`, and `Question` reject non-null `object` values.                                             |
+| Actor types               | `preferredUsername`: text; `inbox`/`outbox`: one IRI or embedded `OrderedCollection` or `OrderedCollectionPage`; `following`/`followers`/`liked`: one IRI or embedded `Collection` subtype.                              |
+| `Collection` and subtypes | `items`/`orderedItems`: references/lists; `totalItems`: non-negative integer; `current`/`first`/`last`: one IRI or `CollectionPage` subtype. Counts need not match visible members.                                      |
+| `CollectionPage` subtypes | `partOf`: one IRI or `Collection` subtype; `next`/`prev`: one IRI or `CollectionPage` subtype.                                                                                                                           |
+| `OrderedCollectionPage`   | `startIndex`: non-negative integer.                                                                                                                                                                                      |
+| `Link` and `Mention`      | `href`: one IRI; `hreflang`: one language tag; `rel`: relation tokens/IRIs or lists; `height`/`width`: non-negative integers. `Object`-only fields, such as `content` and `location`, receive `property_not_applicable`. |
 
-Except for id, single-value properties accept a scalar or array containing at
+Except for `id`, single-value properties accept a scalar or array containing at
 most one non-null value; multiple values receive `invalid_multiplicity`. Null
 means absence, including null list entries. Empty arrays on supported
 properties receive `empty_property_list` and an inspectable omission preview;
-nested lists remain unsupported. Type and context arrays do not use this
+nested lists remain unsupported. `type` and `@context` arrays do not use this
 omission rule. Unknown custom arrays are preserved as opaque data, while empty
 arrays on unsupported or inapplicable fields retain their existing errors.
 Identifiers require an IRI string when present. Null, empty arrays, and
 null-only arrays receive omission previews; arrays containing non-null values
 receive `invalid_value_shape`, even when they contain only one identifier.
-Embedded activity actors and Object `attributedTo` values must use Application,
-Group, Organization, Person, or Service for Fedify compatibility. Other
-ActivityStreams-permitted embedded types receive `unsupported_value_form`; IRI
-references remain supported without remote type checks. Object-only fields such
-as `attributedTo` on Link receive `property_not_applicable`. Link `preview` and
-`nameMap` remain supported by the vocabulary and Fedify's decoder. Collection
-navigation accepts embedded CollectionPage values for current, first, last,
-next, and prev, and Collection values for partOf, including subtypes. Embedded
-Links in these fields receive `unsupported_value_form` because Fedify rejects
-them. Diagnostics retain the original field/list paths.
+Embedded activity actors and `Object` `attributedTo` values must use
+`Application`, `Group`, `Organization`, `Person`, or `Service` for Fedify
+compatibility. Other ActivityStreams-permitted embedded types receive
+`unsupported_value_form`; IRI references remain supported without remote type
+checks. `Object`-only fields such as `attributedTo` on `Link` receive
+`property_not_applicable`. `Link` `preview` and `nameMap` remain supported by
+the vocabulary and Fedify's decoder. `Collection` navigation accepts embedded
+`CollectionPage` values for `current`, `first`, `last`, `next`, and `prev`, and
+`Collection` values for `partOf`, including subtypes. Embedded `Link` values in
+these fields receive `unsupported_value_form` because Fedify rejects them.
+Diagnostics retain the original field/list paths.
 
 Text accepts strings, flat lists, and supported `@value`/`@language` objects.
 Language maps contain strings or null. Complex text attributes are unsupported.
@@ -213,15 +253,15 @@ unsupported. Validation preserves these values without adding seconds or
 truncating precision. Timestamp validation does not establish server ownership
 or ordering between fields.
 
-Question is supported standalone and inside Create/Update using shared rules.
-Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending #155's
-poll rules. Open-ended Question needs no choices. Other types without
-implemented rules, such as Place, receive support findings.
+`Question` is supported standalone and inside `Create`/`Update` using shared
+rules. Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending
+#155's poll rules. Open-ended `Question` needs no choices. Other types without
+implemented rules, such as `Place`, receive support findings.
 
-For 0.2.0, Object property rules for `tag`, `inReplyTo`, `url`, `attachment`,
+For 0.2.0, `Object` property rules for `tag`, `inReplyTo`, `url`, `attachment`,
 `replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`
 remain unimplemented. Null values are treated as absent and preserved without
-diagnostics or normalization. On Object documents, non-null values produce
+diagnostics or normalization. On `Object` documents, non-null values produce
 `unsupported_property` errors and set `complete: false`, preventing successful
 validation even when their values are valid ActivityStreams. This limits which
 documents pasted from fediverse servers can pass validation. Unknown custom
@@ -309,7 +349,8 @@ category and severity are checked against the registry. Input preservation and
 preview contents are asserted. Additional tests exercise network avoidance,
 contexts, representation limits, and nested traversal. Preparation tests
 exercise supplied authority outcomes and generated-field previews. Database
-permission enforcement and transaction integration remain #152 responsibilities.
+permission enforcement and transaction integration are tested with the common
+write operations in `@drfed/federation`.
 
 [the fixture file]: ../../fixtures/document-validation/initial.json
 [the document tests]: src/document.test.ts
@@ -330,12 +371,15 @@ Resource revisions
 
 `@drfed/models/resource-revision` provides trusted append and history reads for
 full ActivityStreams JSON, with compare-and-swap heads and terminal deletion
-markers. Existing local and inbound Create writers capture their documents in
+markers. Existing local and inbound `Create` writers capture their documents in
 the same transaction. Retained JSON can contain blind recipients; model reads
 do not authorize access or prepare wire documents.
 
-See the [resource revision internals] for API examples, projections, legacy
-upgrades and the boundaries of editor, federation and dispatch integration.
+`writeTypedResourceRevision()` edits or deletes an object that also has a
+legacy typed row, keeping the row, its current addressing, and the history in
+step. See the [resource revision internals] for API examples, projections,
+legacy upgrades and the boundaries of editor, federation and dispatch
+integration.
 
 [resource revision internals]: https://drfed.org/internals/resource-revisions
 

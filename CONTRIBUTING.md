@@ -650,6 +650,14 @@ acknowledged one.  Use `deliverActivity` for outgoing delivery, and create the
 federation through `createFederation`, which observes the outbox queue so that
 each attempt Fedify's worker makes settles its delivery.
 
+Local resources are saved, edited, and deleted through the common write
+operations in *src/local-write/*, exported as `@drfed/federation/local-write`.
+Editors preview a write and commit it with the preview's token; never write
+local resources, typed rows, or revisions directly from a resolver.  Saving
+never delivers; publishing, editing, and deleting require a transactional
+dispatch reservation.  `createObject` keeps its behavior through
+`createLegacyObject()`.  See [local write internals].
+
 The `Create` listener stores what it accepts through *src/inbox-persist.ts*.
 An inbound delivery that was verified and answered with 2xx is linked to
 `activities` by the activity IRI it recorded, through `linkInboundActivity`,
@@ -659,6 +667,7 @@ See [inbox persistence internals] for acceptance and idempotence, and
 [activity delivery internals] for completion reports, receipts and queue
 observations.
 
+[local write internals]: https://drfed.org/internals/local-writes
 [inbox persistence internals]: https://drfed.org/internals/inbox-persistence
 [activity delivery internals]: https://drfed.org/internals/activity-deliveries
 
@@ -757,7 +766,13 @@ Documentation guidance
 Keep documentation short, specific, and tied to the current codebase.  Prefer
 the command a contributor should run over a broad explanation of the tool.  Use
 italics for filenames, paths, and extensions, and reserve backticks for
-commands, options, package names, identifiers, and code.  Run
+commands, options, package names, identifiers, and code.  ActivityStreams and
+ActivityPub vocabulary type and property names are identifiers too: write
+types such as `Note`, `Create`, and `Collection` and properties such as
+`attributedTo`, `to`, and `object` in backticks wherever they name the
+vocabulary term, including in tables.  When you mean the general idea rather
+than the term, use a plain noun, as in “a stored activity” or “the object's
+author”.  Run
 `mise run fmt:docs` after editing Markdown.
 
 

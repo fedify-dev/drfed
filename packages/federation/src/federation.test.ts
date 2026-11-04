@@ -33,7 +33,7 @@ import {
   exportJwk,
   generateCryptoKeyPair,
 } from "@fedify/fedify";
-import { Object as APObject, Create } from "@fedify/vocab";
+import { Object as APObject, Activity, Create } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq, sql } from "drizzle-orm";
 
@@ -81,6 +81,10 @@ describe("createFederation()", () => {
       assert.equal(
         ctx.getObjectUri(Create, { id: "b" }).href,
         "https://drfed.test/ap/creates/b",
+      );
+      assert.equal(
+        ctx.getObjectUri(Activity, { id: "b" }).href,
+        "https://drfed.test/ap/activities/b",
       );
       assert.equal(
         ctx.getActorUri("identifier").href,
@@ -506,6 +510,20 @@ describe("ActivityPub Create activities", () => {
           ),
           { headers: accept },
         ),
+        { contextData: undefined },
+      );
+      assert.equal(response.status, 404);
+    });
+  });
+});
+
+describe("ActivityPub general activities", () => {
+  it("allocates /ap/activities/ IRIs without serving them yet", async () => {
+    await withFederation(async ({ federation }) => {
+      const response = await federation.fetch(
+        new Request(`https://test-instance.drfed.org/ap/activities/${uuid()}`, {
+          headers: accept,
+        }),
         { contextData: undefined },
       );
       assert.equal(response.status, 404);

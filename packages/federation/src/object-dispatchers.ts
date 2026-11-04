@@ -17,7 +17,7 @@
 import type { Database } from "@drfed/models";
 import { validateUuid } from "@drfed/models/uuid";
 import type { FederationBuilder } from "@fedify/fedify";
-import { Object as APObject, Create, Tombstone } from "@fedify/vocab";
+import { Object as APObject, Activity, Create, Tombstone } from "@fedify/vocab";
 
 import {
   activitySelection,
@@ -29,7 +29,9 @@ import { canonicalizeAuthority } from "./origin.ts";
 import { publicAddressing, servedActivity } from "./visibility.ts";
 
 /**
- * Registers the dispatchers for local objects and their `Create` activities.
+ * Registers the dispatchers for local objects and their activities.  Saved
+ * activities other than `Create` are allocated IRIs under `/ap/activities/`
+ * through `Context.getObjectUri(Activity, { id })`.
  * @param builder The builder to register on.
  * @param db The database to resolve the objects from.
  */
@@ -85,5 +87,12 @@ export function registerObjectDispatchers(
       });
       return activity == null ? null : toCreate(ctx, activity);
     },
+  );
+
+  // FIXME: https://github.com/fedify-dev/drfed/issues/153
+  builder.setObjectDispatcher<Activity, "id">(
+    Activity,
+    "/ap/activities/{id}",
+    () => null,
   );
 }
