@@ -328,9 +328,11 @@ harness uses Node's bundled npm separately.  No npm token is supplied to the
 workflow; publishing requests provenance and uses the public repository
 metadata in each package.
 
-The publishing job alone receives `id-token: write`; validation jobs have read
-access, and only the separate GitHub Release job receives `contents: write`.
-Npm publication and GitHub Release jobs share one concurrency group
+Within the release publication chain, only the npm publication and image push
+jobs receive `id-token: write`; validation jobs have read access, and only the
+separate GitHub Release job receives `contents: write`.  Immutable image
+publication, npm publication, image channel updates, and GitHub Release jobs
+share one concurrency group
 (`queue: max`) with cancellation disabled.  The queue has GitHub's
 100-pending-job limit; rerun any job cancelled because it was full.
 Serialization prevents interleaving.  If an older build finishes late, the
@@ -357,11 +359,12 @@ metadata is not visible yet, CI waits up to five minutes to verify it.
 Successful npm uploads and dist-tag changes need no read-after-write
 confirmation.
 
-If the original artifact is missing and any package in the set is already
-published, recovery fails closed.  Push a new commit to `main` to produce a new
-dev build, or prepare a new reviewed patch tag.  Do not rebuild an existing
-immutable version.  Immediately before registry writes and GitHub Release
-writes, CI checks again whether the release tag has been deleted or moved.
+If the original artifact is missing and any package in the set or the immutable
+image version is already published, recovery fails closed.  Push a new commit
+to `main` to produce a new dev build, or prepare a new reviewed patch tag.  Do
+not rebuild an existing immutable version.  Immediately before registry writes
+and GitHub Release writes, CI checks again whether the release tag has been
+deleted or moved.
 
 After npm publication, tag builds create or verify the GitHub Release from
 `CHANGES.md` and upload the same verified tarballs.  Reruns keep an existing
@@ -425,29 +428,29 @@ In CI, pull requests build the image with Docker and with Podman on
 that built it, without uploading anything.  Release builds use Docker and test
 the same layout with Docker, then Podman.  Release builds keep each tested
 layout as a `drfed-image-<run-id>-<arch>` artifact and merge them into one OCI
-image index, kept as `drfed-image-index-<run-id>`.  The npm `publish` job
-requires that index, so a broken image blocks the whole release set.  The
-`image-publish` job then runs in the `npm-publish` concurrency group:
+image index, kept as `drfed-image-index-<run-id>`.  The publication workflow
+requires that index, so a broken image blocks the whole release set.  Its jobs
+run in the `npm-publish` concurrency group in this order:
 
- -  It pushes the index as the immutable `<version>` tag.  An existing tag with
-    the same digest is skipped; a different digest fails the run.
- -  It attests the index digest with `actions/attest` and requires the
-    attestation to verify both from GitHub and from the registry.  If a
-    previous attempt stored it on GitHub only, the job attaches that stored
-    bundle instead of creating another one.
- -  It moves the `dev`, `latest`, or `next` channel tag only forward, using
-    the `org.drfed.build` annotation with the same ordering rules as npm.
- -  It finally resolves the channel tag without credentials.  If the package
-    is private, `latest` and `next` builds fail and `dev` builds only warn.
+ -  `image-push` pushes the index as the immutable `<version>` tag, then attests
+    its digest with `actions/attest` and verifies the attestation from GitHub
+    and the registry.  A matching tag is reused, a conflicting digest fails,
+    and a GitHub-only attestation is attached instead of recreated.
+ -  `publish` publishes the npm package set only after `image-push` succeeds.
+ -  `image-tags` moves the `dev`, `latest`, or `next` channel tag only after npm
+    publication, using the `org.drfed.build` annotation with the same ordering
+    rules as npm.  It then resolves the channel without credentials.  If the
+    package is private, `latest` and `next` builds fail and `dev` builds only
+    warn.
 
-To recover from a failed image publication after npm publication succeeded,
-rerun the same workflow run; it reuses every artifact and pushes identical
-bytes.  If the artifacts have expired, prepare a new patch release instead of
-rebuilding a published version; the `image` job refuses to build a missing
-layout again once the version is on npm.  Every registry write, including
-attaching an attestation, first checks that the release tag still names the
-built commit.  `mise run test:release-image` exercises these
-rules with stub `crane` and `gh` commands.
+If immutable image publication or attestation fails, npm publication does not
+start.  If npm publication or the later channel update fails, rerun the same
+workflow run; it reuses every artifact and the matching immutable image.  If
+the artifacts have expired after an immutable npm or image write, prepare a new
+patch release instead of rebuilding that version.  Every registry write,
+including attaching an attestation, first checks that the release tag still
+names the built commit.  `mise run test:release-image` exercises these rules
+with stub `crane` and `gh` commands.
 
 After the first `main` build publishes the package, a maintainer must check its
 visibility in the organization's package settings.  If it is private, make it

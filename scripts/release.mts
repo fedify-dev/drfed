@@ -540,6 +540,15 @@ async function ensureUnpublished(): Promise<void> {
       "Original artifact missing for a published version; do not rebuild it",
     );
   }
+  const existingImage = await crane([
+    "digest",
+    `${imageRepository}:${build.version}`,
+  ]);
+  assert.equal(
+    existingImage,
+    null,
+    "Original artifact missing for a published image version; do not rebuild it",
+  );
 }
 async function published(entry: Artifact, build: Version): Promise<boolean> {
   const document = await get<RegistryVersion>(
