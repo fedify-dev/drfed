@@ -328,6 +328,11 @@ harness uses Node's bundled npm separately.  No npm token is supplied to the
 workflow; publishing requests provenance and uses the public repository
 metadata in each package.
 
+The `main` caller separately serializes complete release-capable runs per ref
+with cancellation disabled and `queue: max`, so that no run is cancelled or
+replaced while waiting.  Its `-caller` suffix keeps this group distinct from
+the concurrency groups inside called reusable workflows.
+
 Within the release publication chain, only the npm publication and image push
 jobs receive `id-token: write`; validation jobs have read access, and only the
 separate GitHub Release job receives `contents: write`.  Immutable image
