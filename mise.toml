@@ -481,6 +481,7 @@ run = "node scripts/release.mts tag-target"
 
 [tasks."release:ensure-unpublished"]
 description = "CI release ensure-unpublished step"
+tools = { "aqua:google/go-containerregistry" = "0.22.1" }
 run = "node scripts/release.mts ensure-unpublished"
 
 [tasks."release:publish"]

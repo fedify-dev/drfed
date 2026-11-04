@@ -49,6 +49,21 @@ const env = Object.fromEntries(
       ),
   ),
 );
+const bin = join(temporary, "bin");
+await mkdir(bin);
+await writeFile(
+  join(bin, "crane"),
+  `#!/usr/bin/env node
+if (process.env.DRFED_TEST_IMAGE_EXISTS === "true") {
+  console.log("sha256:${"a".repeat(64)}");
+} else {
+  console.error("MANIFEST_UNKNOWN: manifest unknown");
+  process.exitCode = 1;
+}
+`,
+  { mode: 0o755 },
+);
+env.PATH = `${bin}${delimiter}${env.PATH}`;
 const documents = new Map<string, Record<string, unknown>>();
 const tags = new Map<string, Record<string, string>>();
 const visibilityMisses = new Map<string, number>();
@@ -657,6 +672,10 @@ try {
   }
   env.DRFED_RELEASE_BUILD = JSON.stringify(build);
   await run(["ensure-unpublished"]);
+  await assert.rejects(
+    run(["ensure-unpublished"], { DRFED_TEST_IMAGE_EXISTS: "true" }),
+    /published image version/u,
+  );
   await run(["apply"]);
   await run(["pack"]);
   await run(["verify"]);
@@ -664,11 +683,8 @@ try {
     await readFile(join(archives, "manifest.json"), "utf8"),
   );
   // A stub npm lets the real publisher exercise registry and failure behavior.
-  const bin = join(temporary, "bin");
-  await mkdir(bin);
   const stub = `#!/usr/bin/env node\nimport {readFileSync} from 'node:fs';import {execFileSync} from 'node:child_process';import {createHash} from 'node:crypto';const args=process.argv.slice(2);const body={args};if(args[0]==='publish'){body.manifest=JSON.parse(execFileSync('tar',['-xOf',args[1],'package/package.json'],{encoding:'utf8'}));body.integrity='sha512-'+createHash('sha512').update(readFileSync(args[1])).digest('base64');}const response=await fetch('${registry}__npm',{method:'POST',body:JSON.stringify(body)});if(!response.ok){console.error(await response.text());process.exitCode=1;}\n`;
   await writeFile(join(bin, "npm"), stub, { mode: 0o755 });
-  env.PATH = `${bin}${delimiter}${env.PATH}`;
   publishFailure = "E503 fixture failure";
   await assert.rejects(run(["publish"]));
   assert.equal(operations.length, 3);

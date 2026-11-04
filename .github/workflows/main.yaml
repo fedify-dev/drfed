@@ -32,6 +32,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     uses: ./.github/workflows/artifacts.yaml
     with:
       build: ${{ needs.version.outputs.build }}

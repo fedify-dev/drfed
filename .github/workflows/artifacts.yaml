@@ -18,6 +18,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     concurrency:
       group: artifacts-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
@@ -33,6 +34,12 @@ jobs:
         with:
           cache: false
           experimental: true
+      - name: Log in to the GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          printf '%s' "$GH_TOKEN" |
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Find the original verified artifacts from this run
         id: original
         env:
@@ -74,6 +81,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     concurrency:
       group: image-${{ github.workflow }}-${{ github.ref }}-${{ matrix.arch }}
       cancel-in-progress: false
@@ -98,8 +106,14 @@ jobs:
         with:
           cache: false
           experimental: true
+      - name: Log in to the GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          printf '%s' "$GH_TOKEN" |
+          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       # A rerun keeps the layout that was tested first; a rebuild would not
-      # reproduce its digest. Without it, a version already on npm must not get
+      # reproduce its digest. A version already in either registry must not get
       # new image bytes.
       - name: Find the original image layout from this run
         id: original
