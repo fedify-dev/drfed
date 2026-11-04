@@ -312,12 +312,21 @@ test, and verify packed local/global installs first; keep the exact tarballs.
 For each of `@drfed/models`, `@drfed/federation`, `@drfed/graphql`,
 `@drfed/web`, and `@drfed/drfed`, configure an npm trusted publisher for GitHub
 organization `fedify-dev`, repository `drfed`, and workflow filename
-`main.yaml`.  Enable both *Allow npm publish* and *Allow npm dist-tag*.  These
-are separate permissions; dist-tag access is off by default.  Use GitHub-hosted
-runners.  The mise pin of npm 12.2.0 supports OIDC dist-tag changes and shadows
-Node's bundled npm for CI publication.  The packed-install harness uses Node's
-bundled npm separately.  No npm token is supplied to the workflow; publishing
-requests provenance and uses the public repository metadata in each package.
+`main.yaml`.  The npm publication job is defined in
+`.github/workflows/publish.yaml`, which is called as a reusable
+workflow by `.github/workflows/main.yaml`.  npm validates the calling workflow
+for trusted publishing, so `main.yaml`, not `publish.yaml`, is intentionally
+configured as the workflow filename.  If `main.yaml` is renamed or another
+workflow becomes the caller, update the trusted publisher configuration for all
+five packages before the next publication.  Renaming `publish.yaml` alone
+requires updating the reusable-workflow call, but does not change the npm
+trusted publisher identity.  Enable both *Allow npm publish* and *Allow npm
+dist-tag*. These are separate permissions; dist-tag access is off by default.
+Use GitHub-hosted runners. The mise pin of npm 12.2.0 supports OIDC dist-tag
+changes and shadows Node's bundled npm for CI publication.  The packed-install
+harness uses Node's bundled npm separately.  No npm token is supplied to the
+workflow; publishing requests provenance and uses the public repository
+metadata in each package.
 
 The publishing job alone receives `id-token: write`; validation jobs have read
 access, and only the separate GitHub Release job receives `contents: write`.
