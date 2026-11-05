@@ -1402,7 +1402,7 @@
       }
     },
     {
-      "id": "question-choices-pending",
+      "id": "question-exclusive-choices",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Question",
@@ -1414,34 +1414,24 @@
         ]
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_property",
-            "path": ["oneOf"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {
-      "id": "question-closed-pending",
+      "id": "question-closed-boolean",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Question",
         "closed": true
       },
       "expected": {
-        "complete": false,
-        "diagnostics": [
-          {
-            "reason": "unsupported_property",
-            "path": ["closed"]
-          }
-        ]
+        "complete": true,
+        "diagnostics": []
       }
     },
     {
-      "id": "question-both-choice-modes-pending",
+      "id": "question-conflicting-choice-modes",
       "input": {
         "@context": "https://www.w3.org/ns/activitystreams",
         "type": "Question",
@@ -1459,14 +1449,14 @@
         ]
       },
       "expected": {
-        "complete": false,
+        "complete": true,
         "diagnostics": [
           {
-            "reason": "unsupported_property",
+            "reason": "mutually_exclusive_properties",
             "path": ["anyOf"]
           },
           {
-            "reason": "unsupported_property",
+            "reason": "mutually_exclusive_properties",
             "path": ["oneOf"]
           }
         ]
