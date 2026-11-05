@@ -312,13 +312,13 @@ test, and verify packed local/global installs first; keep the exact tarballs.
 For each of `@drfed/models`, `@drfed/federation`, `@drfed/graphql`,
 `@drfed/web`, and `@drfed/drfed`, configure an npm trusted publisher for GitHub
 organization `fedify-dev`, repository `drfed`, and workflow filename
-`main.yaml`.  The npm publication job is defined in
-`.github/workflows/publish.yaml`, which is called as a reusable
-workflow by `.github/workflows/main.yaml`.  npm validates the calling workflow
-for trusted publishing, so `main.yaml`, not `publish.yaml`, is intentionally
-configured as the workflow filename.  If `main.yaml` is renamed or another
+*main.yaml*.  The npm publication job is defined in
+*.github/workflows/publish.yaml*, which is called as a reusable
+workflow by *.github/workflows/main.yaml*.  npm validates the calling workflow
+for trusted publishing, so *main.yaml*, not *publish.yaml*, is intentionally
+configured as the workflow filename.  If *main.yaml* is renamed or another
 workflow becomes the caller, update the trusted publisher configuration for all
-five packages before the next publication.  Renaming `publish.yaml` alone
+five packages before the next publication.  Renaming *publish.yaml* alone
 requires updating the reusable-workflow call, but does not change the npm
 trusted publisher identity.  Enable both *Allow npm publish* and *Allow npm
 dist-tag*. These are separate permissions; dist-tag access is off by default.
