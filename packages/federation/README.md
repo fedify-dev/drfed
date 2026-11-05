@@ -130,6 +130,7 @@ transition.  Do not delete the row merely to trigger first-use generation.
 Logging
 -------
 
-Inbox activity is logged under the `["drfed", "federation"]` category, and
+Inbox activity is logged under the `["drfed", "federation"]` category,
 activity delivery recording under
-`["drfed", "federation", "activity-delivery"]`.
+`["drfed", "federation", "activity-delivery"]`, and saved documents that
+federation reads cannot serve under `["drfed", "federation", "serving"]`.

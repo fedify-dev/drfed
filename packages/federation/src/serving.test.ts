@@ -36,8 +36,16 @@ import {
   publicDocument,
 } from "@drfed/federation/serving";
 import { type Database, schema } from "@drfed/models";
-import { PUBLIC_IRI } from "@drfed/models/resource";
-import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
+import {
+  PUBLIC_IRI,
+  addActorCollectionItem,
+  ensureResource,
+  storeAddressingOccurrences,
+} from "@drfed/models/resource";
+import {
+  appendResourceRevision,
+  loadCurrentResourceRevision,
+} from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Like } from "@fedify/vocab";
@@ -1054,6 +1062,141 @@ describe("outboxes of saved and legacy activities", () => {
       assert.deepEqual(items[1], publicDocument(like.document));
       assert.deepEqual(blindKeys(items), []);
       assert.equal(page.body.next, undefined);
+    });
+  });
+
+  it("leaves out an activity whose saved document cannot be served", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const like = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Like",
+          to: [PUBLIC_IRI],
+          object: "https://remote.example/notes/1",
+        },
+        "activity",
+      );
+      // Documents the write path would refuse, stored as if edited by hand.
+      const broken: string[] = [];
+      for (const document of [
+        {
+          "@context": [AS, "https://gotosocial.org/ns"],
+          type: "Like",
+          object: "https://remote.example/notes/2",
+        },
+        {
+          "@context": AS,
+          id: "https://remote.example/activities/1",
+          type: "Like",
+          object: "https://remote.example/notes/3",
+        },
+      ]) {
+        const id = uuidV7();
+        const iri = `https://${host}/ap/activities/${id}`;
+        await harness.db.transaction(async (tx) => {
+          await ensureResource(tx, iri, id);
+          await appendResourceRevision(tx, {
+            resourceId: id,
+            resourceKind: "activity",
+            expectedRevisionId: null,
+            kind: "snapshot",
+            document: {
+              id: iri,
+              actor: actorIri,
+              to: [PUBLIC_IRI],
+              ...document,
+            },
+            capture: "local",
+          });
+          await storeAddressingOccurrences(tx, id, [
+            { property: "to", position: 0, iri: PUBLIC_IRI },
+          ]);
+          await addActorCollectionItem(tx, localActorId, "outbox", id);
+        });
+        broken.push(iri);
+      }
+      for (const iri of broken) {
+        assert.equal((await get(harness.federation, iri)).status, 404);
+      }
+      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      const page = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      assert.equal(page.status, 200);
+      assert.deepEqual(
+        (page.body.orderedItems as Record<string, unknown>[]).map(
+          ({ id }) => id,
+        ),
+        [like.iri],
+      );
+      assert.equal(collection.body.totalItems, 1);
+    });
+  });
+
+  it("fills pages past activities their documents leave out", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const like = (object: JsonObject | string): JsonObject => ({
+        "@context": AS,
+        type: "Like",
+        to: [PUBLIC_IRI],
+        object,
+      });
+      const oldest = await save(
+        env,
+        like("https://remote.example/n"),
+        "activity",
+      );
+      // More hidden activities than a page holds, between served ones.
+      for (let index = 0; index < 21; index += 1) {
+        await save(
+          env,
+          like({ type: "Note", content: "secret", to: [bob] }),
+          "activity",
+        );
+      }
+      const newest: string[] = [];
+      for (let index = 0; index < 20; index += 1) {
+        const saved = await save(
+          env,
+          like(`https://remote.example/notes/${index}`),
+          "activity",
+        );
+        newest.unshift(saved.iri);
+      }
+      const ids = (body: Record<string, unknown>) =>
+        (body.orderedItems as Record<string, unknown>[]).map(({ id }) => id);
+      const first = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      assert.deepEqual(ids(first.body), newest);
+      assert.equal(typeof first.body.next, "string");
+      const last = await get(harness.federation, String(first.body.next));
+      assert.deepEqual(ids(last.body), [oldest.iri]);
+      assert.equal(last.body.next, undefined);
+      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      assert.equal(collection.body.totalItems, 21);
+    });
+  });
+
+  it("serves only the outbox items its pages can reach", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const like = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Like",
+          to: [PUBLIC_IRI],
+          object: "https://remote.example/notes/1",
+        },
+        "activity",
+      );
+      await harness.db
+        .update(schema.collectionItems)
+        .set({ position: null })
+        .where(eq(schema.collectionItems.itemId, like.id));
+      assert.equal((await get(harness.federation, like.iri)).status, 404);
+      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      assert.equal(collection.body.totalItems, 0);
     });
   });
 });

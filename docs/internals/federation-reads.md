@@ -49,6 +49,10 @@ is served from the document of its current revision:
     it: the dispatchers hand Fedify a vocabulary object whose JSON-LD is the
     document, so a document with values Fedify 2.4.3 cannot read, such as a
     `Link` in `audience` or `object`, is served as saved too.
+ -  A document the write path does not save, one the validator cannot read
+    or one naming another resource, can only come from a change made outside
+    it.  It is logged under `["drfed", "federation", "serving"]` and left
+    out: its resource answers 404, and outbox pages and the counter skip it.
 
 
 Conditions
@@ -89,11 +93,18 @@ Outbox
 
 Outbox pages hold legacy and saved activities in one order: ascending
 `position` of the outbox's `collection_items`, where the newest item has the
-smallest position.  The cursor is the position of the last item of the
-previous page.  A page leaves out the saved activities their documents do not
-allow after selecting them, so it can hold fewer items than the page size.
-The counter counts what the pages hold, reading the documents of the saved
-activities in the outbox.
+smallest position.  An item without a position is not listed, and its activity
+is not served either.  The cursor is the position of the last item of the
+previous page.
+
+The saved activities their documents do not allow are left out after rows are
+selected, so a page reads further batches until it is full.  It promises a
+next page only when a served activity follows, so only the last page is short
+and no page is empty while another follows.  A page after many hidden
+activities therefore reads all of them.
+
+The counter counts what the pages hold.  It reads the document of every saved
+activity in the outbox on each request, so its cost grows with the outbox.
 
 
 Outgoing payloads

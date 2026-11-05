@@ -19,17 +19,8 @@ import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
 import type { Context } from "@fedify/fedify";
 import { Object as APObject, Activity, Tombstone } from "@fedify/vocab";
-import {
-  type SQL,
-  and,
-  asc,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  sql,
-} from "drizzle-orm";
+import { getLogger } from "@logtape/logtape";
+import { type SQL, and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 
 import { findActiveActor } from "../actor.ts";
 import type { JsonObject } from "../local-write/types.ts";
@@ -43,6 +34,7 @@ import { canonicalizeAuthority } from "../origin.ts";
 import {
   deletedLocalObject,
   inLocalOutbox,
+  listedItem,
   publicAddressing,
   servedActivity,
   servedObjectRevision,
@@ -55,6 +47,8 @@ import {
   inspectDocument,
 } from "./document.ts";
 import { documentActivity, documentObject } from "./vocab.ts";
+
+const logger = getLogger(["drfed", "federation", "serving"]);
 
 const {
   activities,
@@ -82,19 +76,26 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 /**
- * Reads a saved revision's document for serving.
- * @returns The inspection.
- * @throws {Error} If the saved document is not one the write path saves: one
- *                 the validator reads, naming the resource it is saved as.
+ * Reads a saved revision's document for serving.  A document the write path
+ * does not save, one the validator cannot read or one naming another
+ * resource, can only come from a change made outside it.  It is logged and
+ * left out, so that it takes down nothing but its own resource.
+ * @returns The inspection, or `null` when the document cannot be served.
  */
-function inspectRevision(row: RevisionRow): DocumentInspection {
+function inspectRevision(row: RevisionRow): DocumentInspection | null {
   const inspection = isJsonObject(row.document)
     ? inspectDocument(row.document)
     : null;
-  if (inspection == null || inspection.served.id !== row.iri) {
-    throw new Error(`The saved document of ${row.iri} cannot be served.`);
+  if (inspection != null && inspection.served.id === row.iri) {
+    return inspection;
   }
-  return inspection;
+  logger.error(
+    "The saved document of {iri} cannot be served; leaving it out.",
+    {
+      iri: row.iri,
+    },
+  );
+  return null;
 }
 
 /**
@@ -143,7 +144,6 @@ async function deletedObjects(
  * objects they embed or refer to.
  * @returns For each revision, its served form, or `null` when it is not
  *          served.
- * @throws {Error} If a saved document cannot be served.
  */
 async function servedRevisions(
   db: Database,
@@ -153,14 +153,17 @@ async function servedRevisions(
   const inspections = rows.map(inspectRevision);
   const deleted = await deletedObjects(db, [
     ...new Set(
-      inspections.flatMap(({ embedded, objectReferences }) => [
-        ...embedded,
-        ...objectReferences,
-      ]),
+      inspections.flatMap((inspection) =>
+        inspection == null
+          ? []
+          : [...inspection.embedded, ...inspection.objectReferences],
+      ),
     ),
   ]);
   return inspections.map((inspection) =>
-    isServable(inspection, deleted, kind) ? inspection.served : null,
+    inspection != null && isServable(inspection, deleted, kind)
+      ? inspection.served
+      : null,
   );
 }
 
@@ -293,26 +296,25 @@ export interface OutboxPage {
 const outboxItems = (outboxId: Uuid): SQL =>
   and(
     eq(collectionItems.collectionId, outboxId),
-    isNotNull(collectionItems.position),
+    listedItem(collectionItems.position),
     servedActivity(collectionItems.itemId),
   )!;
 
 /**
- * Loads one page of the served activities in an outbox, in the order of
- * their positions, where the newest has the smallest.  Legacy `Create`
- * activities and saved activities are mixed in that one order.
- * @param after The position the page starts after; `null` for the first.
- * @returns The page, which may hold fewer activities than the limit when
- *          some on it are not served.
- * @throws {Error} If an activity on the page cannot be serialized.
+ * Loads a batch of outbox items after a position, in the order of their
+ * positions.
+ * @returns Each item's position, and its activity or `null` when it is not
+ *          served.
  */
-export async function loadOutboxPage(
+async function loadOutboxBatch(
   db: Database,
   ctx: Context<unknown>,
   outboxId: Uuid,
   after: number | null,
-  limit: number,
-): Promise<OutboxPage> {
+  size: number,
+): Promise<
+  { readonly position: number; readonly activity: Activity | null }[]
+> {
   const rows = await db
     .select({
       id: collectionItems.itemId,
@@ -339,9 +341,8 @@ export async function loadOutboxPage(
       ),
     )
     .orderBy(asc(collectionItems.position))
-    .limit(limit + 1);
-  const page = rows.slice(0, limit);
-  const typedIds = page.filter(({ typed }) => typed).map(({ id }) => id);
+    .limit(size);
+  const typedIds = rows.filter(({ typed }) => typed).map(({ id }) => id);
   const typed =
     typedIds.length === 0
       ? []
@@ -350,24 +351,66 @@ export async function loadOutboxPage(
           with: activitySelection,
         });
   const byId = new Map(typed.map((activity) => [activity.id, activity]));
-  const saved = page.filter((row) => !row.typed);
+  const saved = rows.filter((row) => !row.typed);
   const served = new Map(
     (await servedRevisions(db, saved, "activity")).map((document, index) => [
       saved[index]!.id,
       document,
     ]),
   );
-  const items = page.map((row): Activity | null => {
+  return rows.map((row) => {
+    // Listed items have positions; see listedItem().
+    const position = row.position!;
     if (row.typed) {
       const activity = byId.get(row.id);
-      return activity == null ? null : toCreate(ctx, activity);
+      return {
+        position,
+        activity: activity == null ? null : toCreate(ctx, activity),
+      };
     }
     const document = served.get(row.id);
-    return document == null ? null : documentActivity(document);
+    return {
+      position,
+      activity: document == null ? null : documentActivity(document),
+    };
   });
+}
+
+/**
+ * Loads one page of the served activities in an outbox, in the order of
+ * their positions, where the newest has the smallest.  Legacy `Create`
+ * activities and saved activities are mixed in that one order.  Items their
+ * documents leave out are read past until the page is full, and a next page
+ * is promised only when a served activity follows, so that no page but the
+ * last is short and none is empty with a next page.
+ * @param after The position the page starts after; `null` for the first.
+ * @returns The page.
+ */
+export async function loadOutboxPage(
+  db: Database,
+  ctx: Context<unknown>,
+  outboxId: Uuid,
+  after: number | null,
+  limit: number,
+): Promise<OutboxPage> {
+  const items: { readonly position: number; readonly activity: Activity }[] =
+    [];
+  let cursor = after;
+  // One served activity past the page tells whether a next page exists.
+  while (items.length <= limit) {
+    // Each batch starts where the previous one ended.
+    // oxlint-disable-next-line no-await-in-loop
+    const batch = await loadOutboxBatch(db, ctx, outboxId, cursor, limit + 1);
+    for (const { position, activity } of batch) {
+      if (activity != null) items.push({ position, activity });
+    }
+    if (batch.length <= limit) break;
+    cursor = batch.at(-1)!.position;
+  }
+  const page = items.slice(0, limit);
   return {
-    items: items.filter((item) => item != null),
-    nextCursor: rows.length > limit ? page.at(-1)!.position : null,
+    items: page.map(({ activity }) => activity),
+    nextCursor: items.length > limit ? page.at(-1)!.position : null,
   };
 }
 

@@ -120,9 +120,20 @@ export function deletedLocalObject(id: SQLWrapper): SQL {
 }
 
 /**
- * Matches the resources in the outbox of a live local actor of the instance
- * the request names.  Another instance's authority cannot reach a resource
- * by guessing its identifier.
+ * Matches the outbox items that pages list: those with a position, since a
+ * page cursor never reaches an item without one.  The activity dispatchers
+ * and the outbox pages and counter share it.
+ * @param position The item's position in an outer query.
+ * @returns The condition on the position.
+ */
+export function listedItem(position: SQLWrapper): SQL {
+  return sql`${position} is not null`;
+}
+
+/**
+ * Matches the resources listed, as {@link listedItem} tells, in the outbox of
+ * a live local actor of the instance the request names.  Another instance's
+ * authority cannot reach a resource by guessing its identifier.
  * @param id The resource ID in an outer query.
  * @param host The canonical authority of the request.
  * @returns The condition on the ID.
@@ -134,6 +145,7 @@ export function inLocalOutbox(id: SQLWrapper, host: string): SQL {
     join ${actors} ${owners} on ${owners.id} = ${references.actorId}
     join ${instances} ${ownerInstances} on ${ownerInstances.id} = ${owners.instanceId}
     where ${items.itemId} = ${id}
+      and ${listedItem(items.position)}
       and ${owners.localId} is not null
       and ${owners.deleted} is null
       and ${ownerInstances.host} = ${host}
