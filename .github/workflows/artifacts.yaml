@@ -34,12 +34,9 @@ jobs:
         with:
           cache: false
           experimental: true
-      - name: Log in to the GitHub Container Registry
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          printf '%s' "$GH_TOKEN" |
-          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ github.token }}
       - name: Find the original verified artifacts from this run
         id: original
         env:
@@ -106,12 +103,9 @@ jobs:
         with:
           cache: false
           experimental: true
-      - name: Log in to the GitHub Container Registry
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          printf '%s' "$GH_TOKEN" |
-          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ github.token }}
       # A rerun keeps the layout that was tested first; a rebuild would not
       # reproduce its digest. A version already in either registry must not get
       # new image bytes.

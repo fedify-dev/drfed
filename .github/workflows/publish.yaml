@@ -49,11 +49,10 @@ jobs:
           name: drfed-image-index-${{ github.run_id }}
           path: image-artifacts/index
       # crane, gh attestation, actions/attest and @sigstore/oci all read the
-      # credentials this step stores.
-      - name: Log in to the GitHub Container Registry
-        run: >-
-          printf '%s' "$GH_TOKEN" |
-          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      # credentials this action stores.
+      - uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ github.token }}
       - name: Push the verified image index
         id: push
         run: mise run release:image-push
@@ -132,9 +131,8 @@ jobs:
         with:
           name: drfed-image-index-${{ github.run_id }}
           path: image-artifacts/index
-      - name: Log in to the GitHub Container Registry
-        run: >-
-          printf '%s' "$GH_TOKEN" |
-          docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ github.token }}
       - name: Advance the channel tag and check anonymous pulls
         run: mise run release:image-tags
