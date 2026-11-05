@@ -106,9 +106,9 @@ Current setup: GitHub Pages and Cloudflare Pages
 
 ### Jobs
 
- -  *.github/workflows/docs.yaml* `docs`: builds the site for documentation
-    changes and release runs, then uploads it as the `docs-<run-id>` artifact.
-    It uses no secrets.
+ -  *.github/workflows/docs.yaml* `docs`: builds the site for every pull request
+    and non-`main` branch push, and for release runs, then uploads it as the
+    `docs-<run-id>` artifact.  It uses no secrets.
  -  *.github/workflows/docs-release.yaml* `docs-release`: deploys release tags
     to GitHub Pages after `github-release`.
  -  *.github/workflows/docs-canary.yaml* `docs-canary`: uploads `main` builds
