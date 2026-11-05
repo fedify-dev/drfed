@@ -30,7 +30,7 @@ import { setTimeout as delay } from "node:timers/promises";
 export const marker = "<!-- drfed-docs-preview -->";
 
 /** The workflow whose `docs` job uploads the documentation artifact. */
-export const buildWorkflowPath = ".github/workflows/main.yaml";
+export const buildWorkflowPath = ".github/workflows/docs.yaml";
 
 /** The account that posts comments with the workflow's `GITHUB_TOKEN`. */
 export const commentAuthor = "github-actions[bot]";

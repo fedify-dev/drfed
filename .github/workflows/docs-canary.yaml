@@ -1,0 +1,88 @@
+name: docs-canary
+
+on:
+  workflow_call:
+    inputs:
+      build:
+        description: The calculated release build identity
+        required: true
+        type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: docs-canary
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: canary-docs
+      url: ${{ vars.CANARY_DOCS_URL }}
+    env:
+      DRFED_RELEASE_BUILD: ${{ inputs.build }}
+      # Nothing but Node.js and Wrangler is installed, and no step may run
+      # repository hooks or install anything else: every task runs with
+      # --no-deps and --skip-tools, so no project dependencies are installed
+      # either, and the deployment step finds Wrangler already installed.
+      MISE_NO_HOOKS: "1"
+      MISE_AUTO_INSTALL: "false"
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # Keep the Wrangler version in sync with the docs:deploy task in
+      # mise.toml. If they differ, the deployment fails without installing.
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+          install_args: node npm:wrangler@4.149.0
+      - name: Stop unless this build is newer than the deployed docs
+        id: current
+        run: mise run --no-deps --skip-tools docs:verify-current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRFED_DOCS_URL: ${{ vars.CANARY_DOCS_URL }}
+      # Outside the checkout: wrangler warns about, and records, a dirty tree.
+      - uses: actions/download-artifact@v8.0.2
+        if: steps.current.outputs.current == 'true'
+        with:
+          name: docs-${{ github.run_id }}
+          path: ${{ runner.temp }}/docs-dist
+      - name: Record the intent to deploy this build
+        id: intent
+        if: steps.current.outputs.current == 'true'
+        run: mise run --no-deps --skip-tools docs:record-intent "$RUNNER_TEMP/docs-dist"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # The task refuses anything that Cloudflare would run as code before it
+      # runs wrangler. Only this step receives the Cloudflare secrets, and it
+      # never receives a GitHub token.
+      - name: Deploy the documentation site to Cloudflare Pages
+        if: steps.current.outputs.current == 'true'
+        run: mise run --no-deps --skip-tools docs:deploy "$RUNNER_TEMP/docs-dist"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PROJECT_NAME: ${{ vars.CLOUDFLARE_PROJECT_NAME }}
+          DOCS_BRANCH: main
+          DOCS_COMMIT: ${{ github.sha }}
+      - name: Record the successful docs deployment
+        if: steps.current.outputs.current == 'true'
+        run: mise run --no-deps --skip-tools docs:record-deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCS_DEPLOYMENT_ID: ${{ steps.intent.outputs.deployment }}
+          DRFED_DOCS_URL: ${{ vars.CANARY_DOCS_URL }}

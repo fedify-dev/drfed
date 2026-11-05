@@ -1,0 +1,40 @@
+name: version
+
+on:
+  workflow_call:
+    outputs:
+      enabled:
+        description: Whether this run may publish a release build
+        value: ${{ jobs.version.outputs.enabled }}
+      build:
+        description: The calculated release build identity
+        value: ${{ jobs.version.outputs.build }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    if: >-
+      github.event_name == 'push' && github.repository == 'fedify-dev/drfed' &&
+      !github.event.deleted &&
+      (github.ref == 'refs/heads/main' || github.ref_type == 'tag')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: version-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      enabled: ${{ steps.version.outputs.enabled }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@v5.2.6
+        with:
+          cache: false
+          experimental: true
+      - id: version
+        run: mise run release:version

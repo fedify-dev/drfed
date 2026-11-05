@@ -59,7 +59,7 @@ description = "Refuse a documentation build that Cloudflare Pages would execute 
 usage = 'arg "<dir>" help="Built documentation directory"'
 run = "node scripts/docs-deploy.mts verify"
 
-# The deploy jobs in .github/workflows/main.yaml and docs-preview.yaml install
+# The deploy jobs in docs-canary.yaml and docs-preview.yaml install
 # this Wrangler version before their secret-bearing steps; keep them in sync.
 [tasks."docs:deploy"]
 description = "Verify a documentation build and deploy it to Cloudflare Pages"
@@ -481,6 +481,7 @@ run = "node scripts/release.mts tag-target"
 
 [tasks."release:ensure-unpublished"]
 description = "CI release ensure-unpublished step"
+tools = { "aqua:google/go-containerregistry" = "0.22.1" }
 run = "node scripts/release.mts ensure-unpublished"
 
 [tasks."release:publish"]
