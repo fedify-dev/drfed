@@ -1,0 +1,16 @@
+name: Log in to the GitHub Container Registry
+description: Authenticate Docker-compatible tools to GHCR.
+inputs:
+  token:
+    description: A GitHub token with package access
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Log in to the GitHub Container Registry
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: >-
+        printf '%s' "$GH_TOKEN" |
+        docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
