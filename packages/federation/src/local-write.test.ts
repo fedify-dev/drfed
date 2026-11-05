@@ -147,68 +147,108 @@ const note = {
 };
 
 describe("previewLocalWrite() and commitLocalWrite()", () => {
-  it("saves an object alone, without an activity, outbox entry, or delivery", async () => {
-    await withFederation(async (harness) => {
-      await seedMember(harness.db);
-      const env = await environment(harness);
-      const before = await counts(harness.db);
-      const preview = await previewLocalWrite(env, principal, create(note));
-      assert.ok(preview.ok);
-      assert.deepEqual(await counts(harness.db), before);
-      const [prepared] = preview.preview.resources;
-      assert.ok(prepared != null);
-      assert.match(
-        prepared.iri,
-        new RegExp(`^${actorIri}/[0-9a-f-]{36}$`, "u"),
-      );
-      assert.equal(prepared.document.id, prepared.iri);
-      assert.equal(prepared.document.attributedTo, actorIri);
-      assert.equal(typeof prepared.document.published, "string");
-      assert.deepEqual(
-        preview.preview.changes
-          .map(({ path, reason }) => [path.join("."), reason])
-          .toSorted(),
-        [
-          ["attributedTo", "assign_server_owned_field"],
-          ["id", "assign_server_owned_field"],
-          ["published", "assign_server_owned_field"],
-        ],
-      );
-      const outcome = await commitLocalWrite(env, principal, create(note), {
-        previewToken: preview.preview.token,
+  for (const document of [
+    note,
+    {
+      ...note,
+      type: "Question",
+      content: "",
+      oneOf: [
+        { type: "Note", name: "Monday" },
+        { type: "Note", name: "Friday" },
+      ],
+      closed: "2026-11-14T12:00:00Z",
+    },
+  ]) {
+    it(`saves a standalone ${document.type} without an activity, outbox entry, or delivery`, async () => {
+      await withFederation(async (harness) => {
+        await seedMember(harness.db);
+        const env = await environment(harness);
+        const before = await counts(harness.db);
+        const preview = await previewLocalWrite(
+          env,
+          principal,
+          create(document),
+        );
+        assert.ok(preview.ok);
+        assert.deepEqual(await counts(harness.db), before);
+        const [prepared] = preview.preview.resources;
+        assert.ok(prepared != null);
+        assert.match(
+          prepared.iri,
+          new RegExp(`^${actorIri}/[0-9a-f-]{36}$`, "u"),
+        );
+        assert.equal(prepared.document.id, prepared.iri);
+        assert.equal(prepared.document.attributedTo, actorIri);
+        assert.equal(typeof prepared.document.published, "string");
+        assert.deepEqual(prepared.document, {
+          ...document,
+          id: prepared.iri,
+          attributedTo: actorIri,
+          published: prepared.document.published,
+        });
+        assert.deepEqual(
+          preview.preview.changes
+            .map(({ path, reason }) => [path.join("."), reason])
+            .toSorted(),
+          [
+            ["attributedTo", "assign_server_owned_field"],
+            ["id", "assign_server_owned_field"],
+            ["published", "assign_server_owned_field"],
+          ],
+        );
+        const outcome = await commitLocalWrite(
+          env,
+          principal,
+          create(document),
+          {
+            previewToken: preview.preview.token,
+          },
+        );
+        assert.ok(outcome.ok);
+        assert.equal(outcome.result.resources.length, 1);
+        const [saved] = outcome.result.resources;
+        assert.ok(saved != null);
+        assert.deepEqual(saved.document, prepared.document);
+        const revision = await loadCurrentResourceRevision(
+          harness.db,
+          saved.id,
+        );
+        assert.equal(revision?.capture, "local");
+        assert.deepEqual(revision?.document, prepared.document);
+        assert.deepEqual(
+          revision?.addressing.map(({ property, iri }) => [property, iri]),
+          [
+            ["to", PUBLIC_IRI],
+            ["bcc", "https://remote.example/users/blind"],
+          ],
+        );
+        const resource = await harness.db.query.resources.findFirst({
+          where: { id: saved.id },
+        });
+        assert.equal(resource?.kind, "object");
+        assert.equal(
+          await harness.db.$count(
+            schema.resources,
+            eq(schema.resources.kind, "activity"),
+          ),
+          0,
+        );
+        // Revision-only until generalized reads arrive; nothing else changed.
+        assert.equal(await harness.db.$count(schema.objects), 0);
+        assert.equal(await harness.db.$count(schema.activities), 0);
+        assert.equal(await harness.db.$count(schema.collectionItems), 0);
+        assert.equal(await harness.db.$count(schema.activityDeliveries), 0);
+        assert.equal(
+          await harness.db.$count(
+            schema.addressing,
+            eq(schema.addressing.sourceId, saved.id),
+          ),
+          2,
+        );
       });
-      assert.ok(outcome.ok);
-      const [saved] = outcome.result.resources;
-      assert.ok(saved != null);
-      assert.deepEqual(saved.document, prepared.document);
-      const revision = await loadCurrentResourceRevision(harness.db, saved.id);
-      assert.equal(revision?.capture, "local");
-      assert.deepEqual(revision?.document, prepared.document);
-      assert.deepEqual(
-        revision?.addressing.map(({ property, iri }) => [property, iri]),
-        [
-          ["to", PUBLIC_IRI],
-          ["bcc", "https://remote.example/users/blind"],
-        ],
-      );
-      const resource = await harness.db.query.resources.findFirst({
-        where: { id: saved.id },
-      });
-      assert.equal(resource?.kind, "object");
-      // Revision-only until generalized reads arrive; nothing else changed.
-      assert.equal(await harness.db.$count(schema.objects), 0);
-      assert.equal(await harness.db.$count(schema.activities), 0);
-      assert.equal(await harness.db.$count(schema.collectionItems), 0);
-      assert.equal(await harness.db.$count(schema.activityDeliveries), 0);
-      assert.equal(
-        await harness.db.$count(
-          schema.addressing,
-          eq(schema.addressing.sourceId, saved.id),
-        ),
-        2,
-      );
     });
-  });
+  }
 
   it("saves objects of other types, including a Question as an object", async () => {
     await withFederation(async (harness) => {
@@ -276,51 +316,113 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
-  it("creates a Create with a new Note, embedded or by reference, atomically", async () => {
+  for (const object of [
+    { type: "Note", content: "<p>Nested</p>", to: [PUBLIC_IRI] },
+    {
+      type: "Question",
+      content: "",
+      anyOf: [
+        { type: "Note", name: "Monday" },
+        { type: "Note", name: "Friday" },
+      ],
+      closed: false,
+      to: [PUBLIC_IRI],
+    },
+  ]) {
+    it(`creates a Create with a new ${object.type}, embedded or by reference, atomically`, async () => {
+      await withFederation(async (harness) => {
+        await seedMember(harness.db);
+        const env = await environment(harness);
+        const document = {
+          "@context": AS,
+          type: "Create",
+          to: [PUBLIC_IRI],
+          object,
+        };
+        for (const representation of ["embedded", "reference"] as const) {
+          const { preview, result } = await save(
+            env,
+            create(document, [
+              { path: [], kind: "activity" },
+              { path: ["object"], kind: "object", representation },
+            ]),
+          );
+          const [nested, root] = result.resources;
+          assert.ok(nested != null && root != null);
+          assert.equal(result.resources.length, 2);
+          assert.match(root.iri, /\/ap\/creates\/[0-9a-f-]{36}$/u);
+          assert.equal(nested.document.id, nested.iri);
+          assert.equal(nested.document.attributedTo, actorIri);
+          assert.equal(nested.document.published, root.document.published);
+          assert.deepEqual(nested.document, {
+            ...object,
+            "@context": AS,
+            id: nested.iri,
+            attributedTo: actorIri,
+            published: root.document.published,
+          });
+          if (representation === "embedded") {
+            const { "@context": _, ...embedded } = nested.document;
+            assert.deepEqual(root.document.object, embedded);
+          } else {
+            assert.equal(root.document.object, nested.iri);
+            assert.ok(
+              preview.changes.some(
+                ({ reason, path }) =>
+                  reason === "reference_created_resource" &&
+                  JSON.stringify(path) === '["object"]',
+              ),
+            );
+          }
+          for (const resource of [nested, root]) {
+            const revision = await loadCurrentResourceRevision(
+              harness.db,
+              resource.id,
+            );
+            assert.equal(revision?.sequence, 1);
+            assert.deepEqual(revision?.document, resource.document);
+          }
+        }
+      });
+    });
+  }
+
+  it("rejects an invalid embedded Question without saving partial resources", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const document = {
-        "@context": AS,
-        type: "Create",
-        to: [PUBLIC_IRI],
-        object: { type: "Note", content: "<p>Nested</p>", to: [PUBLIC_IRI] },
-      };
-      for (const representation of ["embedded", "reference"] as const) {
-        const { preview, result } = await save(
-          env,
-          create(document, [
+      const before = await counts(harness.db);
+      const outcome = await previewLocalWrite(
+        env,
+        principal,
+        create(
+          {
+            "@context": AS,
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: {
+              type: "Question",
+              oneOf: [{ type: "Note", name: "Monday" }],
+              anyOf: [{ type: "Note", name: "Friday" }],
+              to: [PUBLIC_IRI],
+            },
+          },
+          [
             { path: [], kind: "activity" },
-            { path: ["object"], kind: "object", representation },
-          ]),
-        );
-        const [nested, root] = result.resources;
-        assert.ok(nested != null && root != null);
-        assert.match(root.iri, /\/ap\/creates\/[0-9a-f-]{36}$/u);
-        assert.equal(nested.document.id, nested.iri);
-        assert.equal(nested.document.attributedTo, actorIri);
-        assert.equal(nested.document.published, root.document.published);
-        if (representation === "embedded") {
-          const { "@context": _, ...embedded } = nested.document;
-          assert.deepEqual(root.document.object, embedded);
-        } else {
-          assert.equal(root.document.object, nested.iri);
-          assert.ok(
-            preview.changes.some(
-              ({ reason, path }) =>
-                reason === "reference_created_resource" &&
-                JSON.stringify(path) === '["object"]',
-            ),
-          );
-        }
-        for (const resource of [nested, root]) {
-          assert.equal(
-            (await loadCurrentResourceRevision(harness.db, resource.id))
-              ?.sequence,
-            1,
-          );
-        }
-      }
+            { path: ["object"], kind: "object" },
+          ],
+        ),
+      );
+      assert.ok(!outcome.ok);
+      assert.equal(outcome.error.type, "invalid_document");
+      assert.deepEqual(
+        outcome.error.diagnostics.map(({ reason, path }) => [reason, path]),
+        [
+          ["mutually_exclusive_properties", ["object", "anyOf"]],
+          ["mutually_exclusive_properties", ["object", "oneOf"]],
+        ],
+      );
+      assert.deepEqual(await counts(harness.db), before);
     });
   });
 
@@ -990,6 +1092,200 @@ function remove(objectId: Uuid, expectedRevisionId: Uuid): LocalWriteRequest {
 }
 
 describe("edits and deletions of current objects", () => {
+  it("edits a Question with a reservation while preserving earlier poll activity snapshots", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result: initial } = await save(
+        env,
+        create(
+          {
+            "@context": [AS, { score: "https://example.com/score" }],
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: {
+              type: "Question",
+              content: "Choose a day",
+              oneOf: [
+                {
+                  type: "Note",
+                  name: "Monday",
+                  content: "First option",
+                  score: 1,
+                },
+              ],
+              closed: false,
+              to: [PUBLIC_IRI],
+            },
+          },
+          [
+            { path: [], kind: "activity" },
+            { path: ["object"], kind: "object" },
+          ],
+        ),
+      );
+      const [poll, creation] = initial.resources;
+      assert.ok(poll != null && creation != null);
+      let head = await current(harness.db, poll.id);
+      const before = await counts(harness.db);
+      await assert.rejects(
+        change(
+          env,
+          edit(poll.id, head.id, {
+            ...(head.document as JsonObject),
+            closed: true,
+          }),
+          () => Promise.reject(new Error("reservation failed")),
+        ),
+        /reservation failed/u,
+      );
+      assert.deepEqual(await counts(harness.db), before);
+      assert.deepEqual(await current(harness.db, poll.id), head);
+
+      const snapshots = [creation];
+      const reservations: SavedResource[] = [];
+      for (const values of [
+        {
+          content: "Choose another day",
+          oneOf: [
+            {
+              type: "Note",
+              name: "Friday",
+              content: "Updated option",
+              score: 2,
+            },
+          ],
+          closed: "2026-11-14T12:00:00Z",
+        },
+        {
+          content: "Poll closed",
+          oneOf: [
+            {
+              type: "Note",
+              name: "Saturday",
+              content: "Final option",
+              score: 3,
+            },
+          ],
+          closed: true,
+        },
+      ]) {
+        const { result } = await change(
+          env,
+          edit(poll.id, head.id, {
+            ...(head.document as JsonObject),
+            ...values,
+          }),
+          async (tx, activity) => {
+            // Both the object change and its Update exist inside the reservation's transaction.
+            const version = await loadCurrentResourceRevision(tx, poll.id);
+            assert.ok(version?.document != null);
+            assert.equal(
+              (version.document as JsonObject).closed,
+              values.closed,
+            );
+            assert.deepEqual(
+              (await loadCurrentResourceRevision(tx, activity.id))?.document,
+              activity.document,
+            );
+            reservations.push(activity);
+          },
+        );
+        const [version, update] = result.resources;
+        assert.ok(version != null && update != null);
+        assert.equal(version.id, poll.id);
+        assert.equal(version.iri, poll.iri);
+        assert.equal(version.document.id, poll.iri);
+        assert.equal(version.document.published, poll.document.published);
+        assert.deepEqual(version.document.oneOf, values.oneOf);
+        assert.equal(version.document.content, values.content);
+        assert.equal(version.document.closed, values.closed);
+        assert.equal(update.generated, true);
+        assert.equal(update.document.type, "Update");
+        assert.deepEqual(update.document["@context"], [
+          AS,
+          { score: "https://example.com/score" },
+        ]);
+        assert.equal(reservations.at(-1)?.id, update.id);
+        const { "@context": _, ...embedded } = version.document;
+        assert.deepEqual(update.document.object, embedded);
+        snapshots.push(update);
+        head = await current(harness.db, poll.id);
+        assert.equal(head.id, version.revisionId);
+        assert.deepEqual(head.document, version.document);
+        for (const snapshot of snapshots) {
+          assert.deepEqual(
+            (await current(harness.db, snapshot.id)).document,
+            snapshot.document,
+          );
+        }
+      }
+      assert.equal(head.sequence, 3);
+      const outbox = await harness.db.query.collectionItems.findMany();
+      assert.deepEqual(
+        outbox.map(({ itemId }) => itemId).toSorted(),
+        reservations.map(({ id }) => id).toSorted(),
+      );
+    });
+  });
+
+  it("publishes an experimental Update of a Question without editing the current poll", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { result: initial } = await save(
+        env,
+        create({
+          "@context": AS,
+          type: "Question",
+          content: "Original poll",
+          oneOf: [{ type: "Note", name: "Monday" }],
+          closed: false,
+          to: [PUBLIC_IRI],
+        }),
+      );
+      const poll = initial.resources[0]!;
+      const head = await current(harness.db, poll.id);
+      const proposed = {
+        ...poll.document,
+        content: "Experimental change",
+        closed: true,
+      };
+      const { result } = await save(
+        env,
+        create(
+          {
+            "@context": AS,
+            type: "Update",
+            to: [PUBLIC_IRI],
+            object: proposed,
+          },
+          [{ path: [], kind: "activity" }],
+          { publish: true },
+        ),
+        reserve,
+      );
+      const [activity] = result.resources;
+      assert.equal(result.resources.length, 1);
+      assert.ok(activity != null);
+      assert.deepEqual(activity.document.object, proposed);
+      assert.deepEqual(
+        (await current(harness.db, activity.id)).document,
+        activity.document,
+      );
+      assert.deepEqual(await current(harness.db, poll.id), head);
+      assert.equal(
+        (await listResourceRevisions(harness.db, poll.id)).length,
+        1,
+      );
+      const outbox = await harness.db.query.collectionItems.findMany();
+      assert.deepEqual(
+        outbox.map(({ itemId }) => itemId),
+        [activity.id],
+      );
+    });
+  });
+
   it("edits a Note twice from what it loads, leaving the earlier Create intact", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
