@@ -85,6 +85,7 @@ export const diagnosticReasons = {
   invalid_iri: { category: "vocabulary", severity: "error" },
   invalid_datetime: { category: "vocabulary", severity: "error" },
   invalid_multiplicity: { category: "vocabulary", severity: "error" },
+  mutually_exclusive_properties: { category: "vocabulary", severity: "error" },
   property_not_applicable: { category: "vocabulary", severity: "error" },
   invalid_context: { category: "vocabulary", severity: "error" },
   unauthorized_local_identity: { category: "authority", severity: "error" },
@@ -189,6 +190,7 @@ export interface DocumentPreparationOptions {
 const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
 const maximumDiagnostics = 100;
 const maximumPathDepth = 64;
+const iriSchemePattern = /^[a-z][a-z\d+.-]*:/iu;
 const actorTypes = [Application, Group, Organization, Person, Service];
 /** The ActivityStreams properties that address a document's recipients. */
 export const addressingProperties = [
@@ -417,7 +419,7 @@ function checkReference(value: unknown, path: FieldPath, report: Report): void {
       path,
       "Expected a syntactically valid IRI reference.",
     );
-  } else if (!/^[a-z][a-z\d+.-]*:/iu.test(value)) {
+  } else if (!iriSchemePattern.test(value)) {
     report(
       "unsupported_value_form",
       path,
@@ -558,7 +560,7 @@ function sameContextTerm(
 function isSupportedContextUri(value: string): boolean {
   // URL parsing alone accepts characters that JSON-LD IRI mappings forbid.
   return (
-    /^[a-z][a-z\d+.-]*:/iu.test(value) &&
+    iriSchemePattern.test(value) &&
     !Array.from(value).some((character) => {
       const point = character.codePointAt(0)!;
       return (
@@ -1075,7 +1077,42 @@ function getEmbeddedFedifyRange(
   collectionRange: readonly VocabularyType[] | undefined,
 ): readonly VocabularyType[] | undefined {
   if (property === "actor" || property === "attributedTo") return actorTypes;
+  if (property === "oneOf" || property === "anyOf") return [APObject];
   return collectionRange?.filter((Expected) => Expected !== Link);
+}
+
+function getReferenceRange(
+  property: string,
+  collectionRange: readonly VocabularyType[] | undefined,
+): readonly VocabularyType[] | undefined {
+  if (property === "oneOf" || property === "anyOf") return [APObject, Link];
+  return collectionRange;
+}
+
+function checkChoiceMode(
+  Type: VocabularyType,
+  fields: readonly SourceProperty[],
+  values: Record<string, unknown>,
+  field: SourceProperty,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (!isTypeOrSubtype(Type, Question)) return;
+  if (field.name !== "oneOf" && field.name !== "anyOf") return;
+  if (countValues(values[field.source]) === 0) return;
+  const otherMode = field.name === "oneOf" ? "anyOf" : "oneOf";
+  if (
+    fields.some(
+      ({ name, compatible, source }) =>
+        compatible && name === otherMode && countValues(values[source]) > 0,
+    )
+  ) {
+    report(
+      "mutually_exclusive_properties",
+      path,
+      "Use either oneOf or anyOf, but not both.",
+    );
+  }
 }
 
 function checkDocumentType(
@@ -1128,6 +1165,7 @@ function getCollectionRange(
 
 function isFunctionalProperty(Type: VocabularyType, property: string): boolean {
   if (["id", "mediaType"].includes(property)) return true;
+  if (isTypeOrSubtype(Type, Question) && property === "closed") return true;
   if (getCollectionRange(Type, property) != null) return true;
   if (isTypeOrSubtype(Type, Link)) {
     return ["href", "height", "width", "hreflang"].includes(property);
@@ -1413,11 +1451,39 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
   }
 }
 
+function checkQuestionClosed(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null || typeof value === "boolean") return;
+  if (
+    (typeof value === "object" && !Array.isArray(value)) ||
+    (typeof value === "string" && iriSchemePattern.test(value))
+  ) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Fedify supports boolean or date-time closing conditions, not resource values.",
+    );
+  } else {
+    checkDateTime(value, path, report);
+  }
+}
+
 // Share coverage classification with empty-array omission admission.
 function getCommonPropertyKind(
   Type: VocabularyType,
   property: string,
-): "text" | "languageMap" | "datetime" | "id" | "mediaType" | undefined {
+):
+  | "text"
+  | "languageMap"
+  | "datetime"
+  | "id"
+  | "mediaType"
+  | "closed"
+  | undefined {
+  if (isTypeOrSubtype(Type, Question) && property === "closed") return "closed";
   const object = isTypeOrSubtype(Type, APObject);
   const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
   const textProperties = object ? ["name", "summary", "content"] : ["name"];
@@ -1456,6 +1522,8 @@ function checkCommonProperty(
     checkLanguageMap(value, path, report, property === "nameMap");
   } else if (kind === "datetime") {
     checkSingleValue(value, path, report, checkDateTime);
+  } else if (kind === "closed") {
+    checkSingleValue(value, path, report, checkQuestionClosed);
   } else if (kind === "id") {
     if (typeof value !== "string") {
       report("invalid_value_shape", path, "Expected an IRI identifier string.");
@@ -1540,7 +1608,7 @@ function checkLinkRelation(
       path,
       "Expected a relation token or absolute IRI without whitespace or commas.",
     );
-  } else if (/^[a-z][a-z\d+.-]*:/iu.test(value)) {
+  } else if (iriSchemePattern.test(value)) {
     checkReference(value, path, report);
   } else if (!/^[a-z][a-z\d.-]*$/iu.test(value)) {
     report(
@@ -1637,7 +1705,15 @@ function checkExtensionKeywords(
 }
 
 function getInapplicableProperties(Type: VocabularyType): ReadonlySet<string> {
-  return isTypeOrSubtype(Type, Link) ? objectOnlyProperties : new Set<string>();
+  const properties = new Set(
+    isTypeOrSubtype(Type, Link) ? objectOnlyProperties : [],
+  );
+  if (!isTypeOrSubtype(Type, Question)) {
+    properties.add("oneOf");
+    properties.add("anyOf");
+    properties.add("closed");
+  }
+  return properties;
 }
 
 function checkPathDepth(path: FieldPath, report: Report): boolean {
@@ -1775,7 +1851,7 @@ function checkDocumentValue(
         : isCollection
           ? ["totalItems"]
           : [];
-    const referenceProperties = ["preview"];
+    const referenceProperties = ["preview", "oneOf", "anyOf"];
     if (isObject) {
       referenceProperties.push(
         "attributedTo",
@@ -1845,10 +1921,11 @@ function checkDocumentValue(
           report(
             "property_not_applicable",
             fieldPath,
-            "This property applies to Object documents, not Link documents.",
+            "This property does not apply to this document's type.",
           );
           return;
         }
+        checkChoiceMode(Type, fields, values, field, fieldPath, report);
         if (multipleAliases.has(source)) {
           report(
             "invalid_multiplicity",
@@ -1924,7 +2001,7 @@ function checkDocumentValue(
                   entry,
                   entryPath,
                   context,
-                  collectionRange,
+                  getReferenceRange(key, collectionRange),
                   getEmbeddedFedifyRange(key, collectionRange),
                 );
               } else {
@@ -2007,8 +2084,8 @@ function createPreview(
  * Checks the implemented Activity Vocabulary types, including nested
  * activity objects, without network access or writes. Embedded objects inherit
  * the parent's context. Collections add member, count, and navigation checks.
- * Question uses shared intransitive rules; poll-specific
- * fields remain unsupported pending #155.
+ * Question adds exclusive/inclusive choices and boolean/date-time closing
+ * conditions to shared intransitive rules.
  *
  * Supports allowlisted bundled contexts and simple inline aliases/prefixes,
  * single types, id, string content,
@@ -2461,6 +2538,8 @@ const identifierProperties: ReadonlySet<string> = new Set([
   ...addressingProperties,
   "items",
   "orderedItems",
+  "oneOf",
+  "anyOf",
   "current",
   "first",
   "last",

@@ -73,6 +73,11 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added poll validation to `validateDocument()` in `@drfed/models/document`:
+    `Question` documents support single- or multiple-answer choices and
+    boolean/date-time closing conditions. Supplying both choice modes reports
+    `mutually_exclusive_properties` at the original fields. Supported choice
+    content and custom extensions are retained during validation. [[#155]]
  -  Added `validateDocument()` in `@drfed/models/document` for parsed
     ActivityStreams documents. It returns structured errors and compatibility
     warnings with original nested field and list-entry paths, preserves custom
@@ -97,6 +102,7 @@ To be released.
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 [#152]: https://github.com/fedify-dev/drfed/issues/152
+[#155]: https://github.com/fedify-dev/drfed/issues/155
 [#166]: https://github.com/fedify-dev/drfed/pull/166
 [#173]: https://github.com/fedify-dev/drfed/pull/173
 

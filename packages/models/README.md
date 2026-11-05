@@ -253,10 +253,54 @@ unsupported. Validation preserves these values without adding seconds or
 truncating precision. Timestamp validation does not establish server ownership
 or ordering between fields.
 
-`Question` is supported standalone and inside `Create`/`Update` using shared
-rules. Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending
-#155's poll rules. Open-ended `Question` needs no choices. Other types without
-implemented rules, such as `Place`, receive support findings.
+`Question` is supported standalone and inside `Create`/`Update`. It remains an
+intransitive activity: a non-null `object` on the Question itself is invalid.
+Open-ended Questions need no choices, and content may be absent or empty.
+
+| Question field | Supported values                                                                                                              |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `oneOf`        | Exclusive (single-answer) choices: an absolute IRI or supported embedded Object, singly or in a flat list.                    |
+| `anyOf`        | Inclusive (multiple-answer) choices, with the same value shapes as `oneOf`.                                                   |
+| `closed`       | A boolean or date-time string following the timestamp rules above. This is a single-value property, including across aliases. |
+
+Supplying non-null values in both choice modes reports
+`mutually_exclusive_properties` (vocabulary/error) at each contributing source
+field, including aliases inside nested documents. Null and null-only lists
+mean absence; empty lists receive the usual omission preview. Non-null poll
+fields on other types receive `property_not_applicable`.
+
+Choices retain supported properties and custom extensions rather than being
+reduced to labels. Embedded choices require an explicit supported type, such
+as `Note` or `Object`, under the checker's shared type policy. Untyped choices
+receive `unsupported_type`. Embedded Link choices and resource-valued `closed`
+conditions receive `unsupported_value_form`: the vocabulary permits broader
+forms than the pinned Fedify decoder supports. IRI choices are not fetched
+or type-checked remotely. Custom choice extensions receive
+`extension_property_unchecked` warnings; successful validation does not
+guarantee their preservation during serialization or sending.
+
+For example, this embedded poll passes validation without requiring HTML
+content or votes:
+
+~~~~ json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Create",
+  "object": {
+    "type": "Question",
+    "name": "Which day?",
+    "oneOf": [
+      { "type": "Note", "name": "Monday" },
+      { "type": "Note", "name": "Friday" }
+    ],
+    "closed": "2026-11-14T12:00:00Z"
+  }
+}
+~~~~
+
+These rules validate document values; they do not schedule poll closure or
+count votes. Other types without implemented rules, such as `Place`, receive
+support findings.
 
 For 0.2.0, `Object` property rules for `tag`, `inReplyTo`, `url`, `attachment`,
 `replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`
