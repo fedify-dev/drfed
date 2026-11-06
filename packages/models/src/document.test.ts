@@ -4420,6 +4420,27 @@ describe("describeDocument() semantic view", () => {
         JSON.stringify(quoted),
       );
     }
+    // A node object whose id is used elsewhere is not read apart from it.
+    const joined = describeDocument({
+      ...like,
+      "@context": [context, { ex: "https://ext.example/ns#" }],
+      "ex:quoted": [
+        { type: "Note", attributedTo: { id: "_:author" } },
+        { id: "_:author", type: "Link", href: "https://a.example/victim" },
+        { id: like.object, type: "Note" },
+        { id: "https://a.example/apart", type: "Note" },
+      ],
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      joined?.map(({ path, uninterpreted }) => ({ path, uninterpreted })),
+      [
+        { path: ["ex:quoted", 0], uninterpreted: false },
+        { path: ["ex:quoted", 0, "attributedTo"], uninterpreted: true },
+        { path: ["ex:quoted", 1], uninterpreted: true },
+        { path: ["ex:quoted", 2], uninterpreted: true },
+        { path: ["ex:quoted", 3], uninterpreted: false },
+      ],
+    );
     // A value whose keys a context of its own may alias cannot be read, but
     // its value holds no node objects.
     const aliased = describeDocument({

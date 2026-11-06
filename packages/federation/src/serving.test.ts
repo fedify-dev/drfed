@@ -1181,6 +1181,16 @@ describe("embedded documents and implicit contexts", () => {
             "@set": ["as:Public"],
           },
         },
+        // A node object whose id is used elsewhere is not read apart.
+        [
+          { type: "Note", content: "forged", attributedTo: { id: "_:author" } },
+          {
+            id: "_:author",
+            type: "Link",
+            href: "https://other.drfed.org/users/victim",
+          },
+        ],
+        { id: "https://remote.example/notes/1", type: "Note", to: [bob] },
         // A blank node is no compact IRI, whatever prefix "_" names, and as
         // a reference it may name a node object defined apart.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
@@ -1254,7 +1264,7 @@ describe("embedded documents and implicit contexts", () => {
         env,
         like([
           ...Array.from({ length: 1000 }, (_, index) => ({
-            id: `https://remote.example/notes/${index}`,
+            id: `https://remote.example/quoted/${index}`,
           })),
           { id: note.iri, type: "Note", content: "x" },
         ]),

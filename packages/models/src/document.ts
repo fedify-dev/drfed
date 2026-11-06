@@ -2600,8 +2600,10 @@ export interface ExtensionNode {
    * property's alias does not coerce to an IRI, a relative reference or a
    * blank node identifier, or it has more than one `id` or `href`, or a node
    * object as one, or it nests properties with `@nest` or reverses them with
-   * `@reverse`.  An uninterpreted node object has no properties, identifiers
-   * or types when its context is unread.
+   * `@reverse`, or its `id` is used elsewhere in the document, as the `id` of
+   * another node object or a reference, so that it is not read apart.  An
+   * uninterpreted node object has no properties, identifiers or types when
+   * its context is unread.
    */
   readonly uninterpreted: boolean;
   /**
@@ -2988,6 +2990,17 @@ export function describeDocument(
   }
   // Read values only now: validation has rejected sparse arrays, accessors,
   // and other non-JSON shapes without evaluating them.
+  const documents = visited.map(({ values, path, context, Type, fields }) => ({
+    path,
+    type: Type.typeId.href,
+    kind: nodeKind(Type),
+    ...describeProperties(
+      values,
+      path,
+      fields.filter(({ compatible }) => compatible),
+      context,
+    ),
+  }));
   const described = extensions.map(({ values, path, context }) =>
     describeExtensionNode(values, path, context),
   );
@@ -2999,12 +3012,24 @@ export function describeDocument(
       ]),
     ),
   );
-  const extensionNodes = described.map(
-    ({ node }): ExtensionNode => ({
+  // Node objects that share an id are one node, and one whose id another
+  // value refers to says more of what that value names, so a node object
+  // whose id is used elsewhere in the document is not read apart from it.
+  const uses = Map.groupBy(
+    [...documents, ...described.map(({ node }) => node)].flatMap(
+      ({ identifiers }) => identifiers,
+    ),
+    ({ iri }) => iri,
+  );
+  const extensionNodes = described.map(({ node }): ExtensionNode => {
+    const id = node.identifiers.find(({ property }) => property === "id");
+    const joined = id != null && (uses.get(id.iri)?.length ?? 0) > 1;
+    return {
       ...node,
       ...holders.get(JSON.stringify(node.path)),
-    }),
-  );
+      ...(joined ? { uninterpreted: true } : {}),
+    };
+  });
   const owners = new Map(
     visited.map(({ path }): [string, ExtensionNode[]] => [
       JSON.stringify(path),
@@ -3021,18 +3046,10 @@ export function describeDocument(
     }
   }
   return nameEmbeddingProperties(
-    visited.map(
-      ({ values, path, context, Type, fields }): DocumentNode => ({
-        path,
-        type: Type.typeId.href,
-        kind: nodeKind(Type),
-        ...describeProperties(
-          values,
-          path,
-          fields.filter(({ compatible }) => compatible),
-          context,
-        ),
-        extensions: owners.get(JSON.stringify(path)) ?? [],
+    documents.map(
+      (node): DocumentNode => ({
+        ...node,
+        extensions: owners.get(JSON.stringify(node.path)) ?? [],
       }),
     ),
   );

@@ -101,13 +101,15 @@ property holds anything but absolute IRIs, a blank node identifier as its
 not coerce to an IRI, a relative reference, a blank node identifier, which may
 name a node object defined apart, or a `@set` or `@list` object with a
 `@context` of its own; and one with more than one `id` or `href`, or a node
-object as one, or with properties nested by `@nest` or reversed by `@reverse`.
-A value or a list object with keys other than keywords, or a value that is an
-object but no JSON literal, which are no valid JSON-LD, or one with keys a
-context of its own may alias, is reported as an uninterpreted node object. The
-value of a value object, or of a key with a `@language` container, is never
-read for node objects. A blank node identifier is never expanded as a compact
-IRI, whatever term `_` names, so a type spelled as one is unsupported.
+object as one, or with properties nested by `@nest` or reversed by `@reverse`,
+or one whose `id` is used elsewhere in the document, as the `id` of another
+node object or a reference, since it is then not read apart. A value or a list
+object with keys other than keywords, or a value that is an object but no JSON
+literal, which are no valid JSON-LD, or one with keys a context of its own may
+alias, is reported as an uninterpreted node object. The value of a value
+object, or of a key with a `@language` container, is never read for node
+objects. A blank node identifier is never expanded as a compact IRI, whatever
+term `_` names, so a type spelled as one is unsupported.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

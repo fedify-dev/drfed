@@ -101,7 +101,10 @@ actor, and Public `to` or `cc` addressing in the resource's current
     context of its own may alias, or a value that is an object but no JSON
     literal, since its recipients and references cannot then be told.  A
     blank node identifier is read as an `id` that names no resource, but
-    not as a reference, since it may name a node object defined apart.
+    not as a reference, since it may name a node object defined apart.  A
+    node object whose `id` is used elsewhere in the document, as another
+    node object's `id` or as a reference, is one node with what uses it,
+    and is not read apart either.
     Language maps are read as strings.  Such a document is logged once per
     revision as a warning.
  -  An object must be attributed to the actor of its route by its last
