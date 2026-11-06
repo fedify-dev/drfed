@@ -131,7 +131,7 @@ parent keeps it embedded, as submitted, or refers to it by IRI with
 Each saved document gets revision addressing and a current `addressing` index
 from its semantic `to`, `cc`, `bto`, `bcc` and `audience`, each value at its
 source position: IRIs as resolved, embedded documents by `id`, `Link` values by
-`href`, also written as a singleton list, and anonymous values without a row.
+`href`, also written as a list of one value, and anonymous values without a row.
 Relations index `actor`, `object`, `target`, `origin`, `result`, `instrument`
 and `attributedTo`. A document that spells one of these properties in several
 ways is refused, since its index would otherwise leave occurrences out. Indexes

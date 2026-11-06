@@ -993,23 +993,28 @@ describe("embedded documents and implicit contexts", () => {
     });
   });
 
-  it("reads a Public Link recipient whose href is a singleton list", async () => {
+  it("reads a Public Link recipient whose href is a list of one value", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
-      const like = await save(
-        env,
-        {
-          "@context": AS,
-          type: "Like",
-          to: { type: "Link", href: [PUBLIC_IRI] },
-          object: "https://remote.example/notes/1",
-        },
-        "activity",
-      );
-      const { status, body } = await get(harness.federation, like.iri);
-      assert.equal(status, 200);
-      assert.deepEqual(body, publicDocument(like.document));
-      assert.deepEqual(await outboxIds(harness.federation), [like.iri]);
+      const served: string[] = [];
+      // Null stands for no value, so either list has one.
+      for (const href of [[PUBLIC_IRI], [null, PUBLIC_IRI]]) {
+        const like = await save(
+          env,
+          {
+            "@context": AS,
+            type: "Like",
+            to: { type: "Link", href },
+            object: "https://remote.example/notes/1",
+          },
+          "activity",
+        );
+        const { status, body } = await get(harness.federation, like.iri);
+        assert.equal(status, 200);
+        assert.deepEqual(body, publicDocument(like.document));
+        served.unshift(like.iri);
+      }
+      assert.deepEqual(await outboxIds(harness.federation), served);
     });
   });
 
