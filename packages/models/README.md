@@ -107,10 +107,11 @@ node object or a reference, since it is then not read apart. A value or a list
 object with keys other than keywords, or a value that is an object but no JSON
 literal, which are no valid JSON-LD, or one with keys a context of its own may
 alias, is reported as an uninterpreted node object. The value of a value
-object, or of a key with a `@language` container, is never read for node
-objects; an object in a language map is no valid JSON-LD, and is reported as an
-uninterpreted node object. A blank node identifier is never expanded as a
-compact IRI, whatever term `_` names, so a type spelled as one is unsupported.
+object, or of a key with a `@language` container that is a language map, is
+never read for node objects; an object in a language map is no valid JSON-LD,
+and is reported as an uninterpreted node object. A blank node identifier is
+never expanded as a compact IRI, whatever term `_` names, so a type spelled as
+one is unsupported.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

@@ -710,6 +710,67 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           [["unauthorized_local_identity", path]],
         );
       }
+      // A reference names what a Link embedded elsewhere with its id does.
+      const link = "https://remote.example/links/1";
+      const victim = "https://other.drfed.org/users/victim";
+      for (const [request, path] of [
+        [
+          create(
+            {
+              "@context": AS,
+              type: "Like",
+              object: { type: "Note", content: "forged", attributedTo: link },
+              target: { type: "Link", id: link, href: victim },
+            },
+            [{ path: [], kind: "activity" }],
+          ),
+          ["target", "href"],
+        ],
+        [
+          create(
+            {
+              "@context": [AS, { ex: "https://ext.example/ns#" }],
+              type: "Like",
+              object: "https://x.example/",
+              "ex:quoted": [
+                { type: "Note", attributedTo: link },
+                { id: link, type: "Link", href: victim },
+              ],
+            } as never,
+            [{ path: [], kind: "activity" }],
+          ),
+          ["ex:quoted", 1, "href"],
+        ],
+        ...[{ id: "_:author" }, "_:author"].map(
+          (author) =>
+            [
+              create(
+                {
+                  "@context": [AS, { ex: "https://ext.example/ns#" }],
+                  type: "Like",
+                  object: "https://x.example/",
+                  "ex:quoted": [
+                    { type: "Note", attributedTo: author },
+                    { id: "_:author", type: "Link", href: victim },
+                  ],
+                } as never,
+                [{ path: [], kind: "activity" }],
+              ),
+              ["ex:quoted", 1, "href"],
+            ] as const,
+        ),
+      ] as const) {
+        const outcome = await previewLocalWrite(env, principal, request);
+        assert.ok(!outcome.ok, JSON.stringify(request.document));
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
       // A remote identity is not checked, as in any embedded document.
       await save(
         env,

@@ -112,8 +112,9 @@ Every other identity claim is checked by meaning, through
 cannot hide it, also in the node objects of extension values, which
 [federation reads](federation-reads.md) serve as well. An `actor` or
 `attributedTo` value on a DrFed instance host, including the `id` of a document
-or the `href` of a `Link` embedded there, must be an actor of the acting
-actor's instance, and an `id` there must be a registered resource of a known
+or the `href` of a `Link` embedded there, and the `href` of a `Link` embedded
+elsewhere with the `id` a value names, must be an actor of the acting actor's
+instance, and an `id` there must be a registered resource of a known
 kind or one this write allocates. An IRI registered only because a document
 addressed or referred to it has the `unknown` kind and does not count. Other
 values are `unauthorized_local_identity` at their source paths. Remote

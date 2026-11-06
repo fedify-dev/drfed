@@ -58,6 +58,7 @@ import {
   expires,
   localActorId,
   localInstanceId,
+  seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
 
@@ -623,6 +624,43 @@ describe("federation reads of saved objects and their history", () => {
         "object",
       );
       assert.equal((await get(harness.federation, followers.iri)).status, 404);
+    });
+  });
+
+  it("serves a saved object and its Tombstone at its author's route only", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const otherId = "00000000-0000-4000-8000-000000000203" as Uuid;
+      await harness.db
+        .insert(schema.localActors)
+        .values({ id: otherId, avatar: "avatar.png", header: "header.png" });
+      await seedActors(
+        harness.db,
+        {
+          id: otherId,
+          localId: otherId,
+          instanceId: localInstanceId,
+          type: "Person",
+          username: "bob",
+          iri: `https://${host}/users/${otherId}`,
+          inboxUrl: `https://${host}/users/${otherId}/inbox`,
+          created,
+        },
+        { keys: false },
+      );
+      const note = { "@context": AS, type: "Note", to: [PUBLIC_IRI] };
+      const kept = await save(env, { ...note, content: "x" }, "object");
+      const deleted = await save(env, { ...note, content: "y" }, "object");
+      await remove(env, deleted.id);
+      for (const [saved, status] of [
+        [kept, 200],
+        [deleted, 410],
+      ] as const) {
+        assert.equal((await get(harness.federation, saved.iri)).status, status);
+        // Another live actor of the same instance does not serve it.
+        const elsewhere = saved.iri.replace(localActorId, otherId);
+        assert.equal((await get(harness.federation, elsewhere)).status, 404);
+      }
     });
   });
 
@@ -1232,6 +1270,13 @@ describe("embedded documents and implicit contexts", () => {
             "@set": ["as:Public"],
           },
         },
+        // A key with a @language container holds node objects in a list.
+        {
+          type: "Note",
+          content: "x",
+          to: [PUBLIC_IRI],
+          labels: [{ type: "Note", content: "secret", to: [bob] }],
+        },
         // An object in a language map is no valid JSON-LD.
         {
           type: "Note",
@@ -1240,26 +1285,9 @@ describe("embedded documents and implicit contexts", () => {
           labels: { en: { bcc: [blind] } },
         },
         // A node object whose id is used elsewhere is not read apart.
-        [
-          { type: "Note", content: "forged", attributedTo: { id: "_:author" } },
-          {
-            id: "_:author",
-            type: "Link",
-            href: "https://other.drfed.org/users/victim",
-          },
-        ],
         { id: "https://remote.example/notes/1", type: "Note", to: [bob] },
-        // A blank node is no compact IRI, whatever prefix "_" names, and as
-        // a reference it may name a node object defined apart.
+        // A blank node is no compact IRI, whatever prefix "_" names.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
-        [
-          { type: "Note", content: "forged", attributedTo: "_:author" },
-          {
-            id: "_:author",
-            type: "Link",
-            href: "https://other.drfed.org/users/victim",
-          },
-        ],
         // Only a Link names a recipient by its href.
         {
           type: "Note",

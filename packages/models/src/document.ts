@@ -1656,15 +1656,21 @@ function isJsonLiteral(
 // The context a value of an extension object is described with: none for a
 // context definition, for the value of a value object, which is a scalar or
 // a JSON literal, or for a language map, none of which holds node objects.
+// A key with a @language container holds a language map only as an object.
 function extensionChildContext(
   key: string,
+  value: unknown,
   context: DocumentContext | null | undefined,
 ): DocumentContext | null | undefined {
   return key === "@context" ||
     keywordOf(key, context) === "@value" ||
-    context?.terms.get(key)?.container === "@language"
+    (context?.terms.get(key)?.container === "@language" && isLanguageMap(value))
     ? undefined
     : context;
+}
+
+function isLanguageMap(value: unknown): boolean {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 // Check the keywords of an extension object, and tell whether it holds a
@@ -1828,7 +1834,7 @@ function checkDocumentValue(
               values[key],
               [...path, key],
               childKeywords,
-              extensionChildContext(key, own),
+              extensionChildContext(key, values[key], own),
             ),
           );
         }
@@ -1955,7 +1961,7 @@ function checkDocumentValue(
               value,
               fieldPath,
               true,
-              extensionChildContext(source, context),
+              extensionChildContext(source, value, context),
             );
             return;
           }
@@ -2821,9 +2827,9 @@ function readExtensionEntry(
     // tell, nor does a blank node but as an id: elsewhere, it may name a
     // node object defined apart from the one that refers to it.
     if (!compatible || !isReadableReference(iri)) return false;
-    if (iri.startsWith("_:") && name !== "id") return false;
+    // It is still listed, so that identity checks follow it.
     reading.identifiers.push({ property: name, path, value: entry, iri });
-    return true;
+    return !iri.startsWith("_:") || name === "id";
   }
   // Null stands for no value.
   if (entry === null) return true;
@@ -2883,7 +2889,10 @@ function describeExtensionNode(
     const { name } = property;
     properties.set(name, [...(properties.get(name) ?? []), source]);
     // A language map holds strings in languages, not references.
-    if (context.terms.get(source)?.container === "@language") {
+    if (
+      context.terms.get(source)?.container === "@language" &&
+      isLanguageMap(values[source])
+    ) {
       if (identifierProperties.has(name) && values[source] != null) {
         readable = false;
       }
@@ -2926,15 +2935,20 @@ function languageMapObjects(
   return Object.keys(values).flatMap((source) => {
     if (context.terms.get(source)?.container !== "@language") return [];
     const map = values[source];
-    if (map === null || typeof map !== "object") return [];
-    return Object.entries(map).flatMap(([language, entry]) => {
-      const entries: [unknown, FieldPath][] = Array.isArray(entry)
-        ? entry.map((item, index) => [item, [...path, source, language, index]])
-        : [[entry, [...path, source, language]]];
-      return entries
-        .filter(([item]) => item !== null && typeof item === "object")
-        .map(([, itemPath]) => itemPath);
-    });
+    if (!isLanguageMap(map)) return [];
+    return Object.entries(map as Record<string, unknown>).flatMap(
+      ([language, entry]) => {
+        const entries: [unknown, FieldPath][] = Array.isArray(entry)
+          ? entry.map((item, index) => [
+              item,
+              [...path, source, language, index],
+            ])
+          : [[entry, [...path, source, language]]];
+        return entries
+          .filter(([item]) => item !== null && typeof item === "object")
+          .map(([, itemPath]) => itemPath);
+      },
+    );
   });
 }
 

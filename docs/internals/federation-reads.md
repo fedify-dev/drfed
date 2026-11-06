@@ -105,7 +105,9 @@ actor, and Public `to` or `cc` addressing in the resource's current
     node object whose `id` is used elsewhere in the document, as another
     node object's `id` or as a reference, is one node with what uses it,
     and is not read apart either.  Language maps are read as strings, and
-    an object in one, which is no valid JSON-LD, is not read.
+    an object in one, which is no valid JSON-LD, is not read; a list under
+    a key with a `@language` container is no language map, and its node
+    objects are read.
  -  Embedded documents that share an `id` are one document, which none of
     them tells, so a saved document with two is not served either.  An
     `object` reference names the `href` of a `Link` the document embeds

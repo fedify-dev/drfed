@@ -4501,6 +4501,33 @@ describe("describeDocument() semantic view", () => {
       labels: { id: "Halo", bcc: "x" },
     });
     assert.deepEqual(labels?.[0]?.extensions, []);
+    // A key with a @language container holds node objects in a list.
+    const listedLabels = quotedNode({
+      type: "Note",
+      labels: [{ type: "Note", bcc: "https://a.example/b" }],
+    });
+    assert.equal(listedLabels?.uninterpreted, false);
+    const listedNode = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: [{ type: "Note", bcc: "https://a.example/b" }],
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      listedNode?.map(({ path, uninterpreted, properties }) => ({
+        path,
+        uninterpreted,
+        bcc: properties.get("bcc"),
+      })),
+      [{ path: ["labels", 0], uninterpreted: false, bcc: ["bcc"] }],
+    );
     // An object in a language map is no valid JSON-LD, and is not read.
     const labelled2 = describeDocument({
       ...like,
