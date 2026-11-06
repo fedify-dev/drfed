@@ -345,6 +345,30 @@ describe("publicDocument()", () => {
       object: "https://remote.example/notes/1",
       mood: { deep: [1, "x", null, {}], literal },
     });
+    // Blind recipients are found by IRI, whatever their container, and a
+    // JSON literal stays as saved, however its keywords are spelled.
+    const listed = [
+      ...context,
+      {
+        hidden: { "@id": "as:bcc", "@type": "@id", "@container": "@list" },
+      },
+    ];
+    const typed = { type: "@json", "@value": { bcc: ["kept"] } };
+    assert.deepEqual(
+      publicDocument({
+        ...document,
+        "@context": listed,
+        mood: { hidden: [blind], typed },
+      }),
+      {
+        "@context": listed,
+        id: "https://a.example/activities/1",
+        type: "Like",
+        actor: actorIri,
+        object: "https://remote.example/notes/1",
+        mood: { typed },
+      },
+    );
     // The validator does not read a context inside an extension value.
     assert.equal(
       publicDocument({
@@ -1089,6 +1113,9 @@ describe("embedded documents and implicit contexts", () => {
           content: "secret",
           to: { id: `${actorIri}/followers` },
         },
+        { type: "Note", content: "secret", to: { "@set": [bob] } },
+        { type: "Note", content: "secret", to: { "@set": [{ id: bob }] } },
+        { type: "Note", content: "secret", to: { "@value": PUBLIC_IRI } },
         { "@context": { secret: "as:bcc" }, content: "x", secret: [blind] },
       ]) {
         hidden.push(await save(env, like(quoted), "activity"));
@@ -1112,11 +1139,27 @@ describe("embedded documents and implicit contexts", () => {
         ]),
         "activity",
       );
-      assert.equal((await get(harness.federation, quoting.iri)).status, 200);
+      // So does an activity about it, unless that is its Delete.
+      const liking = await save(
+        env,
+        like({ type: "Like", actor: bob, object: note.iri }),
+        "activity",
+      );
+      const deleting = await save(
+        env,
+        like({ type: "Delete", actor: actorIri, object: note.iri }),
+        "activity",
+      );
+      for (const saved of [quoting, liking, deleting]) {
+        assert.equal((await get(harness.federation, saved.iri)).status, 200);
+      }
       const deletion = await remove(env, note.id);
       assert.equal((await get(harness.federation, quoting.iri)).status, 404);
+      assert.equal((await get(harness.federation, liking.iri)).status, 404);
+      assert.equal((await get(harness.federation, deleting.iri)).status, 200);
       assert.deepEqual(await outboxIds(harness.federation), [
         deletion.iri,
+        deleting.iri,
         open.iri,
       ]);
     });

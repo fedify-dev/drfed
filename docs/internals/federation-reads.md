@@ -42,7 +42,8 @@ is served from the document of its current revision:
     document, and from every JSON-LD node object in extension values, which
     a JSON-LD processor reads with the context it inherits.  They are found
     by meaning through `describeDocument()`, so aliases of them are removed
-    as well.  JSON literals stay as saved.
+    as well; in extension values, whatever the alias's container.  JSON
+    literals stay as saved, however their keywords are spelled.
  -  A document saved without `@context` states the ActivityStreams context,
     which the validator read it with and which Activity Streams 2.0 asks
     documents to include.
@@ -84,11 +85,14 @@ actor, and Public `to` or `cc` addressing in the resource's current
     documents by `id`, and `Link` values by `href`.  An embedded document
     without recipients of its own goes with the document that embeds it, as
     the `Like` in an `Undo` usually does.
- -  These two rules read the node objects in extension values as embedded
-    documents, with recipients by `id` or `href`.  A saved document with a
-    node object in an extension value that has a `@context` of its own is
-    not served, since the validator does not read that context and its
-    blind recipients cannot be found.
+ -  These rules read the node objects in extension values as embedded
+    documents, with their values through `@set` and `@list` objects and
+    their recipients by `id` or `href`.  A node object whose `object`
+    refers to a deleted local object hides the document unless its type is
+    `Delete`.  A saved document is not served when a node object in an
+    extension value has a `@context` of its own, which the validator does
+    not read, or a value object where a reference belongs, since its
+    recipients cannot then be found.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

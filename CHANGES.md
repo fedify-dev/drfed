@@ -91,8 +91,8 @@ To be released.
     [[#153] by ChanHaeng Lee\]
  -  Added `extensions` to the nodes `describeDocument()` in
     `@drfed/models/document` returns: the JSON-LD node objects in their
-    extension values, with the standard properties their keys stand for and
-    their IRI references.
+    extension values, with the standard properties their keys stand for,
+    their types and their IRI references.
     [[#153] by ChanHaeng Lee\]
  -  Added `validateDocument()` in `@drfed/models/document` for parsed
     ActivityStreams documents. It returns structured errors and compatibility

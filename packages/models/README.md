@@ -91,9 +91,12 @@ Custom extension values are not read as documents, but a JSON-LD processor
 reads the node objects in them with the context they inherit. Each node lists
 those in its own extension values, outside JSON literals, as its `extensions`:
 `ExtensionNode` values with a path, an embedding property, a property map and
-IRI references as a node has, mapped whatever their type coercion. A node
-object with a `@context` of its own, or inside one, is `uninterpreted`, with no
-properties, since the checker does not read that context.
+IRI references as a node has, and the `parent` node object and `types` too.
+Keys are matched by IRI whatever their type coercion or container, and values
+are read through `@set` and `@list` objects. A node object with a `@context` of
+its own, or inside one, is `uninterpreted`, with no properties, since the
+checker does not read that context; so is one with a value object where a
+reference belongs.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

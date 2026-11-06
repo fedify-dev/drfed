@@ -4326,6 +4326,56 @@ describe("describeDocument() semantic view", () => {
     assert.deepEqual(Object.fromEntries(extensions[3]!.properties), {});
   });
 
+  it("reads extension node objects through containers, sets and keyword aliases", () => {
+    const nodes = describeDocument({
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          listed: { "@id": "as:bcc", "@type": "@id", "@container": "@list" },
+        },
+      ],
+      type: "Like",
+      actor: "https://example.com/alice",
+      object: like.object,
+      "ex:quoted": {
+        type: "Delete",
+        listed: ["https://example.com/blind"],
+        to: {
+          "@set": [
+            "https://example.com/carol",
+            { id: "https://example.com/dave" },
+          ],
+        },
+        "ex:literal": { type: "@json", "@value": { bcc: "x" } },
+      },
+      "ex:valued": { to: { "@value": "https://example.com/erin" } },
+    });
+    assert.ok(nodes != null);
+    const [quoted, dave, valued] = nodes[0]!.extensions;
+    assert.equal(nodes[0]!.extensions.length, 3);
+    assert.deepEqual(quoted!.types, [`${context}#Delete`]);
+    assert.deepEqual(Object.fromEntries(quoted!.properties), {
+      bcc: ["listed"],
+      to: ["to"],
+      type: ["type"],
+    });
+    assert.deepEqual(
+      quoted!.identifiers.map(({ property, path }) => ({ property, path })),
+      [
+        { property: "bcc", path: ["ex:quoted", "listed", 0] },
+        { property: "to", path: ["ex:quoted", "to", "@set", 0] },
+      ],
+    );
+    assert.equal(quoted!.uninterpreted, false);
+    assert.deepEqual(dave!.path, ["ex:quoted", "to", "@set", 1]);
+    assert.equal(dave!.property, "to");
+    assert.deepEqual(dave!.parent, ["ex:quoted"]);
+    // A literal is no reference the checker can read.
+    assert.deepEqual(valued!.path, ["ex:valued"]);
+    assert.equal(valued!.uninterpreted, true);
+  });
+
   it("returns null unless validation completes without errors", () => {
     assert.equal(describeDocument({ ...like, actor: false }), null);
     assert.equal(describeDocument({ ...like, type: "Place" }), null);

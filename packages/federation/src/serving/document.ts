@@ -90,14 +90,11 @@ const statedContext = (document: JsonObject): JsonObject =>
     ? document
     : { "@context": activityStreams, ...document };
 
-// An embedded document sits at [...parent, key] or [...parent, key, index];
-// one at [...parent, key, key] is embedded in another embedded document.
-const isChild = (child: FieldPath, parent: FieldPath): boolean =>
-  parent.every((step, index) => child[index] === step) &&
-  typeof child[parent.length] === "string" &&
-  (child.length === parent.length + 1 ||
-    (child.length === parent.length + 2 &&
-      typeof child[parent.length + 1] === "number"));
+// An embedded document sits at [...parent, key] or [...parent, key, index].
+const parentKey = (path: FieldPath): string | null =>
+  path.length === 0
+    ? null
+    : pathKey(path.slice(0, typeof path.at(-1) === "number" ? -2 : -1));
 
 /**
  * Reads a document's own IRI value of a functional property, such as its `id`
@@ -108,34 +105,60 @@ const isChild = (child: FieldPath, parent: FieldPath): boolean =>
 const ownIdentifier = (node: Described, property: string): string | null =>
   node.identifiers.find((entry) => entry.property === property)?.iri ?? null;
 
-/** A document or node object that another one embeds, as a recipient. */
+const ownId = (node: Described): string | null => ownIdentifier(node, "id");
+
+/** A document or node object as the one that embeds it reads it. */
 interface Embedded {
-  readonly path: FieldPath;
+  /** The source path of the document or node object that embeds it. */
+  readonly parent: string | null;
+  /** The standard name of the property that embeds it. */
   readonly property?: string | undefined;
   /** The IRI the addressing index records for it as a recipient. */
   readonly iri: string | null;
+  /** The IRI it refers to as a `Link`, by its `href`. */
+  readonly href: string | null;
 }
+
+const embeddedDocument = (node: DocumentNode): Embedded => {
+  const href = node.kind === "link" ? ownIdentifier(node, "href") : null;
+  return {
+    parent: parentKey(node.path),
+    property: node.property,
+    iri: node.kind === "link" ? href : ownId(node),
+    href,
+  };
+};
+
+// A node object without an id that has an href refers to it, as a Link does.
+const embeddedExtension = (node: ExtensionNode): Embedded => {
+  const id = ownId(node);
+  const href = id == null ? ownIdentifier(node, "href") : null;
+  return {
+    parent: node.parent == null ? null : pathKey(node.parent),
+    property: node.property,
+    iri: id ?? href,
+    href,
+  };
+};
 
 /**
  * Reads a document's own recipients as the addressing index records those of
  * a saved document: references as resolved, embedded documents by `id`, and
  * `Link` values by `href`.  An anonymous embedded recipient names no IRI.
- * @param embedded The documents or node objects that may embed recipients.
+ * @param children The documents or node objects it embeds.
  * @returns The addressing property and IRI of each recipient.
  */
 const recipients = (
   node: Described,
-  embedded: readonly Embedded[],
+  children: readonly Embedded[],
 ): { readonly property: string; readonly iri: string | null }[] => [
   ...node.identifiers
     .filter(({ property }) => recipientProperties.has(property))
     .map(({ property, iri }) => ({ property, iri })),
-  ...embedded
+  ...children
     .filter(
       (child) =>
-        child.property != null &&
-        recipientProperties.has(child.property) &&
-        isChild(child.path, node.path),
+        child.property != null && recipientProperties.has(child.property),
     )
     .map((child) => ({ property: child.property!, iri: child.iri })),
 ];
@@ -144,13 +167,14 @@ const recipients = (
  * Tells whether a document's own addressing names recipients but not the
  * public in `to` or `cc`, which restricts its content to them.  A document
  * without recipients of its own goes with the document that embeds it.
+ * @param children The documents or node objects it embeds.
  * @returns Whether the document is restricted.
  */
 const isRestricted = (
   node: Described,
-  embedded: readonly Embedded[],
+  children: readonly Embedded[],
 ): boolean => {
-  const named = recipients(node, embedded);
+  const named = recipients(node, children);
   return (
     named.length > 0 &&
     !named.some(
@@ -160,28 +184,22 @@ const isRestricted = (
   );
 };
 
-const ownId = (node: Described): string | null => ownIdentifier(node, "id");
-
 /**
  * Reads the IRIs an activity's `object` refers to without embedding them, as
  * references or by the `href` of `Link` values.
+ * @param children The documents or node objects it embeds.
  * @returns The IRIs.
  */
 const referredObjects = (
-  node: DocumentNode,
-  nodes: readonly DocumentNode[],
+  node: Described,
+  children: readonly Embedded[],
 ): string[] => [
   ...node.identifiers
     .filter(({ property }) => property === "object")
     .map(({ iri }) => iri),
-  ...nodes
-    .filter(
-      (child) =>
-        child.property === "object" &&
-        child.kind === "link" &&
-        isChild(child.path, node.path),
-    )
-    .map((child) => ownIdentifier(child, "href"))
+  ...children
+    .filter((child) => child.property === "object")
+    .map(({ href }) => href)
     .filter((iri) => iri != null),
 ];
 
@@ -207,9 +225,9 @@ export interface DocumentInspection {
    */
   readonly embedded: readonly string[];
   /**
-   * The IRIs that the `object` of the root or of an embedded activity, unless
-   * it is a `Delete`, refers to without embedding them, as references or
-   * `Link` values.
+   * The IRIs that the `object` of the root, of an embedded activity or of an
+   * extension node object, unless it is a `Delete`, refers to without
+   * embedding them, as references or `Link` values.
    */
   readonly objectReferences: readonly string[];
   /**
@@ -219,8 +237,9 @@ export interface DocumentInspection {
    */
   readonly restricted: boolean;
   /**
-   * Whether an extension node object has a `@context` of its own, which the
-   * validator does not read, so that its blind recipients cannot be found.
+   * Whether the validator cannot read all of an extension node object, as
+   * when it has a `@context` of its own, so that its blind recipients cannot
+   * be found.
    */
   readonly uninterpreted: boolean;
 }
@@ -240,21 +259,13 @@ export function inspectDocument(
   const embedded = nodes.filter(
     ({ path, kind }) => path.length > 0 && kind !== "link",
   );
-  const documents = nodes.map(
-    (node): Embedded => ({
-      path: node.path,
-      property: node.property,
-      iri: ownIdentifier(node, node.kind === "link" ? "href" : "id"),
-    }),
-  );
   const extensions = nodes.flatMap((node) => node.extensions);
-  const extensionValues = extensions.map(
-    (node): Embedded => ({
-      path: node.path,
-      property: node.property,
-      iri: ownId(node) ?? ownIdentifier(node, "href"),
-    }),
+  const byParent = Map.groupBy(
+    [...nodes.map(embeddedDocument), ...extensions.map(embeddedExtension)],
+    ({ parent }) => parent,
   );
+  const children = (node: Described): readonly Embedded[] =>
+    byParent.get(pathKey(node.path)) ?? [];
   return {
     served: {
       type: root.type,
@@ -270,12 +281,16 @@ export function inspectDocument(
     embedded: [...embedded, ...extensions]
       .map(ownId)
       .filter((iri) => iri != null),
-    objectReferences: nodes
-      .filter(({ kind, type }) => kind === "activity" && type !== deleteType)
-      .flatMap((node) => referredObjects(node, nodes)),
-    restricted:
-      embedded.some((node) => isRestricted(node, documents)) ||
-      extensions.some((node) => isRestricted(node, extensionValues)),
+    // A node object in an extension value has no kind the validator reads.
+    objectReferences: [
+      ...nodes.filter(
+        ({ kind, type }) => kind === "activity" && type !== deleteType,
+      ),
+      ...extensions.filter(({ types }) => !types.includes(deleteType)),
+    ].flatMap((node) => referredObjects(node, children(node))),
+    restricted: [...embedded, ...extensions].some((node) =>
+      isRestricted(node, children(node)),
+    ),
     uninterpreted: extensions.some(({ uninterpreted }) => uninterpreted),
   };
 }

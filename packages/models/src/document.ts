@@ -1582,10 +1582,65 @@ function checkLinkProperty(
 }
 
 // Objects with these keywords are values or lists, not JSON-LD node objects.
-const valueObjectKeywords = ["@value", "@list", "@set"] as const;
+const valueObjectKeywords: ReadonlySet<string> = new Set([
+  "@value",
+  "@list",
+  "@set",
+]);
 
-function isNodeObject(values: Record<string, unknown>): boolean {
-  return !valueObjectKeywords.some((keyword) => Object.hasOwn(values, keyword));
+// The keyword a key stands for: itself, or the keyword a term aliases.  A
+// context the checker does not read aliases nothing it knows of.
+function keywordOf(
+  key: string,
+  context: DocumentContext | null,
+): string | undefined {
+  if (key.startsWith("@")) return key;
+  const iri = context?.terms.get(key)?.iri;
+  return iri?.startsWith("@") === true ? iri : undefined;
+}
+
+function isNodeObject(
+  values: Record<string, unknown>,
+  context: DocumentContext | null,
+): boolean {
+  return !Object.keys(values).some((key) =>
+    valueObjectKeywords.has(keywordOf(key, context) ?? ""),
+  );
+}
+
+// Whether a value object holds a JSON literal, however its keywords are
+// spelled.
+function isJsonLiteral(
+  values: Record<string, unknown>,
+  context: DocumentContext | null,
+): boolean {
+  return Object.keys(values).some((key) => {
+    if (keywordOf(key, context) !== "@type") return false;
+    const type = values[key];
+    return (
+      type === "@json" ||
+      (Array.isArray(type) && type.length === 1 && type[0] === "@json")
+    );
+  });
+}
+
+// The context a value of an extension object is described with: none for a
+// context definition or the value of a JSON literal, which hold no node
+// objects.
+function extensionChildContext(
+  values: Record<string, unknown>,
+  key: string,
+  context: DocumentContext | null | undefined,
+): DocumentContext | null | undefined {
+  if (key === "@context") return undefined;
+  if (
+    context !== undefined &&
+    keywordOf(key, context) === "@value" &&
+    isJsonLiteral(values, context)
+  ) {
+    return undefined;
+  }
+  return context;
 }
 
 // The context an extension object is read with: none when it is not
@@ -1726,19 +1781,17 @@ function checkDocumentValue(
         const jsonLiteral =
           keywords && checkExtensionKeywords(values, path, report);
         const own = extensionContext(values, context);
-        if (keywords && own !== undefined && isNodeObject(values)) {
+        if (keywords && own !== undefined && isNodeObject(values, own)) {
           onExtensionNode?.(values, path, own);
         }
         for (const key of Object.keys(values)) {
           const childKeywords = keywords && !(jsonLiteral && key === "@value");
-          // A context definition holds no data.
-          const childContext = key === "@context" ? undefined : own;
           children.push(() =>
             checkExtension(
               values[key],
               [...path, key],
               childKeywords,
-              childContext,
+              extensionChildContext(values, key, own),
             ),
           );
         }
@@ -2494,19 +2547,29 @@ export interface ExtensionNode {
    * property.
    */
   readonly property?: string;
+  /** The path of the node object whose `property` holds this one. */
+  readonly parent?: FieldPath;
   /**
-   * Whether the node object, or one around it in the extension value, has a
-   * `@context` of its own.  The checker does not read such a context, so its
-   * keys are not interpreted: it has no properties or identifiers.
+   * Whether the checker cannot read all of the node object: it, or one
+   * around it in the extension value, has a `@context` of its own, which the
+   * checker does not read, or a reference property holds a value object.  An
+   * uninterpreted node object has no properties, identifiers or types when
+   * its context is unread.
    */
   readonly uninterpreted: boolean;
-  /** Standard property names mapped to the source keys that supply them. */
+  /**
+   * Standard property names mapped to the source keys that supply them,
+   * matched by IRI whatever their type coercion or container.
+   */
   readonly properties: ReadonlyMap<string, readonly string[]>;
   /**
    * String IRI references held by the node object's own standard
-   * properties, with compact IRIs expanded through the context's prefixes.
+   * properties, through arrays and `@set` or `@list` objects, with compact
+   * IRIs expanded through the context's prefixes.
    */
   readonly identifiers: readonly DocumentIdentifier[];
+  /** The type IRIs, with terms and compact IRIs expanded. */
+  readonly types: readonly string[];
 }
 
 /** One IRI reference as written and as the context resolves it. */
@@ -2601,6 +2664,107 @@ function describeProperties(
   return { properties, identifiers };
 }
 
+// The standard name of an extension node object's key, matched by IRI
+// whatever its type coercion or container, as a JSON-LD processor reads it.
+function extensionPropertyName(
+  source: string,
+  context: DocumentContext,
+): string | undefined {
+  const { name, iri } = resolveProperty(source, context);
+  if (name != null || iri == null) return name;
+  for (const [standard, term] of getContextTables().standardTerms) {
+    if (term.iri === iri) return standard;
+  }
+  return undefined;
+}
+
+// The entries of a value, through arrays and @set or @list objects.
+function valueEntries(
+  value: unknown,
+  path: FieldPath,
+  context: DocumentContext,
+): [unknown, FieldPath][] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry, index) =>
+      valueEntries(entry, [...path, index], context),
+    );
+  }
+  if (value !== null && typeof value === "object") {
+    const values = value as Record<string, unknown>;
+    const wrapper = Object.keys(values).find((key) => {
+      const keyword = keywordOf(key, context);
+      return keyword === "@set" || keyword === "@list";
+    });
+    if (wrapper != null) {
+      return valueEntries(values[wrapper], [...path, wrapper], context);
+    }
+  }
+  return [[value, path]];
+}
+
+// Describe a node object in an extension value, with the node objects its
+// standard properties hold and the names of those properties.
+function describeExtensionNode(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  context: DocumentContext | null,
+): {
+  readonly node: ExtensionNode;
+  readonly children: readonly (readonly [FieldPath, string])[];
+} {
+  if (context == null) {
+    return {
+      node: {
+        path,
+        uninterpreted: true,
+        properties: new Map(),
+        identifiers: [],
+        types: [],
+      },
+      children: [],
+    };
+  }
+  const properties = new Map<string, string[]>();
+  const identifiers: DocumentIdentifier[] = [];
+  const types: string[] = [];
+  const children: [FieldPath, string][] = [];
+  let uninterpreted = false;
+  for (const source of Object.keys(values).sort()) {
+    const name = extensionPropertyName(source, context);
+    if (name == null) continue;
+    properties.set(name, [...(properties.get(name) ?? []), source]);
+    for (const [entry, entryPath] of valueEntries(
+      values[source],
+      [...path, source],
+      context,
+    )) {
+      if (typeof entry === "string") {
+        if (name === "type") {
+          types.push(
+            context.terms.get(entry)?.iri ?? expandIdentifier(entry, context),
+          );
+        } else if (identifierProperties.has(name)) {
+          identifiers.push({
+            property: name,
+            path: entryPath,
+            value: entry,
+            iri: expandIdentifier(entry, context),
+          });
+        }
+      } else if (entry !== null && typeof entry === "object") {
+        const object = entry as Record<string, unknown>;
+        if (isNodeObject(object, context)) children.push([entryPath, name]);
+        // A literal is no IRI reference the checker can read.
+        else if (identifierProperties.has(name)) uninterpreted = true;
+      }
+    }
+  }
+  return {
+    node: { path, uninterpreted, properties, identifiers, types },
+    children,
+  };
+}
+
 // Name the property of its parent that embeds each value, which sits at
 // [...parent, key] or [...parent, key, index].
 function nameEmbeddingProperties<
@@ -2676,29 +2840,22 @@ export function describeDocument(
   }
   // Read values only now: validation has rejected sparse arrays, accessors,
   // and other non-JSON shapes without evaluating them.
-  const extensionNodes = nameEmbeddingProperties(
-    extensions.map(
-      ({ values, path, context }): ExtensionNode =>
-        context == null
-          ? {
-              path,
-              uninterpreted: true,
-              properties: new Map(),
-              identifiers: [],
-            }
-          : {
-              path,
-              uninterpreted: false,
-              ...describeProperties(
-                values,
-                path,
-                Object.keys(values)
-                  .sort()
-                  .map((source) => resolveProperty(source, context)),
-                context,
-              ),
-            },
+  const described = extensions.map(({ values, path, context }) =>
+    describeExtensionNode(values, path, context),
+  );
+  const holders = new Map(
+    described.flatMap(({ node, children }) =>
+      children.map(([path, property]) => [
+        JSON.stringify(path),
+        { property, parent: node.path },
+      ]),
     ),
+  );
+  const extensionNodes = described.map(
+    ({ node }): ExtensionNode => ({
+      ...node,
+      ...holders.get(JSON.stringify(node.path)),
+    }),
   );
   const owners = new Map(
     visited.map(({ path }): [string, ExtensionNode[]] => [
