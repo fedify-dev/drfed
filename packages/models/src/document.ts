@@ -1609,6 +1609,19 @@ function isNodeObject(
   );
 }
 
+// The context an extension object is described with as a node object: none
+// for a value or a list, or null for one with properties as well, which is
+// no valid JSON-LD and cannot be read.
+function nodeContext(
+  values: Record<string, unknown>,
+  context: DocumentContext | null | undefined,
+): DocumentContext | null | undefined {
+  if (context === undefined || isNodeObject(values, context)) return context;
+  return Object.keys(values).some((key) => keywordOf(key, context) == null)
+    ? null
+    : undefined;
+}
+
 // Whether a value object holds a JSON literal, however its keywords are
 // spelled.
 function isJsonLiteral(
@@ -1792,8 +1805,9 @@ function checkDocumentValue(
         const own = extensionContext(values, context);
         const jsonLiteral =
           keywords && checkJsonLiteral(values, path, report, own);
-        if (keywords && own !== undefined && isNodeObject(values, own)) {
-          onExtensionNode?.(values, path, own);
+        const node = nodeContext(values, own);
+        if (keywords && node !== undefined) {
+          onExtensionNode?.(values, path, node);
         }
         for (const key of Object.keys(values)) {
           const childKeywords = keywords && !(jsonLiteral && key === "@value");

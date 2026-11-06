@@ -1138,8 +1138,7 @@ describe("embedded documents and implicit contexts", () => {
       assert.deepEqual(served.body, publicDocument(open.document));
       assert.deepEqual(blindKeys(open.document), ["bcc", "bto"]);
       assert.deepEqual(blindKeys(served.body), []);
-      // A blank node identifier and a JSON literal read with an alias of
-      // @type from a context of its own stay readable.
+      // A blank node identifier and a language map stay readable.
       const readable: string[] = [];
       for (const quoted of [
         { id: "_:b0", type: "Note", content: "open", to: [PUBLIC_IRI] },
@@ -1148,11 +1147,6 @@ describe("embedded documents and implicit contexts", () => {
           content: "open",
           to: [PUBLIC_IRI],
           labels: { id: "Halo", bcc: "Hello" },
-        },
-        {
-          "@context": { kind: "@type" },
-          kind: "@json",
-          "@value": { bcc: "data" },
         },
       ]) {
         const saved = await save(env, like(quoted), "activity");
@@ -1189,6 +1183,19 @@ describe("embedded documents and implicit contexts", () => {
         },
         // A blank node is no compact IRI, whatever prefix "_" names.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
+        // A value with keys a context of its own may alias is not read,
+        // nor is a list with properties, which is no valid JSON-LD.
+        {
+          "@context": { kind: "@type" },
+          kind: "@json",
+          "@value": { bcc: "data" },
+        },
+        {
+          type: "Note",
+          content: "x",
+          to: [PUBLIC_IRI],
+          cc: { "@set": [], bcc: blind },
+        },
         // Properties nested with @nest are not read.
         {
           type: "Note",

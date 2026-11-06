@@ -109,15 +109,16 @@ without one cannot gain one.
 
 Every other identity claim is checked by meaning, through
 `describeDocument()`, so aliases, full-IRI keys, `@id` aliases and compact IRIs
-cannot hide it. An `actor` or `attributedTo` value on a DrFed instance host must
-be an actor of the acting actor's instance, and an `id` there must be a
-registered resource of a known kind or one this write allocates. An IRI
-registered only because a document addressed or referred to it has the
-`unknown` kind and does not count. Other values are
-`unauthorized_local_identity` at their source paths. Remote identities are not
-checked; copying a remote representation proves nothing about it. Plain
-references, such as `object` or `target` IRIs, never request a write and are
-never fetched or modified.
+cannot hide it, also in the node objects of extension values, which
+[federation reads](federation-reads.md) serve as well. An `actor` or
+`attributedTo` value on a DrFed instance host must be an actor of the acting
+actor's instance, and an `id` there must be a registered resource of a known
+kind or one this write allocates. An IRI registered only because a document
+addressed or referred to it has the `unknown` kind and does not count. Other
+values are `unauthorized_local_identity` at their source paths. Remote
+identities are not checked; copying a remote representation proves nothing
+about it. Plain references, such as `object` or `target` IRIs, never request a
+write and are never fetched or modified.
 
 Resource descriptors name the root, `[]`, and optionally embedded documents
 reached through `object`, `target`, `origin`, `result` or `instrument` of

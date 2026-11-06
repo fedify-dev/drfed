@@ -300,10 +300,11 @@ function resourceIri(
 
 /**
  * Finds identity claims on DrFed instance hosts in documents that are not
- * new resources: `actor` and `attributedTo` values, which must be actors of
- * the acting actor's instance, and `id` values, which must be registered or
- * allocated in this write.  Values are compared as the context resolves
- * them, so aliases and compact IRIs cannot hide a claim.
+ * new resources, and in the node objects of their extension values, which
+ * federation reads serve too: `actor` and `attributedTo` values, which must
+ * be actors of the acting actor's instance, and `id` values, which must be
+ * registered or allocated in this write.  Values are compared as the
+ * context resolves them, so aliases and compact IRIs cannot hide a claim.
  * @returns The denied claims' paths.
  */
 export async function deniedClaims(
@@ -315,7 +316,10 @@ export async function deniedClaims(
 ): Promise<DocumentAuthority[]> {
   const actors: { iri: string; path: FieldPath }[] = [];
   const ids: { iri: string; path: FieldPath }[] = [];
-  for (const node of nodes) {
+  for (const node of [
+    ...nodes,
+    ...nodes.flatMap(({ extensions }) => extensions),
+  ]) {
     // A new resource's id and author are server-owned; checking them here
     // would only repeat the conflict preparation reports.  Its other
     // attribution property, such as attributedTo on an activity, is a claim.

@@ -653,6 +653,65 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
+  it("checks identity claims in the node objects of extension values", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const quoting = (quoted: Record<string, unknown>) =>
+        create(
+          {
+            "@context": [AS, { ex: "https://ext.example/ns#" }],
+            type: "Like",
+            object: "https://x.example/",
+            "ex:quoted": quoted,
+          } as never,
+          [{ path: [], kind: "activity" }],
+        );
+      for (const [quoted, path] of [
+        [
+          {
+            type: "Note",
+            id: "https://test-instance.drfed.org/users/x/forged",
+            content: "forged",
+          },
+          ["ex:quoted", "id"],
+        ],
+        [
+          {
+            type: "Note",
+            attributedTo: "https://other.drfed.org/users/victim",
+            content: "forged",
+          },
+          ["ex:quoted", "attributedTo"],
+        ],
+      ] as const) {
+        const outcome = await previewLocalWrite(
+          env,
+          principal,
+          quoting(quoted),
+        );
+        assert.ok(!outcome.ok);
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
+      // A remote identity is not checked, as in any embedded document.
+      await save(
+        env,
+        quoting({
+          type: "Note",
+          id: "https://remote.example/notes/1",
+          attributedTo: "https://remote.example/users/bob",
+        }),
+      );
+    });
+  });
+
   it("does not accept an id that is registered only as a reference", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);

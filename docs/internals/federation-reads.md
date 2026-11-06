@@ -96,10 +96,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
     with a `@context` of its own, which the validator does not read, or with
     a value object, a language map, a string its key does not coerce to an
     IRI, or a relative reference where a reference belongs, more than one
-    `id` or `href`, or properties nested by `@nest`, since its recipients
-    and references cannot then be told.  Blank node identifiers are read as
-    names of no resource, and language maps as strings.  Such a document is
-    logged once per revision as a warning.
+    `id` or `href`, properties nested by `@nest`, or a value or a list
+    object with keys other than keywords, or with keys a context of its own
+    may alias, since its recipients and references cannot then be told.  Blank
+    node identifiers are read as names of no resource, and language maps as
+    strings.  Such a document is logged once per revision as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

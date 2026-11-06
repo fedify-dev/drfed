@@ -4427,6 +4427,11 @@ describe("describeDocument() semantic view", () => {
       ["_:b0", "_:Public"],
     );
     assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
+    // A value or a list with properties is no valid JSON-LD, and unread.
+    assert.equal(
+      quotedNode({ "@set": [], bcc: "https://a.example/b" })?.uninterpreted,
+      true,
+    );
     assert.equal(
       quotedNode({ type: "Note", "@nest": { to: "as:Public" } })?.uninterpreted,
       true,
@@ -4458,14 +4463,20 @@ describe("describeDocument() semantic view", () => {
       })?.[0]?.extensions.length,
       0,
     );
-    // The value of a value object holds no node objects, whatever its type.
-    assert.equal(
-      quotedNode({
+    // A value whose keys a context of its own may alias cannot be read, but
+    // its value holds no node objects.
+    const aliased = describeDocument({
+      ...like,
+      "@context": [context, { ex: "https://ext.example/ns#" }],
+      "ex:quoted": {
         "@context": { kind: "@type" },
         kind: "@json",
         "@value": { bcc: "x" },
-      }),
-      undefined,
+      },
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      aliased?.map(({ path, uninterpreted }) => ({ path, uninterpreted })),
+      [{ path: ["ex:quoted"], uninterpreted: true }],
     );
     // A JSON literal holds data, however its keywords are spelled.
     assert.ok(
