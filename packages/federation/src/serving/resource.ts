@@ -113,8 +113,8 @@ function isJsonObject(value: unknown): value is JsonObject {
  * does not save, one the validator cannot read or one naming another
  * resource, can only come from a change made outside it.  It is logged and
  * left out, so that it takes down nothing but its own resource.  A document
- * whose extension values cannot be read is logged as a warning, and is not
- * served either.  Each revision is logged once.
+ * whose node objects cannot be read apart, as in extension values, is logged
+ * as a warning, and is not served either.  Each revision is logged once.
  * @returns The inspection, or `null` when the document cannot be served.
  */
 function inspectRevision(row: RevisionRow): DocumentInspection | null {
@@ -125,8 +125,8 @@ function inspectRevision(row: RevisionRow): DocumentInspection | null {
     if (inspection.uninterpreted) {
       logOnce(row, () =>
         logger.warn(
-          "The saved document of {iri} has an extension value whose " +
-            "addressing cannot be read; it is not served.",
+          "The saved document of {iri} has node objects whose addressing " +
+            "or references cannot be read; it is not served.",
           { iri: row.iri },
         ),
       );

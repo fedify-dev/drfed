@@ -187,17 +187,20 @@ const isRestricted = (
 
 /**
  * Reads the IRIs an activity's `object` refers to without embedding them, as
- * references or by the `href` of `Link` values.
+ * references or by the `href` of `Link` values, including that of a `Link`
+ * the document embeds elsewhere with the `id` a reference names.
  * @param children The documents or node objects it embeds.
+ * @param links The `href` of each `Link` in the document, by its `id`.
  * @returns The IRIs.
  */
 const referredObjects = (
   node: Described,
   children: readonly Embedded[],
+  links: ReadonlyMap<string, readonly string[]>,
 ): string[] => [
   ...node.identifiers
     .filter(({ property }) => property === "object")
-    .map(({ iri }) => iri),
+    .flatMap(({ iri }) => [iri, ...(links.get(iri) ?? [])]),
   ...children
     .filter((child) => child.property === "object")
     .map(({ href }) => href)
@@ -239,8 +242,9 @@ export interface DocumentInspection {
   readonly restricted: boolean;
   /**
    * Whether the validator cannot read all of an extension node object, as
-   * when it has a `@context` of its own, so that its blind recipients cannot
-   * be found.
+   * when it has a `@context` of its own, or two node objects share an `id`,
+   * so that the recipients and references of what they describe cannot be
+   * told from any one of them.
    */
   readonly uninterpreted: boolean;
 }
@@ -267,6 +271,22 @@ export function inspectDocument(
   );
   const children = (node: Described): readonly Embedded[] =>
     byParent.get(pathKey(node.path)) ?? [];
+  const links = new Map(
+    [
+      ...Map.groupBy(
+        [...nodes, ...extensions].flatMap((node) => {
+          const id = ownId(node);
+          const href = ownIdentifier(node, "href");
+          return node.kind === "link" && id != null && href != null
+            ? [{ id, href }]
+            : [];
+        }),
+        ({ id }) => id,
+      ),
+    ].map(([id, entries]) => [id, entries.map(({ href }) => href)]),
+  );
+  // Node objects that share an id are one node, which no single one tells.
+  const ids = [...nodes, ...extensions].map(ownId).filter((iri) => iri != null);
   return {
     served: {
       type: root.type,
@@ -288,11 +308,13 @@ export function inspectDocument(
         ({ kind, type }) => kind === "activity" && type !== deleteType,
       ),
       ...extensions.filter(({ types }) => !types.includes(deleteType)),
-    ].flatMap((node) => referredObjects(node, children(node))),
+    ].flatMap((node) => referredObjects(node, children(node), links)),
     restricted: [...embedded, ...extensions].some((node) =>
       isRestricted(node, children(node)),
     ),
-    uninterpreted: extensions.some(({ uninterpreted }) => uninterpreted),
+    uninterpreted:
+      extensions.some(({ uninterpreted }) => uninterpreted) ||
+      new Set(ids).size < ids.length,
   };
 }
 

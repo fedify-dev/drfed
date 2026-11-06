@@ -790,6 +790,16 @@ describe("federation reads of saved objects and their history", () => {
       assert.equal(object.body.content, "<p>B</p>");
       const legacyCreate = await get(harness.federation, createIri);
       assert.equal(legacyCreate.status, 200);
+      // A legacy Create is served at its own route only.
+      assert.equal(
+        (
+          await get(
+            harness.federation,
+            createIri.replace("/ap/creates/", "/ap/activities/"),
+          )
+        ).status,
+        404,
+      );
       assert.equal(legacyCreate.body.object, legacyIri);
       const served = await get(harness.federation, update.iri);
       assert.equal(served.status, 200);
@@ -1018,6 +1028,47 @@ describe("embedded documents and implicit contexts", () => {
     });
   });
 
+  it("reads documents that share an id as JSON-LD joins them", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const note = await save(
+        env,
+        { "@context": AS, type: "Note", content: "x", to: [PUBLIC_IRI] },
+        "object",
+      );
+      const link = "https://remote.example/links/1";
+      // Two embedded documents with one id are one, which neither tells.
+      const shared = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Add",
+          to: [PUBLIC_IRI],
+          object: { type: "Link", id: link, href: "https://remote.example/n" },
+          target: { type: "Link", id: link, href: note.iri },
+        },
+        "activity",
+      );
+      assert.equal((await get(harness.federation, shared.iri)).status, 404);
+      // A reference names what a Link embedded elsewhere with its id does.
+      const referred = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Add",
+          to: [PUBLIC_IRI],
+          object: link,
+          target: { type: "Link", id: link, href: note.iri },
+        },
+        "activity",
+      );
+      assert.equal((await get(harness.federation, referred.iri)).status, 200);
+      const deletion = await remove(env, note.id);
+      assert.equal((await get(harness.federation, referred.iri)).status, 404);
+      assert.deepEqual(await outboxIds(harness.federation), [deletion.iri]);
+    });
+  });
+
   it("hides an activity that embeds a deleted object at any depth", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
@@ -1180,6 +1231,13 @@ describe("embedded documents and implicit contexts", () => {
             "@context": { as: "https://a.example/" },
             "@set": ["as:Public"],
           },
+        },
+        // An object in a language map is no valid JSON-LD.
+        {
+          type: "Note",
+          content: "x",
+          to: [PUBLIC_IRI],
+          labels: { en: { bcc: [blind] } },
         },
         // A node object whose id is used elsewhere is not read apart.
         [

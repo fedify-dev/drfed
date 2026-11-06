@@ -104,8 +104,12 @@ actor, and Public `to` or `cc` addressing in the resource's current
     not as a reference, since it may name a node object defined apart.  A
     node object whose `id` is used elsewhere in the document, as another
     node object's `id` or as a reference, is one node with what uses it,
-    and is not read apart either.
-    Language maps are read as strings.  Such a document is logged once per
+    and is not read apart either.  Language maps are read as strings, and
+    an object in one, which is no valid JSON-LD, is not read.
+ -  Embedded documents that share an `id` are one document, which none of
+    them tells, so a saved document with two is not served either.  An
+    `object` reference names the `href` of a `Link` the document embeds
+    elsewhere with that `id` as well.  Such documents are logged once per
     revision as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`

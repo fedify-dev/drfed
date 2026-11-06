@@ -2915,6 +2915,29 @@ function describeExtensionNode(
   };
 }
 
+// Find the objects in the language maps of a document's or a node object's
+// keys, which hold strings in languages: an object there is no valid
+// JSON-LD, and is not read.
+function languageMapObjects(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  context: DocumentContext,
+): FieldPath[] {
+  return Object.keys(values).flatMap((source) => {
+    if (context.terms.get(source)?.container !== "@language") return [];
+    const map = values[source];
+    if (map === null || typeof map !== "object") return [];
+    return Object.entries(map).flatMap(([language, entry]) => {
+      const entries: [unknown, FieldPath][] = Array.isArray(entry)
+        ? entry.map((item, index) => [item, [...path, source, language, index]])
+        : [[entry, [...path, source, language]]];
+      return entries
+        .filter(([item]) => item !== null && typeof item === "object")
+        .map(([, itemPath]) => itemPath);
+    });
+  });
+}
+
 // Name the property of its parent that embeds each value, which sits at
 // [...parent, key] or [...parent, key, index].
 function nameEmbeddingProperties<
@@ -3001,9 +3024,18 @@ export function describeDocument(
       context,
     ),
   }));
-  const described = extensions.map(({ values, path, context }) =>
-    describeExtensionNode(values, path, context),
-  );
+  const described = [
+    ...extensions.map(({ values, path, context }) =>
+      describeExtensionNode(values, path, context),
+    ),
+    ...[...visited, ...extensions].flatMap(({ values, path, context }) =>
+      context == null
+        ? []
+        : languageMapObjects(values, path, context).map((object) =>
+            describeExtensionNode({}, object, null),
+          ),
+    ),
+  ];
   const holders = new Map(
     described.flatMap(({ node, children }) =>
       children.map(([path, property]) => [

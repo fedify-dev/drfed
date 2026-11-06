@@ -4501,6 +4501,30 @@ describe("describeDocument() semantic view", () => {
       labels: { id: "Halo", bcc: "x" },
     });
     assert.deepEqual(labels?.[0]?.extensions, []);
+    // An object in a language map is no valid JSON-LD, and is not read.
+    const labelled2 = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: { en: { bcc: "x" }, ko: ["x", { bcc: "y" }] },
+    });
+    assert.deepEqual(
+      labelled2?.[0]?.extensions.map(({ path, uninterpreted }) => ({
+        path,
+        uninterpreted,
+      })),
+      [
+        { path: ["labels", "en"], uninterpreted: true },
+        { path: ["labels", "ko", 1], uninterpreted: true },
+      ],
+    );
     // A JSON literal holds data, however its keywords are spelled.
     const literal = describeDocument({
       ...like,
