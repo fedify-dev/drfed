@@ -402,9 +402,12 @@ export function indexDocument(document: JsonObject): {
     const node = children.get(pathKey(path));
     if (node == null) return undefined;
     const property = node.kind === "link" ? "href" : "id";
+    // A functional property may be a singleton list.
     return node.identifiers.find(
       (entry) =>
-        entry.property === property && entry.path.length === path.length + 1,
+        entry.property === property &&
+        (entry.path.length === path.length + 1 ||
+          (entry.path.length === path.length + 2 && entry.path.at(-1) === 0)),
     )?.iri;
   };
   const occurrences = (

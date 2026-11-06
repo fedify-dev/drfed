@@ -89,14 +89,17 @@ const chunks = <T>(values: readonly T[], size: number): T[][] =>
   );
 
 // The revisions logged as unservable, so that one is logged once however
-// often pages and counters read it.  It is bounded by clearing it.
+// often pages and counters read it.  Past its limit, the revision logged
+// longest ago is forgotten.
 const loggedRevisions = new Set<string>();
-const loggedRevisionLimit = 1024;
+const loggedRevisionLimit = 4096;
 
 function logOnce(row: RevisionRow, log: () => void): void {
   const key = row.revisionId ?? row.iri;
   if (loggedRevisions.has(key)) return;
-  if (loggedRevisions.size >= loggedRevisionLimit) loggedRevisions.clear();
+  if (loggedRevisions.size >= loggedRevisionLimit) {
+    loggedRevisions.delete(loggedRevisions.values().next().value!);
+  }
   loggedRevisions.add(key);
   log();
 }

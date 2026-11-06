@@ -583,7 +583,8 @@ function resolveTerm(
   const term = terms.get(value);
   if (term != null) return term.iri;
   const colon = value.indexOf(":");
-  if (colon < 0) return undefined;
+  // A blank node identifier is no IRI, whatever term "_" names.
+  if (colon < 0 || value.startsWith("_:")) return undefined;
   if (pending?.has(value.slice(0, colon))) return undefined;
   const prefix = terms.get(value.slice(0, colon));
   if (prefix?.prefix) {
@@ -2571,7 +2572,7 @@ export interface ExtensionNode {
    * than absolute IRIs, blank node identifiers and node objects, such as a
    * value object, a language map, a string the property's alias does not
    * coerce to an IRI, or a relative reference, or more than one `id` or
-   * `href`, or a node object as one.
+   * `href`, or a node object as one, or it nests properties with `@nest`.
    * An uninterpreted node object has no properties, identifiers or types
    * when its context is unread.
    */
@@ -2640,7 +2641,14 @@ const identifierProperties: ReadonlySet<string> = new Set([
 // to property names and types, not to node identifiers.
 function expandIdentifier(value: string, context: DocumentContext): string {
   const colon = value.indexOf(":");
-  if (colon <= 0 || value.startsWith("//", colon + 1)) return value;
+  // A blank node identifier is no compact IRI, whatever prefix "_" names.
+  if (
+    colon <= 0 ||
+    value.startsWith("//", colon + 1) ||
+    value.startsWith("_:")
+  ) {
+    return value;
+  }
   const prefix = context.terms.get(value.slice(0, colon));
   // Like resolveTerm(), only terms flagged as prefixes expand compact IRIs.
   if (prefix?.prefix !== true || prefix.iri.startsWith("@")) return value;
@@ -2779,10 +2787,7 @@ function readExtensionEntry(
       return true;
     }
     if (!reference) return true;
-    // A blank node identifier is no compact IRI, whatever prefix "_" names.
-    const iri = entry.startsWith("_:")
-      ? entry
-      : expandIdentifier(entry, context);
+    const iri = expandIdentifier(entry, context);
     // A literal or a relative reference names no resource the checker can
     // tell.
     if (!compatible || !isReadableReference(iri)) return false;
@@ -2838,6 +2843,9 @@ function describeExtensionNode(
   };
   let readable = true;
   for (const source of Object.keys(values).sort()) {
+    // Nested properties belong to the node object around them, which is
+    // not read that way.
+    if (keywordOf(source, context) === "@nest") readable = false;
     const property = extensionProperty(source, context);
     if (property == null) continue;
     const { name } = property;

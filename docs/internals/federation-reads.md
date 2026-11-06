@@ -55,7 +55,8 @@ is served from the document of its current revision:
     or one naming another resource, can only come from a change made outside
     it.  It is logged under `["drfed", "federation", "serving"]` and left
     out: its resource answers 404, and outbox pages and the counter skip it.
-    Each revision is logged once per process, however often it is read.
+    Each revision is logged once per process, however often it is read,
+    while it is among the last 4,096 logged.
 
 
 Conditions
@@ -94,11 +95,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
     an extension value is one `describeDocument()` leaves uninterpreted: one
     with a `@context` of its own, which the validator does not read, or with
     a value object, a language map, a string its key does not coerce to an
-    IRI, or a relative reference where a reference belongs, or more than
-    one `id` or `href`, since its recipients and references cannot then be
-    told.  Blank node identifiers are read as names of no resource, and
-    language maps as strings.  Such a document is logged once per revision
-    as a warning.
+    IRI, or a relative reference where a reference belongs, more than one
+    `id` or `href`, or properties nested by `@nest`, since its recipients
+    and references cannot then be told.  Blank node identifiers are read as
+    names of no resource, and language maps as strings.  Such a document is
+    logged once per revision as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

@@ -4426,6 +4426,19 @@ describe("describeDocument() semantic view", () => {
       blank?.identifiers.map(({ iri }) => iri),
       ["_:b0", "_:Public"],
     );
+    assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
+    assert.equal(
+      quotedNode({ type: "Note", "@nest": { to: "as:Public" } })?.uninterpreted,
+      true,
+    );
+    assert.equal(
+      describeDocument({
+        ...like,
+        "@context": [context, { _: `${context}#` }],
+        type: "_:Like",
+      }),
+      null,
+    );
     // A language map holds strings, whatever its language tags.
     const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
     assert.equal(labelled?.uninterpreted, false);

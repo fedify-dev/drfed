@@ -100,9 +100,10 @@ property holds anything but absolute IRIs, blank node identifiers and node
 objects: a value object, a language map, a string its key does not coerce to
 an IRI, a relative reference, or a `@set` or `@list` object with a `@context`
 of its own; and one with more than one `id` or `href`, or a node object as
-one. The value of a value object, or of a key with a `@language` container, is
-never read for node objects, and a blank node identifier is not expanded as a
-compact IRI.
+one, or with properties nested by `@nest`. The value of a value object, or of a
+key with a `@language` container, is never read for node objects. A blank node
+identifier is never expanded as a compact IRI, whatever term `_` names, so a
+type spelled as one is unsupported.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

@@ -993,6 +993,26 @@ describe("embedded documents and implicit contexts", () => {
     });
   });
 
+  it("reads a Public Link recipient whose href is a singleton list", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const like = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Like",
+          to: { type: "Link", href: [PUBLIC_IRI] },
+          object: "https://remote.example/notes/1",
+        },
+        "activity",
+      );
+      const { status, body } = await get(harness.federation, like.iri);
+      assert.equal(status, 200);
+      assert.deepEqual(body, publicDocument(like.document));
+      assert.deepEqual(await outboxIds(harness.federation), [like.iri]);
+    });
+  });
+
   it("hides an activity that embeds a deleted object at any depth", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
@@ -1164,6 +1184,13 @@ describe("embedded documents and implicit contexts", () => {
         },
         // A blank node is no compact IRI, whatever prefix "_" names.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
+        // Properties nested with @nest are not read.
+        {
+          type: "Note",
+          content: "secret",
+          to: [PUBLIC_IRI],
+          "@nest": { cc: [bob] },
+        },
         // A relative reference names no resource that can be checked.
         { type: "Note", id: "/notes/1", content: "secret" },
         // A language map holds no recipients, and a Link has one href.
@@ -1209,6 +1236,11 @@ describe("embedded documents and implicit contexts", () => {
         like({ type: "Delete", actor: actorIri, object: note.iri }),
         "activity",
       );
+      const blankDeleting = await save(
+        env,
+        like({ type: "_:Delete", actor: actorIri, object: note.iri }),
+        "activity",
+      );
       const linking = await save(
         env,
         like({
@@ -1222,13 +1254,17 @@ describe("embedded documents and implicit contexts", () => {
         }),
         "activity",
       );
-      for (const saved of [quoting, liking, deleting, linking]) {
+      for (const saved of [quoting, liking, deleting, blankDeleting, linking]) {
         assert.equal((await get(harness.federation, saved.iri)).status, 200);
       }
       const deletion = await remove(env, note.id);
       assert.equal((await get(harness.federation, quoting.iri)).status, 404);
       assert.equal((await get(harness.federation, liking.iri)).status, 404);
       assert.equal((await get(harness.federation, linking.iri)).status, 404);
+      assert.equal(
+        (await get(harness.federation, blankDeleting.iri)).status,
+        404,
+      );
       assert.equal((await get(harness.federation, deleting.iri)).status, 200);
       assert.deepEqual(await outboxIds(harness.federation), [
         deletion.iri,
