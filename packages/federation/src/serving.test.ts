@@ -1181,8 +1181,17 @@ describe("embedded documents and implicit contexts", () => {
             "@set": ["as:Public"],
           },
         },
-        // A blank node is no compact IRI, whatever prefix "_" names.
+        // A blank node is no compact IRI, whatever prefix "_" names, and as
+        // a reference it may name a node object defined apart.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
+        [
+          { type: "Note", content: "forged", attributedTo: "_:author" },
+          {
+            id: "_:author",
+            type: "Link",
+            href: "https://other.drfed.org/users/victim",
+          },
+        ],
         // Only a Link names a recipient by its href.
         {
           type: "Note",

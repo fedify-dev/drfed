@@ -4376,22 +4376,23 @@ describe("describeDocument() semantic view", () => {
     assert.equal(valued!.uninterpreted, true);
   });
 
+  const quotedNode = (quoted: unknown) =>
+    describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          hint: "as:to",
+          toMap: { "@id": "as:to", "@container": "@language" },
+          labels: { "@id": "ex:labels", "@container": "@language" },
+          _: `${context}#`,
+        },
+      ],
+      "ex:quoted": quoted,
+    })?.[0]?.extensions[0];
+
   it("leaves extension node objects uninterpreted where references are unread", () => {
-    const quotedNode = (quoted: unknown) =>
-      describeDocument({
-        ...like,
-        "@context": [
-          context,
-          {
-            ex: "https://ext.example/ns#",
-            hint: "as:to",
-            toMap: { "@id": "as:to", "@container": "@language" },
-            labels: { "@id": "ex:labels", "@container": "@language" },
-            _: `${context}#`,
-          },
-        ],
-        "ex:quoted": quoted,
-      })?.[0]?.extensions[0];
     for (const quoted of [
       { type: "Note", hint: "as:Public" },
       { type: "Note", [`${context}#to`]: "as:Public" },
@@ -4403,36 +4404,15 @@ describe("describeDocument() semantic view", () => {
       { type: "Note", toMap: { id: "as:Public" } },
       { type: "Link", href: ["https://a.example/1", "https://a.example/2"] },
       { type: "Note", id: { id: "https://a.example/1" } },
-    ]) {
-      assert.equal(
-        quotedNode(quoted)?.uninterpreted,
-        true,
-        JSON.stringify(quoted),
-      );
-    }
-    const link = quotedNode({
-      type: "Link",
-      id: "https://example.com/links/1",
-      href: "https://example.com/bob",
-    });
-    assert.equal(link?.uninterpreted, false);
-    assert.equal(link?.kind, "link");
-    assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
-    // A blank node identifier names no resource, and stays readable, but
-    // is no compact IRI, whatever prefix "_" names.
-    const blank = quotedNode({ type: "Note", id: "_:b0", to: "_:Public" });
-    assert.equal(blank?.uninterpreted, false);
-    assert.deepEqual(
-      blank?.identifiers.map(({ iri }) => iri),
-      ["_:b0", "_:Public"],
-    );
-    assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
-    // A value or a list with properties is no valid JSON-LD, and unread,
-    // as is a value that is an object but no JSON literal.
-    for (const quoted of [
+      // As a reference, a blank node may name a node object defined apart.
+      { type: "Note", to: "_:Public" },
+      { type: "Note", attributedTo: "_:author" },
+      // A value or a list with properties is no valid JSON-LD, nor is a
+      // value that is an object but no JSON literal.
       { "@set": [], bcc: "https://a.example/b" },
       { "@value": { bcc: "https://a.example/b" } },
       { type: "Note", "@reverse": { attributedTo: { type: "Note" } } },
+      { type: "Note", "@nest": { to: "as:Public" } },
     ]) {
       assert.equal(
         quotedNode(quoted)?.uninterpreted,
@@ -4440,37 +4420,6 @@ describe("describeDocument() semantic view", () => {
         JSON.stringify(quoted),
       );
     }
-    assert.equal(
-      quotedNode({ type: "Note", "@nest": { to: "as:Public" } })?.uninterpreted,
-      true,
-    );
-    assert.equal(
-      describeDocument({
-        ...like,
-        "@context": [context, { _: `${context}#` }],
-        type: "_:Like",
-      }),
-      null,
-    );
-    // A language map holds strings, whatever its language tags.
-    const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
-    assert.equal(labelled?.uninterpreted, false);
-    assert.equal(
-      describeDocument({
-        ...like,
-        "@context": [
-          context,
-          {
-            labels: {
-              "@id": "https://example.com/labels",
-              "@container": "@language",
-            },
-          },
-        ],
-        labels: { id: "Halo", bcc: "x" },
-      })?.[0]?.extensions.length,
-      0,
-    );
     // A value whose keys a context of its own may alias cannot be read, but
     // its value holds no node objects.
     const aliased = describeDocument({
@@ -4486,13 +4435,57 @@ describe("describeDocument() semantic view", () => {
       aliased?.map(({ path, uninterpreted }) => ({ path, uninterpreted })),
       [{ path: ["ex:quoted"], uninterpreted: true }],
     );
-    // A JSON literal holds data, however its keywords are spelled.
-    assert.ok(
+  });
+
+  it("reads the kinds, blank node ids and language maps of extension node objects", () => {
+    const link = quotedNode({
+      type: "Link",
+      id: "https://example.com/links/1",
+      href: "https://example.com/bob",
+    });
+    assert.equal(link?.uninterpreted, false);
+    assert.equal(link?.kind, "link");
+    assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
+    // A blank node identifier as an id names no resource, and stays
+    // readable, but is no compact IRI, whatever prefix "_" names.
+    const blank = quotedNode({ type: "Note", id: "_:b0", to: "as:Public" });
+    assert.equal(blank?.uninterpreted, false);
+    assert.deepEqual(
+      blank?.identifiers.map(({ iri }) => iri),
+      ["_:b0", `${context}#Public`],
+    );
+    assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
+    assert.equal(
       describeDocument({
         ...like,
-        custom: { type: "@json", "@value": { "@id": 1, bcc: "x" } },
-      })?.[0]?.extensions.length === 0,
+        "@context": [context, { _: `${context}#` }],
+        type: "_:Like",
+      }),
+      null,
     );
+    // A language map holds strings, whatever its language tags.
+    const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
+    assert.equal(labelled?.uninterpreted, false);
+    const labels = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: { id: "Halo", bcc: "x" },
+    });
+    assert.deepEqual(labels?.[0]?.extensions, []);
+    // A JSON literal holds data, however its keywords are spelled.
+    const literal = describeDocument({
+      ...like,
+      custom: { type: "@json", "@value": { "@id": 1, bcc: "x" } },
+    });
+    assert.deepEqual(literal?.[0]?.extensions, []);
   });
 
   it("returns null unless validation completes without errors", () => {

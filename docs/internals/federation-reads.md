@@ -99,9 +99,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
     `id` or `href`, properties nested by `@nest` or reversed by `@reverse`,
     a value or a list object with keys other than keywords, or with keys a
     context of its own may alias, or a value that is an object but no JSON
-    literal, since its recipients and references cannot then be told.  Blank
-    node identifiers are read as names of no resource, and language maps as
-    strings.  Such a document is logged once per revision as a warning.
+    literal, since its recipients and references cannot then be told.  A
+    blank node identifier is read as an `id` that names no resource, but
+    not as a reference, since it may name a node object defined apart.
+    Language maps are read as strings.  Such a document is logged once per
+    revision as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

@@ -2595,13 +2595,13 @@ export interface ExtensionNode {
    * Whether the checker cannot read all of the node object: it, or one
    * around it in the extension value, has a `@context` of its own, which the
    * checker does not read, or a reference property holds something other
-   * than absolute IRIs, blank node identifiers and node objects, such as a
-   * value object, a language map, a string the property's alias does not
-   * coerce to an IRI, or a relative reference, or more than one `id` or
-   * `href`, or a node object as one, or it nests properties with `@nest` or
-   * reverses them with `@reverse`.
-   * An uninterpreted node object has no properties, identifiers or types
-   * when its context is unread.
+   * than absolute IRIs, a blank node identifier as its `id`, and node
+   * objects, such as a value object, a language map, a string the
+   * property's alias does not coerce to an IRI, a relative reference or a
+   * blank node identifier, or it has more than one `id` or `href`, or a node
+   * object as one, or it nests properties with `@nest` or reverses them with
+   * `@reverse`.  An uninterpreted node object has no properties, identifiers
+   * or types when its context is unread.
    */
   readonly uninterpreted: boolean;
   /**
@@ -2816,8 +2816,10 @@ function readExtensionEntry(
     if (!reference) return true;
     const iri = expandIdentifier(entry, context);
     // A literal or a relative reference names no resource the checker can
-    // tell.
+    // tell, nor does a blank node but as an id: elsewhere, it may name a
+    // node object defined apart from the one that refers to it.
     if (!compatible || !isReadableReference(iri)) return false;
+    if (iri.startsWith("_:") && name !== "id") return false;
     reading.identifiers.push({ property: name, path, value: entry, iri });
     return true;
   }
