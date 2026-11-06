@@ -301,8 +301,9 @@ function resourceIri(
 /**
  * Finds identity claims on DrFed instance hosts in documents that are not
  * new resources, and in the node objects of their extension values, which
- * federation reads serve too: `actor` and `attributedTo` values, which must
- * be actors of the acting actor's instance, and `id` values, which must be
+ * federation reads serve too: `actor` and `attributedTo` values, including
+ * the `id` or `href` of a document embedded there, which must be actors of
+ * the acting actor's instance, and other `id` values, which must be
  * registered or allocated in this write.  Values are compared as the
  * context resolves them, so aliases and compact IRIs cannot hide a claim.
  * @returns The denied claims' paths.
@@ -331,10 +332,11 @@ export async function deniedClaims(
       if (createdKind != null && (property === "id" || property === owned)) {
         continue;
       }
+      // An embedded actor claims its id, or a Link the href it names.
       const isActor =
         property === "actor" ||
         property === "attributedTo" ||
-        (property === "id" && embedsActor);
+        ((property === "id" || property === "href") && embedsActor);
       if (!isActor && property !== "id") continue;
       if (
         !URL.canParse(iri) ||

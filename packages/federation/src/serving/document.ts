@@ -129,15 +129,15 @@ const embeddedDocument = (node: DocumentNode): Embedded => {
   };
 };
 
-// A node object in an extension value is read as a Link when one of its
-// types is, and as a recipient by its id or else its href otherwise.  Its
-// href is a reference whatever its type, and its id is embedded.
+// A node object in an extension value is read as a recipient by its href
+// when one of its types is a Link, and by its id otherwise.  Its href is a
+// reference whatever its type, and its id is embedded.
 const embeddedExtension = (node: ExtensionNode): Embedded => {
   const href = ownIdentifier(node, "href");
   return {
     parent: node.parent == null ? null : pathKey(node.parent),
     property: node.property,
-    iri: node.kind === "link" ? href : (ownId(node) ?? href),
+    iri: node.kind === "link" ? href : ownId(node),
     href,
   };
 };

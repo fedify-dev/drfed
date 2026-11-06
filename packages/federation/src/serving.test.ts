@@ -1183,6 +1183,20 @@ describe("embedded documents and implicit contexts", () => {
         },
         // A blank node is no compact IRI, whatever prefix "_" names.
         { type: "Note", content: "secret", to: [bob, "_:Public"] },
+        // Only a Link names a recipient by its href.
+        {
+          type: "Note",
+          content: "secret",
+          to: [bob],
+          cc: { type: "Note", href: PUBLIC_IRI },
+        },
+        // A value is a scalar or a JSON literal, and reverse properties are
+        // not read.
+        { "@value": { type: "Note", to: [bob], bcc: [blind], content: "x" } },
+        {
+          id: bob,
+          "@reverse": { attributedTo: { type: "Note", content: "x" } },
+        },
         // A value with keys a context of its own may alias is not read,
         // nor is a list with properties, which is no valid JSON-LD.
         {

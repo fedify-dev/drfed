@@ -4427,11 +4427,19 @@ describe("describeDocument() semantic view", () => {
       ["_:b0", "_:Public"],
     );
     assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
-    // A value or a list with properties is no valid JSON-LD, and unread.
-    assert.equal(
-      quotedNode({ "@set": [], bcc: "https://a.example/b" })?.uninterpreted,
-      true,
-    );
+    // A value or a list with properties is no valid JSON-LD, and unread,
+    // as is a value that is an object but no JSON literal.
+    for (const quoted of [
+      { "@set": [], bcc: "https://a.example/b" },
+      { "@value": { bcc: "https://a.example/b" } },
+      { type: "Note", "@reverse": { attributedTo: { type: "Note" } } },
+    ]) {
+      assert.equal(
+        quotedNode(quoted)?.uninterpreted,
+        true,
+        JSON.stringify(quoted),
+      );
+    }
     assert.equal(
       quotedNode({ type: "Note", "@nest": { to: "as:Public" } })?.uninterpreted,
       true,

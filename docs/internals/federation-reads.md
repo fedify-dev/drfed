@@ -88,17 +88,18 @@ actor, and Public `to` or `cc` addressing in the resource's current
     the `Like` in an `Undo` usually does.
  -  These rules read the node objects in extension values as embedded
     documents, with their values through `@set` and `@list` objects and
-    their recipients by `href` when a type is `Link`, and by `id` or else
-    `href` otherwise.  A node object whose `object` refers to a deleted
+    their recipients by `href` when a type is `Link`, and by `id`
+    otherwise.  A node object whose `object` refers to a deleted
     local object, by a reference or a `href`, hides the document unless its
     type is `Delete`.  A saved document is not served when a node object in
     an extension value is one `describeDocument()` leaves uninterpreted: one
     with a `@context` of its own, which the validator does not read, or with
     a value object, a language map, a string its key does not coerce to an
     IRI, or a relative reference where a reference belongs, more than one
-    `id` or `href`, properties nested by `@nest`, or a value or a list
-    object with keys other than keywords, or with keys a context of its own
-    may alias, since its recipients and references cannot then be told.  Blank
+    `id` or `href`, properties nested by `@nest` or reversed by `@reverse`,
+    a value or a list object with keys other than keywords, or with keys a
+    context of its own may alias, or a value that is an object but no JSON
+    literal, since its recipients and references cannot then be told.  Blank
     node identifiers are read as names of no resource, and language maps as
     strings.  Such a document is logged once per revision as a warning.
  -  An object must be attributed to the actor of its route by its last

@@ -684,6 +684,16 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           },
           ["ex:quoted", "attributedTo"],
         ],
+        [
+          {
+            type: "Note",
+            attributedTo: {
+              type: "Link",
+              href: "https://other.drfed.org/users/victim",
+            },
+          },
+          ["ex:quoted", "attributedTo", "href"],
+        ],
       ] as const) {
         const outcome = await previewLocalWrite(
           env,

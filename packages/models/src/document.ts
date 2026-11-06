@@ -1610,14 +1610,26 @@ function isNodeObject(
 }
 
 // The context an extension object is described with as a node object: none
-// for a value or a list, or null for one with properties as well, which is
-// no valid JSON-LD and cannot be read.
+// for a value or a list, or null for one with properties as well, or for a
+// value that is an object but no JSON literal, which are no valid JSON-LD
+// and cannot be read.
 function nodeContext(
   values: Record<string, unknown>,
   context: DocumentContext | null | undefined,
 ): DocumentContext | null | undefined {
   if (context === undefined || isNodeObject(values, context)) return context;
-  return Object.keys(values).some((key) => keywordOf(key, context) == null)
+  return Object.keys(values).some((key) => {
+    const keyword = keywordOf(key, context);
+    const value = values[key];
+    // A value is a scalar unless it is a JSON literal.
+    return (
+      keyword == null ||
+      (keyword === "@value" &&
+        value !== null &&
+        typeof value === "object" &&
+        !isJsonLiteral(values, context))
+    );
+  })
     ? null
     : undefined;
 }
@@ -2586,7 +2598,8 @@ export interface ExtensionNode {
    * than absolute IRIs, blank node identifiers and node objects, such as a
    * value object, a language map, a string the property's alias does not
    * coerce to an IRI, or a relative reference, or more than one `id` or
-   * `href`, or a node object as one, or it nests properties with `@nest`.
+   * `href`, or a node object as one, or it nests properties with `@nest` or
+   * reverses them with `@reverse`.
    * An uninterpreted node object has no properties, identifiers or types
    * when its context is unread.
    */
@@ -2857,9 +2870,10 @@ function describeExtensionNode(
   };
   let readable = true;
   for (const source of Object.keys(values).sort()) {
-    // Nested properties belong to the node object around them, which is
-    // not read that way.
-    if (keywordOf(source, context) === "@nest") readable = false;
+    // Nested properties belong to the node object around them, and reverse
+    // ones make other node objects the subjects; neither is read that way.
+    const keyword = keywordOf(source, context);
+    if (keyword === "@nest" || keyword === "@reverse") readable = false;
     const property = extensionProperty(source, context);
     if (property == null) continue;
     const { name } = property;
