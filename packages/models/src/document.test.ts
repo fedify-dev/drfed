@@ -4376,6 +4376,45 @@ describe("describeDocument() semantic view", () => {
     assert.equal(valued!.uninterpreted, true);
   });
 
+  it("leaves extension node objects uninterpreted where references are unread", () => {
+    const quotedNode = (quoted: unknown) =>
+      describeDocument({
+        ...like,
+        "@context": [context, { ex: "https://ext.example/ns#", hint: "as:to" }],
+        "ex:quoted": quoted,
+      })?.[0]?.extensions[0];
+    for (const quoted of [
+      { type: "Note", hint: "as:Public" },
+      { type: "Note", [`${context}#to`]: "as:Public" },
+      { type: "Note", id: "/notes/1" },
+      {
+        type: "Note",
+        to: { "@context": { as: "https://a.example/" }, "@set": ["as:Public"] },
+      },
+    ]) {
+      assert.equal(
+        quotedNode(quoted)?.uninterpreted,
+        true,
+        JSON.stringify(quoted),
+      );
+    }
+    const link = quotedNode({
+      type: "Link",
+      id: "https://example.com/links/1",
+      href: "https://example.com/bob",
+    });
+    assert.equal(link?.uninterpreted, false);
+    assert.equal(link?.kind, "link");
+    assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
+    // A JSON literal holds data, however its keywords are spelled.
+    assert.ok(
+      describeDocument({
+        ...like,
+        custom: { type: "@json", "@value": { "@id": 1, bcc: "x" } },
+      })?.[0]?.extensions.length === 0,
+    );
+  });
+
   it("returns null unless validation completes without errors", () => {
     assert.equal(describeDocument({ ...like, actor: false }), null);
     assert.equal(describeDocument({ ...like, type: "Place" }), null);

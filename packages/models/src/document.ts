@@ -1592,7 +1592,7 @@ const valueObjectKeywords: ReadonlySet<string> = new Set([
 // context the checker does not read aliases nothing it knows of.
 function keywordOf(
   key: string,
-  context: DocumentContext | null,
+  context: DocumentContext | null | undefined,
 ): string | undefined {
   if (key.startsWith("@")) return key;
   const iri = context?.terms.get(key)?.iri;
@@ -1612,35 +1612,31 @@ function isNodeObject(
 // spelled.
 function isJsonLiteral(
   values: Record<string, unknown>,
-  context: DocumentContext | null,
+  context: DocumentContext | null | undefined,
 ): boolean {
   return Object.keys(values).some((key) => {
     if (keywordOf(key, context) !== "@type") return false;
     const type = values[key];
+    // Read a list entry without evaluating an accessor.
     return (
       type === "@json" ||
-      (Array.isArray(type) && type.length === 1 && type[0] === "@json")
+      (Array.isArray(type) &&
+        type.length === 1 &&
+        Object.getOwnPropertyDescriptor(type, 0)?.value === "@json")
     );
   });
 }
 
-// The context a value of an extension object is described with: none for a
-// context definition or the value of a JSON literal, which hold no node
-// objects.
-function extensionChildContext(
+// Check the keywords of an extension object, and tell whether it holds a
+// JSON literal, however its keywords are spelled.
+function checkJsonLiteral(
   values: Record<string, unknown>,
-  key: string,
+  path: FieldPath,
+  report: Report,
   context: DocumentContext | null | undefined,
-): DocumentContext | null | undefined {
-  if (key === "@context") return undefined;
-  if (
-    context !== undefined &&
-    keywordOf(key, context) === "@value" &&
-    isJsonLiteral(values, context)
-  ) {
-    return undefined;
-  }
-  return context;
+): boolean {
+  const literal = checkExtensionKeywords(values, path, report);
+  return literal || isJsonLiteral(values, context);
 }
 
 // The context an extension object is read with: none when it is not
@@ -1778,20 +1774,22 @@ function checkDocumentValue(
     } else {
       const values = readDocument(value, path, report);
       if (values != null) {
-        const jsonLiteral =
-          keywords && checkExtensionKeywords(values, path, report);
         const own = extensionContext(values, context);
+        const jsonLiteral =
+          keywords && checkJsonLiteral(values, path, report, own);
         if (keywords && own !== undefined && isNodeObject(values, own)) {
           onExtensionNode?.(values, path, own);
         }
         for (const key of Object.keys(values)) {
           const childKeywords = keywords && !(jsonLiteral && key === "@value");
+          // A context definition holds no node objects.
+          const childContext = key === "@context" ? undefined : own;
           children.push(() =>
             checkExtension(
               values[key],
               [...path, key],
               childKeywords,
-              extensionChildContext(values, key, own),
+              childContext,
             ),
           );
         }
@@ -2552,9 +2550,11 @@ export interface ExtensionNode {
   /**
    * Whether the checker cannot read all of the node object: it, or one
    * around it in the extension value, has a `@context` of its own, which the
-   * checker does not read, or a reference property holds a value object.  An
-   * uninterpreted node object has no properties, identifiers or types when
-   * its context is unread.
+   * checker does not read, or a reference property holds something other
+   * than absolute IRIs and node objects, such as a value object, a string
+   * the property's alias does not coerce to an IRI, or a relative reference.
+   * An uninterpreted node object has no properties, identifiers or types
+   * when its context is unread.
    */
   readonly uninterpreted: boolean;
   /**
@@ -2570,6 +2570,11 @@ export interface ExtensionNode {
   readonly identifiers: readonly DocumentIdentifier[];
   /** The type IRIs, with terms and compact IRIs expanded. */
   readonly types: readonly string[];
+  /**
+   * The vocabulary category of its types the checker knows: `link` if one
+   * is a link type, or else that of the first.
+   */
+  readonly kind?: DocumentNodeKind;
 }
 
 /** One IRI reference as written and as the context resolves it. */
@@ -2665,20 +2670,40 @@ function describeProperties(
 }
 
 // The standard name of an extension node object's key, matched by IRI
-// whatever its type coercion or container, as a JSON-LD processor reads it.
-function extensionPropertyName(
+// whatever its container, as a JSON-LD processor reads it, and whether its
+// strings are coerced as the standard property's are.
+function extensionProperty(
   source: string,
   context: DocumentContext,
-): string | undefined {
-  const { name, iri } = resolveProperty(source, context);
-  if (name != null || iri == null) return name;
+): { readonly name: string; readonly compatible: boolean } | undefined {
+  const { name, iri, compatible } = resolveProperty(source, context);
+  if (name != null) return { name, compatible };
+  if (iri == null) return undefined;
+  const type = context.terms.get(source)?.type;
   for (const [standard, term] of getContextTables().standardTerms) {
-    if (term.iri === iri) return standard;
+    if (term.iri === iri) {
+      return { name: standard, compatible: term.type === type };
+    }
   }
   return undefined;
 }
 
-// The entries of a value, through arrays and @set or @list objects.
+// References must be absolute IRIs; relative ones need a base-IRI policy.
+const isAbsoluteIri = (value: string): boolean =>
+  /^[a-z][a-z\d+.-]*:/iu.test(value) && URL.canParse(value);
+
+function typeKind(iri: string): DocumentNodeKind | undefined {
+  const Type =
+    iri === Link.typeId.href
+      ? Link
+      : iri === Mention.typeId.href
+        ? Mention
+        : getEntityTypeById(iri);
+  return Type == null ? undefined : nodeKind(Type);
+}
+
+// The entries of a value, through arrays and @set or @list objects.  One
+// with a @context of its own is an entry itself, as its values are unread.
 function valueEntries(
   value: unknown,
   path: FieldPath,
@@ -2691,6 +2716,7 @@ function valueEntries(
   }
   if (value !== null && typeof value === "object") {
     const values = value as Record<string, unknown>;
+    if (Object.hasOwn(values, "@context")) return [[value, path]];
     const wrapper = Object.keys(values).find((key) => {
       const keyword = keywordOf(key, context);
       return keyword === "@set" || keyword === "@list";
@@ -2730,37 +2756,52 @@ function describeExtensionNode(
   const children: [FieldPath, string][] = [];
   let uninterpreted = false;
   for (const source of Object.keys(values).sort()) {
-    const name = extensionPropertyName(source, context);
-    if (name == null) continue;
+    const property = extensionProperty(source, context);
+    if (property == null) continue;
+    const { name, compatible } = property;
     properties.set(name, [...(properties.get(name) ?? []), source]);
+    const reference = identifierProperties.has(name);
     for (const [entry, entryPath] of valueEntries(
       values[source],
       [...path, source],
       context,
     )) {
-      if (typeof entry === "string") {
-        if (name === "type") {
-          types.push(
-            context.terms.get(entry)?.iri ?? expandIdentifier(entry, context),
-          );
-        } else if (identifierProperties.has(name)) {
+      if (typeof entry === "string" && name === "type") {
+        types.push(
+          context.terms.get(entry)?.iri ?? expandIdentifier(entry, context),
+        );
+      } else if (typeof entry === "string" && reference) {
+        const iri = expandIdentifier(entry, context);
+        // A literal or a relative reference names no resource the checker
+        // can tell.
+        if (compatible && isAbsoluteIri(iri)) {
           identifiers.push({
             property: name,
             path: entryPath,
             value: entry,
-            iri: expandIdentifier(entry, context),
+            iri,
           });
+        } else {
+          uninterpreted = true;
         }
       } else if (entry !== null && typeof entry === "object") {
         const object = entry as Record<string, unknown>;
         if (isNodeObject(object, context)) children.push([entryPath, name]);
-        // A literal is no IRI reference the checker can read.
-        else if (identifierProperties.has(name)) uninterpreted = true;
+        else if (reference) uninterpreted = true;
       }
     }
   }
+  const kinds = types.map(typeKind).filter((kind) => kind != null);
+  const kind = kinds.includes("link") ? "link" : kinds[0];
   return {
-    node: { path, uninterpreted, properties, identifiers, types },
+    node: {
+      path,
+      uninterpreted,
+      properties,
+      identifiers,
+      types,
+      ...(kind == null ? {} : { kind }),
+    },
     children,
   };
 }

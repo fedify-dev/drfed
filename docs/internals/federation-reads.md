@@ -87,12 +87,15 @@ actor, and Public `to` or `cc` addressing in the resource's current
     the `Like` in an `Undo` usually does.
  -  These rules read the node objects in extension values as embedded
     documents, with their values through `@set` and `@list` objects and
-    their recipients by `id` or `href`.  A node object whose `object`
-    refers to a deleted local object hides the document unless its type is
-    `Delete`.  A saved document is not served when a node object in an
-    extension value has a `@context` of its own, which the validator does
-    not read, or a value object where a reference belongs, since its
-    recipients cannot then be found.
+    their recipients by `href` when a type is `Link`, and by `id` or else
+    `href` otherwise.  A node object whose `object` refers to a deleted
+    local object, by a reference or a `href`, hides the document unless its
+    type is `Delete`.  A saved document is not served when a node object in
+    an extension value is one `describeDocument()` leaves uninterpreted: one
+    with a `@context` of its own, which the validator does not read, or with
+    a value object, a string its key does not coerce to an IRI, or a
+    relative reference where a reference belongs, since its recipients and
+    references cannot then be told.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

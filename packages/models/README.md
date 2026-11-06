@@ -91,12 +91,14 @@ Custom extension values are not read as documents, but a JSON-LD processor
 reads the node objects in them with the context they inherit. Each node lists
 those in its own extension values, outside JSON literals, as its `extensions`:
 `ExtensionNode` values with a path, an embedding property, a property map and
-IRI references as a node has, and the `parent` node object and `types` too.
-Keys are matched by IRI whatever their type coercion or container, and values
-are read through `@set` and `@list` objects. A node object with a `@context` of
-its own, or inside one, is `uninterpreted`, with no properties, since the
-checker does not read that context; so is one with a value object where a
-reference belongs.
+IRI references as a node has, and the `parent` node object, `types` and the
+`kind` of a known type too. Keys are matched by IRI whatever their container,
+and values are read through `@set` and `@list` objects. A node object with a
+`@context` of its own, or inside one, is `uninterpreted`, with no properties,
+since the checker does not read that context. So is one whose reference
+property holds anything but absolute IRIs and node objects: a value object, a
+string its key does not coerce to an IRI, a relative reference, or a `@set` or
+`@list` object with a `@context` of its own.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";
@@ -322,9 +324,10 @@ values must be strings or arrays of strings; malformed entries receive
 `invalid_value_shape` at the original keyword or list-entry path. These shape
 checks do not require custom type strings to appear in the implemented-type
 set. An `@json` value's payload remains ordinary JSON, including keys spelled
-`@id` or `@type`, and is checked only for JSON safety. These bounded checks do
-not establish full JSON-LD validity or interpret nested contexts and keyword
-aliases.
+`@id` or `@type`, and is checked only for JSON safety; so is the payload of a
+value object whose `@type` is spelled with a keyword alias, such as `type`.
+These bounded checks do not establish full JSON-LD validity or interpret
+nested contexts.
 
 This warning policy does not admit unknown types, unsupported contexts,
 JSON-LD keywords, or known vocabulary properties without implemented rules.
