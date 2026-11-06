@@ -4386,6 +4386,8 @@ describe("describeDocument() semantic view", () => {
             ex: "https://ext.example/ns#",
             hint: "as:to",
             toMap: { "@id": "as:to", "@container": "@language" },
+            labels: { "@id": "ex:labels", "@container": "@language" },
+            _: `${context}#`,
           },
         ],
         "ex:quoted": quoted,
@@ -4416,10 +4418,33 @@ describe("describeDocument() semantic view", () => {
     assert.equal(link?.uninterpreted, false);
     assert.equal(link?.kind, "link");
     assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
-    // A blank node identifier names no resource, and stays readable.
-    const blank = quotedNode({ type: "Note", id: "_:b0", to: "as:Public" });
+    // A blank node identifier names no resource, and stays readable, but
+    // is no compact IRI, whatever prefix "_" names.
+    const blank = quotedNode({ type: "Note", id: "_:b0", to: "_:Public" });
     assert.equal(blank?.uninterpreted, false);
-    assert.equal(blank?.identifiers[0]?.iri, "_:b0");
+    assert.deepEqual(
+      blank?.identifiers.map(({ iri }) => iri),
+      ["_:b0", "_:Public"],
+    );
+    // A language map holds strings, whatever its language tags.
+    const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
+    assert.equal(labelled?.uninterpreted, false);
+    assert.equal(
+      describeDocument({
+        ...like,
+        "@context": [
+          context,
+          {
+            labels: {
+              "@id": "https://example.com/labels",
+              "@container": "@language",
+            },
+          },
+        ],
+        labels: { id: "Halo", bcc: "x" },
+      })?.[0]?.extensions.length,
+      0,
+    );
     // The value of a value object holds no node objects, whatever its type.
     assert.equal(
       quotedNode({

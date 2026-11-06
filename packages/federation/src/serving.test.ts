@@ -1083,6 +1083,8 @@ describe("embedded documents and implicit contexts", () => {
           {
             ex: "https://ext.example/ns#",
             toMap: { "@id": "as:to", "@container": "@language" },
+            labels: { "@id": "ex:labels", "@container": "@language" },
+            _: `${AS}#`,
           },
         ],
         type: "Like",
@@ -1116,6 +1118,12 @@ describe("embedded documents and implicit contexts", () => {
       const readable: string[] = [];
       for (const quoted of [
         { id: "_:b0", type: "Note", content: "open", to: [PUBLIC_IRI] },
+        {
+          type: "Note",
+          content: "open",
+          to: [PUBLIC_IRI],
+          labels: { id: "Halo", bcc: "Hello" },
+        },
         {
           "@context": { kind: "@type" },
           kind: "@json",
@@ -1154,6 +1162,8 @@ describe("embedded documents and implicit contexts", () => {
             "@set": ["as:Public"],
           },
         },
+        // A blank node is no compact IRI, whatever prefix "_" names.
+        { type: "Note", content: "secret", to: [bob, "_:Public"] },
         // A relative reference names no resource that can be checked.
         { type: "Note", id: "/notes/1", content: "secret" },
         // A language map holds no recipients, and a Link has one href.

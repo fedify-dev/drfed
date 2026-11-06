@@ -1628,13 +1628,15 @@ function isJsonLiteral(
 }
 
 // The context a value of an extension object is described with: none for a
-// context definition, or for the value of a value object, which is a scalar
-// or a JSON literal and holds no node objects.
+// context definition, for the value of a value object, which is a scalar or
+// a JSON literal, or for a language map, none of which holds node objects.
 function extensionChildContext(
   key: string,
   context: DocumentContext | null | undefined,
 ): DocumentContext | null | undefined {
-  return key === "@context" || keywordOf(key, context) === "@value"
+  return key === "@context" ||
+    keywordOf(key, context) === "@value" ||
+    context?.terms.get(key)?.container === "@language"
     ? undefined
     : context;
 }
@@ -1922,7 +1924,12 @@ function checkDocumentValue(
               fieldPath,
               "This custom property's data is preserved; its semantics were not checked.",
             );
-            checkExtension(value, fieldPath, true, context);
+            checkExtension(
+              value,
+              fieldPath,
+              true,
+              extensionChildContext(source, context),
+            );
             return;
           }
           report(
@@ -2772,7 +2779,10 @@ function readExtensionEntry(
       return true;
     }
     if (!reference) return true;
-    const iri = expandIdentifier(entry, context);
+    // A blank node identifier is no compact IRI, whatever prefix "_" names.
+    const iri = entry.startsWith("_:")
+      ? entry
+      : expandIdentifier(entry, context);
     // A literal or a relative reference names no resource the checker can
     // tell.
     if (!compatible || !isReadableReference(iri)) return false;

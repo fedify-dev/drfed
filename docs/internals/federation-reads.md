@@ -96,8 +96,9 @@ actor, and Public `to` or `cc` addressing in the resource's current
     a value object, a language map, a string its key does not coerce to an
     IRI, or a relative reference where a reference belongs, or more than
     one `id` or `href`, since its recipients and references cannot then be
-    told.  Blank node identifiers are read as names of no resource.  Such a
-    document is logged once per revision as a warning.
+    told.  Blank node identifiers are read as names of no resource, and
+    language maps as strings.  Such a document is logged once per revision
+    as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.
