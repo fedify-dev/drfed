@@ -93,6 +93,14 @@ const chunks = <T>(values: readonly T[], size: number): T[][] =>
 const loggedRevisions = new Set<string>();
 const loggedRevisionLimit = 1024;
 
+function logOnce(row: RevisionRow, log: () => void): void {
+  const key = row.revisionId ?? row.iri;
+  if (loggedRevisions.has(key)) return;
+  if (loggedRevisions.size >= loggedRevisionLimit) loggedRevisions.clear();
+  loggedRevisions.add(key);
+  log();
+}
+
 function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -101,7 +109,9 @@ function isJsonObject(value: unknown): value is JsonObject {
  * Reads a saved revision's document for serving.  A document the write path
  * does not save, one the validator cannot read or one naming another
  * resource, can only come from a change made outside it.  It is logged and
- * left out, so that it takes down nothing but its own resource.
+ * left out, so that it takes down nothing but its own resource.  A document
+ * whose extension values cannot be read is logged as a warning, and is not
+ * served either.  Each revision is logged once.
  * @returns The inspection, or `null` when the document cannot be served.
  */
 function inspectRevision(row: RevisionRow): DocumentInspection | null {
@@ -109,19 +119,23 @@ function inspectRevision(row: RevisionRow): DocumentInspection | null {
     ? inspectDocument(row.document)
     : null;
   if (inspection != null && inspection.served.id === row.iri) {
+    if (inspection.uninterpreted) {
+      logOnce(row, () =>
+        logger.warn(
+          "The saved document of {iri} has an extension value whose " +
+            "addressing cannot be read; it is not served.",
+          { iri: row.iri },
+        ),
+      );
+    }
     return inspection;
   }
-  const key = row.revisionId ?? row.iri;
-  if (!loggedRevisions.has(key)) {
-    if (loggedRevisions.size >= loggedRevisionLimit) loggedRevisions.clear();
-    loggedRevisions.add(key);
+  logOnce(row, () =>
     logger.error(
       "The saved document of {iri} cannot be served; leaving it out.",
-      {
-        iri: row.iri,
-      },
-    );
-  }
+      { iri: row.iri },
+    ),
+  );
   return null;
 }
 

@@ -4380,7 +4380,14 @@ describe("describeDocument() semantic view", () => {
     const quotedNode = (quoted: unknown) =>
       describeDocument({
         ...like,
-        "@context": [context, { ex: "https://ext.example/ns#", hint: "as:to" }],
+        "@context": [
+          context,
+          {
+            ex: "https://ext.example/ns#",
+            hint: "as:to",
+            toMap: { "@id": "as:to", "@container": "@language" },
+          },
+        ],
         "ex:quoted": quoted,
       })?.[0]?.extensions[0];
     for (const quoted of [
@@ -4391,6 +4398,9 @@ describe("describeDocument() semantic view", () => {
         type: "Note",
         to: { "@context": { as: "https://a.example/" }, "@set": ["as:Public"] },
       },
+      { type: "Note", toMap: { id: "as:Public" } },
+      { type: "Link", href: ["https://a.example/1", "https://a.example/2"] },
+      { type: "Note", id: { id: "https://a.example/1" } },
     ]) {
       assert.equal(
         quotedNode(quoted)?.uninterpreted,
@@ -4406,6 +4416,19 @@ describe("describeDocument() semantic view", () => {
     assert.equal(link?.uninterpreted, false);
     assert.equal(link?.kind, "link");
     assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
+    // A blank node identifier names no resource, and stays readable.
+    const blank = quotedNode({ type: "Note", id: "_:b0", to: "as:Public" });
+    assert.equal(blank?.uninterpreted, false);
+    assert.equal(blank?.identifiers[0]?.iri, "_:b0");
+    // The value of a value object holds no node objects, whatever its type.
+    assert.equal(
+      quotedNode({
+        "@context": { kind: "@type" },
+        kind: "@json",
+        "@value": { bcc: "x" },
+      }),
+      undefined,
+    );
     // A JSON literal holds data, however its keywords are spelled.
     assert.ok(
       describeDocument({

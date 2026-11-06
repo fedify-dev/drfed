@@ -93,9 +93,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
     type is `Delete`.  A saved document is not served when a node object in
     an extension value is one `describeDocument()` leaves uninterpreted: one
     with a `@context` of its own, which the validator does not read, or with
-    a value object, a string its key does not coerce to an IRI, or a
-    relative reference where a reference belongs, since its recipients and
-    references cannot then be told.
+    a value object, a language map, a string its key does not coerce to an
+    IRI, or a relative reference where a reference belongs, or more than
+    one `id` or `href`, since its recipients and references cannot then be
+    told.  Blank node identifiers are read as names of no resource.  Such a
+    document is logged once per revision as a warning.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.

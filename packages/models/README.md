@@ -96,9 +96,11 @@ IRI references as a node has, and the `parent` node object, `types` and the
 and values are read through `@set` and `@list` objects. A node object with a
 `@context` of its own, or inside one, is `uninterpreted`, with no properties,
 since the checker does not read that context. So is one whose reference
-property holds anything but absolute IRIs and node objects: a value object, a
-string its key does not coerce to an IRI, a relative reference, or a `@set` or
-`@list` object with a `@context` of its own.
+property holds anything but absolute IRIs, blank node identifiers and node
+objects: a value object, a language map, a string its key does not coerce to
+an IRI, a relative reference, or a `@set` or `@list` object with a `@context`
+of its own; and one with more than one `id` or `href`, or a node object as
+one. The value of a value object is never read for node objects.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

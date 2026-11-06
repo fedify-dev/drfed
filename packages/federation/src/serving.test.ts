@@ -1078,7 +1078,13 @@ describe("embedded documents and implicit contexts", () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
       const like = (quoted: JsonObject | JsonObject[]): JsonObject => ({
-        "@context": [AS, { ex: "https://ext.example/ns#" }],
+        "@context": [
+          AS,
+          {
+            ex: "https://ext.example/ns#",
+            toMap: { "@id": "as:to", "@container": "@language" },
+          },
+        ],
         type: "Like",
         to: [PUBLIC_IRI],
         object: "https://remote.example/notes/1",
@@ -1105,6 +1111,23 @@ describe("embedded documents and implicit contexts", () => {
       assert.deepEqual(served.body, publicDocument(open.document));
       assert.deepEqual(blindKeys(open.document), ["bcc", "bto"]);
       assert.deepEqual(blindKeys(served.body), []);
+      // A blank node identifier and a JSON literal read with an alias of
+      // @type from a context of its own stay readable.
+      const readable: string[] = [];
+      for (const quoted of [
+        { id: "_:b0", type: "Note", content: "open", to: [PUBLIC_IRI] },
+        {
+          "@context": { kind: "@type" },
+          kind: "@json",
+          "@value": { bcc: "data" },
+        },
+      ]) {
+        const saved = await save(env, like(quoted), "activity");
+        const response = await get(harness.federation, saved.iri);
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body, publicDocument(saved.document));
+        readable.unshift(saved.iri);
+      }
       const hidden: SavedResource[] = [];
       for (const quoted of [
         { type: "Note", content: "secret", to: [bob], bcc: [blind] },
@@ -1133,6 +1156,15 @@ describe("embedded documents and implicit contexts", () => {
         },
         // A relative reference names no resource that can be checked.
         { type: "Note", id: "/notes/1", content: "secret" },
+        // A language map holds no recipients, and a Link has one href.
+        { type: "Note", content: "secret", to: bob, toMap: { id: PUBLIC_IRI } },
+        {
+          type: "Like",
+          object: {
+            type: "Link",
+            href: ["https://remote.example/notes/1", `${actorIri}/notes/1`],
+          },
+        },
         { "@context": { secret: "as:bcc" }, content: "x", secret: [blind] },
       ]) {
         hidden.push(await save(env, like(quoted), "activity"));
@@ -1191,6 +1223,7 @@ describe("embedded documents and implicit contexts", () => {
       assert.deepEqual(await outboxIds(harness.federation), [
         deletion.iri,
         deleting.iri,
+        ...readable,
         open.iri,
       ]);
     });
