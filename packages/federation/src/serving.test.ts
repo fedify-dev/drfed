@@ -183,6 +183,39 @@ async function get(
 }
 
 /**
+ * Requests a resource away from its live actor's instance: on a host that is
+ * no instance, on another instance's authority, or after the actor is
+ * deleted.
+ * @returns The IRI each resource is then requested at.
+ */
+async function misdirect(
+  harness: Harness,
+  scenario: "wrongHost" | "otherInstance" | "deletedActor",
+): Promise<(iri: string) => string> {
+  if (scenario === "wrongHost") {
+    return (iri) => iri.replace(host, "wrong.example");
+  }
+  if (scenario === "otherInstance") {
+    const id = uuidV7();
+    await harness.db
+      .insert(schema.localInstances)
+      .values({ id, slug: "other-instance", expires });
+    await harness.db.insert(schema.instances).values({
+      id,
+      localId: id,
+      created,
+      host: "other-instance.drfed.org",
+    });
+    return (iri) => iri.replace(host, "other-instance.drfed.org");
+  }
+  await harness.db
+    .update(schema.actors)
+    .set({ deleted: Temporal.Now.instant() })
+    .where(eq(schema.actors.id, localActorId));
+  return (iri) => iri;
+}
+
+/**
  * Finds every key spelled `bto` or `bcc` anywhere in a document.
  * @returns The keys, in document order.
  */
@@ -289,18 +322,19 @@ describe("publicDocument()", () => {
     });
   });
 
-  it("keeps the context and extension values, without descending into them", () => {
+  it("keeps the context and extension values without their blind recipients", () => {
     const context = [
       AS,
       { ex: "https://ext.example/ns#", mood: "ex:mood" },
     ] as const;
+    const literal = { "@type": "@json", "@value": { bcc: ["kept"] } };
     const document = {
       "@context": [...context],
       id: "https://a.example/activities/1",
       type: "Like",
       actor: actorIri,
       object: "https://remote.example/notes/1",
-      mood: { bcc: ["kept"], deep: [1, "x", null] },
+      mood: { bcc: [blind], deep: [1, "x", null, { bto: blind }], literal },
       bcc: [blind],
     };
     assert.deepEqual(publicDocument(document), {
@@ -309,8 +343,16 @@ describe("publicDocument()", () => {
       type: "Like",
       actor: actorIri,
       object: "https://remote.example/notes/1",
-      mood: { bcc: ["kept"], deep: [1, "x", null] },
+      mood: { deep: [1, "x", null, {}], literal },
     });
+    // The validator does not read a context inside an extension value.
+    assert.equal(
+      publicDocument({
+        ...document,
+        mood: { "@context": { secret: "as:bcc" }, secret: [blind] },
+      }),
+      null,
+    );
   });
 
   it("refuses a document the validator cannot read offline", () => {
@@ -520,29 +562,12 @@ describe("federation reads of saved activities", () => {
           "activity",
           { publish: scenario !== "unpublished" },
         );
-        let { iri } = saved;
-        if (scenario === "wrongHost") {
-          iri = iri.replace(host, "wrong.example");
-        } else if (scenario === "otherInstance") {
-          const id = uuidV7();
-          await harness.db
-            .insert(schema.localInstances)
-            .values({ id, slug: "other-instance", expires });
-          await harness.db.insert(schema.instances).values({
-            id,
-            localId: id,
-            created,
-            host: "other-instance.drfed.org",
-          });
-          iri = iri.replace(host, "other-instance.drfed.org");
-        } else if (scenario === "deletedActor") {
-          await harness.db
-            .update(schema.actors)
-            .set({ deleted: Temporal.Now.instant() })
-            .where(eq(schema.actors.id, localActorId));
-        } else if (scenario === "malformed") {
-          iri = `https://${host}/ap/activities/bad`;
-        }
+        const iri =
+          scenario === "malformed"
+            ? `https://${host}/ap/activities/bad`
+            : scenario === "unpublished" || scenario === "followers"
+              ? saved.iri
+              : (await misdirect(harness, scenario))(saved.iri);
         assert.equal((await get(harness.federation, iri)).status, 404);
       });
     });
@@ -576,6 +601,29 @@ describe("federation reads of saved objects and their history", () => {
       assert.equal((await get(harness.federation, followers.iri)).status, 404);
     });
   });
+
+  for (const scenario of [
+    "wrongHost",
+    "otherInstance",
+    "deletedActor",
+  ] as const) {
+    it(`does not serve saved objects or their Tombstones for ${scenario}`, async () => {
+      await withFederation(async (harness) => {
+        const env = await setUp(harness);
+        const note = { "@context": AS, type: "Note", to: [PUBLIC_IRI] };
+        const kept = await save(env, { ...note, content: "x" }, "object");
+        const deleted = await save(env, { ...note, content: "y" }, "object");
+        await remove(env, deleted.id);
+        assert.equal((await get(harness.federation, kept.iri)).status, 200);
+        assert.equal((await get(harness.federation, deleted.iri)).status, 410);
+        const iri = await misdirect(harness, scenario);
+        for (const saved of [kept, deleted]) {
+          const { status } = await get(harness.federation, iri(saved.iri));
+          assert.equal(status, 404);
+        }
+      });
+    });
+  }
 
   it("keeps past activities as they were saved when the object changes", async () => {
     await withFederation(async (harness) => {
@@ -955,6 +1003,125 @@ describe("embedded documents and implicit contexts", () => {
     });
   });
 
+  it("hides an activity embedding another about a deleted object, unless a Delete", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const note = await save(
+        env,
+        { "@context": AS, type: "Note", content: "x", to: [PUBLIC_IRI] },
+        "object",
+      );
+      const undo = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Undo",
+          to: [PUBLIC_IRI],
+          object: { type: "Like", object: note.iri },
+        },
+        "activity",
+        { nested: [{ path: ["object"], kind: "activity" }] },
+      );
+      const announce = await save(
+        env,
+        {
+          "@context": AS,
+          type: "Announce",
+          to: [PUBLIC_IRI],
+          object: {
+            id: "https://remote.example/deletes/1",
+            type: "Delete",
+            actor: bob,
+            object: note.iri,
+          },
+        },
+        "activity",
+      );
+      for (const saved of [undo, announce]) {
+        assert.equal((await get(harness.federation, saved.iri)).status, 200);
+      }
+      const deletion = await remove(env, note.id);
+      assert.equal((await get(harness.federation, undo.iri)).status, 404);
+      assert.equal((await get(harness.federation, announce.iri)).status, 200);
+      assert.deepEqual(await outboxIds(harness.federation), [
+        deletion.iri,
+        announce.iri,
+      ]);
+    });
+  });
+
+  it("applies the rules of embedded documents to node objects in extension values", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const like = (quoted: JsonObject | JsonObject[]): JsonObject => ({
+        "@context": [AS, { ex: "https://ext.example/ns#" }],
+        type: "Like",
+        to: [PUBLIC_IRI],
+        object: "https://remote.example/notes/1",
+        "ex:quoted": quoted,
+      });
+      const open = await save(
+        env,
+        like({
+          type: "Note",
+          content: "open",
+          to: [PUBLIC_IRI],
+          bcc: [blind],
+          attachment: {
+            type: "Note",
+            content: "deep",
+            to: PUBLIC_IRI,
+            bto: blind,
+          },
+        }),
+        "activity",
+      );
+      const served = await get(harness.federation, open.iri);
+      assert.equal(served.status, 200);
+      assert.deepEqual(served.body, publicDocument(open.document));
+      assert.deepEqual(blindKeys(open.document), ["bcc", "bto"]);
+      assert.deepEqual(blindKeys(served.body), []);
+      const hidden: SavedResource[] = [];
+      for (const quoted of [
+        { type: "Note", content: "secret", to: [bob], bcc: [blind] },
+        {
+          type: "Note",
+          content: "secret",
+          to: { id: `${actorIri}/followers` },
+        },
+        { "@context": { secret: "as:bcc" }, content: "x", secret: [blind] },
+      ]) {
+        hidden.push(await save(env, like(quoted), "activity"));
+      }
+      for (const saved of hidden) {
+        assert.equal((await get(harness.federation, saved.iri)).status, 404);
+      }
+      // A deleted object found in the second lookup hides the activity too.
+      const note = await save(
+        env,
+        { "@context": AS, type: "Note", content: "x", to: [PUBLIC_IRI] },
+        "object",
+      );
+      const quoting = await save(
+        env,
+        like([
+          ...Array.from({ length: 1000 }, (_, index) => ({
+            id: `https://remote.example/notes/${index}`,
+          })),
+          { id: note.iri, type: "Note", content: "x" },
+        ]),
+        "activity",
+      );
+      assert.equal((await get(harness.federation, quoting.iri)).status, 200);
+      const deletion = await remove(env, note.id);
+      assert.equal((await get(harness.federation, quoting.iri)).status, 404);
+      assert.deepEqual(await outboxIds(harness.federation), [
+        deletion.iri,
+        open.iri,
+      ]);
+    });
+  });
+
   it("serves a document saved without a context with the ActivityStreams one", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
@@ -1147,8 +1314,9 @@ describe("outboxes of saved and legacy activities", () => {
         like("https://remote.example/n"),
         "activity",
       );
-      // More hidden activities than a page holds, between served ones.
-      for (let index = 0; index < 21; index += 1) {
+      // More hidden activities than several batches and a counter batch
+      // hold, between served ones.
+      for (let index = 0; index < 120; index += 1) {
         await save(
           env,
           like({ type: "Note", content: "secret", to: [bob] }),

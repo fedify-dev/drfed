@@ -38,10 +38,11 @@ is served from the document of its current revision:
     IRI references and embedded values.  An activity keeps the version it
     embedded when it was saved, so editing an object does not change an
     earlier activity's response.  Nothing is dereferenced.
- -  `bto` and `bcc` are removed from the root and from every embedded
-    document.  They are found by meaning through `describeDocument()`, so
-    aliases of them are removed as well.  Opaque extension values are not
-    descended into.
+ -  `bto` and `bcc` are removed from the root, from every embedded
+    document, and from every JSON-LD node object in extension values, which
+    a JSON-LD processor reads with the context it inherits.  They are found
+    by meaning through `describeDocument()`, so aliases of them are removed
+    as well.  JSON literals stay as saved.
  -  A document saved without `@context` states the ActivityStreams context,
     which the validator read it with and which Activity Streams 2.0 asks
     documents to include.
@@ -53,6 +54,7 @@ is served from the document of its current revision:
     or one naming another resource, can only come from a change made outside
     it.  It is logged under `["drfed", "federation", "serving"]` and left
     out: its resource answers 404, and outbox pages and the counter skip it.
+    Each revision is logged once per process, however often it is read.
 
 
 Conditions
@@ -65,9 +67,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
  -  An activity must be in the outbox of such an actor.  A saved activity that
     was not published is not served, nor is a received one.
  -  A legacy `Create` is not served once its object is deleted.  A saved
-    activity whose `object` refers to a deleted local object is served only
-    if it is a `Delete`: the deletion hides the `Like` and other activities
-    about the object, and leaves its `Delete` retrievable.  A local object is
+    document is not served when the `object` of its root or of an embedded
+    activity refers to a deleted local object, unless that activity is a
+    `Delete`: the deletion hides the `Like` and other activities about the
+    object, and an `Undo` of such a `Like`, and leaves its `Delete`
+    retrievable, also inside an `Announce` that embeds it.  A local object is
     deleted when its typed row is, or when its current revision is a local
     whiteout.
  -  A saved document that embeds a deleted local object, at any depth, is
@@ -80,6 +84,11 @@ actor, and Public `to` or `cc` addressing in the resource's current
     documents by `id`, and `Link` values by `href`.  An embedded document
     without recipients of its own goes with the document that embeds it, as
     the `Like` in an `Undo` usually does.
+ -  These two rules read the node objects in extension values as embedded
+    documents, with recipients by `id` or `href`.  A saved document with a
+    node object in an extension value that has a `@context` of its own is
+    not served, since the validator does not read that context and its
+    blind recipients cannot be found.
  -  An object must be attributed to the actor of its route by its last
     snapshot.  A deleted object is answered with `410 Gone` and a `Tombstone`
     of its `id` and `deleted` time only.
@@ -98,13 +107,16 @@ is not served either.  The cursor is the position of the last item of the
 previous page.
 
 The saved activities their documents do not allow are left out after rows are
-selected, so a page reads further batches until it is full.  It promises a
-next page only when a served activity follows, so only the last page is short
-and no page is empty while another follows.  A page after many hidden
-activities therefore reads all of them.
+selected, so a page reads further batches until it is full, each twice as
+large as the one before, up to 1,000 items.  It promises a next page only when
+a served activity follows, so only the last page is short and no page is empty
+while another follows.  A page after many hidden activities therefore reads
+all of them.
 
 The counter counts what the pages hold.  It reads the document of every saved
-activity in the outbox on each request, so its cost grows with the outbox.
+activity in the outbox on each request, 100 at a time, so its cost grows with
+the outbox.  Deleted objects are looked up 1,000 IRIs at a time, below the
+number of parameters PostgreSQL binds in one statement.
 
 
 Outgoing payloads
@@ -115,7 +127,8 @@ payloads:
 
  -  `publicDocument(document)` returns a copy without blind recipients and
     with a stated context, or `null` for a document the validator cannot
-    read offline.
+    read offline or whose blind recipients cannot be found, as in a node
+    object with a `@context` of its own in an extension value.
  -  `parseVocab(ctx, document)` parses a document into a vocabulary object
     that keeps it as its JSON-LD.  It throws for a document Fedify cannot
     read, such as one with a `Link` in `audience` or `object`.

@@ -1581,6 +1581,24 @@ function checkLinkProperty(
   }
 }
 
+// Objects with these keywords are values or lists, not JSON-LD node objects.
+const valueObjectKeywords = ["@value", "@list", "@set"] as const;
+
+function isNodeObject(values: Record<string, unknown>): boolean {
+  return !valueObjectKeywords.some((keyword) => Object.hasOwn(values, keyword));
+}
+
+// The context an extension object is read with: none when it is not
+// described, or null within a context of its own, which is not read.
+function extensionContext(
+  values: Record<string, unknown>,
+  context: DocumentContext | null | undefined,
+): DocumentContext | null | undefined {
+  return context !== undefined && Object.hasOwn(values, "@context")
+    ? null
+    : context;
+}
+
 // Check explicit keyword shapes, without expanding contexts or keyword aliases.
 // Return whether @value contains literal JSON rather than nested JSON-LD.
 function checkExtensionKeywords(
@@ -1663,6 +1681,11 @@ function checkDocumentValue(
     fields: readonly SourceProperty[],
   ) => void,
   onUnavailableDocument: (path: FieldPath) => void = () => undefined,
+  onExtensionNode?: (
+    values: Record<string, unknown>,
+    path: FieldPath,
+    context: DocumentContext | null,
+  ) => void,
 ): void {
   const { report, isFull } = reporter;
   const pending: (() => void)[] = [];
@@ -1670,10 +1693,13 @@ function checkDocumentValue(
 
   // Check JSON safety and selected explicit keyword shapes. This is not full
   // JSON-LD validation; extension semantics and nested contexts remain unchecked.
+  // Given the context it inherits, report each node object outside JSON
+  // literals with that context, or with null within a context of its own.
   function checkExtension(
     value: unknown,
     path: FieldPath,
     keywords = true,
+    context?: DocumentContext | null,
   ): void {
     if (!checkPathDepth(path, report)) return;
     if (!isJsonValueShape(value)) {
@@ -1690,17 +1716,30 @@ function checkDocumentValue(
     const children: (() => void)[] = [];
     if (Array.isArray(value)) {
       visitList(value, path, report, (entry, entryPath) => {
-        children.push(() => checkExtension(entry, entryPath, keywords));
+        children.push(() =>
+          checkExtension(entry, entryPath, keywords, context),
+        );
       });
     } else {
       const values = readDocument(value, path, report);
       if (values != null) {
         const jsonLiteral =
           keywords && checkExtensionKeywords(values, path, report);
+        const own = extensionContext(values, context);
+        if (keywords && own !== undefined && isNodeObject(values)) {
+          onExtensionNode?.(values, path, own);
+        }
         for (const key of Object.keys(values)) {
           const childKeywords = keywords && !(jsonLiteral && key === "@value");
+          // A context definition holds no data.
+          const childContext = key === "@context" ? undefined : own;
           children.push(() =>
-            checkExtension(values[key], [...path, key], childKeywords),
+            checkExtension(
+              values[key],
+              [...path, key],
+              childKeywords,
+              childContext,
+            ),
           );
         }
       }
@@ -1822,7 +1861,7 @@ function checkDocumentValue(
               fieldPath,
               "This custom property's data is preserved; its semantics were not checked.",
             );
-            checkExtension(value, fieldPath);
+            checkExtension(value, fieldPath, true, context);
             return;
           }
           report(
@@ -2433,6 +2472,41 @@ export interface DocumentNode {
    * documents belong to those documents' nodes.
    */
   readonly identifiers: readonly DocumentIdentifier[];
+  /**
+   * The JSON-LD node objects inside this document's own opaque extension
+   * values, at any depth, in traversal order.
+   */
+  readonly extensions: readonly ExtensionNode[];
+}
+
+/**
+ * A JSON-LD node object inside an opaque extension value.  The checker does
+ * not read it as a vocabulary document, but a JSON-LD processor reads its
+ * keys with the context it inherits, so its standard properties are named
+ * as a described document's are, whatever their type coercion.
+ */
+export interface ExtensionNode {
+  /** Source path of the node object. */
+  readonly path: FieldPath;
+  /**
+   * The standard name of the property that holds the node object in another
+   * one, whatever its source spelling; absent directly under an extension
+   * property.
+   */
+  readonly property?: string;
+  /**
+   * Whether the node object, or one around it in the extension value, has a
+   * `@context` of its own.  The checker does not read such a context, so its
+   * keys are not interpreted: it has no properties or identifiers.
+   */
+  readonly uninterpreted: boolean;
+  /** Standard property names mapped to the source keys that supply them. */
+  readonly properties: ReadonlyMap<string, readonly string[]>;
+  /**
+   * String IRI references held by the node object's own standard
+   * properties, with compact IRIs expanded through the context's prefixes.
+   */
+  readonly identifiers: readonly DocumentIdentifier[];
 }
 
 /** One IRI reference as written and as the context resolves it. */
@@ -2494,11 +2568,73 @@ function nodeKind(Type: VocabularyType): DocumentNodeKind {
   return "object";
 }
 
+// Name the standard properties of a document or node object, and the IRI
+// references they hold, as read with the context it is interpreted with.
+function describeProperties(
+  values: Record<string, unknown>,
+  path: FieldPath,
+  fields: readonly SourceProperty[],
+  context: DocumentContext,
+): Pick<DocumentNode, "properties" | "identifiers"> {
+  const properties = new Map<string, string[]>();
+  const identifiers: DocumentIdentifier[] = [];
+  for (const { source, name } of fields) {
+    if (name == null) continue;
+    const sources = properties.get(name) ?? [];
+    sources.push(source);
+    properties.set(name, sources);
+    if (!identifierProperties.has(name)) continue;
+    const value = values[source];
+    const entries: [unknown, FieldPath][] = Array.isArray(value)
+      ? value.map((entry, index) => [entry, [...path, source, index]])
+      : [[value, [...path, source]]];
+    for (const [entry, entryPath] of entries) {
+      if (typeof entry !== "string") continue;
+      identifiers.push({
+        property: name,
+        path: entryPath,
+        value: entry,
+        iri: expandIdentifier(entry, context),
+      });
+    }
+  }
+  return { properties, identifiers };
+}
+
+// Name the property of its parent that embeds each value, which sits at
+// [...parent, key] or [...parent, key, index].
+function nameEmbeddingProperties<
+  T extends Pick<DocumentNode, "path" | "properties" | "property">,
+>(nodes: readonly T[]): T[] {
+  const byPath = new Map(
+    nodes.map((node) => [JSON.stringify(node.path), node]),
+  );
+  return nodes.map((node) => {
+    for (const length of [node.path.length - 1, node.path.length - 2]) {
+      const parent = byPath.get(JSON.stringify(node.path.slice(0, length)));
+      const key = node.path[length];
+      if (parent == null || typeof key !== "string") continue;
+      if (
+        length < node.path.length - 1 &&
+        typeof node.path.at(-1) !== "number"
+      ) {
+        continue;
+      }
+      for (const [name, sources] of parent.properties) {
+        if (sources.includes(key)) return { ...node, property: name };
+      }
+    }
+    return node;
+  });
+}
+
 /**
  * Describes the vocabulary documents the checker reads, so that write paths
  * interpret aliases, full-IRI keys, and keyword aliases exactly as
  * validation did, instead of matching literal key spellings.  Opaque
- * extension values are not descended into.
+ * extension values are not read as vocabulary documents, but the JSON-LD
+ * node objects in them are described as extensions of the document that
+ * holds them.
  * @returns The root and every embedded document in traversal order, or
  *          `null` unless validation completes without errors.
  */
@@ -2513,6 +2649,11 @@ export function describeDocument(
     readonly Type: VocabularyType;
     readonly fields: readonly SourceProperty[];
   }[] = [];
+  const extensions: {
+    readonly values: Record<string, unknown>;
+    readonly path: FieldPath;
+    readonly context: DocumentContext | null;
+  }[] = [];
   checkDocumentValue(
     document,
     [],
@@ -2520,6 +2661,10 @@ export function describeDocument(
     [],
     (values, path, context, Type, fields) => {
       visited.push({ values, path, context, Type, fields });
+    },
+    undefined,
+    (values, path, context) => {
+      extensions.push({ values, path, context });
     },
   );
   const result = reporter.result();
@@ -2531,53 +2676,59 @@ export function describeDocument(
   }
   // Read values only now: validation has rejected sparse arrays, accessors,
   // and other non-JSON shapes without evaluating them.
-  const nodes = visited.map(
-    ({ values, path, context, Type, fields }): DocumentNode => {
-      const properties = new Map<string, string[]>();
-      const identifiers: DocumentIdentifier[] = [];
-      for (const { source, name, compatible } of fields) {
-        if (name == null || !compatible) continue;
-        const sources = properties.get(name) ?? [];
-        sources.push(source);
-        properties.set(name, sources);
-        if (!identifierProperties.has(name)) continue;
-        const value = values[source];
-        const entries: [unknown, FieldPath][] = Array.isArray(value)
-          ? value.map((entry, index) => [entry, [...path, source, index]])
-          : [[value, [...path, source]]];
-        for (const [entry, entryPath] of entries) {
-          if (typeof entry !== "string") continue;
-          identifiers.push({
-            property: name,
-            path: entryPath,
-            value: entry,
-            iri: expandIdentifier(entry, context),
-          });
-        }
-      }
-      return {
+  const extensionNodes = nameEmbeddingProperties(
+    extensions.map(
+      ({ values, path, context }): ExtensionNode =>
+        context == null
+          ? {
+              path,
+              uninterpreted: true,
+              properties: new Map(),
+              identifiers: [],
+            }
+          : {
+              path,
+              uninterpreted: false,
+              ...describeProperties(
+                values,
+                path,
+                Object.keys(values)
+                  .sort()
+                  .map((source) => resolveProperty(source, context)),
+                context,
+              ),
+            },
+    ),
+  );
+  const owners = new Map(
+    visited.map(({ path }): [string, ExtensionNode[]] => [
+      JSON.stringify(path),
+      [],
+    ]),
+  );
+  for (const node of extensionNodes) {
+    // A node object belongs to the closest document around it.
+    for (let length = node.path.length - 1; length >= 0; length -= 1) {
+      const owner = owners.get(JSON.stringify(node.path.slice(0, length)));
+      if (owner == null) continue;
+      owner.push(node);
+      break;
+    }
+  }
+  return nameEmbeddingProperties(
+    visited.map(
+      ({ values, path, context, Type, fields }): DocumentNode => ({
         path,
         type: Type.typeId.href,
         kind: nodeKind(Type),
-        properties,
-        identifiers,
-      };
-    },
+        ...describeProperties(
+          values,
+          path,
+          fields.filter(({ compatible }) => compatible),
+          context,
+        ),
+        extensions: owners.get(JSON.stringify(path)) ?? [],
+      }),
+    ),
   );
-  const byPath = new Map(
-    nodes.map((node) => [JSON.stringify(node.path), node]),
-  );
-  return nodes.map((node) => {
-    if (node.path.length === 0) return node;
-    // An embedded document sits at [...parent, key] or [...parent, key, index].
-    for (const length of [node.path.length - 1, node.path.length - 2]) {
-      const parent = byPath.get(JSON.stringify(node.path.slice(0, length)));
-      const key = node.path[length];
-      if (parent == null || typeof key !== "string") continue;
-      for (const [name, sources] of parent.properties) {
-        if (sources.includes(key)) return { ...node, property: name };
-      }
-    }
-    return node;
-  });
 }

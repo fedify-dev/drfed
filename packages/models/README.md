@@ -80,12 +80,20 @@ its type IRI, a `kind` (`activity`, `actor`, `collection`, `link`, or
 `object`), and a map from standard property names, including `id` and `type`,
 to the source keys that supply them. Aliases, prefixed or full-IRI keys, and
 `@id`/`@type` aliases are mapped exactly as validation maps them; custom
-extension values are neither listed nor descended into. Each node also lists
-the string IRI references in its own reference properties (`id`, `actor`,
-`object`, addressing, `href`, and so on) as `DocumentIdentifier` values, with
-the original path and value and the IRI after compact-IRI prefix expansion:
-`as:Public` resolves to the full Public IRI, and a context-defined prefix can
-make `local:alice` name another host.
+extension keys are not listed. Each node also lists the string IRI references
+in its own reference properties (`id`, `actor`, `object`, addressing, `href`,
+and so on) as `DocumentIdentifier` values, with the original path and value
+and the IRI after compact-IRI prefix expansion: `as:Public` resolves to the
+full Public IRI, and a context-defined prefix can make `local:alice` name
+another host.
+
+Custom extension values are not read as documents, but a JSON-LD processor
+reads the node objects in them with the context they inherit. Each node lists
+those in its own extension values, outside JSON literals, as its `extensions`:
+`ExtensionNode` values with a path, an embedding property, a property map and
+IRI references as a node has, mapped whatever their type coercion. A node
+object with a `@context` of its own, or inside one, is `uninterpreted`, with no
+properties, since the checker does not read that context.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";

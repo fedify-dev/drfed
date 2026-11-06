@@ -4257,6 +4257,75 @@ describe("describeDocument() semantic view", () => {
     });
   });
 
+  it("describes node objects in extension values with the context they inherit", () => {
+    const nodes = describeDocument({
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          hidden: { "@id": "as:bcc", "@type": "@id" },
+        },
+      ],
+      type: "Like",
+      actor: "https://example.com/alice",
+      object: like.object,
+      "ex:quoted": {
+        type: "Note",
+        to: ["https://example.com/bob", { id: "as:Public" }],
+        hidden: "https://example.com/blind",
+        "ex:literal": { "@type": "@json", "@value": { bcc: "x" } },
+        "ex:value": { "@value": "v" },
+      },
+      "ex:scoped": [
+        { "@context": { secret: "as:bcc" }, secret: "x", inner: { bcc: "y" } },
+      ],
+    });
+    assert.ok(nodes != null);
+    assert.equal(nodes.length, 1);
+    const { extensions } = nodes[0]!;
+    assert.deepEqual(
+      extensions.map(({ path, property, uninterpreted }) => ({
+        path,
+        property,
+        uninterpreted,
+      })),
+      [
+        { path: ["ex:quoted"], property: undefined, uninterpreted: false },
+        { path: ["ex:quoted", "to", 1], property: "to", uninterpreted: false },
+        { path: ["ex:scoped", 0], property: undefined, uninterpreted: true },
+        {
+          path: ["ex:scoped", 0, "inner"],
+          property: undefined,
+          uninterpreted: true,
+        },
+      ],
+    );
+    assert.deepEqual(Object.fromEntries(extensions[0]!.properties), {
+      bcc: ["hidden"],
+      to: ["to"],
+      type: ["type"],
+    });
+    assert.deepEqual(
+      extensions[0]!.identifiers.map(({ property, iri }) => ({
+        property,
+        iri,
+      })),
+      [
+        { property: "bcc", iri: "https://example.com/blind" },
+        { property: "to", iri: "https://example.com/bob" },
+      ],
+    );
+    assert.deepEqual(extensions[1]!.identifiers, [
+      {
+        property: "id",
+        path: ["ex:quoted", "to", 1, "id"],
+        value: "as:Public",
+        iri: `${context}#Public`,
+      },
+    ]);
+    assert.deepEqual(Object.fromEntries(extensions[3]!.properties), {});
+  });
+
   it("returns null unless validation completes without errors", () => {
     assert.equal(describeDocument({ ...like, actor: false }), null);
     assert.equal(describeDocument({ ...like, type: "Place" }), null);

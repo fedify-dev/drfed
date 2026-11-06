@@ -16,6 +16,7 @@
 
 import {
   type DocumentNode,
+  type ExtensionNode,
   type FieldPath,
   type JsonValue,
   addressingProperties,
@@ -37,13 +38,16 @@ const recipientProperties: ReadonlySet<string> = new Set(addressingProperties);
 
 const pathKey = (path: FieldPath): string => JSON.stringify(path);
 
+/** What serving reads of a described document or extension node object. */
+type Described = Pick<DocumentNode | ExtensionNode, "path" | "identifiers">;
+
 /**
- * Collects each described document's blind addressing keys, whatever their
- * spelling, by the document's source path.
+ * Collects the blind addressing keys of each described document and
+ * extension node object, whatever their spelling, by its source path.
  * @returns The keys to omit, by path.
  */
 const blindKeys = (
-  nodes: readonly DocumentNode[],
+  nodes: readonly Pick<DocumentNode | ExtensionNode, "path" | "properties">[],
 ): ReadonlyMap<string, ReadonlySet<string>> =>
   new Map(
     nodes.map((node) => [
@@ -101,33 +105,39 @@ const isChild = (child: FieldPath, parent: FieldPath): boolean =>
  * its own values only.
  * @returns The IRI with a compact IRI expanded, or `null` when there is none.
  */
-const ownIdentifier = (node: DocumentNode, property: string): string | null =>
+const ownIdentifier = (node: Described, property: string): string | null =>
   node.identifiers.find((entry) => entry.property === property)?.iri ?? null;
+
+/** A document or node object that another one embeds, as a recipient. */
+interface Embedded {
+  readonly path: FieldPath;
+  readonly property?: string | undefined;
+  /** The IRI the addressing index records for it as a recipient. */
+  readonly iri: string | null;
+}
 
 /**
  * Reads a document's own recipients as the addressing index records those of
  * a saved document: references as resolved, embedded documents by `id`, and
  * `Link` values by `href`.  An anonymous embedded recipient names no IRI.
+ * @param embedded The documents or node objects that may embed recipients.
  * @returns The addressing property and IRI of each recipient.
  */
 const recipients = (
-  node: DocumentNode,
-  nodes: readonly DocumentNode[],
+  node: Described,
+  embedded: readonly Embedded[],
 ): { readonly property: string; readonly iri: string | null }[] => [
   ...node.identifiers
     .filter(({ property }) => recipientProperties.has(property))
     .map(({ property, iri }) => ({ property, iri })),
-  ...nodes
+  ...embedded
     .filter(
       (child) =>
         child.property != null &&
         recipientProperties.has(child.property) &&
         isChild(child.path, node.path),
     )
-    .map((child) => ({
-      property: child.property!,
-      iri: ownIdentifier(child, child.kind === "link" ? "href" : "id"),
-    })),
+    .map((child) => ({ property: child.property!, iri: child.iri })),
 ];
 
 /**
@@ -137,10 +147,10 @@ const recipients = (
  * @returns Whether the document is restricted.
  */
 const isRestricted = (
-  node: DocumentNode,
-  nodes: readonly DocumentNode[],
+  node: Described,
+  embedded: readonly Embedded[],
 ): boolean => {
-  const named = recipients(node, nodes);
+  const named = recipients(node, embedded);
   return (
     named.length > 0 &&
     !named.some(
@@ -150,7 +160,30 @@ const isRestricted = (
   );
 };
 
-const ownId = (node: DocumentNode): string | null => ownIdentifier(node, "id");
+const ownId = (node: Described): string | null => ownIdentifier(node, "id");
+
+/**
+ * Reads the IRIs an activity's `object` refers to without embedding them, as
+ * references or by the `href` of `Link` values.
+ * @returns The IRIs.
+ */
+const referredObjects = (
+  node: DocumentNode,
+  nodes: readonly DocumentNode[],
+): string[] => [
+  ...node.identifiers
+    .filter(({ property }) => property === "object")
+    .map(({ iri }) => iri),
+  ...nodes
+    .filter(
+      (child) =>
+        child.property === "object" &&
+        child.kind === "link" &&
+        isChild(child.path, node.path),
+    )
+    .map((child) => ownIdentifier(child, "href"))
+    .filter((iri) => iri != null),
+];
 
 /** A saved document as it is served, and what its validator reading says. */
 export interface ServedDocument {
@@ -168,19 +201,28 @@ export interface ServedDocument {
 /** What serving a saved document depends on besides the document itself. */
 export interface DocumentInspection {
   readonly served: ServedDocument;
-  /** The `id` of every embedded document, at any depth. */
+  /**
+   * The `id` of every embedded document and extension node object, at any
+   * depth.
+   */
   readonly embedded: readonly string[];
   /**
-   * The IRIs the root's `object` refers to without embedding them, as
-   * references or `Link` values.
+   * The IRIs that the `object` of the root or of an embedded activity, unless
+   * it is a `Delete`, refers to without embedding them, as references or
+   * `Link` values.
    */
   readonly objectReferences: readonly string[];
   /**
-   * Whether an embedded document, at any depth, is addressed to recipients
-   * but not to the public, so that serving the root publicly would expose
-   * it to others.
+   * Whether an embedded document or extension node object, at any depth, is
+   * addressed to recipients but not to the public, so that serving the root
+   * publicly would expose it to others.
    */
   readonly restricted: boolean;
+  /**
+   * Whether an extension node object has a `@context` of its own, which the
+   * validator does not read, so that its blind recipients cannot be found.
+   */
+  readonly uninterpreted: boolean;
 }
 
 /**
@@ -198,31 +240,43 @@ export function inspectDocument(
   const embedded = nodes.filter(
     ({ path, kind }) => path.length > 0 && kind !== "link",
   );
+  const documents = nodes.map(
+    (node): Embedded => ({
+      path: node.path,
+      property: node.property,
+      iri: ownIdentifier(node, node.kind === "link" ? "href" : "id"),
+    }),
+  );
+  const extensions = nodes.flatMap((node) => node.extensions);
+  const extensionValues = extensions.map(
+    (node): Embedded => ({
+      path: node.path,
+      property: node.property,
+      iri: ownId(node) ?? ownIdentifier(node, "href"),
+    }),
+  );
   return {
     served: {
       type: root.type,
       id: ownId(root),
       document: statedContext(
-        omitKeys(document, [], blindKeys(nodes)) as JsonObject,
+        omitKeys(
+          document,
+          [],
+          blindKeys([...nodes, ...extensions]),
+        ) as JsonObject,
       ),
     },
-    embedded: embedded.map(ownId).filter((iri) => iri != null),
-    objectReferences: [
-      ...root.identifiers
-        .filter(({ property }) => property === "object")
-        .map(({ iri }) => iri),
-      // A Link names the object it refers to by its href.
-      ...nodes
-        .filter(
-          (node) =>
-            node.property === "object" &&
-            node.kind === "link" &&
-            isChild(node.path, root.path),
-        )
-        .map((node) => ownIdentifier(node, "href"))
-        .filter((iri) => iri != null),
-    ],
-    restricted: embedded.some((node) => isRestricted(node, nodes)),
+    embedded: [...embedded, ...extensions]
+      .map(ownId)
+      .filter((iri) => iri != null),
+    objectReferences: nodes
+      .filter(({ kind, type }) => kind === "activity" && type !== deleteType)
+      .flatMap((node) => referredObjects(node, nodes)),
+    restricted:
+      embedded.some((node) => isRestricted(node, documents)) ||
+      extensions.some((node) => isRestricted(node, extensionValues)),
+    uninterpreted: extensions.some(({ uninterpreted }) => uninterpreted),
   };
 }
 
@@ -230,25 +284,31 @@ export function inspectDocument(
  * Reads a saved document once for serving.  See {@link publicDocument}.
  * @param document A saved document, with its blind recipients.
  * @returns The served form, or `null` when the validator cannot read the
- *          document, which is then not served.
+ *          document or its blind recipients cannot be found, so that it is
+ *          not served.
  */
 export function serveDocument(document: JsonObject): ServedDocument | null {
-  return inspectDocument(document)?.served ?? null;
+  const inspection = inspectDocument(document);
+  return inspection == null || inspection.uninterpreted
+    ? null
+    : inspection.served;
 }
 
 /**
  * Removes blind recipients from a saved document for public or federated
- * output: the `bto` and `bcc` of the root and of every embedded document,
- * found by meaning, so that aliases, full-IRI keys and compact IRI keys are
- * removed as well.  Opaque extension values are not descended into, since
- * the validator reads no addressing in them.  A document without `@context`
- * states the ActivityStreams context the validator read it with.
- * Everything else, including the context, extension properties, references,
- * embedded values and the order of keys and values, stays as it was saved.
- * The input is not changed.
+ * output: the `bto` and `bcc` of the root, of every embedded document and of
+ * every JSON-LD node object in extension values, read with the context it
+ * inherits, found by meaning, so that aliases, full-IRI keys and compact IRI
+ * keys are removed as well.  JSON literals stay as they are.  A document
+ * without `@context` states the ActivityStreams context the validator read
+ * it with.  Everything else, including the context, extension properties,
+ * references, embedded values and the order of keys and values, stays as it
+ * was saved.  The input is not changed.
  * @param document A saved document, with its blind recipients.
  * @returns A new document without them, or `null` when the validator cannot
- *          read the document, which is then not served.
+ *          read the document offline, or when a node object in an extension
+ *          value has a `@context` of its own, which the validator does not
+ *          read; such a document is not served.
  */
 export function publicDocument(document: JsonObject): JsonObject | null {
   return serveDocument(document)?.document ?? null;

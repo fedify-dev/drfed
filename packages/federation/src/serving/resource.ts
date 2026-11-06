@@ -43,7 +43,6 @@ import {
   type DocumentInspection,
   type ServedDocument,
   createType,
-  deleteType,
   inspectDocument,
 } from "./document.ts";
 import { documentActivity, documentObject } from "./vocab.ts";
@@ -68,8 +67,31 @@ export type ActivityRoute = "create" | "activity";
 /** The current revision of a saved resource, as the served queries read it. */
 interface RevisionRow {
   readonly iri: string;
+  readonly revisionId: string | null;
   readonly document: unknown;
 }
+
+// Lookups of deleted objects stay well below the 65,535 parameters
+// PostgreSQL binds in one statement.
+const lookupSize = 1000;
+// Outbox pages read past hidden activities in batches that grow up to this.
+const maximumBatchSize = 1000;
+// The outbox counter reads the documents of this many activities at a time.
+const countBatchSize = 100;
+
+/**
+ * Splits values into chunks of at most a size.
+ * @returns The chunks, in order.
+ */
+const chunks = <T>(values: readonly T[], size: number): T[][] =>
+  Array.from({ length: Math.ceil(values.length / size) }, (_, index) =>
+    values.slice(index * size, (index + 1) * size),
+  );
+
+// The revisions logged as unservable, so that one is logged once however
+// often pages and counters read it.  It is bounded by clearing it.
+const loggedRevisions = new Set<string>();
+const loggedRevisionLimit = 1024;
 
 function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -89,20 +111,27 @@ function inspectRevision(row: RevisionRow): DocumentInspection | null {
   if (inspection != null && inspection.served.id === row.iri) {
     return inspection;
   }
-  logger.error(
-    "The saved document of {iri} cannot be served; leaving it out.",
-    {
-      iri: row.iri,
-    },
-  );
+  const key = row.revisionId ?? row.iri;
+  if (!loggedRevisions.has(key)) {
+    if (loggedRevisions.size >= loggedRevisionLimit) loggedRevisions.clear();
+    loggedRevisions.add(key);
+    logger.error(
+      "The saved document of {iri} cannot be served; leaving it out.",
+      {
+        iri: row.iri,
+      },
+    );
+  }
   return null;
 }
 
 /**
  * Applies the rules only a saved document can tell.  Content embedded at any
- * depth is not served publicly when it is addressed to others but not to the
- * public, nor when it is a deleted local object.  An activity whose `object`
- * refers to a deleted local object is served only when it is a `Delete`.
+ * depth, including a node object in an extension value, is not served
+ * publicly when it is addressed to others but not to the public, nor when it
+ * is a deleted local object.  An activity at any depth whose `object` refers
+ * to a deleted local object hides the document unless it is a `Delete`.  A
+ * document whose blind recipients cannot be found is not served.
  * @param deleted The deleted local objects among what the document embeds
  *                and refers to.
  * @returns Whether the document is served.
@@ -110,33 +139,35 @@ function inspectRevision(row: RevisionRow): DocumentInspection | null {
 function isServable(
   inspection: DocumentInspection,
   deleted: ReadonlySet<string>,
-  kind: "activity" | "object",
 ): boolean {
-  if (inspection.restricted) return false;
-  if (inspection.embedded.some((iri) => deleted.has(iri))) return false;
   return (
-    kind === "object" ||
-    inspection.served.type === deleteType ||
-    !inspection.objectReferences.some((iri) => deleted.has(iri))
+    !inspection.restricted &&
+    !inspection.uninterpreted &&
+    ![...inspection.embedded, ...inspection.objectReferences].some((iri) =>
+      deleted.has(iri),
+    )
   );
 }
 
 /**
- * Finds the deleted local objects among IRIs.
+ * Finds the deleted local objects among IRIs, in lookups of a bounded size.
  * @returns The IRIs of those objects.
  */
 async function deletedObjects(
   db: Database,
   iris: readonly string[],
 ): Promise<ReadonlySet<string>> {
-  if (iris.length === 0) return new Set();
-  const rows = await db
-    .select({ iri: resources.iri })
-    .from(resources)
-    .where(
-      and(inArray(resources.iri, [...iris]), deletedLocalObject(resources.id)),
-    );
-  return new Set(rows.map(({ iri }) => iri));
+  const rows = await Promise.all(
+    chunks(iris, lookupSize).map((chunk) =>
+      db
+        .select({ iri: resources.iri })
+        .from(resources)
+        .where(
+          and(inArray(resources.iri, chunk), deletedLocalObject(resources.id)),
+        ),
+    ),
+  );
+  return new Set(rows.flat().map(({ iri }) => iri));
 }
 
 /**
@@ -148,7 +179,6 @@ async function deletedObjects(
 async function servedRevisions(
   db: Database,
   rows: readonly RevisionRow[],
-  kind: "activity" | "object",
 ): Promise<(ServedDocument | null)[]> {
   const inspections = rows.map(inspectRevision);
   const deleted = await deletedObjects(db, [
@@ -161,7 +191,7 @@ async function servedRevisions(
     ),
   ]);
   return inspections.map((inspection) =>
-    inspection != null && isServable(inspection, deleted, kind)
+    inspection != null && isServable(inspection, deleted)
       ? inspection.served
       : null,
   );
@@ -185,6 +215,7 @@ export async function findServedActivity(
     .select({
       iri: resources.iri,
       typed: sql<boolean>`${activities.id} is not null`,
+      revisionId: resourceRevisions.id,
       document: resourceRevisions.document,
     })
     .from(resources)
@@ -211,7 +242,7 @@ export async function findServedActivity(
     });
     return activity == null ? null : toCreate(ctx, activity);
   }
-  const [served] = await servedRevisions(db, [row], "activity");
+  const [served] = await servedRevisions(db, [row]);
   if (served == null || (served.type === createType) !== (route === "create")) {
     return null;
   }
@@ -260,6 +291,7 @@ export async function findServedObject(
     .select({
       iri: resources.iri,
       kind: resourceRevisions.kind,
+      revisionId: resourceRevisions.id,
       document: resourceRevisions.document,
       deleted: resourceRevisions.deleted,
     })
@@ -282,7 +314,7 @@ export async function findServedObject(
     return new Tombstone({ id: new URL(row.iri), deleted: row.deleted });
   }
   if (row.kind !== "snapshot") return null;
-  const [served] = await servedRevisions(db, [row], "object");
+  const [served] = await servedRevisions(db, [row]);
   return served == null ? null : documentObject(served);
 }
 
@@ -321,6 +353,7 @@ async function loadOutboxBatch(
       position: collectionItems.position,
       iri: resources.iri,
       typed: sql<boolean>`${activities.id} is not null`,
+      revisionId: resourceRevisions.id,
       document: resourceRevisions.document,
     })
     .from(collectionItems)
@@ -353,7 +386,7 @@ async function loadOutboxBatch(
   const byId = new Map(typed.map((activity) => [activity.id, activity]));
   const saved = rows.filter((row) => !row.typed);
   const served = new Map(
-    (await servedRevisions(db, saved, "activity")).map((document, index) => [
+    (await servedRevisions(db, saved)).map((document, index) => [
       saved[index]!.id,
       document,
     ]),
@@ -380,9 +413,10 @@ async function loadOutboxBatch(
  * Loads one page of the served activities in an outbox, in the order of
  * their positions, where the newest has the smallest.  Legacy `Create`
  * activities and saved activities are mixed in that one order.  Items their
- * documents leave out are read past until the page is full, and a next page
- * is promised only when a served activity follows, so that no page but the
- * last is short and none is empty with a next page.
+ * documents leave out are read past, in batches that double up to a bound,
+ * until the page is full, and a next page is promised only when a served
+ * activity follows, so that no page but the last is short and none is empty
+ * with a next page.
  * @param after The position the page starts after; `null` for the first.
  * @returns The page.
  */
@@ -396,16 +430,18 @@ export async function loadOutboxPage(
   const items: { readonly position: number; readonly activity: Activity }[] =
     [];
   let cursor = after;
+  let size = limit + 1;
   // One served activity past the page tells whether a next page exists.
   while (items.length <= limit) {
     // Each batch starts where the previous one ended.
     // oxlint-disable-next-line no-await-in-loop
-    const batch = await loadOutboxBatch(db, ctx, outboxId, cursor, limit + 1);
+    const batch = await loadOutboxBatch(db, ctx, outboxId, cursor, size);
     for (const { position, activity } of batch) {
       if (activity != null) items.push({ position, activity });
     }
-    if (batch.length <= limit) break;
+    if (batch.length < size) break;
     cursor = batch.at(-1)!.position;
+    if (size < maximumBatchSize) size = Math.min(size * 2, maximumBatchSize);
   }
   const page = items.slice(0, limit);
   return {
@@ -416,8 +452,9 @@ export async function loadOutboxPage(
 
 /**
  * Counts the served activities in an outbox, by the same rules as
- * {@link loadOutboxPage}.  The documents of its saved activities are read,
- * since only they tell what those activities embed and refer to.
+ * {@link loadOutboxPage}.  The documents of its saved activities are read in
+ * batches of a bounded size, since only they tell what those activities
+ * embed and refer to.
  * @returns The number of activities its pages hold together.
  */
 export async function countOutbox(
@@ -429,24 +466,44 @@ export async function countOutbox(
     .from(collectionItems)
     .innerJoin(activities, eq(activities.id, collectionItems.itemId))
     .where(outboxItems(outboxId));
-  const saved = await db
-    .select({ iri: resources.iri, document: resourceRevisions.document })
-    .from(collectionItems)
-    .innerJoin(resources, eq(resources.id, collectionItems.itemId))
-    .innerJoin(
-      resourceHeads,
-      eq(resourceHeads.resourceId, collectionItems.itemId),
-    )
-    .innerJoin(
-      resourceRevisions,
-      eq(resourceRevisions.id, resourceHeads.revisionId),
-    )
-    .leftJoin(activities, eq(activities.id, collectionItems.itemId))
-    .where(and(outboxItems(outboxId), isNull(activities.id)));
-  const served = await servedRevisions(db, saved, "activity");
-  return (
-    (legacy?.count ?? 0) + served.filter((document) => document != null).length
-  );
+  let count = legacy?.count ?? 0;
+  let after: Uuid | null = null;
+  for (;;) {
+    // Each batch starts after the item the previous one ended with.
+    // oxlint-disable-next-line no-await-in-loop
+    const saved = await db
+      .select({
+        id: collectionItems.itemId,
+        iri: resources.iri,
+        revisionId: resourceRevisions.id,
+        document: resourceRevisions.document,
+      })
+      .from(collectionItems)
+      .innerJoin(resources, eq(resources.id, collectionItems.itemId))
+      .innerJoin(
+        resourceHeads,
+        eq(resourceHeads.resourceId, collectionItems.itemId),
+      )
+      .innerJoin(
+        resourceRevisions,
+        eq(resourceRevisions.id, resourceHeads.revisionId),
+      )
+      .leftJoin(activities, eq(activities.id, collectionItems.itemId))
+      .where(
+        and(
+          outboxItems(outboxId),
+          isNull(activities.id),
+          after == null ? undefined : gt(collectionItems.itemId, after),
+        ),
+      )
+      .orderBy(asc(collectionItems.itemId))
+      .limit(countBatchSize);
+    // oxlint-disable-next-line no-await-in-loop
+    const served = await servedRevisions(db, saved);
+    count += served.filter((document) => document != null).length;
+    if (saved.length < countBatchSize) return count;
+    after = saved.at(-1)!.id;
+  }
 }
 
 /** A saved activity's current document, as #145 dispatches it. */
