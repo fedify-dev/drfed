@@ -48,7 +48,7 @@ import {
 } from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
-import { Like } from "@fedify/vocab";
+import { Like, getTypeId } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
 
@@ -61,6 +61,11 @@ import {
   seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
+import {
+  activityTypes,
+  extensionValue,
+  typeDocument,
+} from "./serving-fixture.test.ts";
 
 const AS = "https://www.w3.org/ns/activitystreams";
 const accountId = "00000000-0000-4000-8000-000000000301" as Uuid;
@@ -538,6 +543,57 @@ describe("federation reads of saved activities", () => {
       });
     });
   }
+
+  it("serves every activity type as saved, at its route and in the outbox", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const ctx = harness.federation.createContext(
+        new URL(`https://${host}/`),
+        undefined,
+      );
+      const iris: string[] = [];
+      for (const type of activityTypes) {
+        const saved = await save(env, typeDocument(type), "activity");
+        const route = type === "Create" ? "creates" : "activities";
+        assert.match(
+          saved.iri,
+          new RegExp(`^https://${host}/ap/${route}/`, "u"),
+          type,
+        );
+        const served = publicDocument(saved.document);
+        assert.ok(served != null, type);
+        const { status, body } = await get(harness.federation, saved.iri);
+        assert.equal(status, 200, type);
+        assert.deepEqual(body, served, type);
+        assert.equal(body.type, type);
+        assert.deepEqual(blindKeys(body), [], type);
+        assert.deepEqual(body["test:extension"], extensionValue, type);
+        const other = saved.iri.replace(
+          `/ap/${route}/`,
+          route === "creates" ? "/ap/activities/" : "/ap/creates/",
+        );
+        assert.equal((await get(harness.federation, other)).status, 404, type);
+        // The parsing outgoing payloads use reads every type as itself.
+        const vocab = await parseVocab(ctx, served);
+        assert.equal(getTypeId(vocab).href, `${AS}#${type}`);
+        assert.deepEqual(await vocab.toJsonLd(ctx), served, type);
+        iris.push(saved.iri);
+      }
+      // Both routes share one outbox, newest first, across its pages.
+      const ids = (body: Record<string, unknown>) =>
+        (body.orderedItems as Record<string, unknown>[]).map(({ id }) => id);
+      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      assert.equal(collection.body.totalItems, activityTypes.length);
+      const first = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      assert.equal(typeof first.body.next, "string");
+      const last = await get(harness.federation, String(first.body.next));
+      assert.equal(last.body.next, undefined);
+      assert.deepEqual(
+        [...ids(first.body), ...ids(last.body)],
+        iris.toReversed(),
+      );
+    });
+  });
 
   it("serializes a saved activity the same way for other uses", async () => {
     await withFederation(async (harness) => {

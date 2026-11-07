@@ -49,6 +49,7 @@ import {
   seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
+import { activityTypes, typeDocument } from "./serving-fixture.test.ts";
 
 // This service is an isolated, author-owned test cluster.
 // oxlint-disable-next-line node/no-process-env
@@ -328,29 +329,37 @@ async function write(
   return outcome.result.resources;
 }
 
+/**
+ * Requests a resource from the federation as ActivityStreams.
+ * @returns The status, and the body of a success or a `Tombstone`'s 410.
+ */
+async function fetchDocument(
+  env: LocalWriteEnvironment,
+  iri: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await env.federation.fetch(
+    new Request(iri, { headers: { accept: "application/activity+json" } }),
+    { contextData: undefined },
+  );
+  return {
+    status: response.status,
+    body:
+      response.ok || response.status === 410
+        ? ((await response.json()) as Record<string, unknown>)
+        : {},
+  };
+}
+
 describe("federation reads on PostgreSQL", () => {
+  const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+
   it(
     "serves saved documents as stored in JSON columns, and hides deleted content",
     options,
     async () => {
       await withDatabase(async (_url, env) => {
         const AS = "https://www.w3.org/ns/activitystreams";
-        const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
-        const get = async (iri: string) => {
-          const response = await env.federation.fetch(
-            new Request(iri, {
-              headers: { accept: "application/activity+json" },
-            }),
-            { contextData: undefined },
-          );
-          return {
-            status: response.status,
-            body:
-              response.ok || response.status === 410
-                ? ((await response.json()) as Record<string, unknown>)
-                : {},
-          };
-        };
+        const get = (iri: string) => fetchDocument(env, iri);
         const [like] = await write(env, {
           operation: "create",
           actorId: localActorId,
@@ -412,6 +421,41 @@ describe("federation reads on PostgreSQL", () => {
           [deletion!.iri, like!.iri],
         );
         assert.equal(collection.body.totalItems, 2);
+      });
+    },
+  );
+
+  it(
+    "serves every activity type as saved, and pages them in one outbox",
+    options,
+    async () => {
+      await withDatabase(async (_url, env) => {
+        const get = (iri: string) => fetchDocument(env, iri);
+        const iris: string[] = [];
+        for (const type of activityTypes) {
+          const [saved] = await write(env, {
+            operation: "create",
+            actorId: localActorId,
+            document: typeDocument(type),
+            resources: [{ path: [], kind: "activity" }],
+            publish: true,
+          });
+          const { status, body } = await get(saved!.iri);
+          assert.equal(status, 200, type);
+          assert.deepEqual(body, publicDocument(saved!.document), type);
+          iris.push(saved!.iri);
+        }
+        const ids = (body: Record<string, unknown>) =>
+          (body.orderedItems as JsonObject[]).map(({ id }) => id);
+        const collection = await get(`${actorIri}/outbox`);
+        assert.equal(collection.body.totalItems, activityTypes.length);
+        const first = await get(`${actorIri}/outbox?cursor=`);
+        const last = await get(String(first.body.next));
+        assert.equal(last.body.next, undefined);
+        assert.deepEqual(
+          [...ids(first.body), ...ids(last.body)],
+          iris.toReversed(),
+        );
       });
     },
   );
