@@ -80,12 +80,38 @@ its type IRI, a `kind` (`activity`, `actor`, `collection`, `link`, or
 `object`), and a map from standard property names, including `id` and `type`,
 to the source keys that supply them. Aliases, prefixed or full-IRI keys, and
 `@id`/`@type` aliases are mapped exactly as validation maps them; custom
-extension values are neither listed nor descended into. Each node also lists
-the string IRI references in its own reference properties (`id`, `actor`,
-`object`, addressing, `href`, and so on) as `DocumentIdentifier` values, with
-the original path and value and the IRI after compact-IRI prefix expansion:
-`as:Public` resolves to the full Public IRI, and a context-defined prefix can
-make `local:alice` name another host.
+extension keys are not listed. Each node also lists the string IRI references
+in its own reference properties (`id`, `actor`, `object`, addressing, `href`,
+and so on) as `DocumentIdentifier` values, with the original path and value
+and the IRI after compact-IRI prefix expansion: `as:Public` resolves to the
+full Public IRI, and a context-defined prefix can make `local:alice` name
+another host.
+
+Custom extension values are not read as documents, but a JSON-LD processor
+reads the node objects in them with the context they inherit. Each node lists
+those in its own extension values, outside JSON literals, as its `extensions`:
+`ExtensionNode` values with a path, an embedding property, a property map and
+IRI references as a node has, and the `parent` node object, `types` and the
+`kind` of a known type too. Keys are matched by IRI whatever their container,
+and values are read through `@set` and `@list` objects. A node object with a
+`@context` of its own, or inside one, is `uninterpreted`, with no properties,
+since the checker does not read that context. So is one whose reference
+property holds anything but absolute IRIs, a blank node identifier as its
+`id`, and node objects: a value object, a language map, a string its key does
+not coerce to an IRI, a relative reference, a blank node identifier, which may
+name a node object defined apart, or a `@set` or `@list` object with a
+`@context` of its own; and one with more than one `id` or `href`, or a node
+object as one, or with properties nested by `@nest` or reversed by `@reverse`,
+or one whose `id` is used elsewhere in the document, as the `id` of another
+node object or a reference, since it is then not read apart. A value or a list
+object with keys other than keywords, or a value that is an object but no JSON
+literal, which are no valid JSON-LD, or one with keys a context of its own may
+alias, is reported as an uninterpreted node object. The value of a value
+object, or of a key with a `@language` container that is a language map, is
+never read for node objects; an object in a language map is no valid JSON-LD,
+and is reported as an uninterpreted node object. A blank node identifier is
+never expanded as a compact IRI, whatever term `_` names, so a type spelled as
+one is unsupported.
 
 ~~~~ ts
 import { describeDocument } from "@drfed/models/document";
@@ -311,9 +337,10 @@ values must be strings or arrays of strings; malformed entries receive
 `invalid_value_shape` at the original keyword or list-entry path. These shape
 checks do not require custom type strings to appear in the implemented-type
 set. An `@json` value's payload remains ordinary JSON, including keys spelled
-`@id` or `@type`, and is checked only for JSON safety. These bounded checks do
-not establish full JSON-LD validity or interpret nested contexts and keyword
-aliases.
+`@id` or `@type`, and is checked only for JSON safety; so is the payload of a
+value object whose `@type` is spelled with a keyword alias, such as `type`.
+These bounded checks do not establish full JSON-LD validity or interpret
+nested contexts.
 
 This warning policy does not admit unknown types, unsupported contexts,
 JSON-LD keywords, or known vocabulary properties without implemented rules.

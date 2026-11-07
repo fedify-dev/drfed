@@ -4257,6 +4257,309 @@ describe("describeDocument() semantic view", () => {
     });
   });
 
+  it("describes node objects in extension values with the context they inherit", () => {
+    const nodes = describeDocument({
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          hidden: { "@id": "as:bcc", "@type": "@id" },
+        },
+      ],
+      type: "Like",
+      actor: "https://example.com/alice",
+      object: like.object,
+      "ex:quoted": {
+        type: "Note",
+        to: ["https://example.com/bob", { id: "as:Public" }],
+        hidden: "https://example.com/blind",
+        "ex:literal": { "@type": "@json", "@value": { bcc: "x" } },
+        "ex:value": { "@value": "v" },
+      },
+      "ex:scoped": [
+        { "@context": { secret: "as:bcc" }, secret: "x", inner: { bcc: "y" } },
+      ],
+    });
+    assert.ok(nodes != null);
+    assert.equal(nodes.length, 1);
+    const { extensions } = nodes[0]!;
+    assert.deepEqual(
+      extensions.map(({ path, property, uninterpreted }) => ({
+        path,
+        property,
+        uninterpreted,
+      })),
+      [
+        { path: ["ex:quoted"], property: undefined, uninterpreted: false },
+        { path: ["ex:quoted", "to", 1], property: "to", uninterpreted: false },
+        { path: ["ex:scoped", 0], property: undefined, uninterpreted: true },
+        {
+          path: ["ex:scoped", 0, "inner"],
+          property: undefined,
+          uninterpreted: true,
+        },
+      ],
+    );
+    assert.deepEqual(Object.fromEntries(extensions[0]!.properties), {
+      bcc: ["hidden"],
+      to: ["to"],
+      type: ["type"],
+    });
+    assert.deepEqual(
+      extensions[0]!.identifiers.map(({ property, iri }) => ({
+        property,
+        iri,
+      })),
+      [
+        { property: "bcc", iri: "https://example.com/blind" },
+        { property: "to", iri: "https://example.com/bob" },
+      ],
+    );
+    assert.deepEqual(extensions[1]!.identifiers, [
+      {
+        property: "id",
+        path: ["ex:quoted", "to", 1, "id"],
+        value: "as:Public",
+        iri: `${context}#Public`,
+      },
+    ]);
+    assert.deepEqual(Object.fromEntries(extensions[3]!.properties), {});
+  });
+
+  it("reads extension node objects through containers, sets and keyword aliases", () => {
+    const nodes = describeDocument({
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          listed: { "@id": "as:bcc", "@type": "@id", "@container": "@list" },
+        },
+      ],
+      type: "Like",
+      actor: "https://example.com/alice",
+      object: like.object,
+      "ex:quoted": {
+        type: "Delete",
+        listed: ["https://example.com/blind"],
+        to: {
+          "@set": [
+            "https://example.com/carol",
+            { id: "https://example.com/dave" },
+          ],
+        },
+        "ex:literal": { type: "@json", "@value": { bcc: "x" } },
+      },
+      "ex:valued": { to: { "@value": "https://example.com/erin" } },
+    });
+    assert.ok(nodes != null);
+    const [quoted, dave, valued] = nodes[0]!.extensions;
+    assert.equal(nodes[0]!.extensions.length, 3);
+    assert.deepEqual(quoted!.types, [`${context}#Delete`]);
+    assert.deepEqual(Object.fromEntries(quoted!.properties), {
+      bcc: ["listed"],
+      to: ["to"],
+      type: ["type"],
+    });
+    assert.deepEqual(
+      quoted!.identifiers.map(({ property, path }) => ({ property, path })),
+      [
+        { property: "bcc", path: ["ex:quoted", "listed", 0] },
+        { property: "to", path: ["ex:quoted", "to", "@set", 0] },
+      ],
+    );
+    assert.equal(quoted!.uninterpreted, false);
+    assert.deepEqual(dave!.path, ["ex:quoted", "to", "@set", 1]);
+    assert.equal(dave!.property, "to");
+    assert.deepEqual(dave!.parent, ["ex:quoted"]);
+    // A literal is no reference the checker can read.
+    assert.deepEqual(valued!.path, ["ex:valued"]);
+    assert.equal(valued!.uninterpreted, true);
+  });
+
+  const quotedNode = (quoted: unknown) =>
+    describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          ex: "https://ext.example/ns#",
+          hint: "as:to",
+          toMap: { "@id": "as:to", "@container": "@language" },
+          labels: { "@id": "ex:labels", "@container": "@language" },
+          _: `${context}#`,
+        },
+      ],
+      "ex:quoted": quoted,
+    })?.[0]?.extensions[0];
+
+  it("leaves extension node objects uninterpreted where references are unread", () => {
+    for (const quoted of [
+      { type: "Note", hint: "as:Public" },
+      { type: "Note", [`${context}#to`]: "as:Public" },
+      { type: "Note", id: "/notes/1" },
+      {
+        type: "Note",
+        to: { "@context": { as: "https://a.example/" }, "@set": ["as:Public"] },
+      },
+      { type: "Note", toMap: { id: "as:Public" } },
+      { type: "Link", href: ["https://a.example/1", "https://a.example/2"] },
+      { type: "Note", id: { id: "https://a.example/1" } },
+      // As a reference, a blank node may name a node object defined apart.
+      { type: "Note", to: "_:Public" },
+      { type: "Note", attributedTo: "_:author" },
+      // A value or a list with properties is no valid JSON-LD, nor is a
+      // value that is an object but no JSON literal.
+      { "@set": [], bcc: "https://a.example/b" },
+      { "@value": { bcc: "https://a.example/b" } },
+      { type: "Note", "@reverse": { attributedTo: { type: "Note" } } },
+      { type: "Note", "@nest": { to: "as:Public" } },
+    ]) {
+      assert.equal(
+        quotedNode(quoted)?.uninterpreted,
+        true,
+        JSON.stringify(quoted),
+      );
+    }
+    // A node object whose id is used elsewhere is not read apart from it.
+    const joined = describeDocument({
+      ...like,
+      "@context": [context, { ex: "https://ext.example/ns#" }],
+      "ex:quoted": [
+        { type: "Note", attributedTo: { id: "_:author" } },
+        { id: "_:author", type: "Link", href: "https://a.example/victim" },
+        { id: like.object, type: "Note" },
+        { id: "https://a.example/apart", type: "Note" },
+      ],
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      joined?.map(({ path, uninterpreted }) => ({ path, uninterpreted })),
+      [
+        { path: ["ex:quoted", 0], uninterpreted: false },
+        { path: ["ex:quoted", 0, "attributedTo"], uninterpreted: true },
+        { path: ["ex:quoted", 1], uninterpreted: true },
+        { path: ["ex:quoted", 2], uninterpreted: true },
+        { path: ["ex:quoted", 3], uninterpreted: false },
+      ],
+    );
+    // A value whose keys a context of its own may alias cannot be read, but
+    // its value holds no node objects.
+    const aliased = describeDocument({
+      ...like,
+      "@context": [context, { ex: "https://ext.example/ns#" }],
+      "ex:quoted": {
+        "@context": { kind: "@type" },
+        kind: "@json",
+        "@value": { bcc: "x" },
+      },
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      aliased?.map(({ path, uninterpreted }) => ({ path, uninterpreted })),
+      [{ path: ["ex:quoted"], uninterpreted: true }],
+    );
+  });
+
+  it("reads the kinds, blank node ids and language maps of extension node objects", () => {
+    const link = quotedNode({
+      type: "Link",
+      id: "https://example.com/links/1",
+      href: "https://example.com/bob",
+    });
+    assert.equal(link?.uninterpreted, false);
+    assert.equal(link?.kind, "link");
+    assert.equal(quotedNode({ type: "Note", content: "x" })?.kind, "object");
+    // A blank node identifier as an id names no resource, and stays
+    // readable, but is no compact IRI, whatever prefix "_" names.
+    const blank = quotedNode({ type: "Note", id: "_:b0", to: "as:Public" });
+    assert.equal(blank?.uninterpreted, false);
+    assert.deepEqual(
+      blank?.identifiers.map(({ iri }) => iri),
+      ["_:b0", `${context}#Public`],
+    );
+    assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
+    assert.equal(
+      describeDocument({
+        ...like,
+        "@context": [context, { _: `${context}#` }],
+        type: "_:Like",
+      }),
+      null,
+    );
+    // A language map holds strings, whatever its language tags.
+    const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
+    assert.equal(labelled?.uninterpreted, false);
+    const labels = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: { id: "Halo", bcc: "x" },
+    });
+    assert.deepEqual(labels?.[0]?.extensions, []);
+    // A key with a @language container holds node objects in a list.
+    const listedLabels = quotedNode({
+      type: "Note",
+      labels: [{ type: "Note", bcc: "https://a.example/b" }],
+    });
+    assert.equal(listedLabels?.uninterpreted, false);
+    const listedNode = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: [{ type: "Note", bcc: "https://a.example/b" }],
+    })?.[0]?.extensions;
+    assert.deepEqual(
+      listedNode?.map(({ path, uninterpreted, properties }) => ({
+        path,
+        uninterpreted,
+        bcc: properties.get("bcc"),
+      })),
+      [{ path: ["labels", 0], uninterpreted: false, bcc: ["bcc"] }],
+    );
+    // An object in a language map is no valid JSON-LD, and is not read.
+    const labelled2 = describeDocument({
+      ...like,
+      "@context": [
+        context,
+        {
+          labels: {
+            "@id": "https://example.com/labels",
+            "@container": "@language",
+          },
+        },
+      ],
+      labels: { en: { bcc: "x" }, ko: ["x", { bcc: "y" }] },
+    });
+    assert.deepEqual(
+      labelled2?.[0]?.extensions.map(({ path, uninterpreted }) => ({
+        path,
+        uninterpreted,
+      })),
+      [
+        { path: ["labels", "en"], uninterpreted: true },
+        { path: ["labels", "ko", 1], uninterpreted: true },
+      ],
+    );
+    // A JSON literal holds data, however its keywords are spelled.
+    const literal = describeDocument({
+      ...like,
+      custom: { type: "@json", "@value": { "@id": 1, bcc: "x" } },
+    });
+    assert.deepEqual(literal?.[0]?.extensions, []);
+  });
+
   it("returns null unless validation completes without errors", () => {
     assert.equal(describeDocument({ ...like, actor: false }), null);
     assert.equal(describeDocument({ ...like, type: "Place" }), null);

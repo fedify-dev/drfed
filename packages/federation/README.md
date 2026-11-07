@@ -47,6 +47,7 @@ Exports
 | `@drfed/federation/local-write`       | Common write operations that save, edit, and delete resources |
 | `@drfed/federation/object`            | Query selections, `toObject()`, and `toCreate()`              |
 | `@drfed/federation/origin`            | `instanceHost()`, `classifyHost()`, and other host helpers    |
+| `@drfed/federation/serving`           | Serialization of saved documents for public output            |
 
 The serializers in `@drfed/federation/object` are the same ones the
 dispatchers use, so documents stored by GraphQL mutations match what is served
@@ -67,6 +68,19 @@ checking permission again.  Saving never delivers anything.  See the
 [local write internals] for the contract.
 
 [local write internals]: https://drfed.org/internals/local-writes
+
+
+Federation reads
+----------------
+
+The dispatchers serve legacy `Note`/`Article` objects and `Create` activities
+from their typed rows, and resources saved by the common write operations from
+their current documents, without blind recipients.  `publicDocument()` from
+`@drfed/federation/serving` is the same serialization, for outgoing payloads
+to share, and `parseVocab()` parses its result into a Fedify vocabulary
+object.  See [federation read internals] for what is served where.
+
+[federation read internals]: https://drfed.org/internals/federation-reads
 
 
 Activity deliveries
@@ -116,6 +130,7 @@ transition.  Do not delete the row merely to trigger first-use generation.
 Logging
 -------
 
-Inbox activity is logged under the `["drfed", "federation"]` category, and
+Inbox activity is logged under the `["drfed", "federation"]` category,
 activity delivery recording under
-`["drfed", "federation", "activity-delivery"]`.
+`["drfed", "federation", "activity-delivery"]`, and saved documents that
+federation reads cannot serve under `["drfed", "federation", "serving"]`.

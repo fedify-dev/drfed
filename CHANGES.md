@@ -8,6 +8,16 @@ To be released.
 
 ### DrFed
 
+ -  Activities and objects saved by the common write operations are now
+    served over ActivityPub as they were saved, with their extension
+    properties and without blind recipients, also inside extension values.
+    Published activities of every type appear in the actor's outbox beside
+    existing `Create` activities. Earlier activities keep the versions they
+    embedded after an edit.  A deleted object is answered with a `Tombstone`,
+    and its `Delete` is the only activity about it that remains retrievable.  A
+    Public activity that embeds content addressed to particular recipients,
+    even inside an extension value, is not served. Existing IRIs do not change.
+    [[#153], [#177] by ChanHaeng Lee\]
  -  Added immutable document histories for local object creation and accepted
     incoming Create activities. Database upgrades retain existing object and
     activity documents, including those of deleted objects. Back up and stop
@@ -28,8 +38,10 @@ To be released.
 [#135]: https://github.com/fedify-dev/drfed/issues/135
 [#137]: https://github.com/fedify-dev/drfed/pull/137
 [#150]: https://github.com/fedify-dev/drfed/issues/150
+[#153]: https://github.com/fedify-dev/drfed/issues/153
 [#164]: https://github.com/fedify-dev/drfed/pull/164
 [#167]: https://github.com/fedify-dev/drfed/pull/167
+[#177]: https://github.com/fedify-dev/drfed/pull/177
 
 ### GraphQL APIs
 
@@ -73,6 +85,16 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added the `@drfed/federation/serving` subpath.  It exports
+    `publicDocument()`, the serialization federation reads use for saved
+    documents, `parseVocab()`, which parses such a document into a Fedify
+    vocabulary object, and `loadActivitySnapshot()`.
+    [[#153], [#177] by ChanHaeng Lee\]
+ -  Added `extensions` to the nodes `describeDocument()` in
+    `@drfed/models/document` returns: the JSON-LD node objects in their
+    extension values, with the standard properties their keys stand for,
+    their types and their IRI references.
+    [[#153], [#177] by ChanHaeng Lee\]
  -  Added `validateDocument()` in `@drfed/models/document` for parsed
     ActivityStreams documents. It returns structured errors and compatibility
     warnings with original nested field and list-entry paths, preserves custom

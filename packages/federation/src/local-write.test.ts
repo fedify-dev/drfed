@@ -195,7 +195,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         where: { id: saved.id },
       });
       assert.equal(resource?.kind, "object");
-      // Revision-only until generalized reads arrive; nothing else changed.
+      // Revision-only, without legacy typed rows; nothing else changed.
       assert.equal(await harness.db.$count(schema.objects), 0);
       assert.equal(await harness.db.$count(schema.activities), 0);
       assert.equal(await harness.db.$count(schema.collectionItems), 0);
@@ -653,6 +653,136 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
+  it("checks identity claims in the node objects of extension values", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const quoting = (quoted: Record<string, unknown>) =>
+        create(
+          {
+            "@context": [AS, { ex: "https://ext.example/ns#" }],
+            type: "Like",
+            object: "https://x.example/",
+            "ex:quoted": quoted,
+          } as never,
+          [{ path: [], kind: "activity" }],
+        );
+      for (const [quoted, path] of [
+        [
+          {
+            type: "Note",
+            id: "https://test-instance.drfed.org/users/x/forged",
+            content: "forged",
+          },
+          ["ex:quoted", "id"],
+        ],
+        [
+          {
+            type: "Note",
+            attributedTo: "https://other.drfed.org/users/victim",
+            content: "forged",
+          },
+          ["ex:quoted", "attributedTo"],
+        ],
+        [
+          {
+            type: "Note",
+            attributedTo: {
+              type: "Link",
+              href: "https://other.drfed.org/users/victim",
+            },
+          },
+          ["ex:quoted", "attributedTo", "href"],
+        ],
+      ] as const) {
+        const outcome = await previewLocalWrite(
+          env,
+          principal,
+          quoting(quoted),
+        );
+        assert.ok(!outcome.ok);
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
+      // A reference names what a Link embedded elsewhere with its id does.
+      const link = "https://remote.example/links/1";
+      const victim = "https://other.drfed.org/users/victim";
+      for (const [request, path] of [
+        [
+          create(
+            {
+              "@context": AS,
+              type: "Like",
+              object: { type: "Note", content: "forged", attributedTo: link },
+              target: { type: "Link", id: link, href: victim },
+            },
+            [{ path: [], kind: "activity" }],
+          ),
+          ["target", "href"],
+        ],
+        [
+          create(
+            {
+              "@context": [AS, { ex: "https://ext.example/ns#" }],
+              type: "Like",
+              object: "https://x.example/",
+              "ex:quoted": [
+                { type: "Note", attributedTo: link },
+                { id: link, type: "Link", href: victim },
+              ],
+            } as never,
+            [{ path: [], kind: "activity" }],
+          ),
+          ["ex:quoted", 1, "href"],
+        ],
+        ...[{ id: "_:author" }, "_:author"].map(
+          (author) =>
+            [
+              create(
+                {
+                  "@context": [AS, { ex: "https://ext.example/ns#" }],
+                  type: "Like",
+                  object: "https://x.example/",
+                  "ex:quoted": [
+                    { type: "Note", attributedTo: author },
+                    { id: "_:author", type: "Link", href: victim },
+                  ],
+                } as never,
+                [{ path: [], kind: "activity" }],
+              ),
+              ["ex:quoted", 1, "href"],
+            ] as const,
+        ),
+      ] as const) {
+        const outcome = await previewLocalWrite(env, principal, request);
+        assert.ok(!outcome.ok, JSON.stringify(request.document));
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
+      // A remote identity is not checked, as in any embedded document.
+      await save(
+        env,
+        quoting({
+          type: "Note",
+          id: "https://remote.example/notes/1",
+          attributedTo: "https://remote.example/users/bob",
+        }),
+      );
+    });
+  });
+
   it("does not accept an id that is registered only as a reference", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
@@ -825,7 +955,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         items.map(({ itemId }) => itemId),
         [root.id],
       );
-      // Saved without a legacy typed row, it is not served yet.
+      // Saved without a legacy typed row; it is served from its revision.
       assert.equal(await harness.db.$count(schema.activities), 0);
     });
   });

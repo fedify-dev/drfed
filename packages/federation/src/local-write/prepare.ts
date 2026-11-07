@@ -298,12 +298,18 @@ function resourceIri(
   ).href;
 }
 
+const isInstanceIri = (iri: string, rootOrigin: URL): boolean =>
+  URL.canParse(iri) && classifyHost(new URL(iri), rootOrigin) === "instance";
+
 /**
  * Finds identity claims on DrFed instance hosts in documents that are not
- * new resources: `actor` and `attributedTo` values, which must be actors of
- * the acting actor's instance, and `id` values, which must be registered or
- * allocated in this write.  Values are compared as the context resolves
- * them, so aliases and compact IRIs cannot hide a claim.
+ * new resources, and in the node objects of their extension values, which
+ * federation reads serve too: `actor` and `attributedTo` values, including
+ * the `id` or `href` of a document embedded there and the `href` of a `Link`
+ * embedded elsewhere with the `id` one names, which must be actors of the
+ * acting actor's instance, and other `id` values, which must be registered
+ * or allocated in this write.  Values are compared as the
+ * context resolves them, so aliases and compact IRIs cannot hide a claim.
  * @returns The denied claims' paths.
  */
 export async function deniedClaims(
@@ -315,7 +321,22 @@ export async function deniedClaims(
 ): Promise<DocumentAuthority[]> {
   const actors: { iri: string; path: FieldPath }[] = [];
   const ids: { iri: string; path: FieldPath }[] = [];
-  for (const node of nodes) {
+  const described = [
+    ...nodes,
+    ...nodes.flatMap(({ extensions }) => extensions),
+  ];
+  // A reference names what a Link the document embeds with its id does.
+  const linked = Map.groupBy(
+    described.flatMap((node) => {
+      const id = node.identifiers.find(({ property }) => property === "id");
+      const href = node.identifiers.find(({ property }) => property === "href");
+      return node.kind === "link" && id != null && href != null
+        ? [{ id: id.iri, iri: href.iri, path: href.path }]
+        : [];
+    }),
+    ({ id }) => id,
+  );
+  for (const node of described) {
     // A new resource's id and author are server-owned; checking them here
     // would only repeat the conflict preparation reports.  Its other
     // attribution property, such as attributedTo on an activity, is a claim.
@@ -327,18 +348,19 @@ export async function deniedClaims(
       if (createdKind != null && (property === "id" || property === owned)) {
         continue;
       }
+      // An embedded actor claims its id, or a Link the href it names.
       const isActor =
         property === "actor" ||
         property === "attributedTo" ||
-        (property === "id" && embedsActor);
+        ((property === "id" || property === "href") && embedsActor);
       if (!isActor && property !== "id") continue;
-      if (
-        !URL.canParse(iri) ||
-        classifyHost(new URL(iri), rootOrigin) !== "instance"
-      ) {
-        continue;
-      }
-      (isActor ? actors : ids).push({ iri, path });
+      const claims = [
+        { iri, path },
+        ...(isActor ? (linked.get(iri) ?? []) : []),
+      ];
+      (isActor ? actors : ids).push(
+        ...claims.filter((claim) => isInstanceIri(claim.iri, rootOrigin)),
+      );
     }
   }
   const [localActors, registered] = await Promise.all([
@@ -402,9 +424,13 @@ export function indexDocument(document: JsonObject): {
     const node = children.get(pathKey(path));
     if (node == null) return undefined;
     const property = node.kind === "link" ? "href" : "id";
+    // A functional property may be a list with one non-null entry.
     return node.identifiers.find(
       (entry) =>
-        entry.property === property && entry.path.length === path.length + 1,
+        entry.property === property &&
+        (entry.path.length === path.length + 1 ||
+          (entry.path.length === path.length + 2 &&
+            typeof entry.path.at(-1) === "number")),
     )?.iri;
   };
   const occurrences = (
