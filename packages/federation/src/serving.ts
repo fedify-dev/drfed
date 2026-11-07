@@ -23,12 +23,7 @@
  * @module
  */
 
-export {
-  type ServedDocument,
-  parseVocab,
-  publicDocument,
-  serveDocument,
-} from "./serving/document.ts";
+export { parseVocab, publicDocument } from "./serving/document.ts";
 export {
   type ActivitySnapshot,
   loadActivitySnapshot,
