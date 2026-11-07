@@ -1,6 +1,7 @@
 ---
 links:
   '#153': https://github.com/fedify-dev/drfed/issues/153
+  '#177': https://github.com/fedify-dev/drfed/pull/177
 ---
  -  Activities and objects saved by the common write operations are now
     served over ActivityPub as they were saved, with their extension
@@ -11,4 +12,4 @@ links:
     and its `Delete` is the only activity about it that remains retrievable.  A
     Public activity that embeds content addressed to particular recipients,
     even inside an extension value, is not served. Existing IRIs do not change.
-    [[#153] by ChanHaeng Lee]
+    [[#153], [#177] by ChanHaeng Lee]
