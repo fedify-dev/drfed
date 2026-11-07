@@ -15,13 +15,18 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type { JsonObject } from "@drfed/federation/local-write";
+import { validateDocument } from "@drfed/models/document";
 import { PUBLIC_IRI } from "@drfed/models/resource";
+import * as vocabulary from "@fedify/vocab";
+
+const AS = "https://www.w3.org/ns/activitystreams";
 
 /**
  * `Activity`, `IntransitiveActivity` and every activity type the
  * ActivityStreams vocabulary names.  The same list as `activityTypes` in
  * *packages/models/src/resource-revision.test.ts*, which is not built and so
- * cannot be imported here; change the two together.
+ * cannot be imported here; change the two together.  A test compares this
+ * one with {@link acceptedActivityTypeIds}.
  */
 export const activityTypes = [
   "Activity",
@@ -58,8 +63,30 @@ export const activityTypes = [
 
 export type ActivityType = (typeof activityTypes)[number];
 
+const isActivityClass = (value: unknown): value is typeof vocabulary.Activity =>
+  value === vocabulary.Activity ||
+  (typeof value === "function" &&
+    value.prototype instanceof vocabulary.Activity);
+
+/**
+ * Lists the type IRIs of the Fedify activity classes that the validator
+ * accepts, so that a test can tell when {@link activityTypes} falls behind
+ * it.
+ * @returns The IRIs, sorted.
+ */
+export const acceptedActivityTypeIds = (): string[] =>
+  Object.values(vocabulary)
+    .filter(isActivityClass)
+    .map(({ typeId }) => typeId.href)
+    .filter((type) =>
+      validateDocument({ "@context": AS, type }).diagnostics.every(
+        ({ reason }) => reason !== "unsupported_type",
+      ),
+    )
+    .toSorted();
+
 /** The blind recipient every fixture is addressed to. */
-const blindRecipient = "https://remote.example/users/blind";
+export const blindRecipient = "https://remote.example/users/blind";
 
 /**
  * The extension value every fixture carries: an array whose order and
@@ -80,10 +107,7 @@ export const extensionValue: JsonObject = {
  * @returns A new document.
  */
 export const typeDocument = (type: ActivityType): JsonObject => ({
-  "@context": [
-    "https://www.w3.org/ns/activitystreams",
-    { test: "https://example.test/vocab#" },
-  ],
+  "@context": [AS, { test: "https://example.test/vocab#" }],
   type,
   to: [PUBLIC_IRI],
   bto: [blindRecipient],

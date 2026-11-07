@@ -62,7 +62,9 @@ import {
   seedLocalActor,
 } from "./seed.test.ts";
 import {
+  acceptedActivityTypeIds,
   activityTypes,
+  blindRecipient,
   extensionValue,
   typeDocument,
 } from "./serving-fixture.test.ts";
@@ -544,6 +546,13 @@ describe("federation reads of saved activities", () => {
     });
   }
 
+  it("covers every activity type the validator accepts", () => {
+    assert.deepEqual(
+      acceptedActivityTypeIds(),
+      activityTypes.map((type) => `${AS}#${type}`).toSorted(),
+    );
+  });
+
   it("serves every activity type as saved, at its route and in the outbox", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
@@ -560,6 +569,8 @@ describe("federation reads of saved activities", () => {
           new RegExp(`^https://${host}/ap/${route}/`, "u"),
           type,
         );
+        // Saved with its blind recipient, so that serving has one to remove.
+        assert.deepEqual(saved.document.bto, [blindRecipient], type);
         const served = publicDocument(saved.document);
         assert.ok(served != null, type);
         const { status, body } = await get(harness.federation, saved.iri);
