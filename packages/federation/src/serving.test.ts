@@ -569,9 +569,12 @@ describe("federation reads of saved activities", () => {
           new RegExp(`^https://${host}/ap/${route}/`, "u"),
           type,
         );
-        // Saved with its blind recipient, so that serving has one to remove.
-        assert.deepEqual(saved.document.bto, [blindRecipient], type);
-        const served = publicDocument(saved.document);
+        // Stored with its blind recipient, so that serving has one to remove.
+        const stored = await loadActivitySnapshot(harness.db, saved.id);
+        assert.ok(stored != null, type);
+        assert.deepEqual(stored.document, saved.document, type);
+        assert.deepEqual(stored.document.bto, [blindRecipient], type);
+        const served = publicDocument(stored.document);
         assert.ok(served != null, type);
         const { status, body } = await get(harness.federation, saved.iri);
         assert.equal(status, 200, type);

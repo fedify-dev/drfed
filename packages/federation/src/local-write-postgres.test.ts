@@ -32,7 +32,10 @@ import {
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
-import { publicDocument } from "@drfed/federation/serving";
+import {
+  loadActivitySnapshot,
+  publicDocument,
+} from "@drfed/federation/serving";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
 import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
@@ -49,7 +52,11 @@ import {
   seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
-import { activityTypes, typeDocument } from "./serving-fixture.test.ts";
+import {
+  activityTypes,
+  blindRecipient,
+  typeDocument,
+} from "./serving-fixture.test.ts";
 
 // This service is an isolated, author-owned test cluster.
 // oxlint-disable-next-line node/no-process-env
@@ -440,9 +447,14 @@ describe("federation reads on PostgreSQL", () => {
             resources: [{ path: [], kind: "activity" }],
             publish: true,
           });
+          // The JSON column keeps the blind recipient that serving removes.
+          const stored = await loadActivitySnapshot(env.db, saved!.id);
+          assert.ok(stored != null, type);
+          assert.deepEqual(stored.document, saved!.document, type);
+          assert.deepEqual(stored.document.bto, [blindRecipient], type);
           const { status, body } = await get(saved!.iri);
           assert.equal(status, 200, type);
-          assert.deepEqual(body, publicDocument(saved!.document), type);
+          assert.deepEqual(body, publicDocument(stored.document), type);
           iris.push(saved!.iri);
         }
         const ids = (body: Record<string, unknown>) =>
