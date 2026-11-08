@@ -48,7 +48,7 @@ import {
 } from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
-import { Like, getTypeId } from "@fedify/vocab";
+import { Like, OrderedCollectionPage, getTypeId } from "@fedify/vocab";
 import { describe, it } from "@logtape/testing-node/autoload";
 import { eq } from "drizzle-orm";
 
@@ -1614,6 +1614,55 @@ describe("outboxes of saved and legacy activities", () => {
       assert.equal(page.body.next, undefined);
     });
   });
+
+  // FIXME: https://github.com/fedify-dev/drfed/issues/178
+  it(
+    "pages an activity whose context redefines a protected term as JSON-LD",
+    {
+      expectFailure: (error: unknown) =>
+        (error as { details?: { code?: unknown } } | null)?.details?.code ===
+        "protected term redefinition",
+    },
+    async () => {
+      await withFederation(async (harness) => {
+        const env = await setUp(harness);
+        const plain = await save(
+          env,
+          {
+            "@context": AS,
+            type: "Like",
+            to: [PUBLIC_IRI],
+            object: "https://remote.example/notes/1",
+          },
+          "activity",
+        );
+        const redefining = await save(
+          env,
+          {
+            "@context": [AS, { proof: "https://example.org/proof" }],
+            type: "Like",
+            to: [PUBLIC_IRI],
+            object: "https://remote.example/notes/2",
+          },
+          "activity",
+        );
+        assert.equal(
+          (await get(harness.federation, redefining.iri)).status,
+          200,
+        );
+        const page = await get(
+          harness.federation,
+          `${actorIri}/outbox?cursor=`,
+        );
+        assert.equal(page.status, 200);
+        // A JSON-LD client reads the page, not only its JSON.
+        const parsed = await OrderedCollectionPage.fromJsonLd(page.body);
+        const ids: (string | undefined)[] = [];
+        for await (const item of parsed.getItems()) ids.push(item.id?.href);
+        assert.deepEqual(ids, [redefining.iri, plain.iri]);
+      });
+    },
+  );
 
   it("leaves out an activity whose saved document cannot be served", async () => {
     await withFederation(async (harness) => {
