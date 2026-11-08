@@ -379,7 +379,7 @@ describe("federation reads on PostgreSQL", () => {
             to: [PUBLIC_IRI],
             bcc: ["https://remote.example/users/blind"],
             object: "https://remote.example/notes/1",
-            mood: { text: '안녕 "🙂" \\ é', zeta: 1, alpha: [true, null] },
+            mood: { zeta: 1, alpha: [true, null], text: '안녕 "🙂" \\ é' },
           },
           resources: [{ path: [], kind: "activity" }],
           publish: true,
@@ -387,10 +387,11 @@ describe("federation reads on PostgreSQL", () => {
         const served = await get(like!.iri);
         assert.equal(served.status, 200);
         assert.deepEqual(served.body, publicDocument(like!.document));
+        // Out of the order jsonb would store them in.
         assert.deepEqual(Object.keys(served.body.mood as object), [
-          "text",
           "zeta",
           "alpha",
+          "text",
         ]);
         const [noteResource, create] = await write(env, {
           operation: "create",

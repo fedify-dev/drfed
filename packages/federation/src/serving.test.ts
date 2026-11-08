@@ -435,7 +435,10 @@ describe("federation reads of saved activities", () => {
       ],
       route: "creates",
       check: (body) =>
-        assert.match(String(body.object), new RegExp(`^${actorIri}/`, "u")),
+        assert.ok(
+          String(body.object).startsWith(`${actorIri}/`),
+          String(body.object),
+        ),
     },
     {
       name: "Undo of a new Like of a remote Note",
@@ -528,9 +531,9 @@ describe("federation reads of saved activities", () => {
         const saved = await save(env, document, "activity", {
           ...(nested == null ? {} : { nested }),
         });
-        assert.match(
+        assert.ok(
+          saved.iri.startsWith(`https://${host}/ap/${route}/`),
           saved.iri,
-          new RegExp(`^https://${host}/ap/${route}/`, "u"),
         );
         const { status, body } = await get(harness.federation, saved.iri);
         assert.equal(status, 200);
@@ -564,10 +567,9 @@ describe("federation reads of saved activities", () => {
       for (const type of activityTypes) {
         const saved = await save(env, typeDocument(type), "activity");
         const route = type === "Create" ? "creates" : "activities";
-        assert.match(
-          saved.iri,
-          new RegExp(`^https://${host}/ap/${route}/`, "u"),
-          type,
+        assert.ok(
+          saved.iri.startsWith(`https://${host}/ap/${route}/`),
+          `${type}: ${saved.iri}`,
         );
         // Stored with its blind recipient, so that serving has one to remove.
         const stored = await loadActivitySnapshot(harness.db, saved.id);
@@ -890,14 +892,19 @@ describe("federation reads of saved objects and their history", () => {
       assert.ok(!isLocalWriteError(legacy));
       const legacyIri = `${actorIri}/${legacy.id}`;
       const createIri = `https://${host}/ap/creates/${legacy.activityId}`;
+      const original = await get(harness.federation, createIri);
+      assert.equal(original.status, 200);
       const update = await edit(env, legacy.id, (document) => ({
         ...document,
         content: "<p>B</p>",
+        cc: [bob],
       }));
       const object = await get(harness.federation, legacyIri);
       assert.equal(object.body.content, "<p>B</p>");
+      assert.equal(object.body.cc, bob);
+      // Neither the object's content nor its recipients rewrite the Create.
       const legacyCreate = await get(harness.federation, createIri);
-      assert.equal(legacyCreate.status, 200);
+      assert.deepEqual(legacyCreate, original);
       // A legacy Create is served at its own route only.
       assert.equal(
         (
