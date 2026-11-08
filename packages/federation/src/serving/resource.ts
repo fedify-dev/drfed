@@ -111,12 +111,16 @@ function isJsonObject(value: unknown): value is JsonObject {
 
 /**
  * Reads a saved revision's document for serving.  A document the write path
- * does not save, one the validator cannot read or one naming another
- * resource, can only come from a change made outside it.  It is logged and
+ * does not save, one the validator cannot read or one whose `id` is not the
+ * resource's, can only come from a change made outside it.  It is logged and
  * left out, so that it takes down nothing but its own resource.  A document
  * whose node objects cannot be read apart, as in extension values, is logged
- * as a warning, and is not served either.  Each revision is logged once.
- * @returns The inspection, or `null` when the document cannot be served.
+ * as a warning; it is inspected, and {@link canServe} refuses it.  Each
+ * revision is logged once.
+ * @returns The inspection, also of a document the rules of
+ *          {@link canServe} refuse, or `null` when the document is not a
+ *          JSON object the validator reads, or has no `id` or one other than
+ *          the resource's IRI.
  */
 function inspectRevision(row: RevisionRow): DocumentInspection | null {
   const inspection = isJsonObject(row.document)
@@ -152,9 +156,12 @@ function inspectRevision(row: RevisionRow): DocumentInspection | null {
  * document whose blind recipients cannot be found is not served.
  * @param deleted The deleted local objects among what the document embeds
  *                and refers to.
- * @returns Whether the document is served.
+ * @returns Whether these rules let the document be served.  Callers apply
+ *          the rest: the actor and resource rules where they select the
+ *          rows, and the route of a saved activity on the served document's
+ *          type.
  */
-function isServable(
+function canServe(
   inspection: DocumentInspection,
   deleted: ReadonlySet<string>,
 ): boolean {
@@ -171,7 +178,7 @@ function isServable(
  * Finds the deleted local objects among IRIs, in lookups of a bounded size.
  * @returns The IRIs of those objects.
  */
-async function deletedObjects(
+async function findDeletedObjects(
   db: Database,
   iris: readonly string[],
 ): Promise<ReadonlySet<string>> {
@@ -194,12 +201,12 @@ async function deletedObjects(
  * @returns For each revision, its served form, or `null` when it is not
  *          served.
  */
-async function servedRevisions(
+async function serveRevisions(
   db: Database,
   rows: readonly RevisionRow[],
 ): Promise<(ServedDocument | null)[]> {
   const inspections = rows.map(inspectRevision);
-  const deleted = await deletedObjects(db, [
+  const deleted = await findDeletedObjects(db, [
     ...new Set(
       inspections.flatMap((inspection) =>
         inspection == null
@@ -209,7 +216,7 @@ async function servedRevisions(
     ),
   ]);
   return inspections.map((inspection) =>
-    inspection != null && isServable(inspection, deleted)
+    inspection != null && canServe(inspection, deleted)
       ? inspection.served
       : null,
   );
@@ -260,7 +267,7 @@ export async function findServedActivity(
     });
     return activity == null ? null : toCreate(ctx, activity);
   }
-  const [served] = await servedRevisions(db, [row]);
+  const [served] = await serveRevisions(db, [row]);
   if (
     served == null ||
     (served.type === CREATE_TYPE) !== (route === "create")
@@ -335,7 +342,7 @@ export async function findServedObject(
     return new Tombstone({ id: new URL(row.iri), deleted: row.deleted });
   }
   if (row.kind !== "snapshot") return null;
-  const [served] = await servedRevisions(db, [row]);
+  const [served] = await serveRevisions(db, [row]);
   return served == null ? null : documentObject(served);
 }
 
@@ -407,7 +414,7 @@ async function loadOutboxBatch(
   const byId = new Map(typed.map((activity) => [activity.id, activity]));
   const saved = rows.filter((row) => !row.typed);
   const served = new Map(
-    (await servedRevisions(db, saved)).map((document, index) => [
+    (await serveRevisions(db, saved)).map((document, index) => [
       saved[index]!.id,
       document,
     ]),
@@ -522,15 +529,23 @@ export async function countOutbox(
       .orderBy(asc(collectionItems.itemId))
       .limit(COUNT_BATCH_SIZE);
     // oxlint-disable-next-line no-await-in-loop
-    const served = await servedRevisions(db, saved);
+    const served = await serveRevisions(db, saved);
     count += served.filter((document) => document != null).length;
     if (saved.length < COUNT_BATCH_SIZE) return count;
     after = saved.at(-1)!.id;
   }
 }
 
-/** A saved activity's current document, as #145 dispatches it. */
+/**
+ * A saved activity's current revision, for outgoing delivery to read.
+ * Unlike what federation reads serve, its document keeps its blind
+ * recipients, so that a sender can deliver to them and remove them from what
+ * it sends with `publicDocument()`.  Nothing dispatches it yet; sending test
+ * activities and retrying failed deliveries
+ * (<https://github.com/fedify-dev/drfed/issues/145>) will.
+ */
 export interface ActivitySnapshot {
+  /** The revision the document belongs to, for a sender to record. */
   readonly revisionId: Uuid;
   /** The protected document, including blind recipients. */
   readonly document: JsonObject;
