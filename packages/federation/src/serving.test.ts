@@ -1184,6 +1184,28 @@ describe("embedded documents and implicit contexts", () => {
     });
   });
 
+  it("reads a node object in an extension value whose own href is its id", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const self = "https://remote.example/x";
+      const saved = await save(
+        env,
+        {
+          "@context": [AS, { ex: "https://ext.example/ns#" }],
+          type: "Like",
+          to: [PUBLIC_IRI],
+          object: "https://remote.example/notes/1",
+          "ex:quoted": { type: "Link", id: self, href: self },
+        },
+        "activity",
+      );
+      const { status, body } = await get(harness.federation, saved.iri);
+      assert.equal(status, 200);
+      assert.deepEqual(body, publicDocument(saved.document));
+      assert.deepEqual(await outboxIds(harness.federation), [saved.iri]);
+    });
+  });
+
   it("hides an activity that embeds a deleted object at any depth", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);

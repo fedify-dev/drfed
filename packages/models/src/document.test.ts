@@ -4429,6 +4429,17 @@ describe("describeDocument() semantic view", () => {
         { id: "_:author", type: "Link", href: "https://a.example/victim" },
         { id: like.object, type: "Note" },
         { id: "https://a.example/apart", type: "Note" },
+        // Its own properties name no other node, but those it holds do.
+        {
+          id: "https://a.example/self",
+          type: "Link",
+          href: "https://a.example/self",
+        },
+        {
+          id: "https://a.example/held",
+          type: "Note",
+          attributedTo: { type: "Link", href: "https://a.example/held" },
+        },
       ],
     })?.[0]?.extensions;
     assert.deepEqual(
@@ -4439,6 +4450,9 @@ describe("describeDocument() semantic view", () => {
         { path: ["ex:quoted", 1], uninterpreted: true },
         { path: ["ex:quoted", 2], uninterpreted: true },
         { path: ["ex:quoted", 3], uninterpreted: false },
+        { path: ["ex:quoted", 4], uninterpreted: false },
+        { path: ["ex:quoted", 5], uninterpreted: true },
+        { path: ["ex:quoted", 5, "attributedTo"], uninterpreted: false },
       ],
     );
     // A value whose keys a context of its own may alias cannot be read, but

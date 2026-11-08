@@ -310,7 +310,7 @@ const isInstanceIri = (iri: string, rootOrigin: URL): boolean =>
  * acting actor's instance, and other `id` values, which must be registered
  * or allocated in this write.  Values are compared as the
  * context resolves them, so aliases and compact IRIs cannot hide a claim.
- * @returns The denied claims' paths.
+ * @returns The denied claims' paths, each once.
  */
 export async function deniedClaims(
   nodes: readonly DocumentNode[],
@@ -367,10 +367,15 @@ export async function deniedClaims(
     lookups.localActors([...new Set(actors.map(({ iri }) => iri))]),
     lookups.registered([...new Set(ids.map(({ iri }) => iri))]),
   ]);
-  return [
+  const denied = [
     ...actors.filter(({ iri }) => !localActors.has(iri)),
     ...ids.filter(({ iri }) => !registered.has(iri) && !allocated.has(iri)),
-  ].map(({ path }) => ({ allowed: false, path }));
+  ];
+  // Several claims can reach one path, as a Link's own href and the href
+  // its id names; each is denied once.
+  return [
+    ...new Map(denied.map(({ path }) => [pathKey(path), path])).values(),
+  ].map((path) => ({ allowed: false, path }));
 }
 
 function contextEntries(value: JsonValue | undefined): JsonValue[] {

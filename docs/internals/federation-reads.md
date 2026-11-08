@@ -103,8 +103,9 @@ actor, and Public `to` or `cc` addressing in the resource's current
     blank node identifier is read as an `id` that names no resource, but
     not as a reference, since it may name a node object defined apart.  A
     node object whose `id` is used elsewhere in the document, as another
-    node object's `id` or as a reference, is one node with what uses it,
-    and is not read apart either.  Language maps are read as strings, and
+    node object's `id` or as a reference outside its own properties, is one
+    node with what uses it, and is not read apart either; a `Link` whose
+    `href` is its own `id` is read.  Language maps are read as strings, and
     an object in one, which is no valid JSON-LD, is not read; a list under
     a key with a `@language` container is no language map, and its node
     objects are read.

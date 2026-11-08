@@ -2607,7 +2607,8 @@ export interface ExtensionNode {
    * blank node identifier, or it has more than one `id` or `href`, or a node
    * object as one, or it nests properties with `@nest` or reverses them with
    * `@reverse`, or its `id` is used elsewhere in the document, as the `id` of
-   * another node object or a reference, so that it is not read apart.  An
+   * another node object or a reference outside its own properties, so that
+   * it is not read apart; a `Link` whose `href` is its own `id` is read.  An
    * uninterpreted node object has no properties, identifiers or types when
    * its context is unread.
    */
@@ -3061,6 +3062,8 @@ export function describeDocument(
   // Node objects that share an id are one node, and one whose id another
   // value refers to says more of what that value names, so a node object
   // whose id is used elsewhere in the document is not read apart from it.
+  // Its own properties, such as a Link's href naming its own id, name no
+  // other node to join.
   const uses = Map.groupBy(
     [...documents, ...described.map(({ node }) => node)].flatMap(
       ({ identifiers }) => identifiers,
@@ -3069,7 +3072,12 @@ export function describeDocument(
   );
   const extensionNodes = described.map(({ node }): ExtensionNode => {
     const id = node.identifiers.find(({ property }) => property === "id");
-    const joined = id != null && (uses.get(id.iri)?.length ?? 0) > 1;
+    // Every use of its id in its own properties is among the uses; counting
+    // keeps this linear in a long list of them.
+    const joined =
+      id != null &&
+      (uses.get(id.iri)?.length ?? 0) >
+        node.identifiers.filter(({ iri }) => iri === id.iri).length;
     return {
       ...node,
       ...holders.get(JSON.stringify(node.path)),

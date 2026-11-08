@@ -771,6 +771,32 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           [["unauthorized_local_identity", path]],
         );
       }
+      // A Link whose href is its own id claims it through both; each path
+      // is denied once.
+      const forged = "https://test-instance.drfed.org/users/x/forged";
+      const self = await previewLocalWrite(
+        env,
+        principal,
+        quoting({
+          type: "Note",
+          attributedTo: { type: "Link", id: forged, href: forged },
+        }),
+      );
+      assert.ok(!self.ok);
+      assert.deepEqual(
+        self.error.type === "invalid_document"
+          ? self.error.diagnostics
+              .filter(({ category }) => category === "authority")
+              .map(({ reason, path }) => [reason, path])
+          : self.error.type,
+        [
+          [
+            "unauthorized_local_identity",
+            ["ex:quoted", "attributedTo", "href"],
+          ],
+          ["unauthorized_local_identity", ["ex:quoted", "attributedTo", "id"]],
+        ],
+      );
       // A remote identity is not checked, as in any embedded document.
       await save(
         env,
