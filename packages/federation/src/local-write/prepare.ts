@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
+  ADDRESSING_PROPERTIES,
+  DIAGNOSTIC_REASONS,
   type Diagnostic,
   type DocumentAuthority,
   type DocumentNode,
@@ -22,9 +24,7 @@ import {
   type JsonValue,
   type NormalizationChange,
   type ServerOwnedField,
-  addressingProperties,
   describeDocument,
-  diagnosticReasons,
   prepareDocument,
   validateDocument,
 } from "@drfed/models/document";
@@ -46,18 +46,18 @@ import {
   writeError,
 } from "./types.ts";
 
-const activityStreams = "https://www.w3.org/ns/activitystreams";
-const questionType = `${activityStreams}#Question`;
-const createType = `${activityStreams}#Create`;
+const ACTIVITY_STREAMS = "https://www.w3.org/ns/activitystreams";
+const QUESTION_TYPE = `${ACTIVITY_STREAMS}#Question`;
+const CREATE_TYPE = `${ACTIVITY_STREAMS}#Create`;
 /** Activity relations whose embedded documents may become new resources. */
-const nestingProperties: ReadonlySet<string> = new Set([
+const NESTING_PROPERTIES: ReadonlySet<string> = new Set([
   "object",
   "target",
   "origin",
   "result",
   "instrument",
 ]);
-const relationProperties = [
+const RELATION_PROPERTIES = [
   "actor",
   "object",
   "target",
@@ -176,7 +176,7 @@ function parentPath(path: FieldPath): FieldPath {
 function savableAs(kind: NewResource["kind"], node: DocumentNode): boolean {
   return kind === "activity"
     ? node.kind === "activity"
-    : node.kind === "object" || node.type === questionType;
+    : node.kind === "object" || node.type === QUESTION_TYPE;
 }
 
 function checkPublication(
@@ -227,7 +227,7 @@ function checkDescriptors(
     }
     if (
       node.property == null ||
-      !nestingProperties.has(node.property) ||
+      !NESTING_PROPERTIES.has(node.property) ||
       !paths.has(pathKey(parentPath(path)))
     ) {
       return invalid(
@@ -292,7 +292,7 @@ function resourceIri(
     return ctx.getObjectUri(APObject, { identifier: actor.id, id }).href;
   }
   return (
-    type === createType
+    type === CREATE_TYPE
       ? ctx.getObjectUri(Create, { id })
       : ctx.getObjectUri(Activity, { id })
   ).href;
@@ -394,11 +394,11 @@ export function checkIndexable(document: JsonObject): Diagnostic[] {
     ({ path }) => path.length === 0,
   );
   const diagnostics: Diagnostic[] = [];
-  for (const property of [...addressingProperties, ...relationProperties]) {
+  for (const property of [...ADDRESSING_PROPERTIES, ...RELATION_PROPERTIES]) {
     for (const source of root?.properties.get(property)?.slice(1) ?? []) {
       diagnostics.push({
         reason: "unsupported_value_form",
-        ...diagnosticReasons.unsupported_value_form,
+        ...DIAGNOSTIC_REASONS.unsupported_value_form,
         path: [source],
         message: `Several spellings of ${property} cannot be saved yet; use one.`,
       });
@@ -454,14 +454,14 @@ export function indexDocument(document: JsonObject): {
     return value == null ? [] : [{ path: [source], position: 0 }];
   };
   const addressing: AddressingOccurrence[] = [];
-  for (const property of addressingProperties) {
+  for (const property of ADDRESSING_PROPERTIES) {
     for (const { path, position } of occurrences(property)) {
       const iri = target(path);
       if (iri != null) addressing.push({ property, position, iri });
     }
   }
   const relations: RevisionRelationInput[] = [];
-  for (const property of relationProperties) {
+  for (const property of RELATION_PROPERTIES) {
     for (const { path } of occurrences(property)) {
       const node = children.get(pathKey(path));
       if (node == null) {
@@ -517,7 +517,7 @@ function extractNested(
   }
   const own = value["@context"];
   // The validator reads a document without a context as ActivityStreams.
-  if (prepared["@context"] === undefined) chain.unshift(activityStreams);
+  if (prepared["@context"] === undefined) chain.unshift(ACTIVITY_STREAMS);
   if (chain.length > 0) {
     const context = chain.length === 1 ? chain[0]! : chain;
     if (JSON.stringify(context) !== JSON.stringify(own ?? null)) {

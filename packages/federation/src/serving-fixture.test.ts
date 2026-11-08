@@ -28,7 +28,7 @@ const AS = "https://www.w3.org/ns/activitystreams";
  * cannot be imported here; change the two together.  A test compares this
  * one with {@link acceptedActivityTypeIds}.
  */
-export const activityTypes = [
+export const ACTIVITY_TYPES = [
   "Activity",
   "IntransitiveActivity",
   "Accept",
@@ -61,7 +61,21 @@ export const activityTypes = [
   "View",
 ] as const;
 
-export type ActivityType = (typeof activityTypes)[number];
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
+/** The blind recipient every fixture is addressed to. */
+export const BLIND_RECIPIENT = "https://remote.example/users/blind";
+
+/**
+ * The extension value every fixture carries: an array whose order and
+ * repeated values matter, `false` and `null`.  `-0` is left out, since a
+ * JSON round trip makes it `0`.
+ */
+export const EXTENSION_VALUE: JsonObject = {
+  ordered: [2, 1, 2],
+  enabled: false,
+  empty: null,
+};
 
 const isActivityClass = (value: unknown): value is typeof vocabulary.Activity =>
   value === vocabulary.Activity ||
@@ -70,7 +84,7 @@ const isActivityClass = (value: unknown): value is typeof vocabulary.Activity =>
 
 /**
  * Lists the type IRIs of the Fedify activity classes that the validator
- * accepts, so that a test can tell when {@link activityTypes} falls behind
+ * accepts, so that a test can tell when {@link ACTIVITY_TYPES} falls behind
  * it.
  * @returns The IRIs, sorted.
  */
@@ -85,20 +99,6 @@ export const acceptedActivityTypeIds = (): string[] =>
     )
     .toSorted();
 
-/** The blind recipient every fixture is addressed to. */
-export const blindRecipient = "https://remote.example/users/blind";
-
-/**
- * The extension value every fixture carries: an array whose order and
- * repeated values matter, `false` and `null`.  `-0` is left out, since a
- * JSON round trip makes it `0`.
- */
-export const extensionValue: JsonObject = {
-  ordered: [2, 1, 2],
-  enabled: false,
-  empty: null,
-};
-
 /**
  * Makes the document saved for an activity type: Public, with a blind
  * recipient and an extension property, and nothing a type requires, since
@@ -110,6 +110,6 @@ export const typeDocument = (type: ActivityType): JsonObject => ({
   "@context": [AS, { test: "https://example.test/vocab#" }],
   type,
   to: [PUBLIC_IRI],
-  bto: [blindRecipient],
-  "test:extension": structuredClone(extensionValue),
+  bto: [BLIND_RECIPIENT],
+  "test:extension": structuredClone(EXTENSION_VALUE),
 });

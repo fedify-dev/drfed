@@ -21,11 +21,11 @@ import { describe, it } from "node:test";
 import { promisify } from "node:util";
 
 import {
+  DIAGNOSTIC_REASONS,
   type DiagnosticReason,
   type DocumentPreparationOptions,
   type FieldPath,
   describeDocument,
-  diagnosticReasons,
   prepareDocument,
   validateDocument,
 } from "@drfed/models/document";
@@ -67,12 +67,20 @@ const { fixtures } = JSON.parse(
   ),
 ) as { fixtures: readonly DraftFixture[] };
 
-const context = "https://www.w3.org/ns/activitystreams";
-const like = {
-  "@context": context,
+const CONTEXT = "https://www.w3.org/ns/activitystreams";
+const LIKE = {
+  "@context": CONTEXT,
   type: "Like",
   actor: "https://example.com/alice",
   object: "https://example.com/posts/42",
+};
+const CREATION_OPTIONS: DocumentPreparationOptions = {
+  authority: [{ allowed: true, path: [] }],
+  serverOwnedFields: [
+    { path: ["id"], value: "https://example.com/objects/new" },
+    { path: ["attributedTo"], value: LIKE.actor },
+    { path: ["published"], value: "2026-10-27T12:00:00Z" },
+  ],
 };
 
 describe("validateDocument() supported document checks", () => {
@@ -119,7 +127,7 @@ describe("validateDocument() supported document checks", () => {
       assert.equal(getEntityTypeById(Type.typeId.href), undefined);
       for (const type of [Type.name, Type.typeId.href]) {
         const result = validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type,
           href: "https://example.com/",
         });
@@ -134,7 +142,7 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     const input = Object.freeze({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Link",
       href: "https://example.com/",
       rel: Object.freeze(["alternate", "alternate"]),
@@ -157,7 +165,7 @@ describe("validateDocument() supported document checks", () => {
       href: "https://example.com/",
     };
     link.preview = link;
-    const result = validateDocument({ ...like, object: [link, link] });
+    const result = validateDocument({ ...LIKE, object: [link, link] });
     assert.equal(result.complete, true);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -180,11 +188,11 @@ describe("validateDocument() supported document checks", () => {
       for (const diagnostic of result.diagnostics) {
         assert.equal(
           diagnostic.category,
-          diagnosticReasons[diagnostic.reason].category,
+          DIAGNOSTIC_REASONS[diagnostic.reason].category,
         );
         assert.equal(
           diagnostic.severity,
-          diagnosticReasons[diagnostic.reason].severity,
+          DIAGNOSTIC_REASONS[diagnostic.reason].severity,
         );
         assert.notEqual(diagnostic.message, "");
       }
@@ -208,11 +216,11 @@ describe("validateDocument() supported document checks", () => {
   it("checks aliased nested values at original indexes without expanding away nulls", () => {
     const input = {
       "@context": [
-        context,
-        { payload: { "@id": `${context}#object`, "@type": "@id" } },
+        CONTEXT,
+        { payload: { "@id": `${CONTEXT}#object`, "@type": "@id" } },
       ],
       type: "Undo",
-      payload: [null, like.object, 123, { type: "Like", payload: false }],
+      payload: [null, LIKE.object, 123, { type: "Like", payload: false }],
     };
     const original = structuredClone(input);
     const result = validateDocument(input);
@@ -230,9 +238,9 @@ describe("validateDocument() supported document checks", () => {
   it("resolves type/id aliases, prefixes, full IRIs, and language containers", () => {
     const input = {
       "@context": [
-        context,
+        CONTEXT,
         {
-          v: { "@id": `${context}#`, "@prefix": true },
+          v: { "@id": `${CONTEXT}#`, "@prefix": true },
           kind: "@type",
           identifier: "@id",
           title: "v:name",
@@ -240,10 +248,10 @@ describe("validateDocument() supported document checks", () => {
         },
       ],
       kind: "v:Note",
-      identifier: like.object,
+      identifier: LIKE.object,
       title: "Title",
       titles: { en: "Title", ko: "제목" },
-      [`${context}#summary`]: "<p>Summary</p>",
+      [`${CONTEXT}#summary`]: "<p>Summary</p>",
       "v:content": "<p>Content</p>",
     };
     assert.deepEqual(validateDocument(input), {
@@ -268,20 +276,20 @@ describe("validateDocument() supported document checks", () => {
   it("isolates nested alias overrides from their siblings", () => {
     const input = {
       "@context": [
-        context,
-        { payload: { "@id": `${context}#object`, "@type": "@id" } },
+        CONTEXT,
+        { payload: { "@id": `${CONTEXT}#object`, "@type": "@id" } },
       ],
       type: "Undo",
       payload: [
         {
           "@context": {
-            payload: { "@id": `${context}#location`, "@type": "@id" },
+            payload: { "@id": `${CONTEXT}#location`, "@type": "@id" },
           },
           type: "Arrive",
-          payload: like.object,
+          payload: LIKE.object,
         },
         { type: "Like", payload: false },
-        { type: "Arrive", payload: like.object },
+        { type: "Arrive", payload: LIKE.object },
       ],
     };
     const original = structuredClone(input);
@@ -300,8 +308,8 @@ describe("validateDocument() supported document checks", () => {
   it("counts functional aliases together without merging their original values", () => {
     const input = {
       "@context": [
-        context,
-        { when: { "@id": `${context}#published`, "@type": "xsd:dateTime" } },
+        CONTEXT,
+        { when: { "@id": `${CONTEXT}#published`, "@type": "xsd:dateTime" } },
       ],
       type: "Note",
       published: "2026-10-27T12:00:00Z",
@@ -331,12 +339,12 @@ describe("validateDocument() supported document checks", () => {
     for (const [key, inline] of [
       ["payload", { payload: "as:object" }],
       ["as:object", {}],
-      [`${context}#object`, {}],
+      [`${CONTEXT}#object`, {}],
     ] as const) {
       const result = validateDocument({
-        "@context": [context, inline],
+        "@context": [CONTEXT, inline],
         type: "Like",
-        [key]: like.object,
+        [key]: LIKE.object,
       });
       assert.equal(result.complete, false);
       assert.deepEqual(
@@ -352,7 +360,7 @@ describe("validateDocument() supported document checks", () => {
       { debugData: "https://example.com/ns#debugData" },
     ]) {
       const input = {
-        "@context": [context, inline],
+        "@context": [CONTEXT, inline],
         type: "Note",
         debugData: { value: [null, 123], type: "custom" },
       };
@@ -368,7 +376,7 @@ describe("validateDocument() supported document checks", () => {
       assert.equal(result.normalizedDocument, undefined);
     }
     const known = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
       duration: "not-a-duration",
     });
@@ -392,8 +400,8 @@ describe("validateDocument() supported document checks", () => {
     ];
     const input = {
       "@context": [
-        context,
-        { reply: { "@id": `${context}#inReplyTo`, "@type": "@id" } },
+        CONTEXT,
+        { reply: { "@id": `${CONTEXT}#inReplyTo`, "@type": "@id" } },
       ],
       type: "Create",
       object: [
@@ -428,7 +436,7 @@ describe("validateDocument() supported document checks", () => {
   it("preserves opaque nested extensions in independent successful previews", () => {
     const data = { type: "Custom", values: [[], null, { content: 123 }] };
     const input = {
-      ...like,
+      ...LIKE,
       object: { type: "Note", to: [], debugData: data },
       debugData: data,
     };
@@ -476,7 +484,7 @@ describe("validateDocument() supported document checks", () => {
       [NaN],
       new Date(),
     ]) {
-      const result = validateDocument({ ...like, to: [], debugData });
+      const result = validateDocument({ ...LIKE, to: [], debugData });
       assert.ok(
         result.diagnostics.some(({ reason }) => reason === "non_json_value"),
       );
@@ -488,11 +496,11 @@ describe("validateDocument() supported document checks", () => {
 
   it("keeps JSON-LD keywords and incompatible standard aliases blocking", () => {
     for (const input of [
-      { ...like, "@graph": [] },
+      { ...LIKE, "@graph": [] },
       {
-        ...like,
+        ...LIKE,
         "@context": [
-          context,
+          CONTEXT,
           { payload: { "@id": "as:object", "@container": "@list" } },
         ],
         payload: [],
@@ -511,19 +519,19 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected fetch");
     });
     for (const declaration of [
-      context,
-      [context],
-      [context, "https://w3id.org/security/v1"],
+      CONTEXT,
+      [CONTEXT],
+      [CONTEXT, "https://w3id.org/security/v1"],
     ]) {
-      assert.deepEqual(validateDocument({ ...like, "@context": declaration }), {
+      assert.deepEqual(validateDocument({ ...LIKE, "@context": declaration }), {
         complete: true,
         diagnostics: [],
         changes: [],
       });
     }
     const blocked = validateDocument({
-      ...like,
-      "@context": [context, "https://remote.example/context"],
+      ...LIKE,
+      "@context": [CONTEXT, "https://remote.example/context"],
     });
     assert.equal(blocked.complete, false);
     assert.deepEqual(
@@ -574,8 +582,8 @@ describe("validateDocument() supported document checks", () => {
       ],
     ] as const) {
       const result = validateDocument({
-        ...like,
-        "@context": [context, inline],
+        ...LIKE,
+        "@context": [CONTEXT, inline],
       });
       assert.deepEqual(
         result.diagnostics.map(({ reason: actual, path }) => ({
@@ -586,8 +594,8 @@ describe("validateDocument() supported document checks", () => {
       );
     }
     const cyclic = validateDocument({
-      ...like,
-      "@context": [context, { a: "b", b: "a" }],
+      ...LIKE,
+      "@context": [CONTEXT, { a: "b", b: "a" }],
     });
     assert.ok(
       cyclic.diagnostics.every(({ reason }) => reason === "invalid_context"),
@@ -623,7 +631,7 @@ describe("validateDocument() supported document checks", () => {
         { custom: `https://example.com/a${character}b` },
         { ns: "https://example.com/", custom: `ns:a${character}b` },
       ]) {
-        const input = { ...like, "@context": [context, inline] };
+        const input = { ...LIKE, "@context": [CONTEXT, inline] };
         const original = structuredClone(input);
         const result = validateDocument(input);
         assert.equal(result.complete, true);
@@ -645,7 +653,7 @@ describe("validateDocument() supported document checks", () => {
   it("checks language value objects in opaque extensions at original nested paths", () => {
     for (const value of [123, false, [], {}]) {
       const input = {
-        ...like,
+        ...LIKE,
         object: {
           type: "Note",
           custom: [{ data: { "@value": value, "@language": "en" } }],
@@ -672,7 +680,7 @@ describe("validateDocument() supported document checks", () => {
       assert.equal(result.normalizedDocument, undefined);
     }
     const invalidLanguage = validateDocument({
-      ...like,
+      ...LIKE,
       custom: { "@value": "Hello", "@language": 123 },
     });
     assert.ok(
@@ -696,7 +704,7 @@ describe("validateDocument() supported document checks", () => {
       ["@type", ["https://example.com/Type", 5], [1]],
     ] as const) {
       const input = {
-        ...like,
+        ...LIKE,
         to: [],
         object: { type: "Note", custom: [{ data: { [keyword]: value } }] },
       };
@@ -723,13 +731,13 @@ describe("validateDocument() supported document checks", () => {
         assert.rejects(
           APObject.fromJsonLd(
             {
-              "@context": [context, { custom: "https://example.com/custom" }],
+              "@context": [CONTEXT, { custom: "https://example.com/custom" }],
               type: "Note",
               custom: { [keyword]: 5 },
             },
             {
               contextLoader: (url) => {
-                assert.equal(url, context);
+                assert.equal(url, CONTEXT);
                 return Promise.resolve({
                   contextUrl: null,
                   documentUrl: url,
@@ -764,7 +772,7 @@ describe("validateDocument() supported document checks", () => {
       { "@type": ["@json"], "@value": { "@id": 5, "@type": {} } },
     ]) {
       const input = {
-        "@context": [context, { custom: "https://example.com/custom" }],
+        "@context": [CONTEXT, { custom: "https://example.com/custom" }],
         type: "Note",
         to: [],
         custom,
@@ -784,7 +792,7 @@ describe("validateDocument() supported document checks", () => {
       previews.map((preview) =>
         APObject.fromJsonLd(preview, {
           contextLoader: (url) => {
-            assert.equal(url, context);
+            assert.equal(url, CONTEXT);
             return Promise.resolve({
               contextUrl: null,
               documentUrl: url,
@@ -820,7 +828,7 @@ describe("validateDocument() supported document checks", () => {
       { "@type": "@json", "@value": accessor },
       { "@type": types },
     ]) {
-      const result = validateDocument({ ...like, custom, to: [] });
+      const result = validateDocument({ ...LIKE, custom, to: [] });
       assert.ok(
         result.diagnostics.some(({ reason }) => reason === "non_json_value"),
       );
@@ -832,8 +840,8 @@ describe("validateDocument() supported document checks", () => {
 
   it("preserves safe language extensions and escaped context IRIs in previews", async () => {
     const input = {
-      ...like,
-      "@context": [context, { custom: "https://example.com/a%20b" }],
+      ...LIKE,
+      "@context": [CONTEXT, { custom: "https://example.com/a%20b" }],
       to: [],
       custom: [
         { "@value": "Hello", "@language": "en" },
@@ -871,8 +879,8 @@ describe("validateDocument() supported document checks", () => {
       },
     });
     const result = validateDocument({
-      ...like,
-      "@context": [context, { payload: definition }],
+      ...LIKE,
+      "@context": [CONTEXT, { payload: definition }],
     });
     assert.equal(evaluated, false);
     assert.equal(result.complete, true);
@@ -885,7 +893,7 @@ describe("validateDocument() supported document checks", () => {
   it("uses original addressing aliases in normalized previews and change paths", () => {
     const input = {
       "@context": [
-        context,
+        CONTEXT,
         {
           recipients: { "@id": "as:to", "@type": "@id" },
           payload: { "@id": "as:object", "@type": "@id" },
@@ -918,11 +926,11 @@ describe("validateDocument() supported document checks", () => {
     const fetch = t.mock.method(globalThis, "fetch", () => {
       throw new Error("Unexpected fetch");
     });
-    const bundled = structuredClone(preloadedContexts[context]);
+    const bundled = structuredClone(preloadedContexts[CONTEXT]);
     const input = {
       "@context": [
-        context,
-        { payload: { "@id": "z:object", "@type": "@id" }, z: `${context}#` },
+        CONTEXT,
+        { payload: { "@id": "z:object", "@type": "@id" }, z: `${CONTEXT}#` },
       ],
       type: "z:Like",
       payload: [null, 123, { type: "Like", payload: false }],
@@ -930,22 +938,22 @@ describe("validateDocument() supported document checks", () => {
     const original = structuredClone(input);
     const expanded = await jsonld.expand(input, {
       documentLoader: (url: string) => {
-        assert.equal(url, context);
+        assert.equal(url, CONTEXT);
         return Promise.resolve({
           contextUrl: null,
           documentUrl: url,
-          document: structuredClone(preloadedContexts[context]),
+          document: structuredClone(preloadedContexts[CONTEXT]),
         });
       },
     });
     assert.deepEqual(expanded, [
       {
-        "@type": [`${context}#Like`],
-        [`${context}#object`]: [
+        "@type": [`${CONTEXT}#Like`],
+        [`${CONTEXT}#object`]: [
           { "@value": 123 },
           {
-            "@type": [`${context}#Like`],
-            [`${context}#object`]: [{ "@value": false }],
+            "@type": [`${CONTEXT}#Like`],
+            [`${CONTEXT}#object`]: [{ "@value": false }],
           },
         ],
       },
@@ -959,7 +967,7 @@ describe("validateDocument() supported document checks", () => {
         { reason: "invalid_value_shape", path: ["payload", 2, "payload"] },
       ],
     );
-    assert.deepEqual(preloadedContexts[context], bundled);
+    assert.deepEqual(preloadedContexts[CONTEXT], bundled);
     assert.deepEqual(input, original);
     assert.equal(fetch.mock.callCount(), 0);
   });
@@ -974,7 +982,7 @@ describe("validateDocument() supported document checks", () => {
       ]) {
         assert.deepEqual(
           validateDocument({
-            "@context": context,
+            "@context": CONTEXT,
             type: "Note",
             [property]: value,
           }),
@@ -987,7 +995,7 @@ describe("validateDocument() supported document checks", () => {
         "2026-10-27T12:34:56.1234567891+05:30",
       ]) {
         const input = Object.freeze({
-          "@context": context,
+          "@context": CONTEXT,
           type: "Note",
           [property]: Object.freeze([null, value]),
         });
@@ -1015,7 +1023,7 @@ describe("validateDocument() supported document checks", () => {
         "2026-01-01",
       ]) {
         const result = validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type: "Note",
           [property]: [null, value],
         });
@@ -1027,7 +1035,7 @@ describe("validateDocument() supported document checks", () => {
       }
     }
     const leap = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
       published: "2016-12-31T23:59:60Z",
     });
@@ -1042,15 +1050,15 @@ describe("validateDocument() supported document checks", () => {
         "2024-02-29T12:34:56.1-00:00",
         "2024-02-29T12:34:56.123456789+05:30",
       ].map(async (published) => {
-        const input = { "@context": context, type: "Note", published };
+        const input = { "@context": CONTEXT, type: "Note", published };
         assert.deepEqual(validateDocument(input).diagnostics, []);
         const parsed = await APObject.fromJsonLd(input, {
           contextLoader: (url) => {
-            assert.equal(url, context);
+            assert.equal(url, CONTEXT);
             return Promise.resolve({
               contextUrl: null,
               documentUrl: url,
-              document: structuredClone(preloadedContexts[context]),
+              document: structuredClone(preloadedContexts[CONTEXT]),
             });
           },
         });
@@ -1064,7 +1072,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks functional values and preserves scalar, list, and null-entry paths", () => {
     for (const [type, property, value] of [
-      ["Link", "href", like.object],
+      ["Link", "href", LIKE.object],
       ["Link", "width", 0],
       ["Link", "height", 1],
       ["Link", "mediaType", "text/html"],
@@ -1074,7 +1082,7 @@ describe("validateDocument() supported document checks", () => {
       ["CollectionPage", "next", { type: "CollectionPage" }],
       ["Person", "inbox", { type: "OrderedCollection" }],
     ] as const) {
-      const input = { "@context": context, type, [property]: [null, value] };
+      const input = { "@context": CONTEXT, type, [property]: [null, value] };
       const original = structuredClone(input);
       assert.deepEqual(validateDocument(input), {
         complete: true,
@@ -1097,13 +1105,13 @@ describe("validateDocument() supported document checks", () => {
   it("rejects identifier arrays containing values at their original property paths", () => {
     for (const property of ["id", "@id", "identity"]) {
       for (const value of [
-        [like.object],
-        [null, like.object],
-        [like.object, like.object],
+        [LIKE.object],
+        [null, LIKE.object],
+        [LIKE.object, LIKE.object],
       ]) {
         const input = {
-          ...like,
-          "@context": [context, { identity: "@id" }],
+          ...LIKE,
+          "@context": [CONTEXT, { identity: "@id" }],
           [property]: value,
         };
         const original = structuredClone(input);
@@ -1125,8 +1133,8 @@ describe("validateDocument() supported document checks", () => {
     for (const property of ["id", "@id", "identity"]) {
       for (const value of [null, [], [null], [null, null]]) {
         const input = {
-          ...like,
-          "@context": [context, { identity: "@id" }],
+          ...LIKE,
+          "@context": [CONTEXT, { identity: "@id" }],
           object: [{ type: "Note", [property]: value }],
         };
         const original = structuredClone(input);
@@ -1173,7 +1181,7 @@ describe("validateDocument() supported document checks", () => {
       previews.map((preview) =>
         APObject.fromJsonLd(preview, {
           documentLoader: (url) => {
-            assert.equal(url, context);
+            assert.equal(url, CONTEXT);
             return Promise.resolve({
               contextUrl: null,
               documentUrl: url,
@@ -1198,7 +1206,7 @@ describe("validateDocument() supported document checks", () => {
     const sparse = [null];
     sparse.length = 2;
     for (const id of [accessor, sparse]) {
-      const result = validateDocument({ ...like, id });
+      const result = validateDocument({ ...LIKE, id });
       assert.ok(
         result.diagnostics.some(({ reason }) => reason === "non_json_value"),
       );
@@ -1218,14 +1226,14 @@ describe("validateDocument() supported document checks", () => {
     ]) {
       assert.deepEqual(
         validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type,
           preferredUsername: [null, "alice"],
         }),
         { complete: true, diagnostics: [], changes: [] },
       );
       const result = validateDocument({
-        ...like,
+        ...LIKE,
         actor: { type, preferredUsername: false },
       });
       assert.equal(result.complete, true);
@@ -1241,7 +1249,7 @@ describe("validateDocument() supported document checks", () => {
     }
     for (const type of ["Note", "Link"]) {
       const result = validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type,
         preferredUsername: "alice",
       });
@@ -1260,7 +1268,7 @@ describe("validateDocument() supported document checks", () => {
       },
     });
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       object: {
         type: "Note",
         contentMap: map,
@@ -1363,7 +1371,7 @@ describe("validateDocument() supported document checks", () => {
     for (const [type, properties] of cases) {
       for (const property of properties) {
         const input = Object.freeze({
-          "@context": context,
+          "@context": CONTEXT,
           type,
           [property]: Object.freeze([]),
         });
@@ -1401,7 +1409,7 @@ describe("validateDocument() supported document checks", () => {
           ],
         );
         assert.deepEqual(result.normalizedDocument, {
-          "@context": context,
+          "@context": CONTEXT,
           type,
         });
         assert.deepEqual(input[property], []);
@@ -1416,9 +1424,9 @@ describe("validateDocument() supported document checks", () => {
 
   it("uses original nested alias paths for empty-property changes and retains custom arrays", () => {
     const input = {
-      ...like,
+      ...LIKE,
       "@context": [
-        context,
+        CONTEXT,
         { title: "as:name", payload: { "@id": "as:object", "@type": "@id" } },
       ],
       object: [{ type: "Like", title: [], payload: [], custom: [] }],
@@ -1457,7 +1465,7 @@ describe("validateDocument() supported document checks", () => {
       accessor,
       symbol,
     ]) {
-      const result = validateDocument({ ...like, object: value });
+      const result = validateDocument({ ...LIKE, object: value });
       assert.ok(
         result.diagnostics.some(({ reason }) => reason === "non_json_value"),
       );
@@ -1466,10 +1474,10 @@ describe("validateDocument() supported document checks", () => {
     }
     assert.equal(evaluated, false);
     for (const input of [
-      { ...like, type: [] },
-      { ...like, "@context": [] },
-      { ...like, duration: [] },
-      { "@context": context, type: "Link", content: [] },
+      { ...LIKE, type: [] },
+      { ...LIKE, "@context": [] },
+      { ...LIKE, duration: [] },
+      { "@context": CONTEXT, type: "Link", content: [] },
     ]) {
       const result = validateDocument(input);
       assert.ok(
@@ -1484,14 +1492,14 @@ describe("validateDocument() supported document checks", () => {
     const fetch = t.mock.method(globalThis, "fetch", () => {
       throw new Error("Unexpected network access");
     });
-    const recipients = Object.freeze([null, like.actor, like.actor]);
+    const recipients = Object.freeze([null, LIKE.actor, LIKE.actor]);
     const object = Object.freeze({
       type: "Note",
       to: Object.freeze([]),
       cc: recipients,
     });
     const input = Object.freeze({
-      ...like,
+      ...LIKE,
       bcc: Object.freeze([]),
       object: Object.freeze([object]),
     });
@@ -1521,8 +1529,8 @@ describe("validateDocument() supported document checks", () => {
       ],
     );
     assert.deepEqual(result.normalizedDocument, {
-      ...like,
-      object: [{ type: "Note", cc: [null, like.actor, like.actor] }],
+      ...LIKE,
+      object: [{ type: "Note", cc: [null, LIKE.actor, LIKE.actor] }],
     });
     assert.deepEqual(input, original);
     const previewObject = (
@@ -1539,13 +1547,13 @@ describe("validateDocument() supported document checks", () => {
       { duration: "PT1H" },
       { actor: Array(110).fill(false) },
     ]) {
-      const result = validateDocument({ ...like, to: [], ...fields });
+      const result = validateDocument({ ...LIKE, to: [], ...fields });
       assert.equal(result.normalizedDocument, undefined);
       assert.deepEqual(result.changes, []);
     }
     for (const property of ["to", "cc", "bto", "bcc", "audience"]) {
       const result = validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type: "Link",
         [property]: [],
       });
@@ -1559,7 +1567,7 @@ describe("validateDocument() supported document checks", () => {
     for (let index = 0; index < 63; index += 1) {
       input = { type: "Create", object: input };
     }
-    input["@context"] = context;
+    input["@context"] = CONTEXT;
     const result = validateDocument(input);
     assert.equal(result.complete, true);
     assert.equal(result.diagnostics.length, 1);
@@ -1582,7 +1590,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("keeps optional fields optional and supports null as absence", () => {
     assert.deepEqual(
-      validateDocument({ "@context": context, type: "Like", object: null }),
+      validateDocument({ "@context": CONTEXT, type: "Like", object: null }),
       {
         complete: true,
         diagnostics: [],
@@ -1601,7 +1609,7 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("reports independent shape errors in source-key order", () => {
-    const result = validateDocument({ ...like, object: 123, actor: false });
+    const result = validateDocument({ ...LIKE, object: 123, actor: false });
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
@@ -1614,10 +1622,10 @@ describe("validateDocument() supported document checks", () => {
 
   it("does not claim coverage of unimplemented fields or nested values", () => {
     for (const input of [
-      { ...like, duration: "PT1H" },
-      { ...like, object: { type: "Page", content: "Hello" } },
-      { ...like, type: "Page" },
-      { ...like, type: ["Like", "https://example.com/CustomLike"] },
+      { ...LIKE, duration: "PT1H" },
+      { ...LIKE, object: { type: "Page", content: "Hello" } },
+      { ...LIKE, type: "Page" },
+      { ...LIKE, type: ["Like", "https://example.com/CustomLike"] },
     ]) {
       const original = structuredClone(input);
       const result = validateDocument(input);
@@ -1634,7 +1642,7 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       "@context": "https://remote.example/context",
       object: 123,
     });
@@ -1651,12 +1659,12 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     const input = Object.freeze({
-      ...like,
-      actor: Object.freeze([like.actor, "https://example.com/bob", like.actor]),
+      ...LIKE,
+      actor: Object.freeze([LIKE.actor, "https://example.com/bob", LIKE.actor]),
       object: Object.freeze([
-        like.object,
+        LIKE.object,
         "https://example.com/posts/43",
-        like.object,
+        LIKE.object,
       ]),
     });
     const original = structuredClone(input);
@@ -1671,9 +1679,9 @@ describe("validateDocument() supported document checks", () => {
 
   it("reports independent actor and object list failures at their original indexes", () => {
     const result = validateDocument({
-      ...like,
-      actor: [like.actor, false],
-      object: [123, like.object, "https://example.com/not valid"],
+      ...LIKE,
+      actor: [LIKE.actor, false],
+      object: [123, LIKE.object, "https://example.com/not valid"],
     });
     assert.equal(result.complete, true);
     assert.deepEqual(
@@ -1688,8 +1696,8 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks reference siblings while reporting unimplemented list entries", () => {
     const result = validateDocument({
-      ...like,
-      object: [like.object, { type: "Page", content: "Hello" }, 123],
+      ...LIKE,
+      object: [LIKE.object, { type: "Page", content: "Hello" }, 123],
     });
     assert.equal(result.complete, false);
     assert.deepEqual(
@@ -1706,18 +1714,18 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     const input = Object.freeze({
-      ...like,
+      ...LIKE,
       type: "Create",
       object: Object.freeze([
-        like.object,
+        LIKE.object,
         Object.freeze({
-          type: `${context}#Note`,
-          id: like.object,
-          attributedTo: Object.freeze([like.actor, false]),
+          type: `${CONTEXT}#Note`,
+          id: LIKE.object,
+          attributedTo: Object.freeze([LIKE.actor, false]),
           content: 123,
         }),
         Object.freeze({ type: "Note", content: "" }),
-        like.object,
+        LIKE.object,
       ]),
     });
     const original = structuredClone(input);
@@ -1742,7 +1750,7 @@ describe("validateDocument() supported document checks", () => {
   it("supports standalone Notes and optional or empty content", () => {
     for (const content of [undefined, null, "", "<p>Hello</p>"]) {
       const result = validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type: "Note",
         ...(content === undefined ? {} : { content }),
       });
@@ -1753,18 +1761,18 @@ describe("validateDocument() supported document checks", () => {
       });
     }
     assert.equal(
-      validateDocument({ ...like, object: { type: "Note" } }).complete,
+      validateDocument({ ...LIKE, object: { type: "Note" } }).complete,
       true,
     );
     assert.equal(
-      validateDocument({ ...like, type: `${context}#Create` }).complete,
+      validateDocument({ ...LIKE, type: `${CONTEXT}#Create` }).complete,
       true,
     );
   });
 
   it("blocks an unknown nested context but still checks sibling objects", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Create",
       object: [
         {
@@ -1791,7 +1799,7 @@ describe("validateDocument() supported document checks", () => {
   it("requires the language-map property name for an untagged language object", () => {
     for (const content of [{ en: "Hello" }]) {
       const result = validateDocument({
-        ...like,
+        ...LIKE,
         object: { type: "Note", content },
       });
       assert.equal(result.complete, false);
@@ -1799,7 +1807,7 @@ describe("validateDocument() supported document checks", () => {
       assert.deepEqual(result.diagnostics[0]?.path, ["object", "content"]);
     }
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       object: { type: "Note", name: "Hello" },
     });
     assert.equal(result.complete, true);
@@ -1809,7 +1817,7 @@ describe("validateDocument() supported document checks", () => {
   it("does not invoke embedded object getters", () => {
     let evaluated = false;
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       object: {
         type: "Note",
         get content() {
@@ -1825,7 +1833,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("shares the diagnostic cap across embedded Notes", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       object: Array.from({ length: 110 }, () => ({
         type: "Note",
         content: 123,
@@ -1839,18 +1847,18 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks nested activities depth first, preserving list and property paths", () => {
     const input = {
-      "@context": context,
-      type: `${context}#Accept`,
+      "@context": CONTEXT,
+      type: `${CONTEXT}#Accept`,
       actor: false,
       object: [
         {
           type: "Undo",
-          actor: like.actor,
-          object: { type: `${context}#Like`, object: 123 },
+          actor: LIKE.actor,
+          object: { type: `${CONTEXT}#Like`, object: 123 },
           published: "2026-10-26T00:00:00Z",
         },
         456,
-        { type: `${context}#Follow`, actor: false, object: like.actor },
+        { type: `${CONTEXT}#Follow`, actor: false, object: LIKE.actor },
       ],
       published: "2026-10-26T00:00:00Z",
     };
@@ -1880,7 +1888,7 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     for (const type of ["Undo", "Accept", "Follow"]) {
-      assert.deepEqual(validateDocument({ ...like, type }), {
+      assert.deepEqual(validateDocument({ ...LIKE, type }), {
         complete: true,
         diagnostics: [],
         changes: [],
@@ -1891,7 +1899,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("blocks a nested activity context without skipping later siblings", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Undo",
       object: [
         {
@@ -1917,7 +1925,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("reports cycles without rejecting shared objects in separate branches", () => {
     const cyclic: Record<string, unknown> = {
-      "@context": context,
+      "@context": CONTEXT,
       type: "Undo",
     };
     cyclic.object = cyclic;
@@ -1929,7 +1937,7 @@ describe("validateDocument() supported document checks", () => {
     );
     const shared = Object.freeze({ type: "Follow", actor: false });
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Accept",
       object: [shared, shared],
     });
@@ -1951,7 +1959,7 @@ describe("validateDocument() supported document checks", () => {
           input = { type: "Create", object: input };
         }
         if (list) input = { type: "Create", object: [input] };
-        input["@context"] = context;
+        input["@context"] = CONTEXT;
         const original = structuredClone(input);
         const result = validateDocument(input);
         assert.equal(result.complete, depth === 64);
@@ -1989,7 +1997,7 @@ describe("validateDocument() supported document checks", () => {
           value = shape === "object" ? { child: value } : [value];
         }
         if (shape === "json") value = { "@type": "@json", "@value": value };
-        const input = { "@context": context, type: "Note", debugData: value };
+        const input = { "@context": CONTEXT, type: "Note", debugData: value };
         const original = structuredClone(input);
         const result = validateDocument(input);
         assert.equal(result.complete, depth === 64);
@@ -2031,7 +2039,7 @@ describe("validateDocument() supported document checks", () => {
     for (let index = 0; index < 65; index += 1) {
       input = { type: "Create", object: input };
     }
-    input["@context"] = context;
+    input["@context"] = CONTEXT;
     input.result = false;
     input.to = [];
     const result = validateDocument(input);
@@ -2054,7 +2062,7 @@ describe("validateDocument() supported document checks", () => {
     let opaque: unknown = leaf;
     for (let index = 0; index < 64; index += 1) opaque = { child: opaque };
     const extension = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
       debugData: opaque,
       to: [],
@@ -2087,7 +2095,7 @@ describe("validateDocument() supported document checks", () => {
       },
     });
     object.length = 3;
-    const result = validateDocument({ ...like, type: "Undo", object });
+    const result = validateDocument({ ...LIKE, type: "Undo", object });
     assert.equal(evaluated, false);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -2107,9 +2115,9 @@ describe("validateDocument() supported document checks", () => {
       "Travel",
       "Question",
     ]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2123,12 +2131,12 @@ describe("validateDocument() supported document checks", () => {
   it("does not admit types recognized by Fedify until their checker rules are implemented", () => {
     for (const type of ["Page", "Place", "Image", "Event"]) {
       assert.ok(
-        getEntityTypeById(`${context}#${type}`),
+        getEntityTypeById(`${CONTEXT}#${type}`),
         `Fedify must recognize ${type}`,
       );
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         const result = validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type: spelling,
         });
         assert.equal(result.complete, false);
@@ -2158,9 +2166,9 @@ describe("validateDocument() supported document checks", () => {
       "IntransitiveActivity",
       "Arrive",
     ]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2176,14 +2184,14 @@ describe("validateDocument() supported document checks", () => {
   it("keeps unknown and foreign type IRIs unsupported instead of guessing from their local names", () => {
     for (const type of [
       "CustomLike",
-      `${context}#CustomLike`,
+      `${CONTEXT}#CustomLike`,
       "https://example.com/Like",
     ]) {
       assert.equal(
-        getEntityTypeById(type.includes(":") ? type : `${context}#${type}`),
+        getEntityTypeById(type.includes(":") ? type : `${CONTEXT}#${type}`),
         undefined,
       );
-      const result = validateDocument({ "@context": context, type });
+      const result = validateDocument({ "@context": CONTEXT, type });
       assert.equal(result.complete, false);
       assert.deepEqual(
         result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -2218,10 +2226,10 @@ describe("validateDocument() supported document checks", () => {
       "Update",
       "View",
     ]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         // Vocabulary properties remain optional, including actor and object.
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2229,12 +2237,12 @@ describe("validateDocument() supported document checks", () => {
           },
         );
         const input = {
-          "@context": context,
+          "@context": CONTEXT,
           type: spelling,
           actor: false,
           instrument: 123,
           object: [{ type: "Note", content: false }],
-          origin: [like.object, false],
+          origin: [LIKE.object, false],
           result: 123,
           target: false,
         };
@@ -2260,12 +2268,12 @@ describe("validateDocument() supported document checks", () => {
 
   it("recognizes inherited activity families in nested new types without applying their social effects", () => {
     const input = {
-      ...like,
+      ...LIKE,
       type: "TentativeAccept",
       object: [
         {
           type: "Invite",
-          object: { type: "Block", actor: false, object: like.actor },
+          object: { type: "Block", actor: false, object: LIKE.actor },
         },
         {
           type: "TentativeReject",
@@ -2294,9 +2302,9 @@ describe("validateDocument() supported document checks", () => {
 
   it("uses shared Object rules for Object and Article without activity properties", () => {
     for (const type of ["Object", "Article"]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2305,7 +2313,7 @@ describe("validateDocument() supported document checks", () => {
         );
         for (const content of [null, "", "<p>Text</p>"]) {
           assert.deepEqual(
-            validateDocument({ "@context": context, type: spelling, content }),
+            validateDocument({ "@context": CONTEXT, type: spelling, content }),
             {
               complete: true,
               diagnostics: [],
@@ -2314,11 +2322,11 @@ describe("validateDocument() supported document checks", () => {
           );
         }
         const result = validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type: spelling,
-          actor: like.actor,
+          actor: LIKE.actor,
           content: false,
-          object: like.object,
+          object: LIKE.object,
         });
         assert.equal(result.complete, false);
         assert.deepEqual(
@@ -2339,19 +2347,19 @@ describe("validateDocument() supported document checks", () => {
     });
     for (const type of ["Object", "Article"]) {
       const embedded = Object.freeze({
-        type: `${context}#${type}`,
-        id: like.object,
+        type: `${CONTEXT}#${type}`,
+        id: LIKE.object,
         content: "",
-        attributedTo: Object.freeze([like.actor, like.actor]),
+        attributedTo: Object.freeze([LIKE.actor, LIKE.actor]),
         location: Object.freeze([
-          like.object,
+          LIKE.object,
           Object.freeze({ type: "Object", content: "Place description" }),
         ]),
       });
       const input = Object.freeze({
-        ...like,
+        ...LIKE,
         type: "Update",
-        object: Object.freeze([like.object, embedded, like.object]),
+        object: Object.freeze([LIKE.object, embedded, LIKE.object]),
       });
       const original = structuredClone(input);
       assert.deepEqual(validateDocument(input), {
@@ -2362,10 +2370,10 @@ describe("validateDocument() supported document checks", () => {
       assert.deepEqual(input, original);
     }
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Create",
       object: [
-        { type: "Object", attributedTo: [like.actor, false] },
+        { type: "Object", attributedTo: [LIKE.actor, false] },
         { type: "Article", location: [{ type: "Object", content: 123 }] },
       ],
     });
@@ -2397,9 +2405,9 @@ describe("validateDocument() supported document checks", () => {
       "Person",
       "Service",
     ]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2408,12 +2416,12 @@ describe("validateDocument() supported document checks", () => {
         );
         const actor = Object.freeze({
           type: spelling,
-          id: like.actor,
+          id: LIKE.actor,
           content: "",
         });
         const input = Object.freeze({
-          ...like,
-          actor: Object.freeze([like.actor, actor, like.actor]),
+          ...LIKE,
+          actor: Object.freeze([LIKE.actor, actor, LIKE.actor]),
           object: Object.freeze({
             type: "Article",
             attributedTo: actor,
@@ -2434,7 +2442,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("reports unsupported actor ranges separately from nested vocabulary errors", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       actor: [
         { type: "Note", content: 123 },
         { type: "Person", id: false },
@@ -2474,7 +2482,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks embedded Link values while keeping unimplemented actor fields explicit", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       actor: [
         { type: "Link", href: 123 },
         {
@@ -2507,15 +2515,15 @@ describe("validateDocument() supported document checks", () => {
     ]) {
       for (const embeddedType of ["Link", "Mention"]) {
         const input = {
-          ...like,
+          ...LIKE,
           "@context": [
-            context,
-            { relation: { "@id": `${context}#${property}`, "@type": "@id" } },
+            CONTEXT,
+            { relation: { "@id": `${CONTEXT}#${property}`, "@type": "@id" } },
           ],
           object: [
             {
               type,
-              relation: [null, { type: embeddedType, href: like.actor }],
+              relation: [null, { type: embeddedType, href: LIKE.actor }],
             },
           ],
         };
@@ -2568,7 +2576,7 @@ describe("validateDocument() supported document checks", () => {
         "bcc",
       ];
       const input = {
-        "@context": context,
+        "@context": CONTEXT,
         type,
         ...Object.fromEntries(properties.map((property) => [property, true])),
       };
@@ -2619,7 +2627,7 @@ describe("validateDocument() supported document checks", () => {
       ];
       const input = {
         "@context": [
-          context,
+          CONTEXT,
           { author: { "@id": "as:attributedTo", "@type": "@id" } },
         ],
         type,
@@ -2647,7 +2655,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("preserves Link language maps and embedded previews supported by Fedify", async () => {
     const input = {
-      "@context": context,
+      "@context": CONTEXT,
       type: "Link",
       nameMap: { en: "Hello", ko: "안녕" },
       preview: { type: "Note", content: "Preview" },
@@ -2674,9 +2682,9 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("detects actor/attribution cycles without rejecting shared actors in separate branches", () => {
-    const actor: Record<string, unknown> = { type: "Person", id: like.actor };
+    const actor: Record<string, unknown> = { type: "Person", id: LIKE.actor };
     actor.attributedTo = actor;
-    const result = validateDocument({ ...like, actor: [actor, actor] });
+    const result = validateDocument({ ...LIKE, actor: [actor, actor] });
     assert.equal(result.complete, true);
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -2697,10 +2705,10 @@ describe("validateDocument() supported document checks", () => {
       for (const object of [
         false,
         123,
-        like.object,
+        LIKE.object,
         { type: "Note", content: false },
       ]) {
-        const result = validateDocument({ "@context": context, type, object });
+        const result = validateDocument({ "@context": CONTEXT, type, object });
         assert.equal(result.complete, true);
         assert.deepEqual(
           result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -2708,7 +2716,7 @@ describe("validateDocument() supported document checks", () => {
         );
       }
       assert.deepEqual(
-        validateDocument({ "@context": context, type, object: [null] }),
+        validateDocument({ "@context": CONTEXT, type, object: [null] }),
         {
           complete: true,
           diagnostics: [],
@@ -2716,9 +2724,9 @@ describe("validateDocument() supported document checks", () => {
         },
       );
       const listed = validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type,
-        object: [null, like.object],
+        object: [null, LIKE.object],
       });
       assert.equal(listed.complete, true);
       assert.deepEqual(
@@ -2730,22 +2738,22 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks nested intransitive activities while continuing independent fields and siblings", () => {
     const input = {
-      ...like,
+      ...LIKE,
       type: "Activity",
       object: [
         {
-          type: `${context}#Arrive`,
+          type: `${CONTEXT}#Arrive`,
           actor: false,
-          location: [like.object, 123],
+          location: [LIKE.object, 123],
           object: { type: "Note", content: false },
           origin: false,
         },
         {
-          type: `${context}#IntransitiveActivity`,
+          type: `${CONTEXT}#IntransitiveActivity`,
           object: null,
           result: { type: "Activity", object: 123 },
         },
-        { type: "Activity", object: like.object },
+        { type: "Activity", object: LIKE.object },
       ],
     };
     const original = structuredClone(input);
@@ -2779,20 +2787,20 @@ describe("validateDocument() supported document checks", () => {
       "Question",
     ]) {
       const input = Object.freeze({
-        "@context": context,
+        "@context": CONTEXT,
         type,
-        actor: like.actor,
+        actor: LIKE.actor,
         target: Object.freeze([
-          like.object,
+          LIKE.object,
           Object.freeze({ type: "Note", content: "Hello" }),
         ]),
-        origin: like.object,
-        result: Object.freeze({ type: "Activity", object: like.object }),
-        instrument: like.object,
+        origin: LIKE.object,
+        result: Object.freeze({ type: "Activity", object: LIKE.object }),
+        instrument: LIKE.object,
         location: Object.freeze([
-          like.object,
+          LIKE.object,
           Object.freeze({ type: "Note", content: "Place" }),
-          like.object,
+          LIKE.object,
         ]),
       });
       const original = structuredClone(input);
@@ -2805,7 +2813,7 @@ describe("validateDocument() supported document checks", () => {
     }
     for (const type of ["Note", "Like"]) {
       assert.deepEqual(
-        validateDocument({ "@context": context, type, location: null }),
+        validateDocument({ "@context": CONTEXT, type, location: null }),
         { complete: true, diagnostics: [], changes: [] },
       );
     }
@@ -2814,7 +2822,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("reports unsupported location types and inherited context overrides without guessing", () => {
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Arrive",
       object: null,
       location: [
@@ -2843,18 +2851,18 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks standalone and nested Travel and Question through inherited rules", () => {
     const input = {
-      ...like,
+      ...LIKE,
       type: "Create",
       object: [
         {
-          type: `${context}#Travel`,
+          type: `${CONTEXT}#Travel`,
           actor: false,
           object: { type: "Note", content: false },
-          origin: [like.object, 123],
-          target: like.object,
+          origin: [LIKE.object, 123],
+          target: LIKE.object,
         },
         {
-          type: `${context}#Question`,
+          type: `${CONTEXT}#Question`,
           object: false,
           result: { type: "Travel", object: 123 },
         },
@@ -2885,7 +2893,7 @@ describe("validateDocument() supported document checks", () => {
     });
     let evaluated = false;
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Create",
       object: [
         {
@@ -2926,9 +2934,9 @@ describe("validateDocument() supported document checks", () => {
       "CollectionPage",
       "OrderedCollectionPage",
     ]) {
-      for (const spelling of [type, `${context}#${type}`]) {
+      for (const spelling of [type, `${CONTEXT}#${type}`]) {
         assert.deepEqual(
-          validateDocument({ "@context": context, type: spelling }),
+          validateDocument({ "@context": CONTEXT, type: spelling }),
           {
             complete: true,
             diagnostics: [],
@@ -2937,10 +2945,10 @@ describe("validateDocument() supported document checks", () => {
         );
         assert.deepEqual(
           validateDocument({
-            "@context": context,
+            "@context": CONTEXT,
             type: spelling,
             totalItems: 100,
-            items: like.object,
+            items: LIKE.object,
           }),
           {
             complete: true,
@@ -2950,7 +2958,7 @@ describe("validateDocument() supported document checks", () => {
         );
         for (const totalItems of [-1, 1.5, "2", false]) {
           const result = validateDocument({
-            "@context": context,
+            "@context": CONTEXT,
             type: spelling,
             totalItems,
           });
@@ -2964,7 +2972,7 @@ describe("validateDocument() supported document checks", () => {
     }
     assert.deepEqual(
       validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type: "OrderedCollectionPage",
         startIndex: null,
         totalItems: null,
@@ -2982,16 +2990,16 @@ describe("validateDocument() supported document checks", () => {
       throw new Error("Unexpected network access");
     });
     const members = Object.freeze([
-      like.object,
+      LIKE.object,
       Object.freeze({ type: "Article", content: "Text" }),
-      like.object,
+      LIKE.object,
     ]);
     const target = Object.freeze({
-      type: `${context}#OrderedCollection`,
+      type: `${CONTEXT}#OrderedCollection`,
       totalItems: 50,
       orderedItems: members,
     });
-    const input = Object.freeze({ ...like, type: "Add", target });
+    const input = Object.freeze({ ...LIKE, type: "Add", target });
     const original = structuredClone(input);
     assert.deepEqual(validateDocument(input), {
       complete: true,
@@ -3000,13 +3008,13 @@ describe("validateDocument() supported document checks", () => {
     });
     assert.deepEqual(input, original);
     const result = validateDocument({
-      ...like,
+      ...LIKE,
       type: "Add",
       target: {
         type: "OrderedCollection",
         totalItems: -1,
         orderedItems: [
-          like.object,
+          LIKE.object,
           { type: "CollectionPage", items: [{ type: "Note", content: 123 }] },
           false,
         ],
@@ -3029,7 +3037,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("checks embedded navigation ranges and permits single-value arrays", () => {
     const result = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "OrderedCollectionPage",
       current: { type: "OrderedCollectionPage", startIndex: -1 },
       first: { type: "CollectionPage", items: 123 },
@@ -3053,9 +3061,9 @@ describe("validateDocument() supported document checks", () => {
       ],
     );
     const unsupported = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
-      items: like.object,
+      items: LIKE.object,
       totalItems: 1,
     });
     assert.equal(unsupported.complete, false);
@@ -3076,13 +3084,13 @@ describe("validateDocument() supported document checks", () => {
     ]) {
       assert.deepEqual(
         validateDocument({
-          "@context": context,
+          "@context": CONTEXT,
           type,
           inbox: { type: "OrderedCollectionPage", startIndex: 0 },
           outbox: "https://example.com/outbox",
           following: { type: "OrderedCollection", totalItems: 0 },
           followers: { type: "CollectionPage" },
-          liked: like.object,
+          liked: LIKE.object,
         }),
         { complete: true, diagnostics: [], changes: [] },
       );
@@ -3090,7 +3098,7 @@ describe("validateDocument() supported document checks", () => {
     const page: Record<string, unknown> = { type: "CollectionPage" };
     page.next = page;
     const result = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Collection",
       first: page,
     });
@@ -3099,10 +3107,10 @@ describe("validateDocument() supported document checks", () => {
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [{ reason: "non_json_value", path: ["first", "next"] }],
     );
-    const items = [like.object];
+    const items = [LIKE.object];
     items.length = 2;
     const sparse = validateDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Collection",
       items,
     });
@@ -3118,16 +3126,16 @@ describe("validateDocument() supported document checks", () => {
         throw new Error("Unexpected network access");
       });
       const note = Object.freeze({ type: "Note", content: "Hello" });
-      const activity = Object.freeze({ type: "Follow", object: like.actor });
+      const activity = Object.freeze({ type: "Follow", object: LIKE.actor });
       for (const type of ["Like", "Create", "Undo", "Accept", "Follow"]) {
         for (const value of [
           null,
-          like.object,
+          LIKE.object,
           note,
           activity,
-          Object.freeze([like.object, note, activity, like.object]),
+          Object.freeze([LIKE.object, note, activity, LIKE.object]),
         ]) {
-          const input = Object.freeze({ ...like, type, [property]: value });
+          const input = Object.freeze({ ...LIKE, type, [property]: value });
           const original = structuredClone(input);
           assert.deepEqual(validateDocument(input), {
             complete: true,
@@ -3142,7 +3150,7 @@ describe("validateDocument() supported document checks", () => {
 
     it(`checks ${property} list entries and nested properties in source order`, () => {
       const result = validateDocument({
-        ...like,
+        ...LIKE,
         [property]: [
           123,
           { type: "Note", content: false },
@@ -3173,10 +3181,10 @@ describe("validateDocument() supported document checks", () => {
   it("keeps undecided relation forms unsupported and restricts the new properties to activities", () => {
     for (const property of ["target", "origin", "result", "instrument"]) {
       for (const [value, expectedPath] of [
-        [[[like.object]], [property, 0]],
+        [[[LIKE.object]], [property, 0]],
         ["/relative", [property]],
       ] as const) {
-        const result = validateDocument({ ...like, [property]: value });
+        const result = validateDocument({ ...LIKE, [property]: value });
         assert.equal(result.complete, false);
         assert.deepEqual(
           result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -3184,9 +3192,9 @@ describe("validateDocument() supported document checks", () => {
         );
       }
       const note = validateDocument({
-        "@context": context,
+        "@context": CONTEXT,
         type: "Note",
-        [property]: like.object,
+        [property]: LIKE.object,
       });
       assert.equal(note.complete, false);
       assert.deepEqual(
@@ -3198,7 +3206,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("applies nested context blocking and cycle detection to the new relations", () => {
     const input: Record<string, unknown> = {
-      ...like,
+      ...LIKE,
       instrument: {
         "@context": "https://remote.example/context",
         type: "Note",
@@ -3225,7 +3233,7 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("keeps nested lists incomplete", () => {
-    const result = validateDocument({ ...like, object: [[like.object]] });
+    const result = validateDocument({ ...LIKE, object: [[LIKE.object]] });
     assert.equal(result.complete, false);
     assert.equal(result.diagnostics[0]?.reason, "unsupported_value_form");
     assert.deepEqual(result.diagnostics[0]?.path, ["object", 0]);
@@ -3233,7 +3241,7 @@ describe("validateDocument() supported document checks", () => {
 
   it("does not evaluate list accessors or silently skip sparse entries", () => {
     let evaluated = false;
-    const accessor = [like.object];
+    const accessor = [LIKE.object];
     Object.defineProperty(accessor, "0", {
       enumerable: true,
       get() {
@@ -3241,13 +3249,13 @@ describe("validateDocument() supported document checks", () => {
         throw new Error("Do not invoke input accessors");
       },
     });
-    const sparse = [like.object];
+    const sparse = [LIKE.object];
     sparse.length = 2;
     for (const [object, index] of [
       [accessor, 0],
       [sparse, 1],
     ] as const) {
-      const result = validateDocument({ ...like, object });
+      const result = validateDocument({ ...LIKE, object });
       assert.equal(result.diagnostics[0]?.reason, "non_json_value");
       assert.deepEqual(result.diagnostics[0]?.path, ["object", index]);
     }
@@ -3256,15 +3264,15 @@ describe("validateDocument() supported document checks", () => {
 
   it("does not impose the deferred value-count budget on reference lists", () => {
     const result = validateDocument({
-      ...like,
-      actor: Array(6000).fill(like.actor),
-      object: Array(6000).fill(like.object),
+      ...LIKE,
+      actor: Array(6000).fill(LIKE.actor),
+      object: Array(6000).fill(LIKE.object),
     });
     assert.deepEqual(result, { complete: true, diagnostics: [], changes: [] });
   });
 
   it("reports an implicit context as a warning rather than rejection", () => {
-    const result = validateDocument({ type: "Like", object: like.object });
+    const result = validateDocument({ type: "Like", object: LIKE.object });
     assert.equal(result.complete, true);
     assert.deepEqual(
       result.diagnostics.map(({ reason, severity }) => ({ reason, severity })),
@@ -3275,7 +3283,7 @@ describe("validateDocument() supported document checks", () => {
   it("does not evaluate getters in a non-JSON input", () => {
     let evaluated = false;
     const input = {
-      ...like,
+      ...LIKE,
       get object() {
         evaluated = true;
         throw new Error("Do not invoke input accessors");
@@ -3288,11 +3296,11 @@ describe("validateDocument() supported document checks", () => {
   });
 
   it("keeps relative references separate from malformed references", () => {
-    const relative = validateDocument({ ...like, object: "/posts/42" });
+    const relative = validateDocument({ ...LIKE, object: "/posts/42" });
     assert.equal(relative.complete, false);
     assert.equal(relative.diagnostics[0]?.reason, "unsupported_value_form");
     const malformed = validateDocument({
-      ...like,
+      ...LIKE,
       object: "https://example.com/not valid",
     });
     assert.equal(malformed.complete, true);
@@ -3307,7 +3315,7 @@ describe("validateDocument() supported document checks", () => {
           index,
         ]),
       );
-      const input = { ...like, ...properties };
+      const input = { ...LIKE, ...properties };
       const result = validateDocument(input);
       assert.equal(result.complete, count <= 100);
       assert.equal(result.diagnostics.length, Math.min(count, 100));
@@ -3339,7 +3347,7 @@ describe("validateDocument() supported document checks", () => {
   it("distinguishes complete vocabulary errors from diagnostic truncation at the boundary", () => {
     for (const count of [99, 100, 101]) {
       const result = validateDocument({
-        ...like,
+        ...LIKE,
         actor: Array(count).fill(false),
       });
       assert.equal(result.complete, count <= 100);
@@ -3362,7 +3370,7 @@ describe("validateDocument() supported document checks", () => {
   it("allows an omission preview with exactly 100 warnings but withholds a truncated one", () => {
     for (const count of [99, 100, 101]) {
       const input = {
-        ...like,
+        ...LIKE,
         object: Array.from({ length: count }, () => ({
           type: "Note",
           content: [],
@@ -3396,26 +3404,17 @@ describe("validateDocument() supported document checks", () => {
   });
 });
 
-const creationOptions: DocumentPreparationOptions = {
-  authority: [{ allowed: true, path: [] }],
-  serverOwnedFields: [
-    { path: ["id"], value: "https://example.com/objects/new" },
-    { path: ["attributedTo"], value: like.actor },
-    { path: ["published"], value: "2026-10-27T12:00:00Z" },
-  ],
-};
-
 describe("prepareDocument() trusted creation inputs", () => {
   it("keeps path-specific proposals independent for shared source objects", () => {
+    const FIRST = "https://example.com/objects/first";
+    const SECOND = "https://example.com/objects/second";
     const shared = { type: "Note" };
-    const input = { ...like, type: "Create", object: [shared, shared] };
-    const first = "https://example.com/objects/first";
-    const second = "https://example.com/objects/second";
+    const input = { ...LIKE, type: "Create", object: [shared, shared] };
     const result = prepareDocument(input, {
       authority: [{ allowed: true, path: [] }],
       serverOwnedFields: [
-        { path: ["object", 0, "id"], value: first },
-        { path: ["object", 1, "id"], value: second },
+        { path: ["object", 0, "id"], value: FIRST },
+        { path: ["object", 1, "id"], value: SECOND },
       ],
     });
     assert.equal(result.complete, true);
@@ -3423,15 +3422,15 @@ describe("prepareDocument() trusted creation inputs", () => {
     assert.deepEqual(result.normalizedDocument, {
       ...input,
       object: [
-        { type: "Note", id: first },
-        { type: "Note", id: second },
+        { type: "Note", id: FIRST },
+        { type: "Note", id: SECOND },
       ],
     });
     assert.deepEqual(
       result.changes.map((change) =>
         "after" in change ? change.after : undefined,
       ),
-      [first, second],
+      [FIRST, SECOND],
     );
     assert.deepEqual(shared, { type: "Note" });
   });
@@ -3441,26 +3440,26 @@ describe("prepareDocument() trusted creation inputs", () => {
       throw new Error("Unexpected fetch");
     });
     const input = {
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
       content: "Hello",
       to: [],
       debug: { values: [null, 1] },
     };
     const original = structuredClone(input);
-    const optionsBefore = structuredClone(creationOptions);
-    const result = prepareDocument(input, creationOptions);
+    const optionsBefore = structuredClone(CREATION_OPTIONS);
+    const result = prepareDocument(input, CREATION_OPTIONS);
     assert.equal(result.complete, true);
     assert.ok(
       result.diagnostics.every(({ severity }) => severity === "warning"),
     );
     assert.deepEqual(result.normalizedDocument, {
-      "@context": context,
+      "@context": CONTEXT,
       type: "Note",
       content: "Hello",
       debug: input.debug,
-      id: creationOptions.serverOwnedFields[0]!.value,
-      attributedTo: like.actor,
+      id: CREATION_OPTIONS.serverOwnedFields[0]!.value,
+      attributedTo: LIKE.actor,
       published: "2026-10-27T12:00:00Z",
     });
     assert.deepEqual(
@@ -3474,27 +3473,27 @@ describe("prepareDocument() trusted creation inputs", () => {
     );
     assert.notEqual(result.normalizedDocument!.debug, input.debug);
     assert.deepEqual(input, original);
-    assert.deepEqual(creationOptions, optionsBefore);
+    assert.deepEqual(CREATION_OPTIONS, optionsBefore);
     assert.equal(fetch.mock.callCount(), 0);
   });
 
   it("preserves matching singleton representations and explicitly replaces null absence", () => {
     const input = {
-      ...like,
-      id: creationOptions.serverOwnedFields[0]!.value,
-      attributedTo: [null, like.actor],
+      ...LIKE,
+      id: CREATION_OPTIONS.serverOwnedFields[0]!.value,
+      attributedTo: [null, LIKE.actor],
       published: "2026-10-27T12:00:00Z",
     };
-    assert.deepEqual(prepareDocument(input, creationOptions), {
+    assert.deepEqual(prepareDocument(input, CREATION_OPTIONS), {
       complete: true,
       diagnostics: [],
       changes: [],
     });
     const absent = prepareDocument(
-      { ...like, actor: null },
+      { ...LIKE, actor: null },
       {
-        ...creationOptions,
-        serverOwnedFields: [{ path: ["actor"], value: like.actor }],
+        ...CREATION_OPTIONS,
+        serverOwnedFields: [{ path: ["actor"], value: LIKE.actor }],
       },
     );
     assert.equal(absent.changes[0]?.operation, "replace");
@@ -3504,15 +3503,15 @@ describe("prepareDocument() trusted creation inputs", () => {
         : undefined,
       null,
     );
-    assert.equal(absent.normalizedDocument!.actor, like.actor);
+    assert.equal(absent.normalizedDocument!.actor, LIKE.actor);
   });
 
   it("identifies original list entries in server-owned field conflicts", () => {
-    const input = { ...like, actor: [null, "https://other.example/actor"] };
+    const input = { ...LIKE, actor: [null, "https://other.example/actor"] };
     const original = structuredClone(input);
     const result = prepareDocument(input, {
       authority: [{ allowed: true, path: [] }],
-      serverOwnedFields: [{ path: ["actor"], value: like.actor }],
+      serverOwnedFields: [{ path: ["actor"], value: LIKE.actor }],
     });
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -3525,7 +3524,7 @@ describe("prepareDocument() trusted creation inputs", () => {
 
   it("replaces the requested present alias and falls back to an existing absent alias", () => {
     const declaration = [
-      context,
+      CONTEXT,
       { performer: { "@id": "as:actor", "@type": "@id" } },
     ];
     for (const [fields, requested, replaced] of [
@@ -3536,7 +3535,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       const original = structuredClone(input);
       const result = prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
-        serverOwnedFields: [{ path: [requested], value: like.actor }],
+        serverOwnedFields: [{ path: [requested], value: LIKE.actor }],
       });
       assert.deepEqual(result.diagnostics, []);
       assert.deepEqual(
@@ -3545,7 +3544,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       );
       assert.deepEqual(result.normalizedDocument, {
         ...input,
-        [replaced]: like.actor,
+        [replaced]: LIKE.actor,
       });
       assert.deepEqual(input, original);
     }
@@ -3553,7 +3552,7 @@ describe("prepareDocument() trusted creation inputs", () => {
 
   it("prepares server-owned identifiers from null and null-only arrays", () => {
     for (const value of [null, [], [null], [null, null]]) {
-      const input = { ...like, id: value };
+      const input = { ...LIKE, id: value };
       const result = prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
         serverOwnedFields: [
@@ -3594,7 +3593,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       ["id", "https://example.com/owned"],
       ["published", "2024-01-01T12:34:00Z"],
     ] as const) {
-      const input = { "@context": context, type: "Note", [property]: [] };
+      const input = { "@context": CONTEXT, type: "Note", [property]: [] };
       const original = structuredClone(input);
       const result = prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
@@ -3632,7 +3631,7 @@ describe("prepareDocument() trusted creation inputs", () => {
           ? "2024-01-01T12:34:00Z"
           : "https://example.com/owned";
       const input = {
-        "@context": context,
+        "@context": CONTEXT,
         type: "Create",
         [property]: [],
         to: [],
@@ -3651,7 +3650,7 @@ describe("prepareDocument() trusted creation inputs", () => {
         ],
       );
       assert.deepEqual(result.normalizedDocument, {
-        "@context": context,
+        "@context": CONTEXT,
         type: "Create",
         [property]: value,
       });
@@ -3670,7 +3669,7 @@ describe("prepareDocument() trusted creation inputs", () => {
   it("supersedes omissions at the actual nested source alias", () => {
     const input = {
       "@context": [
-        context,
+        CONTEXT,
         { performer: { "@id": "as:actor", "@type": "@id" } },
       ],
       type: "Create",
@@ -3679,7 +3678,7 @@ describe("prepareDocument() trusted creation inputs", () => {
     const original = structuredClone(input);
     const result = prepareDocument(input, {
       authority: [{ allowed: true, path: [] }],
-      serverOwnedFields: [{ path: ["object", 0, "actor"], value: like.actor }],
+      serverOwnedFields: [{ path: ["object", 0, "actor"], value: LIKE.actor }],
     });
     assert.equal(result.complete, true);
     assert.deepEqual(
@@ -3691,7 +3690,7 @@ describe("prepareDocument() trusted creation inputs", () => {
     );
     assert.deepEqual(result.normalizedDocument, {
       ...input,
-      object: [{ type: "Like", performer: like.actor }],
+      object: [{ type: "Like", performer: LIKE.actor }],
     });
     assert.match(
       result.diagnostics.find(({ path }) => path.at(-1) === "performer")!
@@ -3702,16 +3701,16 @@ describe("prepareDocument() trusted creation inputs", () => {
   });
 
   it("rejects conflicting identities and timestamps without changing their values", () => {
-    for (const field of creationOptions.serverOwnedFields) {
+    for (const field of CREATION_OPTIONS.serverOwnedFields) {
       const key = field.path[0] as string;
       const value =
         key === "published"
           ? "2025-01-01T00:00:00Z"
           : "https://other.example/value";
-      const input = { ...like, [key]: value };
+      const input = { ...LIKE, [key]: value };
       const original = structuredClone(input);
       const result = prepareDocument(input, {
-        ...creationOptions,
+        ...CREATION_OPTIONS,
         serverOwnedFields: [field],
       });
       assert.equal(result.complete, true);
@@ -3743,7 +3742,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       serverOwnedFields: [],
     };
     const input = {
-      ...like,
+      ...LIKE,
       object: [{ type: "Follow", actor: false }],
       authority: "allowed",
     };
@@ -3764,15 +3763,15 @@ describe("prepareDocument() trusted creation inputs", () => {
     );
     assert.equal(result.normalizedDocument, undefined);
     assert.deepEqual(result.changes, []);
-    const malformed = prepareDocument({ ...like, id: 123 }, creationOptions);
+    const malformed = prepareDocument({ ...LIKE, id: 123 }, CREATION_OPTIONS);
     assert.deepEqual(
       malformed.diagnostics.map(({ reason }) => reason),
       ["invalid_value_shape"],
     );
     assert.throws(
       () =>
-        prepareDocument(like, {
-          ...creationOptions,
+        prepareDocument(LIKE, {
+          ...CREATION_OPTIONS,
           authority: [],
         } as unknown as DocumentPreparationOptions),
       TypeError,
@@ -3782,7 +3781,7 @@ describe("prepareDocument() trusted creation inputs", () => {
   it("uses original nested aliases for conflicts and generated previews", () => {
     const input = {
       "@context": [
-        context,
+        CONTEXT,
         {
           created: { "@id": "as:published", "@type": "xsd:dateTime" },
           author: { "@id": "as:attributedTo", "@type": "@id" },
@@ -3791,7 +3790,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       type: "Create",
       object: [
         null,
-        { type: "Note", created: null, author: [null, like.actor] },
+        { type: "Note", created: null, author: [null, LIKE.actor] },
       ],
     };
     const options: DocumentPreparationOptions = {
@@ -3801,7 +3800,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       ],
       serverOwnedFields: [
         { path: ["object", 1, "published"], value: "2026-10-27T12:00:00Z" },
-        { path: ["object", 1, "attributedTo"], value: like.actor },
+        { path: ["object", 1, "attributedTo"], value: LIKE.actor },
       ],
     };
     const original = structuredClone(input);
@@ -3817,7 +3816,7 @@ describe("prepareDocument() trusted creation inputs", () => {
         {
           type: "Note",
           created: "2026-10-27T12:00:00Z",
-          author: [null, like.actor],
+          author: [null, LIKE.actor],
         },
       ],
     });
@@ -3847,20 +3846,21 @@ describe("prepareDocument() trusted creation inputs", () => {
       [{ path: ["id"], value: "relative" }],
       [{ path: ["published"], value: "not-a-date" }],
       [{ path: ["content"], value: "server text" }],
-      [{ path: ["object", "id"], value: like.object }],
-      [{ path: ["debug", "id"], value: like.object }],
+      [{ path: ["object", "id"], value: LIKE.object }],
+      [{ path: ["debug", "id"], value: LIKE.object }],
       [
-        { path: ["id"], value: like.object },
-        { path: ["identity"], value: like.object },
+        { path: ["id"], value: LIKE.object },
+        { path: ["identity"], value: LIKE.object },
       ],
     ]) {
       const input = {
-        ...like,
-        "@context": [context, { identity: "@id" }],
+        ...LIKE,
+        "@context": [CONTEXT, { identity: "@id" }],
         debug: { type: "Note" },
       };
       assert.throws(
-        () => prepareDocument(input, { ...creationOptions, serverOwnedFields }),
+        () =>
+          prepareDocument(input, { ...CREATION_OPTIONS, serverOwnedFields }),
         TypeError,
       );
     }
@@ -3870,19 +3870,19 @@ describe("prepareDocument() trusted creation inputs", () => {
     for (const content of ["Hello", 123]) {
       for (const allowed of [true, false]) {
         const input = {
-          "@context": [context, { identity: "@id" }],
+          "@context": [CONTEXT, { identity: "@id" }],
           type: "Note",
           content,
         };
         const original = structuredClone(input);
         for (const serverOwnedFields of [
-          [{ path: ["missing", "id"], value: like.object }],
+          [{ path: ["missing", "id"], value: LIKE.object }],
           [{ path: ["content"], value: "server text" }],
           [{ path: ["id"], value: "relative" }],
           [{ path: ["published"], value: "not-a-date" }],
           [
-            { path: ["id"], value: like.object },
-            { path: ["identity"], value: like.object },
+            { path: ["id"], value: LIKE.object },
+            { path: ["identity"], value: LIKE.object },
           ],
         ]) {
           assert.throws(
@@ -3911,7 +3911,7 @@ describe("prepareDocument() trusted creation inputs", () => {
             () =>
               prepareDocument(input, {
                 authority: [{ allowed, path: [] }],
-                serverOwnedFields: [{ path, value: like.object }],
+                serverOwnedFields: [{ path, value: LIKE.object }],
               }),
             {
               name: "TypeError",
@@ -3923,7 +3923,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       assert.deepEqual(
         prepareDocument(input, {
           authority: [{ allowed: true, path: [] }],
-          serverOwnedFields: [{ path: ["id"], value: like.object }],
+          serverOwnedFields: [{ path: ["id"], value: LIKE.object }],
         }),
         validateDocument(input),
       );
@@ -3934,16 +3934,16 @@ describe("prepareDocument() trusted creation inputs", () => {
     for (const input of [
       null,
       123,
-      { "@context": context, type: 123 },
-      { "@context": context, type: "Unknown" },
+      { "@context": CONTEXT, type: 123 },
+      { "@context": CONTEXT, type: "Unknown" },
       { "@context": 123, type: "Note" },
       { "@context": "https://unknown.example/context", type: "Note" },
-      { "@context": context },
+      { "@context": CONTEXT },
     ]) {
       const expected = validateDocument(input);
       const result = prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
-        serverOwnedFields: [{ path: ["id"], value: like.object }],
+        serverOwnedFields: [{ path: ["id"], value: LIKE.object }],
       });
       assert.deepEqual(result, expected);
       assert.ok(
@@ -3955,11 +3955,11 @@ describe("prepareDocument() trusted creation inputs", () => {
   });
 
   it("distinguishes a blocked nested target from a definitely missing parent", () => {
-    const input = { ...like, object: [{ type: "Unknown" }] };
+    const input = { ...LIKE, object: [{ type: "Unknown" }] };
     assert.deepEqual(
       prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
-        serverOwnedFields: [{ path: ["object", 0, "id"], value: like.object }],
+        serverOwnedFields: [{ path: ["object", 0, "id"], value: LIKE.object }],
       }),
       validateDocument(input),
     );
@@ -3971,7 +3971,7 @@ describe("prepareDocument() trusted creation inputs", () => {
         () =>
           prepareDocument(input, {
             authority: [{ allowed: true, path: [] }],
-            serverOwnedFields: [{ path, value: like.object }],
+            serverOwnedFields: [{ path, value: LIKE.object }],
           }),
         TypeError,
       );
@@ -3984,13 +3984,13 @@ describe("prepareDocument() trusted creation inputs", () => {
       for (let index = 0; index < depth; index += 1) {
         input = { type: "Create", object: input };
       }
-      input["@context"] = context;
+      input["@context"] = CONTEXT;
       input.to = [];
       const original = structuredClone(input);
       const result = prepareDocument(input, {
         authority: [{ allowed: true, path: [] }],
         serverOwnedFields: [
-          { path: [...Array(depth).fill("object"), "id"], value: like.object },
+          { path: [...Array(depth).fill("object"), "id"], value: LIKE.object },
         ],
       });
       assert.equal(result.complete, false);
@@ -4013,7 +4013,7 @@ describe("prepareDocument() trusted creation inputs", () => {
 
   it("does not invoke getters while checking blocked preparation targets", () => {
     let evaluated = false;
-    const input = { ...like };
+    const input = { ...LIKE };
     Object.defineProperty(input, "object", {
       enumerable: true,
       get() {
@@ -4023,7 +4023,7 @@ describe("prepareDocument() trusted creation inputs", () => {
     });
     const result = prepareDocument(input, {
       authority: [{ allowed: true, path: [] }],
-      serverOwnedFields: [{ path: ["object", "id"], value: like.object }],
+      serverOwnedFields: [{ path: ["object", "id"], value: LIKE.object }],
     });
     assert.equal(evaluated, false);
     assert.ok(
@@ -4034,11 +4034,11 @@ describe("prepareDocument() trusted creation inputs", () => {
   });
 
   it("preserves authority paths as diagnostic locations without requiring document targets", () => {
-    const input = { "@context": context, type: "Note", content: 123 };
+    const input = { "@context": CONTEXT, type: "Note", content: 123 };
     const path = ["externalIdentity", 5, "actor"];
     const result = prepareDocument(input, {
       authority: [{ allowed: false, path }],
-      serverOwnedFields: [{ path: ["id"], value: like.object }],
+      serverOwnedFields: [{ path: ["id"], value: LIKE.object }],
     });
     assert.deepEqual(
       result.diagnostics.map(({ reason, path: location }) => ({
@@ -4056,21 +4056,21 @@ describe("prepareDocument() trusted creation inputs", () => {
 
   it("revalidates generated fields and keeps incomplete documents without a preview", () => {
     const link = prepareDocument(
-      { "@context": context, type: "Link" },
+      { "@context": CONTEXT, type: "Link" },
       {
-        ...creationOptions,
-        serverOwnedFields: [{ path: ["actor"], value: like.actor }],
+        ...CREATION_OPTIONS,
+        serverOwnedFields: [{ path: ["actor"], value: LIKE.actor }],
       },
     );
     assert.equal(link.complete, false);
     assert.equal(link.diagnostics[0]?.reason, "unsupported_property");
     assert.equal(link.normalizedDocument, undefined);
     for (const input of [
-      { ...like, type: "Unknown" },
-      { ...like, "@context": "https://unknown.example/context" },
-      { ...like, duration: "PT1H" },
+      { ...LIKE, type: "Unknown" },
+      { ...LIKE, "@context": "https://unknown.example/context" },
+      { ...LIKE, duration: "PT1H" },
     ]) {
-      const result = prepareDocument(input, creationOptions);
+      const result = prepareDocument(input, CREATION_OPTIONS);
       assert.equal(result.complete, false);
       assert.equal(result.normalizedDocument, undefined);
       assert.deepEqual(result.changes, []);
@@ -4082,7 +4082,7 @@ describe("prepareDocument() trusted creation inputs", () => {
       allowed: false,
       path: [],
     }));
-    const result = prepareDocument(like, {
+    const result = prepareDocument(LIKE, {
       authority:
         authority as unknown as DocumentPreparationOptions["authority"],
       serverOwnedFields: [],
@@ -4091,7 +4091,7 @@ describe("prepareDocument() trusted creation inputs", () => {
     assert.equal(result.diagnostics.length, 100);
     assert.equal(result.diagnostics.at(-1)?.reason, "diagnostic_limit_reached");
     assert.equal(result.normalizedDocument, undefined);
-    assert.deepEqual(validateDocument(like), {
+    assert.deepEqual(validateDocument(LIKE), {
       complete: true,
       diagnostics: [],
       changes: [],
@@ -4103,11 +4103,11 @@ describe("describeDocument() semantic view", () => {
   it("names standard properties of every embedded document, whatever their spelling", () => {
     const input = {
       "@context": [
-        context,
+        CONTEXT,
         {
-          v: { "@id": `${context}#`, "@prefix": true },
+          v: { "@id": `${CONTEXT}#`, "@prefix": true },
           by: { "@id": "as:actor", "@type": "@id" },
-          payload: { "@id": `${context}#object`, "@type": "@id" },
+          payload: { "@id": `${CONTEXT}#object`, "@type": "@id" },
           identifier: "@id",
           recipients: { "@id": "as:to", "@type": "@id" },
         },
@@ -4122,7 +4122,7 @@ describe("describeDocument() semantic view", () => {
         {
           type: "Like",
           actor: "https://example.com/alice",
-          object: like.object,
+          object: LIKE.object,
         },
       ],
       custom: { type: "Note", actor: "https://example.com/mallory" },
@@ -4141,13 +4141,13 @@ describe("describeDocument() semantic view", () => {
         {
           path: [],
           property: undefined,
-          type: `${context}#Undo`,
+          type: `${CONTEXT}#Undo`,
           kind: "activity",
         },
         {
           path: ["payload", 1],
           property: "object",
-          type: `${context}#Like`,
+          type: `${CONTEXT}#Like`,
           kind: "activity",
         },
       ],
@@ -4170,7 +4170,7 @@ describe("describeDocument() semantic view", () => {
 
   it("classifies actors, collections, links, and objects", () => {
     const nodes = describeDocument({
-      "@context": context,
+      "@context": CONTEXT,
       type: "Add",
       actor: { type: "Person", id: "https://example.com/alice" },
       object: {
@@ -4196,7 +4196,7 @@ describe("describeDocument() semantic view", () => {
   it("expands compact IRI values through prefixes, as Fedify reads them", () => {
     const nodes = describeDocument({
       "@context": [
-        context,
+        CONTEXT,
         { local: { "@id": "https://other.example/users/", "@prefix": true } },
       ],
       type: "Create",
@@ -4223,7 +4223,7 @@ describe("describeDocument() semantic view", () => {
         property: "to",
         path: ["to", 0],
         value: "as:Public",
-        iri: `${context}#Public`,
+        iri: `${CONTEXT}#Public`,
       },
       {
         property: "to",
@@ -4243,10 +4243,10 @@ describe("describeDocument() semantic view", () => {
 
   it("leaves values unexpanded through terms that are not prefixes", () => {
     const nodes = describeDocument({
-      "@context": [context, { x: { "@id": "https://own.example/users/" } }],
+      "@context": [CONTEXT, { x: { "@id": "https://own.example/users/" } }],
       type: "Like",
       actor: "x:owner",
-      object: like.object,
+      object: LIKE.object,
     });
     assert.ok(nodes != null);
     assert.deepEqual(nodes[0]!.identifiers[0], {
@@ -4260,7 +4260,7 @@ describe("describeDocument() semantic view", () => {
   it("describes node objects in extension values with the context they inherit", () => {
     const nodes = describeDocument({
       "@context": [
-        context,
+        CONTEXT,
         {
           ex: "https://ext.example/ns#",
           hidden: { "@id": "as:bcc", "@type": "@id" },
@@ -4268,7 +4268,7 @@ describe("describeDocument() semantic view", () => {
       ],
       type: "Like",
       actor: "https://example.com/alice",
-      object: like.object,
+      object: LIKE.object,
       "ex:quoted": {
         type: "Note",
         to: ["https://example.com/bob", { id: "as:Public" }],
@@ -4320,7 +4320,7 @@ describe("describeDocument() semantic view", () => {
         property: "id",
         path: ["ex:quoted", "to", 1, "id"],
         value: "as:Public",
-        iri: `${context}#Public`,
+        iri: `${CONTEXT}#Public`,
       },
     ]);
     assert.deepEqual(Object.fromEntries(extensions[3]!.properties), {});
@@ -4329,7 +4329,7 @@ describe("describeDocument() semantic view", () => {
   it("reads extension node objects through containers, sets and keyword aliases", () => {
     const nodes = describeDocument({
       "@context": [
-        context,
+        CONTEXT,
         {
           ex: "https://ext.example/ns#",
           listed: { "@id": "as:bcc", "@type": "@id", "@container": "@list" },
@@ -4337,7 +4337,7 @@ describe("describeDocument() semantic view", () => {
       ],
       type: "Like",
       actor: "https://example.com/alice",
-      object: like.object,
+      object: LIKE.object,
       "ex:quoted": {
         type: "Delete",
         listed: ["https://example.com/blind"],
@@ -4354,7 +4354,7 @@ describe("describeDocument() semantic view", () => {
     assert.ok(nodes != null);
     const [quoted, dave, valued] = nodes[0]!.extensions;
     assert.equal(nodes[0]!.extensions.length, 3);
-    assert.deepEqual(quoted!.types, [`${context}#Delete`]);
+    assert.deepEqual(quoted!.types, [`${CONTEXT}#Delete`]);
     assert.deepEqual(Object.fromEntries(quoted!.properties), {
       bcc: ["listed"],
       to: ["to"],
@@ -4378,15 +4378,15 @@ describe("describeDocument() semantic view", () => {
 
   const quotedNode = (quoted: unknown) =>
     describeDocument({
-      ...like,
+      ...LIKE,
       "@context": [
-        context,
+        CONTEXT,
         {
           ex: "https://ext.example/ns#",
           hint: "as:to",
           toMap: { "@id": "as:to", "@container": "@language" },
           labels: { "@id": "ex:labels", "@container": "@language" },
-          _: `${context}#`,
+          _: `${CONTEXT}#`,
         },
       ],
       "ex:quoted": quoted,
@@ -4395,7 +4395,7 @@ describe("describeDocument() semantic view", () => {
   it("leaves extension node objects uninterpreted where references are unread", () => {
     for (const quoted of [
       { type: "Note", hint: "as:Public" },
-      { type: "Note", [`${context}#to`]: "as:Public" },
+      { type: "Note", [`${CONTEXT}#to`]: "as:Public" },
       { type: "Note", id: "/notes/1" },
       {
         type: "Note",
@@ -4422,12 +4422,12 @@ describe("describeDocument() semantic view", () => {
     }
     // A node object whose id is used elsewhere is not read apart from it.
     const joined = describeDocument({
-      ...like,
-      "@context": [context, { ex: "https://ext.example/ns#" }],
+      ...LIKE,
+      "@context": [CONTEXT, { ex: "https://ext.example/ns#" }],
       "ex:quoted": [
         { type: "Note", attributedTo: { id: "_:author" } },
         { id: "_:author", type: "Link", href: "https://a.example/victim" },
-        { id: like.object, type: "Note" },
+        { id: LIKE.object, type: "Note" },
         { id: "https://a.example/apart", type: "Note" },
         // Its own properties name no other node, but those it holds do.
         {
@@ -4458,8 +4458,8 @@ describe("describeDocument() semantic view", () => {
     // A value whose keys a context of its own may alias cannot be read, but
     // its value holds no node objects.
     const aliased = describeDocument({
-      ...like,
-      "@context": [context, { ex: "https://ext.example/ns#" }],
+      ...LIKE,
+      "@context": [CONTEXT, { ex: "https://ext.example/ns#" }],
       "ex:quoted": {
         "@context": { kind: "@type" },
         kind: "@json",
@@ -4487,13 +4487,13 @@ describe("describeDocument() semantic view", () => {
     assert.equal(blank?.uninterpreted, false);
     assert.deepEqual(
       blank?.identifiers.map(({ iri }) => iri),
-      ["_:b0", `${context}#Public`],
+      ["_:b0", `${CONTEXT}#Public`],
     );
     assert.deepEqual(quotedNode({ type: "_:Delete" })?.types, ["_:Delete"]);
     assert.equal(
       describeDocument({
-        ...like,
-        "@context": [context, { _: `${context}#` }],
+        ...LIKE,
+        "@context": [CONTEXT, { _: `${CONTEXT}#` }],
         type: "_:Like",
       }),
       null,
@@ -4502,9 +4502,9 @@ describe("describeDocument() semantic view", () => {
     const labelled = quotedNode({ type: "Note", labels: { id: "Halo" } });
     assert.equal(labelled?.uninterpreted, false);
     const labels = describeDocument({
-      ...like,
+      ...LIKE,
       "@context": [
-        context,
+        CONTEXT,
         {
           labels: {
             "@id": "https://example.com/labels",
@@ -4522,9 +4522,9 @@ describe("describeDocument() semantic view", () => {
     });
     assert.equal(listedLabels?.uninterpreted, false);
     const listedNode = describeDocument({
-      ...like,
+      ...LIKE,
       "@context": [
-        context,
+        CONTEXT,
         {
           labels: {
             "@id": "https://example.com/labels",
@@ -4544,9 +4544,9 @@ describe("describeDocument() semantic view", () => {
     );
     // An object in a language map is no valid JSON-LD, and is not read.
     const labelled2 = describeDocument({
-      ...like,
+      ...LIKE,
       "@context": [
-        context,
+        CONTEXT,
         {
           labels: {
             "@id": "https://example.com/labels",
@@ -4568,17 +4568,17 @@ describe("describeDocument() semantic view", () => {
     );
     // A JSON literal holds data, however its keywords are spelled.
     const literal = describeDocument({
-      ...like,
+      ...LIKE,
       custom: { type: "@json", "@value": { "@id": 1, bcc: "x" } },
     });
     assert.deepEqual(literal?.[0]?.extensions, []);
   });
 
   it("returns null unless validation completes without errors", () => {
-    assert.equal(describeDocument({ ...like, actor: false }), null);
-    assert.equal(describeDocument({ ...like, type: "Place" }), null);
+    assert.equal(describeDocument({ ...LIKE, actor: false }), null);
+    assert.equal(describeDocument({ ...LIKE, type: "Place" }), null);
     assert.equal(describeDocument("not a document"), null);
-    assert.ok(describeDocument({ ...like, custom: [] }) != null);
+    assert.ok(describeDocument({ ...LIKE, custom: [] }) != null);
   });
 
   it("returns null for sparse arrays and accessors without evaluating them", () => {

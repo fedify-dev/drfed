@@ -15,11 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
+  ADDRESSING_PROPERTIES,
   type DocumentNode,
   type ExtensionNode,
   type FieldPath,
   type JsonValue,
-  addressingProperties,
   describeDocument,
 } from "@drfed/models/document";
 import { PUBLIC_IRI } from "@drfed/models/resource";
@@ -28,13 +28,15 @@ import { Object as APObject } from "@fedify/vocab";
 
 import type { JsonObject } from "../local-write/types.ts";
 
-const activityStreams = "https://www.w3.org/ns/activitystreams";
+const ACTIVITY_STREAMS = "https://www.w3.org/ns/activitystreams";
 /** The type IRI of `Create`, which has its own activity route. */
-export const createType = `${activityStreams}#Create`;
+export const CREATE_TYPE = `${ACTIVITY_STREAMS}#Create`;
 /** The type IRI of `Delete`, which outlives the object it deletes. */
-export const deleteType = `${activityStreams}#Delete`;
-const blindProperties = ["bto", "bcc"] as const;
-const recipientProperties: ReadonlySet<string> = new Set(addressingProperties);
+export const DELETE_TYPE = `${ACTIVITY_STREAMS}#Delete`;
+const BLIND_PROPERTIES = ["bto", "bcc"] as const;
+const RECIPIENT_PROPERTIES: ReadonlySet<string> = new Set(
+  ADDRESSING_PROPERTIES,
+);
 
 const pathKey = (path: FieldPath): string => JSON.stringify(path);
 
@@ -53,7 +55,7 @@ const blindKeys = (
     nodes.map((node) => [
       pathKey(node.path),
       new Set(
-        blindProperties.flatMap(
+        BLIND_PROPERTIES.flatMap(
           (property) => node.properties.get(property) ?? [],
         ),
       ),
@@ -88,7 +90,7 @@ const omitKeys = (
 const statedContext = (document: JsonObject): JsonObject =>
   "@context" in document
     ? document
-    : { "@context": activityStreams, ...document };
+    : { "@context": ACTIVITY_STREAMS, ...document };
 
 // An embedded document sits at [...parent, key] or [...parent, key, index].
 const parentKey = (path: FieldPath): string | null =>
@@ -154,12 +156,12 @@ const recipients = (
   children: readonly Embedded[],
 ): { readonly property: string; readonly iri: string | null }[] => [
   ...node.identifiers
-    .filter(({ property }) => recipientProperties.has(property))
+    .filter(({ property }) => RECIPIENT_PROPERTIES.has(property))
     .map(({ property, iri }) => ({ property, iri })),
   ...children
     .filter(
       (child) =>
-        child.property != null && recipientProperties.has(child.property),
+        child.property != null && RECIPIENT_PROPERTIES.has(child.property),
     )
     .map((child) => ({ property: child.property!, iri: child.iri })),
 ];
@@ -305,9 +307,9 @@ export function inspectDocument(
     // A node object in an extension value has no kind the validator reads.
     objectReferences: [
       ...nodes.filter(
-        ({ kind, type }) => kind === "activity" && type !== deleteType,
+        ({ kind, type }) => kind === "activity" && type !== DELETE_TYPE,
       ),
-      ...extensions.filter(({ types }) => !types.includes(deleteType)),
+      ...extensions.filter(({ types }) => !types.includes(DELETE_TYPE)),
     ].flatMap((node) => referredObjects(node, children(node), links)),
     restricted: [...embedded, ...extensions].some((node) =>
       isRestricted(node, children(node)),

@@ -18,6 +18,16 @@ import { defineConfig } from "vitepress";
 
 import { forEngine } from "../../scripts/images/engines.mts";
 
+// A ghcr.io/fedify-dev/drfed image tag in the documentation.
+const IMAGE_REFERENCE = /\bghcr\.io\/fedify-dev\/drfed:\d[0-9A-Za-z.-]*/gu;
+
+// Star-orbit symbol from https://github.com/hackers-pub/visual-identity
+// (exports/starorbit-transparent-17x12.svg), © 2025 Bak Eunji,
+// CC BY-SA 4.0 <https://creativecommons.org/licenses/by-sa/4.0/>.
+// Modified: recolored to currentColor and stripped of IDs and clip paths.
+const HACKERS_PUB_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="17.995798" height="12.67316" viewBox="0 0 17.995798 12.67316"><title>hackers.pub</title><desc>Star-orbit symbol by Bak Eunji (hackers-pub/visual-identity), CC BY-SA 4.0, recolored to currentColor</desc><g transform="translate(-20112.718,-703.56027)"><g><path d="M 0,0 C -2.542,-0.369 -5.396,-0.247 -5.483,0.591 -5.569,1.429 -2.68,2.344 -0.147,2.771 2.499,3.216 5.155,3.372 5.575,2.487 5.993,1.607 2.738,0.398 0,0 M -0.07,3.07 C -3.963,2.432 -6.437,1.398 -6.522,0.163 -6.59,-0.819 -4.481,-1.731 0.28,-1.046 c 5.038,0.724 7.075,2.5 6.635,3.479 -0.45,1 -2.977,1.293 -6.985,0.637" style="fill:currentColor;fill-opacity:1;fill-rule:nonzero;stroke:none" transform="matrix(1.3333333,0,0,-1.3333333,20121.416,714.52093)" /><path d="m 0,0 c -0.909,0.834 -0.652,1.825 -1.553,1.825 -0.876,0 -0.62,-0.905 -1.551,-1.825 -0.623,-0.669 -2.434,-0.14 -2.434,-1.214 0,-0.924 1.364,-0.764 2.306,-1.659 0.745,-0.708 0.711,-2.045 1.679,-2.045 0.884,0 0.901,1.516 1.584,2.199 0.957,0.888 2.255,0.578 2.255,1.505 C 2.286,-0.225 0.8,-0.652 0,0" style="fill:currentColor;fill-opacity:1;fill-rule:nonzero;stroke:none" transform="matrix(1.3333333,0,0,-1.3333333,20123.704,705.9936)" /></g></g></svg>';
+
 // A link to the other deployment (the release site from canary and the other
 // way around), set at build time.  Neither variable set means no extra link;
 // setting only one of them is a misconfigured deployment and fails the build.
@@ -48,22 +58,14 @@ if (
     `DRFED_IMAGE_VERSION must be a published version; got ${JSON.stringify(DRFED_IMAGE_VERSION)}.`,
   );
 }
-const imageReference = /\bghcr\.io\/fedify-dev\/drfed:\d[0-9A-Za-z.-]*/gu;
 function publishedImage(text: string): string {
   return DRFED_IMAGE_VERSION === undefined
     ? text
     : text.replaceAll(
-        imageReference,
+        IMAGE_REFERENCE,
         `ghcr.io/fedify-dev/drfed:${DRFED_IMAGE_VERSION}`,
       );
 }
-
-// Star-orbit symbol from https://github.com/hackers-pub/visual-identity
-// (exports/starorbit-transparent-17x12.svg), © 2025 Bak Eunji,
-// CC BY-SA 4.0 <https://creativecommons.org/licenses/by-sa/4.0/>.
-// Modified: recolored to currentColor and stripped of IDs and clip paths.
-const HACKERS_PUB_ICON =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="17.995798" height="12.67316" viewBox="0 0 17.995798 12.67316"><title>hackers.pub</title><desc>Star-orbit symbol by Bak Eunji (hackers-pub/visual-identity), CC BY-SA 4.0, recolored to currentColor</desc><g transform="translate(-20112.718,-703.56027)"><g><path d="M 0,0 C -2.542,-0.369 -5.396,-0.247 -5.483,0.591 -5.569,1.429 -2.68,2.344 -0.147,2.771 2.499,3.216 5.155,3.372 5.575,2.487 5.993,1.607 2.738,0.398 0,0 M -0.07,3.07 C -3.963,2.432 -6.437,1.398 -6.522,0.163 -6.59,-0.819 -4.481,-1.731 0.28,-1.046 c 5.038,0.724 7.075,2.5 6.635,3.479 -0.45,1 -2.977,1.293 -6.985,0.637" style="fill:currentColor;fill-opacity:1;fill-rule:nonzero;stroke:none" transform="matrix(1.3333333,0,0,-1.3333333,20121.416,714.52093)" /><path d="m 0,0 c -0.909,0.834 -0.652,1.825 -1.553,1.825 -0.876,0 -0.62,-0.905 -1.551,-1.825 -0.623,-0.669 -2.434,-0.14 -2.434,-1.214 0,-0.924 1.364,-0.764 2.306,-1.659 0.745,-0.708 0.711,-2.045 1.679,-2.045 0.884,0 0.901,1.516 1.584,2.199 0.957,0.888 2.255,0.578 2.255,1.505 C 2.286,-0.225 0.8,-0.652 0,0" style="fill:currentColor;fill-opacity:1;fill-rule:nonzero;stroke:none" transform="matrix(1.3333333,0,0,-1.3333333,20123.704,705.9936)" /></g></g></svg>';
 
 export default defineConfig({
   lang: "en-US",

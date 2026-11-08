@@ -12,7 +12,7 @@ Document validation
 
 `@drfed/models/document` exports synchronous
 `validateDocument(document: unknown)`, `prepareDocument(document, options)`,
-and `describeDocument(document: unknown)`, plus the `diagnosticReasons`
+and `describeDocument(document: unknown)`, plus the `DIAGNOSTIC_REASONS`
 registry. Public types are `DocumentValidationResult`, `Diagnostic`,
 `DiagnosticReason`, `DiagnosticCategory`, `DiagnosticSeverity`, `FieldPath`,
 `JsonValue`, `NormalizationChange`, `DocumentAuthority`, `ServerOwnedField`,

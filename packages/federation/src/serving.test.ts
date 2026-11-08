@@ -62,33 +62,33 @@ import {
   seedLocalActor,
 } from "./seed.test.ts";
 import {
+  ACTIVITY_TYPES,
+  BLIND_RECIPIENT,
+  EXTENSION_VALUE,
   acceptedActivityTypeIds,
-  activityTypes,
-  blindRecipient,
-  extensionValue,
   typeDocument,
 } from "./serving-fixture.test.ts";
 
 const AS = "https://www.w3.org/ns/activitystreams";
-const accountId = "00000000-0000-4000-8000-000000000301" as Uuid;
-const principal = { accountId };
-const host = "test-instance.drfed.org";
-const actorIri = `https://${host}/users/${localActorId}`;
-const blind = "https://remote.example/users/blind";
-const bob = "https://remote.example/users/bob";
+const ACCOUNT_ID = "00000000-0000-4000-8000-000000000301" as Uuid;
+const PRINCIPAL = { accountId: ACCOUNT_ID };
+const HOST = "test-instance.drfed.org";
+const ACTOR_IRI = `https://${HOST}/users/${localActorId}`;
+const BLIND = "https://remote.example/users/blind";
+const BOB = "https://remote.example/users/bob";
 
 type Harness = Parameters<Parameters<typeof withFederation>[0]>[0];
 
 async function setUp(harness: Harness): Promise<LocalWriteEnvironment> {
   await seedLocalActor(harness.db, { keys: false });
   await harness.db.insert(schema.accounts).values({
-    id: accountId,
+    id: ACCOUNT_ID,
     email: "member@example.com",
     name: "Member",
     created,
   });
   await harness.db.insert(schema.instanceMembers).values({
-    accountId,
+    accountId: ACCOUNT_ID,
     instanceId: localInstanceId,
     accepted: created,
     created,
@@ -109,9 +109,9 @@ async function write(
   env: LocalWriteEnvironment,
   request: LocalWriteRequest,
 ): Promise<readonly SavedResource[]> {
-  const preview = await previewLocalWrite(env, principal, request);
+  const preview = await previewLocalWrite(env, PRINCIPAL, request);
   assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
-  const outcome = await commitLocalWrite(env, principal, request, {
+  const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
     previewToken: preview.preview.token,
     reserveDispatch: () => Promise.resolve(),
   });
@@ -201,7 +201,7 @@ async function misdirect(
   scenario: "wrongHost" | "otherInstance" | "deletedActor",
 ): Promise<(iri: string) => string> {
   if (scenario === "wrongHost") {
-    return (iri) => iri.replace(host, "wrong.example");
+    return (iri) => iri.replace(HOST, "wrong.example");
   }
   if (scenario === "otherInstance") {
     const id = uuidV7();
@@ -214,7 +214,7 @@ async function misdirect(
       created,
       host: "other-instance.drfed.org",
     });
-    return (iri) => iri.replace(host, "other-instance.drfed.org");
+    return (iri) => iri.replace(HOST, "other-instance.drfed.org");
   }
   await harness.db
     .update(schema.actors)
@@ -243,10 +243,10 @@ describe("publicDocument()", () => {
       id: "https://a.example/notes/1",
       type: "Note",
       content: "x",
-      to: [PUBLIC_IRI, bob],
-      bto: [blind],
-      cc: [`${actorIri}/followers`],
-      bcc: blind,
+      to: [PUBLIC_IRI, BOB],
+      bto: [BLIND],
+      cc: [`${ACTOR_IRI}/followers`],
+      bcc: BLIND,
       audience: "https://a.example/groups/1",
     };
     const copy = structuredClone(document);
@@ -255,8 +255,8 @@ describe("publicDocument()", () => {
       id: "https://a.example/notes/1",
       type: "Note",
       content: "x",
-      to: [PUBLIC_IRI, bob],
-      cc: [`${actorIri}/followers`],
+      to: [PUBLIC_IRI, BOB],
+      cc: [`${ACTOR_IRI}/followers`],
       audience: "https://a.example/groups/1",
     });
     assert.deepEqual(document, copy);
@@ -267,19 +267,19 @@ describe("publicDocument()", () => {
       "@context": AS,
       id: "https://a.example/activities/1",
       type: "Undo",
-      actor: actorIri,
+      actor: ACTOR_IRI,
       to: [PUBLIC_IRI],
-      bcc: [blind],
+      bcc: [BLIND],
       object: {
         id: "https://a.example/activities/2",
         type: "Like",
-        actor: actorIri,
-        bto: [blind],
+        actor: ACTOR_IRI,
+        bto: [BLIND],
         object: {
           id: "https://a.example/notes/1",
           type: "Note",
           content: "x",
-          bcc: [blind],
+          bcc: [BLIND],
         },
       },
     };
@@ -289,12 +289,12 @@ describe("publicDocument()", () => {
       "@context": AS,
       id: "https://a.example/activities/1",
       type: "Undo",
-      actor: actorIri,
+      actor: ACTOR_IRI,
       to: [PUBLIC_IRI],
       object: {
         id: "https://a.example/activities/2",
         type: "Like",
-        actor: actorIri,
+        actor: ACTOR_IRI,
         object: {
           id: "https://a.example/notes/1",
           type: "Note",
@@ -318,8 +318,8 @@ describe("publicDocument()", () => {
       type: "Note",
       content: "x",
       to: [PUBLIC_IRI],
-      hidden: [blind],
-      secret: blind,
+      hidden: [BLIND],
+      secret: BLIND,
     });
     assert.deepEqual(result, {
       "@context": context,
@@ -340,16 +340,16 @@ describe("publicDocument()", () => {
       "@context": [...context],
       id: "https://a.example/activities/1",
       type: "Like",
-      actor: actorIri,
+      actor: ACTOR_IRI,
       object: "https://remote.example/notes/1",
-      mood: { bcc: [blind], deep: [1, "x", null, { bto: blind }], literal },
-      bcc: [blind],
+      mood: { bcc: [BLIND], deep: [1, "x", null, { bto: BLIND }], literal },
+      bcc: [BLIND],
     };
     assert.deepEqual(publicDocument(document), {
       "@context": [...context],
       id: "https://a.example/activities/1",
       type: "Like",
-      actor: actorIri,
+      actor: ACTOR_IRI,
       object: "https://remote.example/notes/1",
       mood: { deep: [1, "x", null, {}], literal },
     });
@@ -366,13 +366,13 @@ describe("publicDocument()", () => {
       publicDocument({
         ...document,
         "@context": listed,
-        mood: { hidden: [blind], typed },
+        mood: { hidden: [BLIND], typed },
       }),
       {
         "@context": listed,
         id: "https://a.example/activities/1",
         type: "Like",
-        actor: actorIri,
+        actor: ACTOR_IRI,
         object: "https://remote.example/notes/1",
         mood: { typed },
       },
@@ -381,7 +381,7 @@ describe("publicDocument()", () => {
     assert.equal(
       publicDocument({
         ...document,
-        mood: { "@context": { secret: "as:bcc" }, secret: [blind] },
+        mood: { "@context": { secret: "as:bcc" }, secret: [BLIND] },
       }),
       null,
     );
@@ -394,7 +394,7 @@ describe("publicDocument()", () => {
         id: "https://a.example/notes/1",
         type: "Note",
         content: "x",
-        bcc: [blind],
+        bcc: [BLIND],
       }),
       null,
     );
@@ -415,8 +415,8 @@ describe("federation reads of saved activities", () => {
         "@context": AS,
         type: "Create",
         to: [PUBLIC_IRI],
-        bcc: [blind],
-        object: { type: "Note", content: "x", to: [PUBLIC_IRI], bcc: [blind] },
+        bcc: [BLIND],
+        object: { type: "Note", content: "x", to: [PUBLIC_IRI], bcc: [BLIND] },
       },
       nested: [{ path: ["object"], kind: "object" }],
       route: "creates",
@@ -436,7 +436,7 @@ describe("federation reads of saved activities", () => {
       route: "creates",
       check: (body) =>
         assert.ok(
-          String(body.object).startsWith(`${actorIri}/`),
+          String(body.object).startsWith(`${ACTOR_IRI}/`),
           String(body.object),
         ),
     },
@@ -461,18 +461,18 @@ describe("federation reads of saved activities", () => {
       document: {
         "@context": AS,
         type: "Accept",
-        to: [bob],
+        to: [BOB],
         cc: [PUBLIC_IRI],
         object: {
           id: "https://remote.example/follows/1",
           type: "Follow",
-          actor: bob,
-          object: actorIri,
+          actor: BOB,
+          object: ACTOR_IRI,
         },
       },
       route: "activities",
       check: (body) =>
-        assert.equal((body.object as { actor: unknown }).actor, bob),
+        assert.equal((body.object as { actor: unknown }).actor, BOB),
     },
     {
       name: "Add to a collection target",
@@ -481,10 +481,10 @@ describe("federation reads of saved activities", () => {
         type: "Add",
         to: [PUBLIC_IRI],
         object: "https://remote.example/notes/1",
-        target: `${actorIri}/featured`,
+        target: `${ACTOR_IRI}/featured`,
       },
       route: "activities",
-      check: (body) => assert.equal(body.target, `${actorIri}/featured`),
+      check: (body) => assert.equal(body.target, `${ACTOR_IRI}/featured`),
     },
     {
       name: "Arrive without an object",
@@ -506,7 +506,7 @@ describe("federation reads of saved activities", () => {
         "@context": [AS, { ex: "https://ext.example/ns#", mood: "ex:mood" }],
         type: "Like",
         to: [PUBLIC_IRI],
-        bto: [blind],
+        bto: [BLIND],
         object: "https://remote.example/notes/1",
         mood: { deep: [1, "x"] },
       },
@@ -532,7 +532,7 @@ describe("federation reads of saved activities", () => {
           ...(nested == null ? {} : { nested }),
         });
         assert.ok(
-          saved.iri.startsWith(`https://${host}/ap/${route}/`),
+          saved.iri.startsWith(`https://${HOST}/ap/${route}/`),
           saved.iri,
         );
         const { status, body } = await get(harness.federation, saved.iri);
@@ -552,7 +552,7 @@ describe("federation reads of saved activities", () => {
   it("covers every activity type the validator accepts", () => {
     assert.deepEqual(
       acceptedActivityTypeIds(),
-      activityTypes.map((type) => `${AS}#${type}`).toSorted(),
+      ACTIVITY_TYPES.map((type) => `${AS}#${type}`).toSorted(),
     );
   });
 
@@ -560,22 +560,22 @@ describe("federation reads of saved activities", () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
       const ctx = harness.federation.createContext(
-        new URL(`https://${host}/`),
+        new URL(`https://${HOST}/`),
         undefined,
       );
       const iris: string[] = [];
-      for (const type of activityTypes) {
+      for (const type of ACTIVITY_TYPES) {
         const saved = await save(env, typeDocument(type), "activity");
         const route = type === "Create" ? "creates" : "activities";
         assert.ok(
-          saved.iri.startsWith(`https://${host}/ap/${route}/`),
+          saved.iri.startsWith(`https://${HOST}/ap/${route}/`),
           `${type}: ${saved.iri}`,
         );
         // Stored with its blind recipient, so that serving has one to remove.
         const stored = await loadActivitySnapshot(harness.db, saved.id);
         assert.ok(stored != null, type);
         assert.deepEqual(stored.document, saved.document, type);
-        assert.deepEqual(stored.document.bto, [blindRecipient], type);
+        assert.deepEqual(stored.document.bto, [BLIND_RECIPIENT], type);
         const served = publicDocument(stored.document);
         assert.ok(served != null, type);
         const { status, body } = await get(harness.federation, saved.iri);
@@ -583,7 +583,7 @@ describe("federation reads of saved activities", () => {
         assert.deepEqual(body, served, type);
         assert.equal(body.type, type);
         assert.deepEqual(blindKeys(body), [], type);
-        assert.deepEqual(body["test:extension"], extensionValue, type);
+        assert.deepEqual(body["test:extension"], EXTENSION_VALUE, type);
         const other = saved.iri.replace(
           `/ap/${route}/`,
           route === "creates" ? "/ap/activities/" : "/ap/creates/",
@@ -598,9 +598,12 @@ describe("federation reads of saved activities", () => {
       // Both routes share one outbox, newest first, across its pages.
       const ids = (body: Record<string, unknown>) =>
         (body.orderedItems as Record<string, unknown>[]).map(({ id }) => id);
-      const collection = await get(harness.federation, `${actorIri}/outbox`);
-      assert.equal(collection.body.totalItems, activityTypes.length);
-      const first = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      const collection = await get(harness.federation, `${ACTOR_IRI}/outbox`);
+      assert.equal(collection.body.totalItems, ACTIVITY_TYPES.length);
+      const first = await get(
+        harness.federation,
+        `${ACTOR_IRI}/outbox?cursor=`,
+      );
       assert.equal(typeof first.body.next, "string");
       const last = await get(harness.federation, String(first.body.next));
       assert.equal(last.body.next, undefined);
@@ -620,7 +623,7 @@ describe("federation reads of saved activities", () => {
       assert.deepEqual(snapshot?.document, saved.document);
       const served = publicDocument(snapshot!.document)!;
       const ctx = harness.federation.createContext(
-        new URL(`https://${host}/`),
+        new URL(`https://${HOST}/`),
         undefined,
       );
       const vocab = await parseVocab(ctx, served);
@@ -653,7 +656,7 @@ describe("federation reads of saved activities", () => {
             type: "Like",
             object: "https://remote.example/notes/1",
             to: [
-              scenario === "followers" ? `${actorIri}/followers` : PUBLIC_IRI,
+              scenario === "followers" ? `${ACTOR_IRI}/followers` : PUBLIC_IRI,
             ],
           },
           "activity",
@@ -661,7 +664,7 @@ describe("federation reads of saved activities", () => {
         );
         const iri =
           scenario === "malformed"
-            ? `https://${host}/ap/activities/bad`
+            ? `https://${HOST}/ap/activities/bad`
             : scenario === "unpublished" || scenario === "followers"
               ? saved.iri
               : (await misdirect(harness, scenario))(saved.iri);
@@ -680,7 +683,7 @@ describe("federation reads of saved objects and their history", () => {
         type: "Note",
         content: "x",
         to: [PUBLIC_IRI],
-        bcc: [blind],
+        bcc: [BLIND],
       };
       const saved = await save(env, note, "object");
       const { status, body } = await get(harness.federation, saved.iri);
@@ -692,7 +695,7 @@ describe("federation reads of saved objects and their history", () => {
       assert.equal((await get(harness.federation, elsewhere)).status, 404);
       const followers = await save(
         env,
-        { ...note, to: [`${actorIri}/followers`] },
+        { ...note, to: [`${ACTOR_IRI}/followers`] },
         "object",
       );
       assert.equal((await get(harness.federation, followers.iri)).status, 404);
@@ -701,21 +704,21 @@ describe("federation reads of saved objects and their history", () => {
 
   it("serves a saved object and its Tombstone at its author's route only", async () => {
     await withFederation(async (harness) => {
+      const OTHER_ID = "00000000-0000-4000-8000-000000000203" as Uuid;
       const env = await setUp(harness);
-      const otherId = "00000000-0000-4000-8000-000000000203" as Uuid;
       await harness.db
         .insert(schema.localActors)
-        .values({ id: otherId, avatar: "avatar.png", header: "header.png" });
+        .values({ id: OTHER_ID, avatar: "avatar.png", header: "header.png" });
       await seedActors(
         harness.db,
         {
-          id: otherId,
-          localId: otherId,
+          id: OTHER_ID,
+          localId: OTHER_ID,
           instanceId: localInstanceId,
           type: "Person",
           username: "bob",
-          iri: `https://${host}/users/${otherId}`,
-          inboxUrl: `https://${host}/users/${otherId}/inbox`,
+          iri: `https://${HOST}/users/${OTHER_ID}`,
+          inboxUrl: `https://${HOST}/users/${OTHER_ID}/inbox`,
           created,
         },
         { keys: false },
@@ -730,7 +733,7 @@ describe("federation reads of saved objects and their history", () => {
       ] as const) {
         assert.equal((await get(harness.federation, saved.iri)).status, status);
         // Another live actor of the same instance does not serve it.
-        const elsewhere = saved.iri.replace(localActorId, otherId);
+        const elsewhere = saved.iri.replace(localActorId, OTHER_ID);
         assert.equal((await get(harness.federation, elsewhere)).status, 404);
       }
     });
@@ -772,7 +775,7 @@ describe("federation reads of saved objects and their history", () => {
             type: "Note",
             content: "A",
             to: [PUBLIC_IRI],
-            bcc: [blind],
+            bcc: [BLIND],
           },
         },
         "activity",
@@ -823,7 +826,7 @@ describe("federation reads of saved objects and their history", () => {
             type: "Note",
             content: "A",
             to: [PUBLIC_IRI],
-            bcc: [blind],
+            bcc: [BLIND],
           },
         },
         "activity",
@@ -867,7 +870,7 @@ describe("federation reads of saved objects and their history", () => {
           "@context": AS,
           type: "Note",
           content: "x",
-          to: [`${actorIri}/followers`],
+          to: [`${ACTOR_IRI}/followers`],
         },
         "object",
       );
@@ -879,7 +882,7 @@ describe("federation reads of saved objects and their history", () => {
   it("serves the Update and Delete of a legacy object beside its typed rows", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
-      const legacy = await createLegacyObject(env, principal, {
+      const legacy = await createLegacyObject(env, PRINCIPAL, {
         actorId: localActorId,
         type: "Note",
         contentHtml: "<p>A</p>",
@@ -887,21 +890,21 @@ describe("federation reads of saved objects and their history", () => {
         summary: null,
         language: null,
         sensitive: false,
-        addressing: { to: [PUBLIC_IRI], bcc: [blind] },
+        addressing: { to: [PUBLIC_IRI], bcc: [BLIND] },
       });
       assert.ok(!isLocalWriteError(legacy));
-      const legacyIri = `${actorIri}/${legacy.id}`;
-      const createIri = `https://${host}/ap/creates/${legacy.activityId}`;
+      const legacyIri = `${ACTOR_IRI}/${legacy.id}`;
+      const createIri = `https://${HOST}/ap/creates/${legacy.activityId}`;
       const original = await get(harness.federation, createIri);
       assert.equal(original.status, 200);
       const update = await edit(env, legacy.id, (document) => ({
         ...document,
         content: "<p>B</p>",
-        cc: [bob],
+        cc: [BOB],
       }));
       const object = await get(harness.federation, legacyIri);
       assert.equal(object.body.content, "<p>B</p>");
-      assert.equal(object.body.cc, bob);
+      assert.equal(object.body.cc, BOB);
       // Neither the object's content nor its recipients rewrite the Create.
       const legacyCreate = await get(harness.federation, createIri);
       assert.deepEqual(legacyCreate, original);
@@ -933,8 +936,8 @@ describe("federation reads of saved objects and their history", () => {
 
 describe("embedded documents and implicit contexts", () => {
   const outboxIds = async (federation: Federation<unknown>) => {
-    const collection = await get(federation, `${actorIri}/outbox`);
-    const page = await get(federation, `${actorIri}/outbox?cursor=`);
+    const collection = await get(federation, `${ACTOR_IRI}/outbox`);
+    const page = await get(federation, `${ACTOR_IRI}/outbox?cursor=`);
     const items = (page.body.orderedItems ?? []) as Record<string, unknown>[];
     assert.equal(collection.body.totalItems, items.length);
     return items.map(({ id }) => id);
@@ -949,7 +952,7 @@ describe("embedded documents and implicit contexts", () => {
           "@context": AS,
           type: "Create",
           to: [PUBLIC_IRI],
-          object: { type: "Note", content: "secret", to: [bob] },
+          object: { type: "Note", content: "secret", to: [BOB] },
         },
         "activity",
         { nested: [{ path: ["object"], kind: "object" }] },
@@ -965,7 +968,7 @@ describe("embedded documents and implicit contexts", () => {
           to: [PUBLIC_IRI],
           object: {
             type: "Like",
-            object: { type: "Note", content: "secret", cc: [bob] },
+            object: { type: "Note", content: "secret", cc: [BOB] },
           },
         },
         "activity",
@@ -1002,7 +1005,7 @@ describe("embedded documents and implicit contexts", () => {
         [[{ type: "Collection", id: PUBLIC_IRI }], 200],
         [{ type: "Collection", id: "as:Public" }, 200],
         [[{ type: "Link", href: PUBLIC_IRI }], 200],
-        [[{ type: "Collection", id: `${actorIri}/followers` }], 404],
+        [[{ type: "Collection", id: `${ACTOR_IRI}/followers` }], 404],
       ] as const) {
         const create = await save(
           env,
@@ -1036,7 +1039,7 @@ describe("embedded documents and implicit contexts", () => {
               type: "Note",
               content: "x",
               to: PUBLIC_IRI,
-              cc: { type: "Collection", id: `${actorIri}/followers` },
+              cc: { type: "Collection", id: `${ACTOR_IRI}/followers` },
             },
           },
         },
@@ -1070,7 +1073,7 @@ describe("embedded documents and implicit contexts", () => {
           "@context": AS,
           type: "Like",
           to: [PUBLIC_IRI],
-          audience: { type: "Link", href: bob },
+          audience: { type: "Link", href: BOB },
           object: "https://remote.example/notes/1",
         },
         "activity",
@@ -1101,7 +1104,7 @@ describe("embedded documents and implicit contexts", () => {
         assert.equal(status, 200);
         assert.deepEqual(body, publicDocument(saved.document));
       }
-      const page = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      const page = await get(harness.federation, `${ACTOR_IRI}/outbox?cursor=`);
       assert.deepEqual(page.body.orderedItems, [
         publicDocument(listed.document),
         publicDocument(linked.document),
@@ -1145,13 +1148,13 @@ describe("embedded documents and implicit contexts", () => {
 
   it("reads documents that share an id as JSON-LD joins them", async () => {
     await withFederation(async (harness) => {
+      const LINK = "https://remote.example/links/1";
       const env = await setUp(harness);
       const note = await save(
         env,
         { "@context": AS, type: "Note", content: "x", to: [PUBLIC_IRI] },
         "object",
       );
-      const link = "https://remote.example/links/1";
       // Two embedded documents with one id are one, which neither tells.
       const shared = await save(
         env,
@@ -1159,8 +1162,8 @@ describe("embedded documents and implicit contexts", () => {
           "@context": AS,
           type: "Add",
           to: [PUBLIC_IRI],
-          object: { type: "Link", id: link, href: "https://remote.example/n" },
-          target: { type: "Link", id: link, href: note.iri },
+          object: { type: "Link", id: LINK, href: "https://remote.example/n" },
+          target: { type: "Link", id: LINK, href: note.iri },
         },
         "activity",
       );
@@ -1172,8 +1175,8 @@ describe("embedded documents and implicit contexts", () => {
           "@context": AS,
           type: "Add",
           to: [PUBLIC_IRI],
-          object: link,
-          target: { type: "Link", id: link, href: note.iri },
+          object: LINK,
+          target: { type: "Link", id: LINK, href: note.iri },
         },
         "activity",
       );
@@ -1186,8 +1189,8 @@ describe("embedded documents and implicit contexts", () => {
 
   it("reads a node object in an extension value whose own href is its id", async () => {
     await withFederation(async (harness) => {
+      const SELF = "https://remote.example/x";
       const env = await setUp(harness);
-      const self = "https://remote.example/x";
       const saved = await save(
         env,
         {
@@ -1195,7 +1198,7 @@ describe("embedded documents and implicit contexts", () => {
           type: "Like",
           to: [PUBLIC_IRI],
           object: "https://remote.example/notes/1",
-          "ex:quoted": { type: "Link", id: self, href: self },
+          "ex:quoted": { type: "Link", id: SELF, href: SELF },
         },
         "activity",
       );
@@ -1268,7 +1271,7 @@ describe("embedded documents and implicit contexts", () => {
           object: {
             id: "https://remote.example/deletes/1",
             type: "Delete",
-            actor: bob,
+            actor: BOB,
             object: note.iri,
           },
         },
@@ -1311,12 +1314,12 @@ describe("embedded documents and implicit contexts", () => {
           type: "Note",
           content: "open",
           to: [PUBLIC_IRI],
-          bcc: [blind],
+          bcc: [BLIND],
           attachment: {
             type: "Note",
             content: "deep",
             to: PUBLIC_IRI,
-            bto: blind,
+            bto: BLIND,
           },
         }),
         "activity",
@@ -1345,22 +1348,22 @@ describe("embedded documents and implicit contexts", () => {
       }
       const hidden: SavedResource[] = [];
       for (const quoted of [
-        { type: "Note", content: "secret", to: [bob], bcc: [blind] },
+        { type: "Note", content: "secret", to: [BOB], bcc: [BLIND] },
         {
           type: "Note",
           content: "secret",
-          to: { id: `${actorIri}/followers` },
+          to: { id: `${ACTOR_IRI}/followers` },
         },
-        { type: "Note", content: "secret", to: { "@set": [bob] } },
-        { type: "Note", content: "secret", to: { "@set": [{ id: bob }] } },
+        { type: "Note", content: "secret", to: { "@set": [BOB] } },
+        { type: "Note", content: "secret", to: { "@set": [{ id: BOB }] } },
         { type: "Note", content: "secret", to: { "@value": PUBLIC_IRI } },
         {
           type: "Note",
           content: "secret",
-          to: { type: "Link", id: PUBLIC_IRI, href: bob },
+          to: { type: "Link", id: PUBLIC_IRI, href: BOB },
         },
         // A literal is no recipient, nor is a value read with another context.
-        { type: "Note", content: "secret", to: bob, [`${AS}#to`]: PUBLIC_IRI },
+        { type: "Note", content: "secret", to: BOB, [`${AS}#to`]: PUBLIC_IRI },
         {
           type: "Note",
           content: "secret",
@@ -1374,31 +1377,31 @@ describe("embedded documents and implicit contexts", () => {
           type: "Note",
           content: "x",
           to: [PUBLIC_IRI],
-          labels: [{ type: "Note", content: "secret", to: [bob] }],
+          labels: [{ type: "Note", content: "secret", to: [BOB] }],
         },
         // An object in a language map is no valid JSON-LD.
         {
           type: "Note",
           content: "x",
           to: [PUBLIC_IRI],
-          labels: { en: { bcc: [blind] } },
+          labels: { en: { bcc: [BLIND] } },
         },
         // A node object whose id is used elsewhere is not read apart.
-        { id: "https://remote.example/notes/1", type: "Note", to: [bob] },
+        { id: "https://remote.example/notes/1", type: "Note", to: [BOB] },
         // A blank node is no compact IRI, whatever prefix "_" names.
-        { type: "Note", content: "secret", to: [bob, "_:Public"] },
+        { type: "Note", content: "secret", to: [BOB, "_:Public"] },
         // Only a Link names a recipient by its href.
         {
           type: "Note",
           content: "secret",
-          to: [bob],
+          to: [BOB],
           cc: { type: "Note", href: PUBLIC_IRI },
         },
         // A value is a scalar or a JSON literal, and reverse properties are
         // not read.
-        { "@value": { type: "Note", to: [bob], bcc: [blind], content: "x" } },
+        { "@value": { type: "Note", to: [BOB], bcc: [BLIND], content: "x" } },
         {
-          id: bob,
+          id: BOB,
           "@reverse": { attributedTo: { type: "Note", content: "x" } },
         },
         // A value with keys a context of its own may alias is not read,
@@ -1412,27 +1415,27 @@ describe("embedded documents and implicit contexts", () => {
           type: "Note",
           content: "x",
           to: [PUBLIC_IRI],
-          cc: { "@set": [], bcc: blind },
+          cc: { "@set": [], bcc: BLIND },
         },
         // Properties nested with @nest are not read.
         {
           type: "Note",
           content: "secret",
           to: [PUBLIC_IRI],
-          "@nest": { cc: [bob] },
+          "@nest": { cc: [BOB] },
         },
         // A relative reference names no resource that can be checked.
         { type: "Note", id: "/notes/1", content: "secret" },
         // A language map holds no recipients, and a Link has one href.
-        { type: "Note", content: "secret", to: bob, toMap: { id: PUBLIC_IRI } },
+        { type: "Note", content: "secret", to: BOB, toMap: { id: PUBLIC_IRI } },
         {
           type: "Like",
           object: {
             type: "Link",
-            href: ["https://remote.example/notes/1", `${actorIri}/notes/1`],
+            href: ["https://remote.example/notes/1", `${ACTOR_IRI}/notes/1`],
           },
         },
-        { "@context": { secret: "as:bcc" }, content: "x", secret: [blind] },
+        { "@context": { secret: "as:bcc" }, content: "x", secret: [BLIND] },
       ]) {
         hidden.push(await save(env, like(quoted), "activity"));
       }
@@ -1458,24 +1461,24 @@ describe("embedded documents and implicit contexts", () => {
       // So does an activity about it, unless that is its Delete.
       const liking = await save(
         env,
-        like({ type: "Like", actor: bob, object: note.iri }),
+        like({ type: "Like", actor: BOB, object: note.iri }),
         "activity",
       );
       const deleting = await save(
         env,
-        like({ type: "Delete", actor: actorIri, object: note.iri }),
+        like({ type: "Delete", actor: ACTOR_IRI, object: note.iri }),
         "activity",
       );
       const blankDeleting = await save(
         env,
-        like({ type: "_:Delete", actor: actorIri, object: note.iri }),
+        like({ type: "_:Delete", actor: ACTOR_IRI, object: note.iri }),
         "activity",
       );
       const linking = await save(
         env,
         like({
           type: "Like",
-          actor: bob,
+          actor: BOB,
           object: {
             type: "Link",
             id: "https://remote.example/links/1",
@@ -1513,7 +1516,7 @@ describe("embedded documents and implicit contexts", () => {
         {
           type: "Like",
           to: [PUBLIC_IRI],
-          bcc: [blind],
+          bcc: [BLIND],
           object: "https://remote.example/notes/1",
         },
         "activity",
@@ -1542,7 +1545,7 @@ describe("outboxes of saved and legacy activities", () => {
   it("pages and counts both in one order, leaving out what is not served", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
-      const legacy = await createLegacyObject(env, principal, {
+      const legacy = await createLegacyObject(env, PRINCIPAL, {
         actorId: localActorId,
         type: "Note",
         contentHtml: "<p>A</p>",
@@ -1559,7 +1562,7 @@ describe("outboxes of saved and legacy activities", () => {
           "@context": AS,
           type: "Like",
           to: [PUBLIC_IRI],
-          bcc: [blind],
+          bcc: [BLIND],
           object: "https://remote.example/notes/1",
         },
         "activity",
@@ -1575,7 +1578,7 @@ describe("outboxes of saved and legacy activities", () => {
         {
           "@context": AS,
           type: "Like",
-          to: [`${actorIri}/followers`],
+          to: [`${ACTOR_IRI}/followers`],
           object: "https://remote.example/notes/2",
         },
         "activity",
@@ -1596,8 +1599,8 @@ describe("outboxes of saved and legacy activities", () => {
         env,
         noteIri.slice(noteIri.lastIndexOf("/") + 1) as Uuid,
       );
-      const collection = await get(harness.federation, `${actorIri}/outbox`);
-      const page = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      const collection = await get(harness.federation, `${ACTOR_IRI}/outbox`);
+      const page = await get(harness.federation, `${ACTOR_IRI}/outbox?cursor=`);
       assert.equal(page.status, 200);
       const items = page.body.orderedItems as Record<string, unknown>[];
       assert.deepEqual(
@@ -1605,7 +1608,7 @@ describe("outboxes of saved and legacy activities", () => {
         [
           deletion.iri,
           like.iri,
-          `https://${host}/ap/creates/${legacy.activityId}`,
+          `https://${HOST}/ap/creates/${legacy.activityId}`,
         ],
       );
       assert.equal(collection.body.totalItems, items.length);
@@ -1652,7 +1655,7 @@ describe("outboxes of saved and legacy activities", () => {
         );
         const page = await get(
           harness.federation,
-          `${actorIri}/outbox?cursor=`,
+          `${ACTOR_IRI}/outbox?cursor=`,
         );
         assert.equal(page.status, 200);
         // A JSON-LD client reads the page, not only its JSON.
@@ -1693,7 +1696,7 @@ describe("outboxes of saved and legacy activities", () => {
         },
       ]) {
         const id = uuidV7();
-        const iri = `https://${host}/ap/activities/${id}`;
+        const iri = `https://${HOST}/ap/activities/${id}`;
         await harness.db.transaction(async (tx) => {
           await ensureResource(tx, iri, id);
           await appendResourceRevision(tx, {
@@ -1703,7 +1706,7 @@ describe("outboxes of saved and legacy activities", () => {
             kind: "snapshot",
             document: {
               id: iri,
-              actor: actorIri,
+              actor: ACTOR_IRI,
               to: [PUBLIC_IRI],
               ...document,
             },
@@ -1719,8 +1722,8 @@ describe("outboxes of saved and legacy activities", () => {
       for (const iri of broken) {
         assert.equal((await get(harness.federation, iri)).status, 404);
       }
-      const collection = await get(harness.federation, `${actorIri}/outbox`);
-      const page = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      const collection = await get(harness.federation, `${ACTOR_IRI}/outbox`);
+      const page = await get(harness.federation, `${ACTOR_IRI}/outbox?cursor=`);
       assert.equal(page.status, 200);
       assert.deepEqual(
         (page.body.orderedItems as Record<string, unknown>[]).map(
@@ -1751,7 +1754,7 @@ describe("outboxes of saved and legacy activities", () => {
       for (let index = 0; index < 120; index += 1) {
         await save(
           env,
-          like({ type: "Note", content: "secret", to: [bob] }),
+          like({ type: "Note", content: "secret", to: [BOB] }),
           "activity",
         );
       }
@@ -1766,13 +1769,16 @@ describe("outboxes of saved and legacy activities", () => {
       }
       const ids = (body: Record<string, unknown>) =>
         (body.orderedItems as Record<string, unknown>[]).map(({ id }) => id);
-      const first = await get(harness.federation, `${actorIri}/outbox?cursor=`);
+      const first = await get(
+        harness.federation,
+        `${ACTOR_IRI}/outbox?cursor=`,
+      );
       assert.deepEqual(ids(first.body), newest);
       assert.equal(typeof first.body.next, "string");
       const last = await get(harness.federation, String(first.body.next));
       assert.deepEqual(ids(last.body), [oldest.iri]);
       assert.equal(last.body.next, undefined);
-      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      const collection = await get(harness.federation, `${ACTOR_IRI}/outbox`);
       assert.equal(collection.body.totalItems, 21);
     });
   });
@@ -1795,7 +1801,7 @@ describe("outboxes of saved and legacy activities", () => {
         .set({ position: null })
         .where(eq(schema.collectionItems.itemId, like.id));
       assert.equal((await get(harness.federation, like.iri)).status, 404);
-      const collection = await get(harness.federation, `${actorIri}/outbox`);
+      const collection = await get(harness.federation, `${ACTOR_IRI}/outbox`);
       assert.equal(collection.body.totalItems, 0);
     });
   });

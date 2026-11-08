@@ -40,9 +40,9 @@ import {
   servedObjectRevision,
 } from "../visibility.ts";
 import {
+  CREATE_TYPE,
   type DocumentInspection,
   type ServedDocument,
-  createType,
   inspectDocument,
 } from "./document.ts";
 import { documentActivity, documentObject } from "./vocab.ts";
@@ -73,11 +73,13 @@ interface RevisionRow {
 
 // Lookups of deleted objects stay well below the 65,535 parameters
 // PostgreSQL binds in one statement.
-const lookupSize = 1000;
+const LOOKUP_SIZE = 1000;
 // Outbox pages read past hidden activities in batches that grow up to this.
-const maximumBatchSize = 1000;
+const MAXIMUM_BATCH_SIZE = 1000;
 // The outbox counter reads the documents of this many activities at a time.
-const countBatchSize = 100;
+const COUNT_BATCH_SIZE = 100;
+// The most revisions remembered as logged unservable.
+const LOGGED_REVISION_LIMIT = 4096;
 
 /**
  * Splits values into chunks of at most a size.
@@ -89,15 +91,14 @@ const chunks = <T>(values: readonly T[], size: number): T[][] =>
   );
 
 // The revisions logged as unservable, so that one is logged once however
-// often pages and counters read it.  Past its limit, the revision logged
-// longest ago is forgotten.
+// often pages and counters read it.  Past LOGGED_REVISION_LIMIT, the
+// revision logged longest ago is forgotten.
 const loggedRevisions = new Set<string>();
-const loggedRevisionLimit = 4096;
 
 function logOnce(row: RevisionRow, log: () => void): void {
   const key = row.revisionId ?? row.iri;
   if (loggedRevisions.has(key)) return;
-  if (loggedRevisions.size >= loggedRevisionLimit) {
+  if (loggedRevisions.size >= LOGGED_REVISION_LIMIT) {
     loggedRevisions.delete(loggedRevisions.values().next().value!);
   }
   loggedRevisions.add(key);
@@ -175,7 +176,7 @@ async function deletedObjects(
   iris: readonly string[],
 ): Promise<ReadonlySet<string>> {
   const rows = await Promise.all(
-    chunks(iris, lookupSize).map((chunk) =>
+    chunks(iris, LOOKUP_SIZE).map((chunk) =>
       db
         .select({ iri: resources.iri })
         .from(resources)
@@ -260,7 +261,10 @@ export async function findServedActivity(
     return activity == null ? null : toCreate(ctx, activity);
   }
   const [served] = await servedRevisions(db, [row]);
-  if (served == null || (served.type === createType) !== (route === "create")) {
+  if (
+    served == null ||
+    (served.type === CREATE_TYPE) !== (route === "create")
+  ) {
     return null;
   }
   return documentActivity(served);
@@ -458,7 +462,9 @@ export async function loadOutboxPage(
     }
     if (batch.length < size) break;
     cursor = batch.at(-1)!.position;
-    if (size < maximumBatchSize) size = Math.min(size * 2, maximumBatchSize);
+    if (size < MAXIMUM_BATCH_SIZE) {
+      size = Math.min(size * 2, MAXIMUM_BATCH_SIZE);
+    }
   }
   const page = items.slice(0, limit);
   return {
@@ -514,11 +520,11 @@ export async function countOutbox(
         ),
       )
       .orderBy(asc(collectionItems.itemId))
-      .limit(countBatchSize);
+      .limit(COUNT_BATCH_SIZE);
     // oxlint-disable-next-line no-await-in-loop
     const served = await servedRevisions(db, saved);
     count += served.filter((document) => document != null).length;
-    if (saved.length < countBatchSize) return count;
+    if (saved.length < COUNT_BATCH_SIZE) return count;
     after = saved.at(-1)!.id;
   }
 }

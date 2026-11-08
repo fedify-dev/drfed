@@ -48,24 +48,24 @@ import {
   seedRemoteActor,
 } from "./seed.test.ts";
 
-const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+const ACTOR_IRI = `https://test-instance.drfed.org/users/${localActorId}`;
+const ACCEPT = { accept: "application/activity+json" };
+const ORIGIN = new URL("https://drfed.test");
+const ACTIVITY_JSON = "application/activity+json";
+
 const createIri = (id: string) =>
   `https://test-instance.drfed.org/ap/creates/${id}`;
-const accept = { accept: "application/activity+json" };
 
 function values(id: string) {
   return {
     id: id as Uuid,
     activityId: uuid(),
     actorId: localActorId as Uuid,
-    iri: `${actorIri}/${id}`,
+    iri: `${ACTOR_IRI}/${id}`,
     type: "Note" as const,
     contentHtml: "<p>Hello</p>",
   };
 }
-
-const origin = new URL("https://drfed.test");
-const activityJson = "application/activity+json";
 
 describe("createFederation()", () => {
   it("registers the actor URI layout", async () => {
@@ -73,7 +73,7 @@ describe("createFederation()", () => {
       const federation = await createFederation(db, {
         kv: new MemoryKvStore(),
       });
-      const ctx = federation.createContext(origin, undefined);
+      const ctx = federation.createContext(ORIGIN, undefined);
       assert.equal(
         ctx.getObjectUri(APObject, { identifier: "a", id: "b" }).href,
         "https://drfed.test/users/a/b",
@@ -120,11 +120,11 @@ describe("createFederation()", () => {
     // `demo.drfed.test`.  Without canonicalizing the lookup key, every actor
     // on that instance answers 404 to such a request.
     await withTemporaryDatabase(async (db) => {
+      const BASE = "https://demo.drfed.test";
       const localInstanceId = uuid();
       const instanceId = uuid();
       const localId = uuid();
       const actorId = uuid();
-      const base = "https://demo.drfed.test";
       await db.insert(schema.localInstances).values({
         id: localInstanceId,
         slug: "demo",
@@ -142,8 +142,8 @@ describe("createFederation()", () => {
         type: "Person",
         username: "alice",
         instanceId,
-        iri: `${base}/users/${actorId}`,
-        inboxUrl: `${base}/users/${actorId}/inbox`,
+        iri: `${BASE}/users/${actorId}`,
+        inboxUrl: `${BASE}/users/${actorId}/inbox`,
       });
 
       const federation = await createFederation(db, {
@@ -153,7 +153,7 @@ describe("createFederation()", () => {
         const response = await federation.fetch(
           // HTTP, so that `URL` keeps a port of 443 instead of eliding it.
           new Request(`http://${host}/users/${actorId}`, {
-            headers: { accept: activityJson },
+            headers: { accept: ACTIVITY_JSON },
           }),
           {
             contextData: undefined,
@@ -226,7 +226,7 @@ describe("createFederation()", () => {
         const names = [];
         for (const federation of federations) {
           const response = await federation.fetch(
-            new Request(actorIri, { headers: accept }),
+            new Request(ACTOR_IRI, { headers: ACCEPT }),
             { contextData: undefined },
           );
           assert.equal(response.status, 200);
@@ -257,7 +257,7 @@ describe("ActivityPub resource origin spelling", () => {
             resource === "Create" ? createIri(object.activityId) : object.iri;
           const requestIri = new URL(new URL(iri).pathname, requestOrigin);
           const response = await federation.fetch(
-            new Request(requestIri, { headers: accept }),
+            new Request(requestIri, { headers: ACCEPT }),
             { contextData: undefined },
           );
           assert.equal(response.status, resource === "Tombstone" ? 410 : 200);
@@ -286,7 +286,7 @@ describe("ActivityPub objects", () => {
           ...object,
           addressing: {
             [publicProperty]: [PUBLIC_IRI],
-            [publicProperty === "to" ? "cc" : "to"]: [`${actorIri}/followers`],
+            [publicProperty === "to" ? "cc" : "to"]: [`${ACTOR_IRI}/followers`],
           },
           language: "ko-KR",
           name: "Title",
@@ -294,14 +294,14 @@ describe("ActivityPub objects", () => {
           sensitive: true,
         });
         const response = await federation.fetch(
-          new Request(object.iri, { headers: accept }),
+          new Request(object.iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
         const body = await response.json();
         assert.equal(body.type, "Note");
         assert.equal(body.id, object.iri);
-        assert.equal(body.attributedTo, actorIri);
+        assert.equal(body.attributedTo, ACTOR_IRI);
         assert.equal(body.content, object.contentHtml);
         assert.deepEqual(body.contentMap, { "ko-kr": object.contentHtml });
         assert.equal(body.name, "Title");
@@ -311,11 +311,11 @@ describe("ActivityPub objects", () => {
         assert.ok(body.updated);
         assert.equal(
           body.to,
-          publicProperty === "to" ? "as:Public" : `${actorIri}/followers`,
+          publicProperty === "to" ? "as:Public" : `${ACTOR_IRI}/followers`,
         );
         assert.equal(
           body.cc,
-          publicProperty === "to" ? `${actorIri}/followers` : "as:Public",
+          publicProperty === "to" ? `${ACTOR_IRI}/followers` : "as:Public",
         );
       });
     });
@@ -335,7 +335,7 @@ describe("ActivityPub objects", () => {
           deleted,
         });
         const response = await federation.fetch(
-          new Request(object.iri, { headers: accept }),
+          new Request(object.iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 404);
@@ -348,7 +348,7 @@ describe("ActivityPub objects", () => {
       const object = values(uuid());
       await seedObjects(db, { ...object, type: "Article" });
       const response = await federation.fetch(
-        new Request(object.iri, { headers: accept }),
+        new Request(object.iri, { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal((await response.json()).type, "Article");
@@ -358,7 +358,7 @@ describe("ActivityPub objects", () => {
         .set({ deleted: deletedAt })
         .where(eq(schema.objects.id, object.id));
       const deleted = await federation.fetch(
-        new Request(object.iri, { headers: accept }),
+        new Request(object.iri, { headers: ACCEPT }),
         { contextData: undefined },
       );
       // Fedify serves object tombstones with HTTP 410, keeping the body.
@@ -396,16 +396,16 @@ describe("ActivityPub objects", () => {
         }
         const iri =
           scenario === "missing"
-            ? `${actorIri}/${uuid()}`
+            ? `${ACTOR_IRI}/${uuid()}`
             : scenario === "malformed"
-              ? `${actorIri}/bad`
+              ? `${ACTOR_IRI}/bad`
               : scenario === "host"
                 ? object.iri.replace("test-instance.drfed.org", "wrong.example")
                 : scenario === "actor" || scenario === "remote"
                   ? object.iri.replace(localActorId, remoteActorId)
                   : object.iri;
         const response = await federation.fetch(
-          new Request(iri, { headers: accept }),
+          new Request(iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 404);
@@ -424,11 +424,11 @@ describe("ActivityPub Create activities", () => {
           ...object,
           addressing: {
             [publicProperty]: [PUBLIC_IRI],
-            [publicProperty === "to" ? "cc" : "to"]: [`${actorIri}/followers`],
+            [publicProperty === "to" ? "cc" : "to"]: [`${ACTOR_IRI}/followers`],
           },
         });
         const response = await federation.fetch(
-          new Request(createIri(object.activityId), { headers: accept }),
+          new Request(createIri(object.activityId), { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
@@ -445,10 +445,12 @@ describe("ActivityPub Create activities", () => {
           {
             type: "Create",
             id: createIri(object.activityId),
-            actor: actorIri,
+            actor: ACTOR_IRI,
             object: object.iri,
-            to: publicProperty === "to" ? "as:Public" : `${actorIri}/followers`,
-            cc: publicProperty === "to" ? `${actorIri}/followers` : "as:Public",
+            to:
+              publicProperty === "to" ? "as:Public" : `${ACTOR_IRI}/followers`,
+            cc:
+              publicProperty === "to" ? `${ACTOR_IRI}/followers` : "as:Public",
           },
         );
         assert.ok(body.published);
@@ -473,7 +475,7 @@ describe("ActivityPub Create activities", () => {
           actorId: scenario === "remote" ? remoteActorId : localActorId,
           addressing:
             scenario === "followers"
-              ? { to: [`${actorIri}/followers`] }
+              ? { to: [`${ACTOR_IRI}/followers`] }
               : { to: [PUBLIC_IRI] },
           deleted: scenario === "deleted" ? Temporal.Now.instant() : null,
         });
@@ -490,7 +492,7 @@ describe("ActivityPub Create activities", () => {
               ? createIri("bad")
               : createIri(object.activityId);
         const response = await federation.fetch(
-          new Request(iri, { headers: accept }),
+          new Request(iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 404);
@@ -508,7 +510,7 @@ describe("ActivityPub Create activities", () => {
             "test-instance.drfed.org",
             "wrong.example",
           ),
-          { headers: accept },
+          { headers: ACCEPT },
         ),
         { contextData: undefined },
       );
@@ -522,7 +524,7 @@ describe("ActivityPub general activities", () => {
     await withFederation(async ({ federation }) => {
       const response = await federation.fetch(
         new Request(`https://test-instance.drfed.org/ap/activities/${uuid()}`, {
-          headers: accept,
+          headers: ACCEPT,
         }),
         { contextData: undefined },
       );
@@ -544,25 +546,25 @@ describe("ActivityPub outbox", () => {
           activityId: activityIds[index]!,
           addressing:
             index === 22
-              ? { to: [`${actorIri}/followers`] }
+              ? { to: [`${ACTOR_IRI}/followers`] }
               : index === 20
-                ? { to: [`${actorIri}/followers`], cc: [PUBLIC_IRI] }
+                ? { to: [`${ACTOR_IRI}/followers`], cc: [PUBLIC_IRI] }
                 : { to: [PUBLIC_IRI] },
           deleted: index === 21 ? Temporal.Now.instant() : null,
         })),
       );
       const fetchJson = async (iri: string) => {
         const response = await federation.fetch(
-          new Request(iri, { headers: accept }),
+          new Request(iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
         return await response.json();
       };
-      const collection = await fetchJson(`${actorIri}/outbox`);
+      const collection = await fetchJson(`${ACTOR_IRI}/outbox`);
       assert.equal(collection.type, "OrderedCollection");
       assert.equal(collection.totalItems, 21);
-      const page = await fetchJson(`${actorIri}/outbox?cursor=`);
+      const page = await fetchJson(`${ACTOR_IRI}/outbox?cursor=`);
       assert.equal(page.orderedItems.length, 20);
       const activity = page.orderedItems[0];
       assert.deepEqual(
@@ -577,9 +579,9 @@ describe("ActivityPub outbox", () => {
         {
           type: "Create",
           id: createIri(activityIds[20]!),
-          actor: actorIri,
+          actor: ACTOR_IRI,
           object: values(ids[20]!).iri,
-          to: `${actorIri}/followers`,
+          to: `${ACTOR_IRI}/followers`,
           cc: "as:Public",
         },
       );
@@ -588,7 +590,7 @@ describe("ActivityPub outbox", () => {
       assert.equal(last.orderedItems[0].object, values(ids[0]!).iri);
       assert.equal(last.next, undefined);
       const bad = await federation.fetch(
-        new Request(`${actorIri}/outbox?cursor=bad`, { headers: accept }),
+        new Request(`${ACTOR_IRI}/outbox?cursor=bad`, { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(bad.status, 404);
@@ -600,8 +602,8 @@ describe("ActivityPub outbox", () => {
         "--1",
       ]) {
         const invalid = await federation.fetch(
-          new Request(`${actorIri}/outbox?cursor=${cursor}`, {
-            headers: accept,
+          new Request(`${ACTOR_IRI}/outbox?cursor=${cursor}`, {
+            headers: ACCEPT,
           }),
           { contextData: undefined },
         );
@@ -638,13 +640,13 @@ describe("ActivityPub outbox", () => {
       }
       const fetchJson = async (iri: string) => {
         const response = await federation.fetch(
-          new Request(iri, { headers: accept }),
+          new Request(iri, { headers: ACCEPT }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
         return await response.json();
       };
-      const first = await fetchJson(`${actorIri}/outbox?cursor=`);
+      const first = await fetchJson(`${ACTOR_IRI}/outbox?cursor=`);
       assert.equal(first.orderedItems.length, 20);
       const order = objects
         .map((_, index) => index)
@@ -685,12 +687,12 @@ describe("ActivityPub outbox", () => {
       assert.ok(activity);
       assert.equal(activity.objectId, null);
       const response = await federation.fetch(
-        new Request(createIri(object.activityId), { headers: accept }),
+        new Request(createIri(object.activityId), { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(response.status, 404);
       const outbox = await federation.fetch(
-        new Request(`${actorIri}/outbox?cursor=`, { headers: accept }),
+        new Request(`${ACTOR_IRI}/outbox?cursor=`, { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(outbox.status, 200);
@@ -701,7 +703,7 @@ describe("ActivityPub outbox", () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db);
       const response = await federation.fetch(
-        new Request(`${actorIri}/outbox?cursor=`, { headers: accept }),
+        new Request(`${ACTOR_IRI}/outbox?cursor=`, { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(response.status, 200);
@@ -727,7 +729,7 @@ describe("stored collection membership and independent activity addressing", () 
       assert.notEqual(activity.id, object.id);
       assert.equal(activity.resource.iri, createIri(activity.id));
       const fetch = (iri: string) =>
-        federation.fetch(new Request(iri, { headers: accept }), {
+        federation.fetch(new Request(iri, { headers: ACCEPT }), {
           contextData: undefined,
         });
       assert.equal((await fetch(createIri(object.activityId))).status, 200);
@@ -737,11 +739,11 @@ describe("stored collection membership and independent activity addressing", () 
       assert.equal((await fetch(createIri(object.activityId))).status, 404);
       assert.equal((await fetch(object.iri)).status, 200);
       assert.equal(
-        (await (await fetch(`${actorIri}/outbox`)).json()).totalItems,
+        (await (await fetch(`${ACTOR_IRI}/outbox`)).json()).totalItems,
         0,
       );
       assert.deepEqual(
-        (await (await fetch(`${actorIri}/outbox?cursor=`)).json())
+        (await (await fetch(`${ACTOR_IRI}/outbox?cursor=`)).json())
           .orderedItems ?? [],
         [],
       );
@@ -756,7 +758,7 @@ describe("stored collection membership and independent activity addressing", () 
       await seedLocalActor(db);
       await seedRemoteActor(db);
       const fetch = (iri: string) =>
-        federation.fetch(new Request(iri, { headers: accept }), {
+        federation.fetch(new Request(iri, { headers: ACCEPT }), {
           contextData: undefined,
         });
       for (const role of ["followers", "following", "featured"] as const) {
@@ -771,7 +773,7 @@ describe("stored collection membership and independent activity addressing", () 
           itemId: remoteActorId,
           position: 0,
         });
-        const response = await fetch(`${actorIri}/${role}`);
+        const response = await fetch(`${ACTOR_IRI}/${role}`);
         assert.equal(response.status, 200);
         const body = await response.json();
         const item = body.orderedItems?.[0] ?? body.items?.[0];
@@ -790,15 +792,15 @@ describe("durable actor signing keys", () => {
       await seedLocalActor(db, { keys: false });
       assert.equal(await db.$count(schema.localActorKeys), 0);
       const response = await federation.fetch(
-        new Request(actorIri, { headers: accept }),
+        new Request(ACTOR_IRI, { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(response.status, 200);
       const body = await response.json();
-      assert.equal(body.publicKey.id, `${actorIri}#main-key`);
+      assert.equal(body.publicKey.id, `${ACTOR_IRI}#main-key`);
       assert.equal(body.assertionMethod.length, 2);
       assert.ok(body.publicKey.publicKeyPem);
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       const first = await ctx.getActorKeyPairs(localActorId);
       assert.deepEqual(
         first.map((pair) => pair.privateKey.algorithm.name),
@@ -812,7 +814,7 @@ describe("durable actor signing keys", () => {
       );
       const fresh = await createFederation(db, { kv: new MemoryKvStore() });
       const again = await fresh
-        .createContext(new URL(actorIri), undefined)
+        .createContext(new URL(ACTOR_IRI), undefined)
         .getActorKeyPairs(localActorId);
       assert.deepEqual(
         await crypto.subtle.exportKey("jwk", first[0]!.publicKey),
@@ -823,30 +825,30 @@ describe("durable actor signing keys", () => {
   });
   it("publishes canonical key ownership for uppercase UUID requests", async () => {
     await withFederation(async ({ db, federation }) => {
+      const ID = "abcdefab-cdef-4abc-8def-abcdefabcdef" as Uuid;
+      const IRI = `https://test-instance.drfed.org/users/${ID}`;
       await seedLocalActor(db);
-      const id = "abcdefab-cdef-4abc-8def-abcdefabcdef" as Uuid;
-      await db.insert(schema.localActors).values({ id });
-      const iri = `https://test-instance.drfed.org/users/${id}`;
+      await db.insert(schema.localActors).values({ id: ID });
       await seedActors(db, {
-        id,
-        localId: id,
-        iri,
+        id: ID,
+        localId: ID,
+        iri: IRI,
         instanceId: "00000000-0000-4000-8000-000000000101" as Uuid,
         type: "Person",
         username: "uppercase-test",
-        inboxUrl: `${iri}/inbox`,
+        inboxUrl: `${IRI}/inbox`,
         created: Temporal.Now.instant(),
       });
       const response = await federation.fetch(
-        new Request(iri.replace(id, id.toUpperCase()), { headers: accept }),
+        new Request(IRI.replace(ID, ID.toUpperCase()), { headers: ACCEPT }),
         { contextData: undefined },
       );
       assert.equal(response.status, 200);
       const body = await response.json();
-      assert.equal(body.id, iri);
-      assert.equal(body.publicKey.owner, iri);
-      assert.equal(body.publicKey.id, `${iri}#main-key`);
-      for (const key of body.assertionMethod) assert.equal(key.controller, iri);
+      assert.equal(body.id, IRI);
+      assert.equal(body.publicKey.owner, IRI);
+      assert.equal(body.publicKey.id, `${IRI}#main-key`);
+      for (const key of body.assertionMethod) assert.equal(key.controller, IRI);
     });
   });
   for (const requestOrigin of [
@@ -859,22 +861,22 @@ describe("durable actor signing keys", () => {
       await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db);
         const response = await federation.fetch(
-          new Request(new URL(new URL(actorIri).pathname, requestOrigin), {
-            headers: accept,
+          new Request(new URL(new URL(ACTOR_IRI).pathname, requestOrigin), {
+            headers: ACCEPT,
           }),
           { contextData: undefined },
         );
         assert.equal(response.status, 200);
         const body = await response.json();
-        assert.equal(body.id, actorIri);
-        assert.equal(body.publicKey.owner, actorIri);
-        assert.equal(body.publicKey.id, `${actorIri}#main-key`);
+        assert.equal(body.id, ACTOR_IRI);
+        assert.equal(body.publicKey.owner, ACTOR_IRI);
+        assert.equal(body.publicKey.id, `${ACTOR_IRI}#main-key`);
         assert.deepEqual(
           body.assertionMethod.map((key: { id: string }) => key.id),
-          [`${actorIri}#multikey-1`, `${actorIri}#multikey-2`],
+          [`${ACTOR_IRI}#multikey-1`, `${ACTOR_IRI}#multikey-2`],
         );
         for (const key of body.assertionMethod) {
-          assert.equal(key.controller, actorIri);
+          assert.equal(key.controller, ACTOR_IRI);
         }
       });
     });
@@ -889,7 +891,7 @@ describe("durable actor signing keys", () => {
       await db
         .delete(schema.localActorKeys)
         .where(eq(schema.localActorKeys.type, "Ed25519"));
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       assert.equal(
         (await ensureActorKeyPairs(db, ctx, localActorId)).length,
         2,
@@ -922,7 +924,7 @@ describe("durable actor signing keys", () => {
     it(`does not persist keys when ${deletion} deletion happens during generation`, async () => {
       await withFederation(async ({ db, federation }) => {
         await seedLocalActor(db, { keys: false });
-        const ctx = federation.createContext(new URL(actorIri), undefined);
+        const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
         let deleted = false;
         const pairs = await ensureActorKeyPairs(
           db,
@@ -958,7 +960,7 @@ describe("durable actor signing keys", () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db, { keys: false });
       await seedRemoteActor(db);
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       assert.deepEqual(await ensureActorKeyPairs(db, ctx, "invalid"), []);
       assert.deepEqual(await ensureActorKeyPairs(db, ctx, uuid()), []);
       assert.deepEqual(await ensureActorKeyPairs(db, ctx, remoteActorId), []);
@@ -983,7 +985,7 @@ describe("durable actor signing keys", () => {
         .set({ localId })
         .where(eq(schema.actors.id, localActorId));
       await seedActorKeys(db, localId);
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       assert.equal(
         (await ensureActorKeyPairs(db, ctx, localActorId)).length,
         2,
@@ -1009,7 +1011,7 @@ describe("durable actor signing keys", () => {
   it("coalesces generation and returns a competing persisted winner", async () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db, { keys: false });
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
       let count = 0;
@@ -1045,7 +1047,7 @@ describe("durable actor signing keys", () => {
   it("sanitizes failures and clears failed in-flight generation", async () => {
     await withFederation(async ({ db, federation }) => {
       await seedLocalActor(db, { keys: false });
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       await assert.rejects(
         ensureActorKeyPairs(db, ctx, localActorId, () =>
           Promise.reject(new Error("PRIVATE_SECRET")),
@@ -1081,7 +1083,7 @@ describe("durable actor signing keys", () => {
         manuallyStartQueue: true,
         taskQueueResolution: "strict",
       });
-      const ctx = federation.createContext(new URL(actorIri), undefined);
+      const ctx = federation.createContext(new URL(ACTOR_IRI), undefined);
       await enqueueActorKeyGeneration(ctx, [localActorId]);
       assert.equal((await queue.getDepth()).queued, 1);
       const abort = new AbortController();
@@ -1105,13 +1107,13 @@ describe("durable actor signing keys", () => {
         manuallyStartQueue: true,
       });
       await enqueueActorKeyGeneration(
-        other.createContext(new URL(actorIri), undefined),
+        other.createContext(new URL(ACTOR_IRI), undefined),
         [localActorId],
       );
       assert.equal((await otherQueue.getDepth()).queued, 1);
       const noQueue = await createFederation(db, { kv: new MemoryKvStore() });
       await enqueueActorKeyGeneration(
-        noQueue.createContext(new URL(actorIri), undefined),
+        noQueue.createContext(new URL(ACTOR_IRI), undefined),
         [localActorId],
       );
     });

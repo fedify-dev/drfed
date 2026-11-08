@@ -19,7 +19,7 @@
 import { Object as APObject, Activity, Create } from "@fedify/vocab";
 
 import type { JsonObject } from "../local-write/types.ts";
-import { type ServedDocument, createType } from "./document.ts";
+import { CREATE_TYPE, type ServedDocument } from "./document.ts";
 
 /** The options of Fedify's `toJsonLd()`. */
 type JsonLdOptions = NonNullable<Parameters<APObject["toJsonLd"]>[0]>;
@@ -98,7 +98,7 @@ function servedId(served: ServedDocument): URL {
  * @returns The vocabulary object.
  */
 export function documentActivity(served: ServedDocument): Activity {
-  return served.type === createType
+  return served.type === CREATE_TYPE
     ? new DocumentCreate(servedId(served), served.document)
     : new DocumentActivity(servedId(served), served.document);
 }

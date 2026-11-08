@@ -78,7 +78,7 @@ export type DiagnosticCategory =
 export type DiagnosticSeverity = "error" | "warning";
 
 /** Stable classifications; human-readable diagnostic messages may change. */
-export const diagnosticReasons = {
+export const DIAGNOSTIC_REASONS = {
   invalid_document_root: { category: "vocabulary", severity: "error" },
   non_json_value: { category: "vocabulary", severity: "error" },
   invalid_value_shape: { category: "vocabulary", severity: "error" },
@@ -114,7 +114,7 @@ export const diagnosticReasons = {
   }
 >;
 
-export type DiagnosticReason = keyof typeof diagnosticReasons;
+export type DiagnosticReason = keyof typeof DIAGNOSTIC_REASONS;
 
 export interface Diagnostic {
   readonly reason: DiagnosticReason;
@@ -186,12 +186,12 @@ export interface DocumentPreparationOptions {
   readonly serverOwnedFields: readonly ServerOwnedField[];
 }
 
-const activityStreamsContext = "https://www.w3.org/ns/activitystreams";
-const maximumDiagnostics = 100;
-const maximumPathDepth = 64;
-const actorTypes = [Application, Group, Organization, Person, Service];
+const ACTIVITY_STREAMS_CONTEXT = "https://www.w3.org/ns/activitystreams";
+const MAXIMUM_DIAGNOSTICS = 100;
+const MAXIMUM_PATH_DEPTH = 64;
+const ACTOR_TYPES = [Application, Group, Organization, Person, Service];
 /** The ActivityStreams properties that address a document's recipients. */
-export const addressingProperties = [
+export const ADDRESSING_PROPERTIES = [
   "to",
   "cc",
   "bto",
@@ -199,7 +199,7 @@ export const addressingProperties = [
   "audience",
 ] as const;
 // AS2 vocabulary Object properties that do not also apply to Link.
-const objectOnlyProperties: ReadonlySet<string> = new Set([
+const OBJECT_ONLY_PROPERTIES: ReadonlySet<string> = new Set([
   "attachment",
   "attributedTo",
   "audience",
@@ -236,7 +236,7 @@ type Report = (
 type VocabularyType = $EntityType | typeof Link | typeof Mention;
 
 // Unsupported custom types by Fedify are not in this checker's coverage.
-const implementedTypes: ReadonlySet<VocabularyType> = new Set<VocabularyType>([
+const IMPLEMENTED_TYPES: ReadonlySet<VocabularyType> = new Set<VocabularyType>([
   Note,
   APObject,
   Article,
@@ -283,6 +283,44 @@ const implementedTypes: ReadonlySet<VocabularyType> = new Set<VocabularyType>([
   View,
 ]);
 
+// Objects with these keywords are values or lists, not JSON-LD node objects.
+const VALUE_OBJECT_KEYWORDS: ReadonlySet<string> = new Set([
+  "@value",
+  "@list",
+  "@set",
+]);
+
+const IDENTIFIER_PROPERTIES: ReadonlySet<string> = new Set([
+  "id",
+  "actor",
+  "object",
+  "target",
+  "origin",
+  "result",
+  "instrument",
+  "attributedTo",
+  "location",
+  "preview",
+  ...ADDRESSING_PROPERTIES,
+  "items",
+  "orderedItems",
+  "current",
+  "first",
+  "last",
+  "partOf",
+  "next",
+  "prev",
+  "inbox",
+  "outbox",
+  "following",
+  "followers",
+  "liked",
+  "href",
+]);
+
+// A node object has one of each.
+const FUNCTIONAL_REFERENCES = ["id", "href"] as const;
+
 // Owns diagnostic collection and completion state for one validation call.
 function createReporter() {
   const diagnostics: Diagnostic[] = [];
@@ -291,18 +329,18 @@ function createReporter() {
 
   const report: Report = (reason, path, message) => {
     if (truncated) return;
-    if (diagnostics.length === maximumDiagnostics) {
+    if (diagnostics.length === MAXIMUM_DIAGNOSTICS) {
       complete = false;
       truncated = true;
-      diagnostics[maximumDiagnostics - 1] = {
+      diagnostics[MAXIMUM_DIAGNOSTICS - 1] = {
         reason: "diagnostic_limit_reached",
-        ...diagnosticReasons.diagnostic_limit_reached,
+        ...DIAGNOSTIC_REASONS.diagnostic_limit_reached,
         path: [],
         message: "Further diagnostics were omitted.",
       };
       return;
     }
-    const classification = diagnosticReasons[reason];
+    const classification = DIAGNOSTIC_REASONS[reason];
     if (classification.category === "support") complete = false;
     diagnostics.push({ reason, ...classification, path, message });
   };
@@ -840,7 +878,10 @@ function getContextTables(): ContextTables {
   if (contextTables != null) return contextTables;
   // Bundled availability is not blanket admission to this bounded profile.
   const bundledContexts = new Map<string, ReadonlyMap<string, ContextTerm>>();
-  for (const url of [activityStreamsContext, "https://w3id.org/security/v1"]) {
+  for (const url of [
+    ACTIVITY_STREAMS_CONTEXT,
+    "https://w3id.org/security/v1",
+  ]) {
     const document = preloadedContexts[url] as {
       "@context": Record<string, unknown>;
     };
@@ -855,7 +896,7 @@ function getContextTables(): ContextTables {
     );
     bundledContexts.set(url, terms);
   }
-  const standardTerms = bundledContexts.get(activityStreamsContext)!;
+  const standardTerms = bundledContexts.get(ACTIVITY_STREAMS_CONTEXT)!;
   // Publish the cache only after all definitions have been interpreted.
   contextTables = {
     bundledContexts,
@@ -875,7 +916,7 @@ function applyContextEntry(
   if (typeof value === "string") {
     const url =
       value === "http://www.w3.org/ns/activitystreams"
-        ? activityStreamsContext
+        ? ACTIVITY_STREAMS_CONTEXT
         : value;
     const bundled = bundledContexts.get(url);
     if (bundled == null) {
@@ -1031,7 +1072,7 @@ function checkType(
     if (typeIri === Link.typeId.href) Type = Link;
     else if (typeIri === Mention.typeId.href) Type = Mention;
   }
-  if (Type == null || !implementedTypes.has(Type)) {
+  if (Type == null || !IMPLEMENTED_TYPES.has(Type)) {
     const reason = Array.isArray(value)
       ? "unsupported_value_form"
       : value == null || typeof value === "string"
@@ -1075,7 +1116,7 @@ function getEmbeddedFedifyRange(
   property: string,
   collectionRange: readonly VocabularyType[] | undefined,
 ): readonly VocabularyType[] | undefined {
-  if (property === "actor" || property === "attributedTo") return actorTypes;
+  if (property === "actor" || property === "attributedTo") return ACTOR_TYPES;
   return collectionRange?.filter((Expected) => Expected !== Link);
 }
 
@@ -1115,7 +1156,7 @@ function getCollectionRange(
     if (property === "partOf") return [Collection, Link];
     if (["next", "prev"].includes(property)) return [CollectionPage, Link];
   }
-  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
+  const actor = ACTOR_TYPES.some((Actor) => isTypeOrSubtype(Type, Actor));
   if (actor) {
     if (["inbox", "outbox"].includes(property)) {
       return [OrderedCollection, OrderedCollectionPage];
@@ -1420,7 +1461,7 @@ function getCommonPropertyKind(
   property: string,
 ): "text" | "languageMap" | "datetime" | "id" | "mediaType" | undefined {
   const object = isTypeOrSubtype(Type, APObject);
-  const actor = actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor));
+  const actor = ACTOR_TYPES.some((Actor) => isTypeOrSubtype(Type, Actor));
   const textProperties = object ? ["name", "summary", "content"] : ["name"];
   if (actor) textProperties.push("preferredUsername");
   if (textProperties.includes(property)) return "text";
@@ -1582,13 +1623,6 @@ function checkLinkProperty(
   }
 }
 
-// Objects with these keywords are values or lists, not JSON-LD node objects.
-const valueObjectKeywords: ReadonlySet<string> = new Set([
-  "@value",
-  "@list",
-  "@set",
-]);
-
 // The keyword a key stands for: itself, or the keyword a term aliases.  A
 // context the checker does not read aliases nothing it knows of.
 function keywordOf(
@@ -1605,7 +1639,7 @@ function isNodeObject(
   context: DocumentContext | null,
 ): boolean {
   return !Object.keys(values).some((key) =>
-    valueObjectKeywords.has(keywordOf(key, context) ?? ""),
+    VALUE_OBJECT_KEYWORDS.has(keywordOf(key, context) ?? ""),
   );
 }
 
@@ -1752,15 +1786,17 @@ function checkExtensionKeywords(
 }
 
 function getInapplicableProperties(Type: VocabularyType): ReadonlySet<string> {
-  return isTypeOrSubtype(Type, Link) ? objectOnlyProperties : new Set<string>();
+  return isTypeOrSubtype(Type, Link)
+    ? OBJECT_ONLY_PROPERTIES
+    : new Set<string>();
 }
 
 function checkPathDepth(path: FieldPath, report: Report): boolean {
-  if (path.length <= maximumPathDepth) return true;
+  if (path.length <= MAXIMUM_PATH_DEPTH) return true;
   report(
     "processing_limit_exceeded",
     path,
-    `Nesting exceeds the supported limit of ${maximumPathDepth} path segments.`,
+    `Nesting exceeds the supported limit of ${MAXIMUM_PATH_DEPTH} path segments.`,
   );
   return false;
 }
@@ -1915,7 +1951,7 @@ function checkDocumentValue(
       referenceProperties.push(
         "attributedTo",
         "location",
-        ...addressingProperties,
+        ...ADDRESSING_PROPERTIES,
       );
     }
     if (isActivity) {
@@ -2645,34 +2681,6 @@ export interface DocumentIdentifier {
   readonly iri: string;
 }
 
-const identifierProperties: ReadonlySet<string> = new Set([
-  "id",
-  "actor",
-  "object",
-  "target",
-  "origin",
-  "result",
-  "instrument",
-  "attributedTo",
-  "location",
-  "preview",
-  ...addressingProperties,
-  "items",
-  "orderedItems",
-  "current",
-  "first",
-  "last",
-  "partOf",
-  "next",
-  "prev",
-  "inbox",
-  "outbox",
-  "following",
-  "followers",
-  "liked",
-  "href",
-]);
-
 // IRI values expand compact IRIs through prefixes only; JSON-LD applies terms
 // to property names and types, not to node identifiers.
 function expandIdentifier(value: string, context: DocumentContext): string {
@@ -2694,7 +2702,7 @@ function expandIdentifier(value: string, context: DocumentContext): string {
 function nodeKind(Type: VocabularyType): DocumentNodeKind {
   if (isTypeOrSubtype(Type, Link)) return "link";
   if (isTypeOrSubtype(Type, Activity)) return "activity";
-  if (actorTypes.some((Actor) => isTypeOrSubtype(Type, Actor))) return "actor";
+  if (ACTOR_TYPES.some((Actor) => isTypeOrSubtype(Type, Actor))) return "actor";
   if (isTypeOrSubtype(Type, Collection)) return "collection";
   return "object";
 }
@@ -2714,7 +2722,7 @@ function describeProperties(
     const sources = properties.get(name) ?? [];
     sources.push(source);
     properties.set(name, sources);
-    if (!identifierProperties.has(name)) continue;
+    if (!IDENTIFIER_PROPERTIES.has(name)) continue;
     const value = values[source];
     const entries: [unknown, FieldPath][] = Array.isArray(value)
       ? value.map((entry, index) => [entry, [...path, source, index]])
@@ -2756,9 +2764,6 @@ function extensionProperty(
 const isReadableReference = (value: string): boolean =>
   value.startsWith("_:") ||
   (/^[a-z][a-z\d+.-]*:/iu.test(value) && URL.canParse(value));
-
-// A node object has one of each.
-const functionalReferences = ["id", "href"] as const;
 
 function typeKind(iri: string): DocumentNodeKind | undefined {
   const Type =
@@ -2814,7 +2819,7 @@ function readExtensionEntry(
   reading: ExtensionReading,
 ): boolean {
   const { name, compatible } = property;
-  const reference = identifierProperties.has(name);
+  const reference = IDENTIFIER_PROPERTIES.has(name);
   if (typeof entry === "string") {
     if (name === "type") {
       reading.types.push(
@@ -2844,7 +2849,7 @@ function readExtensionEntry(
 
 // Tell whether an id or href has more than one value, or a node object.
 function hasAmbiguousReference(reading: ExtensionReading): boolean {
-  return functionalReferences.some(
+  return FUNCTIONAL_REFERENCES.some(
     (name) =>
       reading.identifiers.filter(({ property }) => property === name).length >
         1 || reading.children.some(([, property]) => property === name),
@@ -2894,7 +2899,7 @@ function describeExtensionNode(
       context.terms.get(source)?.container === "@language" &&
       isLanguageMap(values[source])
     ) {
-      if (identifierProperties.has(name) && values[source] != null) {
+      if (IDENTIFIER_PROPERTIES.has(name) && values[source] != null) {
         readable = false;
       }
       continue;
