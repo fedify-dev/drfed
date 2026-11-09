@@ -47,7 +47,8 @@ const temporary = await mkdtemp(join(tmpdir(), "drfed-release-image-"));
 const root = join(temporary, "repo");
 const archives = join(root, "release-artifacts");
 const images = join(root, "image-artifacts");
-const workflow = ".github/workflows/main.yaml";
+const releaseWorkflow = ".github/workflows/main.yaml";
+const imageAttestationWorkflow = ".github/workflows/publish.yaml";
 
 interface Build {
   enabled: boolean;
@@ -155,7 +156,8 @@ function constraintsHold(args: string[], build: Build): boolean {
   const value = (name: string) => args[args.indexOf(name) + 1];
   return (
     value("--repo") === "fedify-dev/drfed" &&
-    value("--signer-workflow") === `fedify-dev/drfed/${workflow}` &&
+    value("--signer-workflow") ===
+      `fedify-dev/drfed/${imageAttestationWorkflow}` &&
     value("--source-ref") === build.ref &&
     value("--source-digest") === build.sha &&
     value("--predicate-type") === "https://slsa.dev/provenance/v1" &&
@@ -188,7 +190,8 @@ async function handleGh(args: string[], cwd: string) {
   }
   assert.equal(args[1], "verify");
   assert.ok(constraintsHold(args, currentBuild), args.join(" "));
-  const valid = (bundle: Bundle) => bundle.workflow === workflow;
+  const valid = (bundle: Bundle) =>
+    bundle.workflow === imageAttestationWorkflow;
   if (args.includes("--bundle")) {
     const bundle = JSON.parse(
       await readFile(args[args.indexOf("--bundle") + 1]!, "utf8"),
@@ -348,7 +351,7 @@ function buildOf(version: string, runNumber: string, sha: string): Build {
     runNumber,
     runId: `${runNumber}00`,
     ref: release ? `refs/tags/${version}` : "refs/heads/main",
-    workflow,
+    workflow: releaseWorkflow,
   };
 }
 
@@ -559,7 +562,10 @@ try {
       mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
       workflow: "other.yaml",
     },
-    { mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", workflow },
+    {
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      workflow: imageAttestationWorkflow,
+    },
   ]);
   ghFailures = 1;
   assert.equal(
@@ -581,7 +587,7 @@ try {
     JSON.parse(
       Buffer.from((attachment.artifact as { data: number[] }).data).toString(),
     ).workflow,
-    workflow,
+    imageAttestationWorkflow,
   );
   assert.equal(
     (await run(["image-attestation", "status"])).outputs.state,
@@ -661,7 +667,10 @@ try {
   );
   // Attaching a stored attestation also writes to the registry.
   github.set(released, [
-    { mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json", workflow },
+    {
+      mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+      workflow: imageAttestationWorkflow,
+    },
   ]);
   await assert.rejects(
     run(["image-attestation", "attach"]),

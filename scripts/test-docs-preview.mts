@@ -486,7 +486,7 @@ const runId = 4242;
 const runPath = `/repos/${repository}/actions/runs/${runId}`;
 const workflowRun = {
   id: runId,
-  path: ".github/workflows/main.yaml",
+  path: ".github/workflows/docs.yaml",
   event: "pull_request",
   head_sha: headSha,
 };
