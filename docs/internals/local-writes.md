@@ -99,8 +99,8 @@ Identity and documents
 
 New resources get UUIDv7 IRIs from Fedify's router: objects at
 `/users/{actor}/{id}`, `Create` at `/ap/creates/{id}`, and every other activity
-at `/ap/activities/{id}`, which answers 404 until #153 serves saved
-activities. A new resource's `id`, its author (`actor` for an activity,
+at `/ap/activities/{id}`, where [federation reads](federation-reads.md) serve
+them. A new resource's `id`, its author (`actor` for an activity,
 `attributedTo` for an object) and `published` are server-owned values given to
 `prepareDocument()`; a submitted conflicting value is a
 `server_owned_field_conflict`, never silently replaced. An edit owns `id`,
@@ -109,15 +109,18 @@ without one cannot gain one.
 
 Every other identity claim is checked by meaning, through
 `describeDocument()`, so aliases, full-IRI keys, `@id` aliases and compact IRIs
-cannot hide it. An `actor` or `attributedTo` value on a DrFed instance host must
-be an actor of the acting actor's instance, and an `id` there must be a
-registered resource of a known kind or one this write allocates. An IRI
-registered only because a document addressed or referred to it has the
-`unknown` kind and does not count. Other values are
-`unauthorized_local_identity` at their source paths. Remote identities are not
-checked; copying a remote representation proves nothing about it. Plain
-references, such as `object` or `target` IRIs, never request a write and are
-never fetched or modified.
+cannot hide it, also in the node objects of extension values, which
+[federation reads](federation-reads.md) serve as well. An `actor` or
+`attributedTo` value on a DrFed instance host, including the `id` of a document
+or the `href` of a `Link` embedded there, and the `href` of a `Link` embedded
+elsewhere with the `id` a value names, must be an actor of the acting actor's
+instance, and an `id` there must be a registered resource of a known
+kind or one this write allocates. An IRI registered only because a document
+addressed or referred to it has the `unknown` kind and does not count. Other
+values are `unauthorized_local_identity` at their source paths. Remote
+identities are not checked; copying a remote representation proves nothing
+about it. Plain references, such as `object` or `target` IRIs, never request a
+write and are never fetched or modified.
 
 Resource descriptors name the root, `[]`, and optionally embedded documents
 reached through `object`, `target`, `origin`, `result` or `instrument` of
@@ -131,11 +134,11 @@ parent keeps it embedded, as submitted, or refers to it by IRI with
 Each saved document gets revision addressing and a current `addressing` index
 from its semantic `to`, `cc`, `bto`, `bcc` and `audience`, each value at its
 source position: IRIs as resolved, embedded documents by `id`, `Link` values by
-`href`, and anonymous values without a row. Relations index `actor`, `object`,
-`target`, `origin`, `result`, `instrument` and `attributedTo`. A document that
-spells one of these properties in several ways is refused, since its index
-would otherwise leave occurrences out. Indexes stay `partial`; the documents
-remain authoritative.
+`href`, also written as a list of one value, and anonymous values without a row.
+Relations index `actor`, `object`, `target`, `origin`, `result`, `instrument`
+and `attributedTo`. A document that spells one of these properties in several
+ways is refused, since its index would otherwise leave occurrences out. Indexes
+stay `partial`; the documents remain authoritative.
 
 
 Edits and deletions
@@ -154,8 +157,8 @@ describes the last content. The generated `Delete` refers to the object by IRI
 and copies the last version's addressing under its context.
 
 Resources created by the common write have revisions only, so GraphQL details
-and federation responses ignore them until #153 and #154. Objects created by
-the `createObject` mutation also have legacy typed rows that serving reads;
+ignore them until #154; federation reads serve their documents. Objects created
+by the `createObject` mutation also have legacy typed rows that serving reads;
 `writeTypedResourceRevision()` keeps those rows in step. Before writing, the
 served columns must agree with the current revision, or the object is refused
 as drifted. An edited version must fit the typed columns without loss: a `Note`

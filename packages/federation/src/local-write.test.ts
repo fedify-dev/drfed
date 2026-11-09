@@ -52,21 +52,28 @@ import {
 } from "./seed.test.ts";
 
 const AS = "https://www.w3.org/ns/activitystreams";
-const rootOrigin = new URL("https://drfed.org");
-const accountId = "00000000-0000-4000-8000-000000000301" as Uuid;
-const principal = { accountId };
-const actorIri = `https://test-instance.drfed.org/users/${localActorId}`;
+const ROOT_ORIGIN = new URL("https://drfed.org");
+const ACCOUNT_ID = "00000000-0000-4000-8000-000000000301" as Uuid;
+const PRINCIPAL = { accountId: ACCOUNT_ID };
+const ACTOR_IRI = `https://test-instance.drfed.org/users/${localActorId}`;
+const NOTE = {
+  "@context": AS,
+  type: "Note",
+  content: "<p>Hello</p>",
+  to: [PUBLIC_IRI],
+  bcc: ["https://remote.example/users/blind"],
+};
 
 async function seedMember(db: Database, accepted: boolean = true) {
   await seedLocalActor(db, { keys: false });
   await db.insert(schema.accounts).values({
-    id: accountId,
+    id: ACCOUNT_ID,
     email: "member@example.com",
     name: "Member",
     created,
   });
   await db.insert(schema.instanceMembers).values({
-    accountId,
+    accountId: ACCOUNT_ID,
     instanceId: localInstanceId,
     accepted: accepted ? created : null,
     created,
@@ -79,7 +86,7 @@ async function environment(
   return {
     db: harness.db,
     federation: harness.federation,
-    rootOrigin,
+    rootOrigin: ROOT_ORIGIN,
     previewKey: await crypto.subtle.generateKey(
       { name: "HMAC", hash: "SHA-256" },
       false,
@@ -126,9 +133,9 @@ async function save(
   request: CreateRequest,
   reserveDispatch?: (activity: SavedResource) => Promise<void>,
 ) {
-  const preview = await previewLocalWrite(env, principal, request);
+  const preview = await previewLocalWrite(env, PRINCIPAL, request);
   assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
-  const outcome = await commitLocalWrite(env, principal, request, {
+  const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
     previewToken: preview.preview.token,
     ...(reserveDispatch == null
       ? {}
@@ -138,31 +145,23 @@ async function save(
   return { preview: preview.preview, result: outcome.result };
 }
 
-const note = {
-  "@context": AS,
-  type: "Note",
-  content: "<p>Hello</p>",
-  to: [PUBLIC_IRI],
-  bcc: ["https://remote.example/users/blind"],
-};
-
 describe("previewLocalWrite() and commitLocalWrite()", () => {
   it("saves an object alone, without an activity, outbox entry, or delivery", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
       const before = await counts(harness.db);
-      const preview = await previewLocalWrite(env, principal, create(note));
+      const preview = await previewLocalWrite(env, PRINCIPAL, create(NOTE));
       assert.ok(preview.ok);
       assert.deepEqual(await counts(harness.db), before);
       const [prepared] = preview.preview.resources;
       assert.ok(prepared != null);
       assert.match(
         prepared.iri,
-        new RegExp(`^${actorIri}/[0-9a-f-]{36}$`, "u"),
+        new RegExp(`^${ACTOR_IRI}/[0-9a-f-]{36}$`, "u"),
       );
       assert.equal(prepared.document.id, prepared.iri);
-      assert.equal(prepared.document.attributedTo, actorIri);
+      assert.equal(prepared.document.attributedTo, ACTOR_IRI);
       assert.equal(typeof prepared.document.published, "string");
       assert.deepEqual(
         preview.preview.changes
@@ -174,7 +173,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           ["published", "assign_server_owned_field"],
         ],
       );
-      const outcome = await commitLocalWrite(env, principal, create(note), {
+      const outcome = await commitLocalWrite(env, PRINCIPAL, create(NOTE), {
         previewToken: preview.preview.token,
       });
       assert.ok(outcome.ok);
@@ -195,7 +194,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         where: { id: saved.id },
       });
       assert.equal(resource?.kind, "object");
-      // Revision-only until generalized reads arrive; nothing else changed.
+      // Revision-only, without legacy typed rows; nothing else changed.
       assert.equal(await harness.db.$count(schema.objects), 0);
       assert.equal(await harness.db.$count(schema.activities), 0);
       assert.equal(await harness.db.$count(schema.collectionItems), 0);
@@ -221,7 +220,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         const { result } = await save(env, create(document));
         assert.match(
           result.resources[0]!.iri,
-          new RegExp(`^${actorIri}/`, "u"),
+          new RegExp(`^${ACTOR_IRI}/`, "u"),
         );
       }
     });
@@ -231,7 +230,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const { result: first } = await save(env, create(note));
+      const { result: first } = await save(env, create(NOTE));
       const noteResource = first.resources[0]!;
       const like = {
         "@context": AS,
@@ -249,7 +248,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         saved.iri,
         /^https:\/\/test-instance\.drfed\.org\/ap\/activities\//u,
       );
-      assert.equal(saved.document.actor, actorIri);
+      assert.equal(saved.document.actor, ACTOR_IRI);
       assert.equal(saved.document.object, noteResource.iri);
       assert.deepEqual(
         saved.relations.map(({ property, representation, targetIri }) => [
@@ -258,7 +257,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           targetIri,
         ]),
         [
-          ["actor", "reference", actorIri],
+          ["actor", "reference", ACTOR_IRI],
           ["object", "reference", noteResource.iri],
           ["instrument", "reference", "https://remote.example/objects/1"],
         ],
@@ -298,7 +297,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         assert.ok(nested != null && root != null);
         assert.match(root.iri, /\/ap\/creates\/[0-9a-f-]{36}$/u);
         assert.equal(nested.document.id, nested.iri);
-        assert.equal(nested.document.attributedTo, actorIri);
+        assert.equal(nested.document.attributedTo, ACTOR_IRI);
         assert.equal(nested.document.published, root.document.published);
         if (representation === "embedded") {
           const { "@context": _, ...embedded } = nested.document;
@@ -343,7 +342,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         ),
       );
       const [like, undo] = result.resources;
-      assert.equal(like?.document.actor, actorIri);
+      assert.equal(like?.document.actor, ACTOR_IRI);
       assert.match(like!.iri, /\/ap\/activities\//u);
       assert.equal(
         (undo?.document.object as { id?: string } | undefined)?.id,
@@ -425,7 +424,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       const env = await environment(harness);
       const outcome = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         create({
           "@context": [AS, { recipients: { "@id": "as:to", "@type": "@id" } }],
           type: "Note",
@@ -510,9 +509,9 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
 
   it("refuses local identity claims the actor may not make, however they are spelled", async () => {
     await withFederation(async (harness) => {
+      const OTHER = "https://other.drfed.org/users/victim";
       await seedMember(harness.db);
       const env = await environment(harness);
-      const other = "https://other.drfed.org/users/victim";
       for (const [document, path] of [
         [
           {
@@ -520,7 +519,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
             type: "Undo",
             object: {
               type: "Like",
-              actor: other,
+              actor: OTHER,
               object: "https://x.example/",
             },
           },
@@ -563,7 +562,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         const before = await counts(harness.db);
         const outcome = await previewLocalWrite(
           env,
-          principal,
+          PRINCIPAL,
           create(document as never, [{ path: [], kind: "activity" }]),
         );
         assert.ok(!outcome.ok);
@@ -583,7 +582,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           {
             "@context": AS,
             type: "Like",
-            attributedTo: other,
+            attributedTo: OTHER,
             object: "https://x.example/",
           },
           [{ path: [], kind: "activity" }],
@@ -595,7 +594,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
             type: "Undo",
             object: {
               type: "Like",
-              attributedTo: other,
+              attributedTo: OTHER,
               object: "https://x.example/",
             },
           },
@@ -606,14 +605,14 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           ["object", "attributedTo"],
         ],
         [
-          { "@context": AS, type: "Question", name: "q", actor: other },
+          { "@context": AS, type: "Question", name: "q", actor: OTHER },
           [{ path: [], kind: "object" }],
           ["actor"],
         ],
       ] as const) {
         const outcome = await previewLocalWrite(
           env,
-          principal,
+          PRINCIPAL,
           create(document as never, resources as never),
         );
         assert.ok(!outcome.ok);
@@ -625,7 +624,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         );
       }
       // A claim of the acting actor itself, or a remote actor, is allowed.
-      for (const actor of [actorIri, "https://remote.example/users/bob"]) {
+      for (const actor of [ACTOR_IRI, "https://remote.example/users/bob"]) {
         await save(
           env,
           create(
@@ -641,8 +640,8 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       // A new resource's own server-owned fields must match the server.
       const conflict = await previewLocalWrite(
         env,
-        principal,
-        create({ ...note, attributedTo: "https://remote.example/users/bob" }),
+        PRINCIPAL,
+        create({ ...NOTE, attributedTo: "https://remote.example/users/bob" }),
       );
       assert.ok(!conflict.ok);
       assert.ok(
@@ -653,21 +652,177 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     });
   });
 
-  it("does not accept an id that is registered only as a reference", async () => {
+  it("checks identity claims in the node objects of extension values", async () => {
     await withFederation(async (harness) => {
+      const LINK = "https://remote.example/links/1";
+      const VICTIM = "https://other.drfed.org/users/victim";
+      const FORGED = "https://test-instance.drfed.org/users/x/forged";
       await seedMember(harness.db);
       const env = await environment(harness);
-      const forged = "https://test-instance.drfed.org/ap/activities/forged";
+      const quoting = (quoted: Record<string, unknown>) =>
+        create(
+          {
+            "@context": [AS, { ex: "https://ext.example/ns#" }],
+            type: "Like",
+            object: "https://x.example/",
+            "ex:quoted": quoted,
+          } as never,
+          [{ path: [], kind: "activity" }],
+        );
+      for (const [quoted, path] of [
+        [
+          {
+            type: "Note",
+            id: "https://test-instance.drfed.org/users/x/forged",
+            content: "forged",
+          },
+          ["ex:quoted", "id"],
+        ],
+        [
+          {
+            type: "Note",
+            attributedTo: "https://other.drfed.org/users/victim",
+            content: "forged",
+          },
+          ["ex:quoted", "attributedTo"],
+        ],
+        [
+          {
+            type: "Note",
+            attributedTo: {
+              type: "Link",
+              href: "https://other.drfed.org/users/victim",
+            },
+          },
+          ["ex:quoted", "attributedTo", "href"],
+        ],
+      ] as const) {
+        const outcome = await previewLocalWrite(
+          env,
+          PRINCIPAL,
+          quoting(quoted),
+        );
+        assert.ok(!outcome.ok);
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
+      // A reference names what a Link embedded elsewhere with its id does.
+      for (const [request, path] of [
+        [
+          create(
+            {
+              "@context": AS,
+              type: "Like",
+              object: { type: "Note", content: "forged", attributedTo: LINK },
+              target: { type: "Link", id: LINK, href: VICTIM },
+            },
+            [{ path: [], kind: "activity" }],
+          ),
+          ["target", "href"],
+        ],
+        [
+          create(
+            {
+              "@context": [AS, { ex: "https://ext.example/ns#" }],
+              type: "Like",
+              object: "https://x.example/",
+              "ex:quoted": [
+                { type: "Note", attributedTo: LINK },
+                { id: LINK, type: "Link", href: VICTIM },
+              ],
+            } as never,
+            [{ path: [], kind: "activity" }],
+          ),
+          ["ex:quoted", 1, "href"],
+        ],
+        ...[{ id: "_:author" }, "_:author"].map(
+          (author) =>
+            [
+              create(
+                {
+                  "@context": [AS, { ex: "https://ext.example/ns#" }],
+                  type: "Like",
+                  object: "https://x.example/",
+                  "ex:quoted": [
+                    { type: "Note", attributedTo: author },
+                    { id: "_:author", type: "Link", href: VICTIM },
+                  ],
+                } as never,
+                [{ path: [], kind: "activity" }],
+              ),
+              ["ex:quoted", 1, "href"],
+            ] as const,
+        ),
+      ] as const) {
+        const outcome = await previewLocalWrite(env, PRINCIPAL, request);
+        assert.ok(!outcome.ok, JSON.stringify(request.document));
+        assert.deepEqual(
+          outcome.error.type === "invalid_document"
+            ? outcome.error.diagnostics
+                .filter(({ category }) => category === "authority")
+                .map(({ reason, path: found }) => [reason, found])
+            : outcome.error.type,
+          [["unauthorized_local_identity", path]],
+        );
+      }
+      // A Link whose href is its own id claims it through both; each path
+      // is denied once.
+      const self = await previewLocalWrite(
+        env,
+        PRINCIPAL,
+        quoting({
+          type: "Note",
+          attributedTo: { type: "Link", id: FORGED, href: FORGED },
+        }),
+      );
+      assert.ok(!self.ok);
+      assert.deepEqual(
+        self.error.type === "invalid_document"
+          ? self.error.diagnostics
+              .filter(({ category }) => category === "authority")
+              .map(({ reason, path }) => [reason, path])
+          : self.error.type,
+        [
+          [
+            "unauthorized_local_identity",
+            ["ex:quoted", "attributedTo", "href"],
+          ],
+          ["unauthorized_local_identity", ["ex:quoted", "attributedTo", "id"]],
+        ],
+      );
+      // A remote identity is not checked, as in any embedded document.
+      await save(
+        env,
+        quoting({
+          type: "Note",
+          id: "https://remote.example/notes/1",
+          attributedTo: "https://remote.example/users/bob",
+        }),
+      );
+    });
+  });
+
+  it("does not accept an id that is registered only as a reference", async () => {
+    await withFederation(async (harness) => {
+      const FORGED = "https://test-instance.drfed.org/ap/activities/forged";
+      await seedMember(harness.db);
+      const env = await environment(harness);
       const request = create(
         {
           "@context": AS,
           type: "Undo",
-          object: { type: "Like", id: forged, object: "https://x.example/" },
+          object: { type: "Like", id: FORGED, object: "https://x.example/" },
         },
         [{ path: [], kind: "activity" }],
       );
       const refused = async () => {
-        const outcome = await previewLocalWrite(env, principal, request);
+        const outcome = await previewLocalWrite(env, PRINCIPAL, request);
         assert.ok(!outcome.ok);
         assert.deepEqual(
           outcome.error.type === "invalid_document"
@@ -680,9 +835,9 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       };
       await refused();
       // Addressing the IRI registers it, but only as a reference.
-      await save(env, create({ ...note, to: forged }));
+      await save(env, create({ ...NOTE, to: FORGED }));
       const registered = await harness.db.query.resources.findFirst({
-        where: { iri: forged },
+        where: { iri: FORGED },
       });
       assert.equal(registered?.kind, "unknown");
       await refused();
@@ -694,7 +849,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       await withFederation(async (harness) => {
         await seedMember(harness.db, scenario !== "pending");
         const env = await environment(harness);
-        const preview = await previewLocalWrite(env, principal, create(note));
+        const preview = await previewLocalWrite(env, PRINCIPAL, create(NOTE));
         assert.ok(scenario === "pending" ? !preview.ok : preview.ok);
         if (scenario === "missing") {
           await harness.db.delete(schema.instanceMembers);
@@ -709,7 +864,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
             .where(eq(schema.actors.id, localActorId));
         }
         const before = await counts(harness.db);
-        const outcome = await commitLocalWrite(env, principal, create(note), {
+        const outcome = await commitLocalWrite(env, PRINCIPAL, create(NOTE), {
           previewToken: preview.ok ? preview.preview.token : "invalid",
         });
         assert.ok(!outcome.ok);
@@ -726,8 +881,8 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const request = create(note);
-      const preview = await previewLocalWrite(env, principal, request);
+      const request = create(NOTE);
+      const preview = await previewLocalWrite(env, PRINCIPAL, request);
       assert.ok(preview.ok);
       const { token } = preview.preview;
       const [body, signature] = token.split(".");
@@ -741,9 +896,9 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
           request,
           "stale_preview",
         ],
-        [token, create({ ...note, content: "changed" }), "stale_preview"],
+        [token, create({ ...NOTE, content: "changed" }), "stale_preview"],
       ] as const) {
-        const outcome = await commitLocalWrite(env, principal, changed, {
+        const outcome = await commitLocalWrite(env, PRINCIPAL, changed, {
           previewToken,
         });
         assert.ok(!outcome.ok);
@@ -757,7 +912,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       );
       assert.ok(!other.ok);
       assert.equal(other.error.type, "stale_preview");
-      const first = await commitLocalWrite(env, principal, request, {
+      const first = await commitLocalWrite(env, PRINCIPAL, request, {
         previewToken: token,
       });
       assert.ok(first.ok);
@@ -766,7 +921,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         preview.preview.resources[0]?.document,
       );
       const before = await counts(harness.db);
-      const replay = await commitLocalWrite(env, principal, request, {
+      const replay = await commitLocalWrite(env, PRINCIPAL, request, {
         previewToken: token,
       });
       assert.ok(!replay.ok);
@@ -792,17 +947,17 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         ],
         { publish: true },
       );
-      const preview = await previewLocalWrite(env, principal, request);
+      const preview = await previewLocalWrite(env, PRINCIPAL, request);
       assert.ok(preview.ok);
       const { token: previewToken } = preview.preview;
-      const missing = await commitLocalWrite(env, principal, request, {
+      const missing = await commitLocalWrite(env, PRINCIPAL, request, {
         previewToken,
       });
       assert.ok(!missing.ok);
       assert.equal(missing.error.type, "invalid_request");
       const before = await counts(harness.db);
       await assert.rejects(
-        commitLocalWrite(env, principal, request, {
+        commitLocalWrite(env, PRINCIPAL, request, {
           previewToken,
           reserveDispatch: () => Promise.reject(new Error("queue down")),
         }),
@@ -810,7 +965,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       );
       assert.deepEqual(await counts(harness.db), before);
       const reserved: SavedResource[] = [];
-      const retried = await commitLocalWrite(env, principal, request, {
+      const retried = await commitLocalWrite(env, PRINCIPAL, request, {
         previewToken,
         reserveDispatch: (_tx, activity) => {
           reserved.push(activity);
@@ -825,7 +980,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
         items.map(({ itemId }) => itemId),
         [root.id],
       );
-      // Saved without a legacy typed row, it is not served yet.
+      // Saved without a legacy typed row; it is served from its revision.
       assert.equal(await harness.db.$count(schema.activities), 0);
     });
   });
@@ -874,7 +1029,7 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       ] as const) {
         const outcome = await previewLocalWrite(
           env,
-          principal,
+          PRINCIPAL,
           create(document, resources as never, extra as never),
         );
         assert.ok(!outcome.ok, JSON.stringify(resources));
@@ -882,8 +1037,8 @@ describe("previewLocalWrite() and commitLocalWrite()", () => {
       }
       const publishedObject = await previewLocalWrite(
         env,
-        principal,
-        create(note, [{ path: [], kind: "object" }], { publish: true }),
+        PRINCIPAL,
+        create(NOTE, [{ path: [], kind: "object" }], { publish: true }),
       );
       assert.ok(!publishedObject.ok);
       assert.equal(publishedObject.error.type, "invalid_request");
@@ -911,7 +1066,7 @@ async function seedLegacyNote(
     id,
     activityId,
     actorId: localActorId,
-    iri: `${actorIri}/${id}`,
+    iri: `${ACTOR_IRI}/${id}`,
     type: "Note",
     contentHtml: "<p>First</p>",
     language: "en",
@@ -940,7 +1095,7 @@ async function seedLegacyNote(
   });
   const head = await loadCurrentResourceRevision(harness.db, id);
   assert.ok(head != null);
-  return { id, activityId, iri: `${actorIri}/${id}`, head };
+  return { id, activityId, iri: `${ACTOR_IRI}/${id}`, head };
 }
 
 async function current(db: Database, id: Uuid) {
@@ -956,9 +1111,9 @@ async function change(
   request: LocalWriteRequest,
   reserveDispatch: CommitOptions["reserveDispatch"] = reserve,
 ) {
-  const preview = await previewLocalWrite(env, principal, request);
+  const preview = await previewLocalWrite(env, PRINCIPAL, request);
   assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
-  const outcome = await commitLocalWrite(env, principal, request, {
+  const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
     previewToken: preview.preview.token,
     ...(reserveDispatch == null ? {} : { reserveDispatch }),
   });
@@ -1041,7 +1196,7 @@ describe("edits and deletions of current objects", () => {
         assert.equal(typeof version?.document.updated, "string");
         assert.equal(update?.generated, true);
         assert.equal(update?.document.type, "Update");
-        assert.equal(update?.document.actor, actorIri);
+        assert.equal(update?.document.actor, ACTOR_IRI);
         const { "@context": _, ...embedded } = version!.document;
         assert.deepEqual(update?.document.object, embedded);
         assert.deepEqual(update?.document.bcc, [
@@ -1070,7 +1225,7 @@ describe("edits and deletions of current objects", () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const { result } = await save(env, create(note));
+      const { result } = await save(env, create(NOTE));
       const saved = result.resources[0]!;
       const head = await current(harness.db, saved.id);
       const { result: edited } = await change(
@@ -1088,34 +1243,34 @@ describe("edits and deletions of current objects", () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const { result } = await save(env, create(note));
+      const { result } = await save(env, create(NOTE));
       const saved = result.resources[0]!;
       const head = await current(harness.db, saved.id);
       const document = head.document as JsonObject;
       const before = await counts(harness.db);
       const stale = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, uuidV7(), document),
       );
       assert.ok(!stale.ok);
       assert.equal(stale.error.type, "revision_conflict");
       const retyped = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, head.id, { ...document, type: "Article" }),
       );
       assert.ok(!retyped.ok);
       assert.equal(retyped.error.type, "unsupported_edit");
       const preview = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, head.id, { ...document, content: "B" }),
       );
       assert.ok(preview.ok);
       const unreserved = await commitLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, head.id, { ...document, content: "B" }),
         { previewToken: preview.preview.token },
       );
@@ -1124,7 +1279,7 @@ describe("edits and deletions of current objects", () => {
       await assert.rejects(
         commitLocalWrite(
           env,
-          principal,
+          PRINCIPAL,
           edit(saved.id, head.id, { ...document, content: "B" }),
           {
             previewToken: preview.preview.token,
@@ -1138,7 +1293,7 @@ describe("edits and deletions of current objects", () => {
       await change(env, edit(saved.id, head.id, { ...document, content: "C" }));
       const late = await commitLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, head.id, { ...document, content: "B" }),
         { previewToken: preview.preview.token, reserveDispatch: reserve },
       );
@@ -1148,7 +1303,7 @@ describe("edits and deletions of current objects", () => {
       // An object attributed to someone else is not the actor's to edit.
       const foreign = await ensureResource(
         harness.db,
-        `${actorIri}/${uuidV7()}`,
+        `${ACTOR_IRI}/${uuidV7()}`,
       );
       const foreignHead = await appendResourceRevision(harness.db, {
         resourceId: foreign.id,
@@ -1166,7 +1321,7 @@ describe("edits and deletions of current objects", () => {
       });
       const notOwned = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(foreign.id, foreignHead.id, {
           "@context": AS,
           type: "Note",
@@ -1195,7 +1350,7 @@ describe("edits and deletions of current objects", () => {
       const head = await current(harness.db, saved.id);
       const outcome = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(saved.id, head.id, {
           ...(head.document as JsonObject),
           hidden: ["https://remote.example/users/two"],
@@ -1271,7 +1426,7 @@ describe("edits and deletions of current objects", () => {
       const env = await environment(harness);
       const resource = await ensureResource(
         harness.db,
-        `${actorIri}/${uuidV7()}`,
+        `${ACTOR_IRI}/${uuidV7()}`,
       );
       const head = await appendResourceRevision(harness.db, {
         resourceId: resource.id,
@@ -1284,12 +1439,12 @@ describe("edits and deletions of current objects", () => {
           id: resource.iri,
           type: "Note",
           content: "x",
-          attributedTo: actorIri,
+          attributedTo: ACTOR_IRI,
         },
       });
       const added = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(resource.id, head.id, {
           "@context": AS,
           type: "Note",
@@ -1364,7 +1519,7 @@ describe("edits and deletions of current objects", () => {
         if (content.trim() === "") {
           const blank = await previewLocalWrite(
             env,
-            principal,
+            PRINCIPAL,
             edit(legacy.id, head.id, document),
           );
           assert.ok(!blank.ok);
@@ -1378,7 +1533,7 @@ describe("edits and deletions of current objects", () => {
         .where(eq(schema.objects.id, legacy.id));
       const drifted = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         edit(legacy.id, head.id, {
           ...(head.document as JsonObject),
           contentMap: null,
@@ -1442,7 +1597,7 @@ describe("edits and deletions of current objects", () => {
       );
       const again = await previewLocalWrite(
         env,
-        principal,
+        PRINCIPAL,
         remove(saved.id, whiteout.id),
       );
       assert.ok(!again.ok);

@@ -25,12 +25,20 @@ import createFederation from "@drfed/federation";
 import {
   type CommitOutcome,
   type CreateRequest,
+  type JsonObject,
   type LocalWriteEnvironment,
+  type LocalWriteRequest,
+  type SavedResource,
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
+import {
+  loadActivitySnapshot,
+  publicDocument,
+} from "@drfed/federation/serving";
 import { type Database, migrate, relations, schema } from "@drfed/models";
 import { PUBLIC_IRI } from "@drfed/models/resource";
+import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
 import { MemoryKvStore } from "@fedify/fedify";
 import { describe, it } from "@logtape/testing-node/autoload";
@@ -44,13 +52,18 @@ import {
   seedActors,
   seedLocalActor,
 } from "./seed.test.ts";
+import {
+  ACTIVITY_TYPES,
+  BLIND_RECIPIENT,
+  typeDocument,
+} from "./serving-fixture.test.ts";
 
 // This service is an isolated, author-owned test cluster.
 // oxlint-disable-next-line node/no-process-env
 const postgresUrl = process.env.DRFED_TEST_POSTGRES_URL;
-const accountId = "00000000-0000-4000-8000-000000000301" as Uuid;
-const secondActorId = "00000000-0000-4000-8000-000000000203" as Uuid;
-const principal = { accountId };
+const ACCOUNT_ID = "00000000-0000-4000-8000-000000000301" as Uuid;
+const SECOND_ACTOR_ID = "00000000-0000-4000-8000-000000000203" as Uuid;
+const PRINCIPAL = { accountId: ACCOUNT_ID };
 
 interface Connection {
   readonly db: Database;
@@ -82,13 +95,13 @@ async function withDatabase<T>(
     main = connect(url.href);
     await seedLocalActor(main.db, { keys: false });
     await main.db.insert(schema.accounts).values({
-      id: accountId,
+      id: ACCOUNT_ID,
       email: "member@example.com",
       name: "Member",
       created,
     });
     await main.db.insert(schema.instanceMembers).values({
-      accountId,
+      accountId: ACCOUNT_ID,
       instanceId: localInstanceId,
       accepted: created,
       created,
@@ -117,17 +130,17 @@ async function withDatabase<T>(
 
 /** Seeds a second local actor of the member's instance. */
 async function seedSecondActor(db: Database): Promise<void> {
-  await db.insert(schema.localActors).values({ id: secondActorId });
+  await db.insert(schema.localActors).values({ id: SECOND_ACTOR_ID });
   await seedActors(
     db,
     {
-      id: secondActorId,
-      localId: secondActorId,
+      id: SECOND_ACTOR_ID,
+      localId: SECOND_ACTOR_ID,
       instanceId: localInstanceId,
       type: "Person",
       username: "bob",
-      iri: `https://test-instance.drfed.org/users/${secondActorId}`,
-      inboxUrl: `https://test-instance.drfed.org/users/${secondActorId}/inbox`,
+      iri: `https://test-instance.drfed.org/users/${SECOND_ACTOR_ID}`,
+      inboxUrl: `https://test-instance.drfed.org/users/${SECOND_ACTOR_ID}/inbox`,
       profileUrl: "https://test-instance.drfed.org/@bob",
       created,
     },
@@ -156,7 +169,7 @@ async function previewToken(
   env: LocalWriteEnvironment,
   request: CreateRequest,
 ): Promise<string> {
-  const preview = await previewLocalWrite(env, principal, request);
+  const preview = await previewLocalWrite(env, PRINCIPAL, request);
   assert.ok(preview.ok);
   return preview.preview.token;
 }
@@ -177,7 +190,7 @@ describe("commitLocalWrite() on PostgreSQL", () => {
             connections.map((connection) =>
               commitLocalWrite(
                 { ...env, db: connection.db },
-                principal,
+                PRINCIPAL,
                 request,
                 {
                   previewToken: token,
@@ -215,7 +228,7 @@ describe("commitLocalWrite() on PostgreSQL", () => {
         );
         const requests = [
           note(recipients),
-          note(recipients.toReversed(), secondActorId),
+          note(recipients.toReversed(), SECOND_ACTOR_ID),
         ];
         const tokens = await Promise.all(
           requests.map((request) => previewToken(env, request)),
@@ -235,7 +248,7 @@ describe("commitLocalWrite() on PostgreSQL", () => {
               connections.map((connection, index) =>
                 commitLocalWrite(
                   { ...env, db: connection.db },
-                  principal,
+                  PRINCIPAL,
                   requests[index]!,
                   { previewToken: tokens[index]! },
                 ),
@@ -276,7 +289,7 @@ describe("commitLocalWrite() on PostgreSQL", () => {
             await tx`SELECT id FROM actors WHERE id = ${localActorId} FOR UPDATE`;
             pending = commitLocalWrite(
               { ...env, db: writer.db },
-              principal,
+              PRINCIPAL,
               request,
               { previewToken: token },
             );
@@ -289,7 +302,7 @@ describe("commitLocalWrite() on PostgreSQL", () => {
                 setTimeout(resolve, 50);
               });
             }
-            await tx`DELETE FROM instance_members WHERE account_id = ${accountId}`;
+            await tx`DELETE FROM instance_members WHERE account_id = ${ACCOUNT_ID}`;
           });
           // The writer goes on only once the revocation has committed.
           const outcome = await pending;
@@ -300,6 +313,162 @@ describe("commitLocalWrite() on PostgreSQL", () => {
           await holder.client.end();
           await writer.client.end();
         }
+      });
+    },
+  );
+});
+
+/**
+ * Previews and commits a write with a no-op dispatch reservation.
+ * @returns The saved resources.
+ */
+async function write(
+  env: LocalWriteEnvironment,
+  request: LocalWriteRequest,
+): Promise<readonly SavedResource[]> {
+  const preview = await previewLocalWrite(env, PRINCIPAL, request);
+  assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
+  const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
+    previewToken: preview.preview.token,
+    reserveDispatch: () => Promise.resolve(),
+  });
+  assert.ok(outcome.ok, JSON.stringify(!outcome.ok && outcome.error));
+  return outcome.result.resources;
+}
+
+/**
+ * Requests a resource from the federation as ActivityStreams.
+ * @returns The status, and the body of a success or a `Tombstone`'s 410.
+ */
+async function fetchDocument(
+  env: LocalWriteEnvironment,
+  iri: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const response = await env.federation.fetch(
+    new Request(iri, { headers: { accept: "application/activity+json" } }),
+    { contextData: undefined },
+  );
+  return {
+    status: response.status,
+    body:
+      response.ok || response.status === 410
+        ? ((await response.json()) as Record<string, unknown>)
+        : {},
+  };
+}
+
+describe("federation reads on PostgreSQL", () => {
+  const ACTOR_IRI = `https://test-instance.drfed.org/users/${localActorId}`;
+
+  it(
+    "serves saved documents as stored in JSON columns, and hides deleted content",
+    options,
+    async () => {
+      await withDatabase(async (_url, env) => {
+        const AS = "https://www.w3.org/ns/activitystreams";
+        const get = (iri: string) => fetchDocument(env, iri);
+        const [like] = await write(env, {
+          operation: "create",
+          actorId: localActorId,
+          document: {
+            "@context": [
+              AS,
+              { ex: "https://ext.example/ns#", mood: "ex:mood" },
+            ],
+            type: "Like",
+            to: [PUBLIC_IRI],
+            bcc: ["https://remote.example/users/blind"],
+            object: "https://remote.example/notes/1",
+            mood: { zeta: 1, alpha: [true, null], text: '안녕 "🙂" \\ é' },
+          },
+          resources: [{ path: [], kind: "activity" }],
+          publish: true,
+        });
+        const served = await get(like!.iri);
+        assert.equal(served.status, 200);
+        assert.deepEqual(served.body, publicDocument(like!.document));
+        // Out of the order jsonb would store them in.
+        assert.deepEqual(Object.keys(served.body.mood as object), [
+          "zeta",
+          "alpha",
+          "text",
+        ]);
+        const [noteResource, create] = await write(env, {
+          operation: "create",
+          actorId: localActorId,
+          document: {
+            "@context": AS,
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: { type: "Note", content: "x", to: [PUBLIC_IRI] },
+          },
+          resources: [
+            { path: [], kind: "activity" },
+            { path: ["object"], kind: "object" },
+          ],
+          publish: true,
+        });
+        const head = await loadCurrentResourceRevision(
+          env.db,
+          noteResource!.id,
+        );
+        const [deletion] = await write(env, {
+          operation: "delete",
+          actorId: localActorId,
+          objectId: noteResource!.id,
+          expectedRevisionId: head!.id,
+        });
+        assert.equal((await get(noteResource!.iri)).status, 410);
+        assert.equal((await get(create!.iri)).status, 404);
+        assert.equal((await get(deletion!.iri)).status, 200);
+        const collection = await get(`${ACTOR_IRI}/outbox`);
+        const page = await get(`${ACTOR_IRI}/outbox?cursor=`);
+        const items = page.body.orderedItems as JsonObject[];
+        assert.deepEqual(
+          items.map(({ id }) => id),
+          [deletion!.iri, like!.iri],
+        );
+        assert.equal(collection.body.totalItems, 2);
+      });
+    },
+  );
+
+  it(
+    "serves every activity type as saved, and pages them in one outbox",
+    options,
+    async () => {
+      await withDatabase(async (_url, env) => {
+        const get = (iri: string) => fetchDocument(env, iri);
+        const iris: string[] = [];
+        for (const type of ACTIVITY_TYPES) {
+          const [saved] = await write(env, {
+            operation: "create",
+            actorId: localActorId,
+            document: typeDocument(type),
+            resources: [{ path: [], kind: "activity" }],
+            publish: true,
+          });
+          // The JSON column keeps the blind recipient that serving removes.
+          const stored = await loadActivitySnapshot(env.db, saved!.id);
+          assert.ok(stored != null, type);
+          assert.deepEqual(stored.document, saved!.document, type);
+          assert.deepEqual(stored.document.bto, [BLIND_RECIPIENT], type);
+          const { status, body } = await get(saved!.iri);
+          assert.equal(status, 200, type);
+          assert.deepEqual(body, publicDocument(stored.document), type);
+          iris.push(saved!.iri);
+        }
+        const ids = (body: Record<string, unknown>) =>
+          (body.orderedItems as JsonObject[]).map(({ id }) => id);
+        const collection = await get(`${ACTOR_IRI}/outbox`);
+        assert.equal(collection.body.totalItems, ACTIVITY_TYPES.length);
+        const first = await get(`${ACTOR_IRI}/outbox?cursor=`);
+        const last = await get(String(first.body.next));
+        assert.equal(last.body.next, undefined);
+        assert.deepEqual(
+          [...ids(first.body), ...ids(last.body)],
+          iris.toReversed(),
+        );
       });
     },
   );

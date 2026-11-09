@@ -16,13 +16,13 @@
 
 import { type Database, type Transaction, schema } from "@drfed/models";
 import {
+  ADDRESSING_PROPERTIES,
+  DIAGNOSTIC_REASONS,
   type Diagnostic,
   type JsonValue,
   type NormalizationChange,
   type ServerOwnedField,
-  addressingProperties,
   describeDocument,
-  diagnosticReasons,
   prepareDocument,
   validateDocument,
 } from "@drfed/models/document";
@@ -216,7 +216,7 @@ export async function currentAddressing(
 function copyAddressing(document: JsonObject): Record<string, JsonValue> {
   const root = describeDocument(document)?.[0];
   const copy: Record<string, JsonValue> = {};
-  for (const property of addressingProperties) {
+  for (const property of ADDRESSING_PROPERTIES) {
     for (const source of root?.properties.get(property) ?? []) {
       copy[source] = structuredClone(document[source]!);
     }
@@ -438,7 +438,7 @@ export async function prepareEdit(
       "The object had no publication time, so none can be added.",
       addedPublished.map((source) => ({
         reason: "server_owned_field_conflict",
-        ...diagnosticReasons.server_owned_field_conflict,
+        ...DIAGNOSTIC_REASONS.server_owned_field_conflict,
         path: [source],
         message: "The publication time is owned by the server.",
       })),

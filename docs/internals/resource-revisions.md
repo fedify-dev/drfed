@@ -209,20 +209,21 @@ new index does not expose historical content.
 Application boundaries
 ----------------------
 
-The current editor, lists and federation serializers still use legacy
-`Note`/`Create` projections. A generic canonical resource can have no typed
-detail; its GraphQL `Resource.detail` is then `null`. The common write
+The current editor and lists still use legacy `Note`/`Create` projections. A
+generic canonical resource can have no typed detail; its GraphQL
+`Resource.detail` is then `null`. [Federation reads](federation-reads.md) serve
+such a resource from its current revision. The common write
 operations described in [local writes](local-writes.md) save new resources as
 revisions only and keep legacy typed objects in step when editing or deleting
-them. Historical authorization and generalized federation surfaces are separate
+them. Historical authorization and the other federation surfaces are separate
 work.
 
 Appending a whiteout does not create or send a `Delete` activity. The common
 delete operation appends it together with the `Delete`, outbox entry and the
 caller's durable dispatch reservation in one transaction; sending happens
-asynchronously. Generic `Tombstone` serving with `410 Gone` belongs to the
-generalized federation integration. Dispatch must freeze its own outgoing
-document; retained revisions are not wire payloads.
+asynchronously. Federation reads serve a whiteout as a `Tombstone` with
+`410 Gone`. Dispatch must freeze its own outgoing document; retained revisions
+are not wire payloads.
 
 Storage tests cover fixtures for 30 activity types, including `Activity` and
 `IntransitiveActivity`, and the `Object` base. They include nested

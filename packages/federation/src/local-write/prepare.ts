@@ -15,6 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
+  ADDRESSING_PROPERTIES,
+  DIAGNOSTIC_REASONS,
   type Diagnostic,
   type DocumentAuthority,
   type DocumentNode,
@@ -22,9 +24,7 @@ import {
   type JsonValue,
   type NormalizationChange,
   type ServerOwnedField,
-  addressingProperties,
   describeDocument,
-  diagnosticReasons,
   prepareDocument,
   validateDocument,
 } from "@drfed/models/document";
@@ -46,18 +46,18 @@ import {
   writeError,
 } from "./types.ts";
 
-const activityStreams = "https://www.w3.org/ns/activitystreams";
-const questionType = `${activityStreams}#Question`;
-const createType = `${activityStreams}#Create`;
+const ACTIVITY_STREAMS = "https://www.w3.org/ns/activitystreams";
+const QUESTION_TYPE = `${ACTIVITY_STREAMS}#Question`;
+const CREATE_TYPE = `${ACTIVITY_STREAMS}#Create`;
 /** Activity relations whose embedded documents may become new resources. */
-const nestingProperties: ReadonlySet<string> = new Set([
+const NESTING_PROPERTIES: ReadonlySet<string> = new Set([
   "object",
   "target",
   "origin",
   "result",
   "instrument",
 ]);
-const relationProperties = [
+const RELATION_PROPERTIES = [
   "actor",
   "object",
   "target",
@@ -176,7 +176,7 @@ function parentPath(path: FieldPath): FieldPath {
 function savableAs(kind: NewResource["kind"], node: DocumentNode): boolean {
   return kind === "activity"
     ? node.kind === "activity"
-    : node.kind === "object" || node.type === questionType;
+    : node.kind === "object" || node.type === QUESTION_TYPE;
 }
 
 function checkPublication(
@@ -227,7 +227,7 @@ function checkDescriptors(
     }
     if (
       node.property == null ||
-      !nestingProperties.has(node.property) ||
+      !NESTING_PROPERTIES.has(node.property) ||
       !paths.has(pathKey(parentPath(path)))
     ) {
       return invalid(
@@ -292,19 +292,25 @@ function resourceIri(
     return ctx.getObjectUri(APObject, { identifier: actor.id, id }).href;
   }
   return (
-    type === createType
+    type === CREATE_TYPE
       ? ctx.getObjectUri(Create, { id })
       : ctx.getObjectUri(Activity, { id })
   ).href;
 }
 
+const isInstanceIri = (iri: string, rootOrigin: URL): boolean =>
+  URL.canParse(iri) && classifyHost(new URL(iri), rootOrigin) === "instance";
+
 /**
  * Finds identity claims on DrFed instance hosts in documents that are not
- * new resources: `actor` and `attributedTo` values, which must be actors of
- * the acting actor's instance, and `id` values, which must be registered or
- * allocated in this write.  Values are compared as the context resolves
- * them, so aliases and compact IRIs cannot hide a claim.
- * @returns The denied claims' paths.
+ * new resources, and in the node objects of their extension values, which
+ * federation reads serve too: `actor` and `attributedTo` values, including
+ * the `id` or `href` of a document embedded there and the `href` of a `Link`
+ * embedded elsewhere with the `id` one names, which must be actors of the
+ * acting actor's instance, and other `id` values, which must be registered
+ * or allocated in this write.  Values are compared as the
+ * context resolves them, so aliases and compact IRIs cannot hide a claim.
+ * @returns The denied claims' paths, each once.
  */
 export async function deniedClaims(
   nodes: readonly DocumentNode[],
@@ -315,7 +321,22 @@ export async function deniedClaims(
 ): Promise<DocumentAuthority[]> {
   const actors: { iri: string; path: FieldPath }[] = [];
   const ids: { iri: string; path: FieldPath }[] = [];
-  for (const node of nodes) {
+  const described = [
+    ...nodes,
+    ...nodes.flatMap(({ extensions }) => extensions),
+  ];
+  // A reference names what a Link the document embeds with its id does.
+  const linked = Map.groupBy(
+    described.flatMap((node) => {
+      const id = node.identifiers.find(({ property }) => property === "id");
+      const href = node.identifiers.find(({ property }) => property === "href");
+      return node.kind === "link" && id != null && href != null
+        ? [{ id: id.iri, iri: href.iri, path: href.path }]
+        : [];
+    }),
+    ({ id }) => id,
+  );
+  for (const node of described) {
     // A new resource's id and author are server-owned; checking them here
     // would only repeat the conflict preparation reports.  Its other
     // attribution property, such as attributedTo on an activity, is a claim.
@@ -327,28 +348,34 @@ export async function deniedClaims(
       if (createdKind != null && (property === "id" || property === owned)) {
         continue;
       }
+      // An embedded actor claims its id, or a Link the href it names.
       const isActor =
         property === "actor" ||
         property === "attributedTo" ||
-        (property === "id" && embedsActor);
+        ((property === "id" || property === "href") && embedsActor);
       if (!isActor && property !== "id") continue;
-      if (
-        !URL.canParse(iri) ||
-        classifyHost(new URL(iri), rootOrigin) !== "instance"
-      ) {
-        continue;
-      }
-      (isActor ? actors : ids).push({ iri, path });
+      const claims = [
+        { iri, path },
+        ...(isActor ? (linked.get(iri) ?? []) : []),
+      ];
+      (isActor ? actors : ids).push(
+        ...claims.filter((claim) => isInstanceIri(claim.iri, rootOrigin)),
+      );
     }
   }
   const [localActors, registered] = await Promise.all([
     lookups.localActors([...new Set(actors.map(({ iri }) => iri))]),
     lookups.registered([...new Set(ids.map(({ iri }) => iri))]),
   ]);
-  return [
+  const denied = [
     ...actors.filter(({ iri }) => !localActors.has(iri)),
     ...ids.filter(({ iri }) => !registered.has(iri) && !allocated.has(iri)),
-  ].map(({ path }) => ({ allowed: false, path }));
+  ];
+  // Several claims can reach one path, as a Link's own href and the href
+  // its id names; each is denied once.
+  return [
+    ...new Map(denied.map(({ path }) => [pathKey(path), path])).values(),
+  ].map((path) => ({ allowed: false, path }));
 }
 
 function contextEntries(value: JsonValue | undefined): JsonValue[] {
@@ -367,11 +394,11 @@ export function checkIndexable(document: JsonObject): Diagnostic[] {
     ({ path }) => path.length === 0,
   );
   const diagnostics: Diagnostic[] = [];
-  for (const property of [...addressingProperties, ...relationProperties]) {
+  for (const property of [...ADDRESSING_PROPERTIES, ...RELATION_PROPERTIES]) {
     for (const source of root?.properties.get(property)?.slice(1) ?? []) {
       diagnostics.push({
         reason: "unsupported_value_form",
-        ...diagnosticReasons.unsupported_value_form,
+        ...DIAGNOSTIC_REASONS.unsupported_value_form,
         path: [source],
         message: `Several spellings of ${property} cannot be saved yet; use one.`,
       });
@@ -402,9 +429,13 @@ export function indexDocument(document: JsonObject): {
     const node = children.get(pathKey(path));
     if (node == null) return undefined;
     const property = node.kind === "link" ? "href" : "id";
+    // A functional property may be a list with one non-null entry.
     return node.identifiers.find(
       (entry) =>
-        entry.property === property && entry.path.length === path.length + 1,
+        entry.property === property &&
+        (entry.path.length === path.length + 1 ||
+          (entry.path.length === path.length + 2 &&
+            typeof entry.path.at(-1) === "number")),
     )?.iri;
   };
   const occurrences = (
@@ -423,14 +454,14 @@ export function indexDocument(document: JsonObject): {
     return value == null ? [] : [{ path: [source], position: 0 }];
   };
   const addressing: AddressingOccurrence[] = [];
-  for (const property of addressingProperties) {
+  for (const property of ADDRESSING_PROPERTIES) {
     for (const { path, position } of occurrences(property)) {
       const iri = target(path);
       if (iri != null) addressing.push({ property, position, iri });
     }
   }
   const relations: RevisionRelationInput[] = [];
-  for (const property of relationProperties) {
+  for (const property of RELATION_PROPERTIES) {
     for (const { path } of occurrences(property)) {
       const node = children.get(pathKey(path));
       if (node == null) {
@@ -486,7 +517,7 @@ function extractNested(
   }
   const own = value["@context"];
   // The validator reads a document without a context as ActivityStreams.
-  if (prepared["@context"] === undefined) chain.unshift(activityStreams);
+  if (prepared["@context"] === undefined) chain.unshift(ACTIVITY_STREAMS);
   if (chain.length > 0) {
     const context = chain.length === 1 ? chain[0]! : chain;
     if (JSON.stringify(context) !== JSON.stringify(own ?? null)) {

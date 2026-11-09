@@ -17,21 +17,15 @@
 import type { Database } from "@drfed/models";
 import { validateUuid } from "@drfed/models/uuid";
 import type { FederationBuilder } from "@fedify/fedify";
-import { Object as APObject, Activity, Create, Tombstone } from "@fedify/vocab";
+import { Object as APObject, Activity, Create } from "@fedify/vocab";
 
-import {
-  activitySelection,
-  objectSelection,
-  toCreate,
-  toObject,
-} from "./object.ts";
-import { canonicalizeAuthority } from "./origin.ts";
-import { publicAddressing, servedActivity } from "./visibility.ts";
+import { findServedActivity, findServedObject } from "./serving/resource.ts";
 
 /**
  * Registers the dispatchers for local objects and their activities.  Saved
- * activities other than `Create` are allocated IRIs under `/ap/activities/`
- * through `Context.getObjectUri(Activity, { id })`.
+ * `Create` activities are allocated IRIs under `/ap/creates/` and the other
+ * activities under `/ap/activities/`, through `Context.getObjectUri()`; each
+ * route serves only the activities allocated to it.
  * @param builder The builder to register on.
  * @param db The database to resolve the objects from.
  */
@@ -42,30 +36,10 @@ export function registerObjectDispatchers(
   builder.setObjectDispatcher<APObject, "identifier" | "id">(
     APObject,
     "/users/{identifier}/{id}",
-    async (ctx, { identifier, id }) => {
-      if (!validateUuid(identifier) || !validateUuid(id)) return null;
-      const object = await db.query.objects.findFirst({
-        where: {
-          id,
-          actorId: identifier,
-          RAW: (table) => publicAddressing(table.id),
-          actor: {
-            localId: { isNotNull: true },
-            deleted: { isNull: true },
-            instance: { host: canonicalizeAuthority(ctx.host) },
-          },
-        },
-        with: objectSelection,
-      });
-      if (object == null) return null;
-      if (object.deleted != null) {
-        return new Tombstone({
-          id: new URL(object.resource.iri),
-          deleted: object.deleted,
-        });
-      }
-      return toObject(ctx, object);
-    },
+    async (ctx, { identifier, id }) =>
+      validateUuid(identifier) && validateUuid(id)
+        ? await findServedObject(db, ctx, identifier, id)
+        : null,
   );
 
   builder.setObjectDispatcher<Create, "id">(
@@ -73,26 +47,17 @@ export function registerObjectDispatchers(
     "/ap/creates/{id}",
     async (ctx, { id }) => {
       if (!validateUuid(id)) return null;
-      const activity = await db.query.activities.findFirst({
-        where: {
-          id,
-          actor: {
-            localId: { isNotNull: true },
-            deleted: { isNull: true },
-            instance: { host: canonicalizeAuthority(ctx.host) },
-          },
-          RAW: (table) => servedActivity(table),
-        },
-        with: activitySelection,
-      });
-      return activity == null ? null : toCreate(ctx, activity);
+      const activity = await findServedActivity(db, ctx, id, "create");
+      return activity instanceof Create ? activity : null;
     },
   );
 
-  // FIXME: https://github.com/fedify-dev/drfed/issues/153
   builder.setObjectDispatcher<Activity, "id">(
     Activity,
     "/ap/activities/{id}",
-    () => null,
+    async (ctx, { id }) =>
+      validateUuid(id)
+        ? await findServedActivity(db, ctx, id, "activity")
+        : null,
   );
 }
