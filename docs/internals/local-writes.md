@@ -136,9 +136,11 @@ from its semantic `to`, `cc`, `bto`, `bcc` and `audience`, each value at its
 source position: IRIs as resolved, embedded documents by `id`, `Link` values by
 `href`, also written as a list of one value, and anonymous values without a row.
 Relations index `actor`, `object`, `target`, `origin`, `result`, `instrument`
-and `attributedTo`. A document that spells one of these properties in several
-ways is refused, since its index would otherwise leave occurrences out. Indexes
-stay `partial`; the documents remain authoritative.
+and `attributedTo`. Both indexes come from `interpretDocument()` in
+`@drfed/federation/document`, which GraphQL reads use too. A document that
+spells one of these properties in several ways is refused, since its index
+would otherwise leave occurrences out. Indexes stay `partial`; the documents
+remain authoritative.
 
 
 Edits and deletions
@@ -156,8 +158,11 @@ A deletion appends a whiteout and keeps the object's current addressing, which
 describes the last content. The generated `Delete` refers to the object by IRI
 and copies the last version's addressing under its context.
 
-Resources created by the common write have revisions only, so GraphQL details
-ignore them until #154; federation reads serve their documents. Objects created
+Resources created by the common write have revisions only, so GraphQL
+`Resource.detail` ignores them; `Resource.currentRevision` and
+`Resource.revisions` read them, as [resource
+revisions](resource-revisions.md#graphql-reads) describe, and federation reads
+serve their documents. Objects created
 by the `createObject` mutation also have legacy typed rows that serving reads;
 `writeTypedResourceRevision()` keeps those rows in step. Before writing, the
 served columns must agree with the current revision, or the object is refused

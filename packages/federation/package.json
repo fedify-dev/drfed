@@ -54,6 +54,10 @@
       "types": "./dist/object.d.mts",
       "default": "./dist/object.mjs"
     },
+    "./document": {
+      "types": "./dist/document.d.mts",
+      "default": "./dist/document.mjs"
+    },
     "./local-write": {
       "types": "./dist/local-write.d.mts",
       "default": "./dist/local-write.mjs"
@@ -84,6 +88,7 @@
       "src/index.ts",
       "src/activity-delivery.ts",
       "src/object.ts",
+      "src/document.ts",
       "src/local-write.ts",
       "src/origin.ts",
       "src/actor-key.ts",

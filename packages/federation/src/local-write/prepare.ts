@@ -34,6 +34,11 @@ import { type Uuid, uuidV7, validateUuid } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Object as APObject, Activity, Create } from "@fedify/vocab";
 
+import {
+  RELATION_PROPERTIES,
+  interpretDocument,
+  valueAt,
+} from "../document/interpret.ts";
 import { classifyHost } from "../origin.ts";
 import type { WritingActor } from "./actor.ts";
 import { type Allocation, toMicroseconds } from "./token.ts";
@@ -57,15 +62,6 @@ const NESTING_PROPERTIES: ReadonlySet<string> = new Set([
   "result",
   "instrument",
 ]);
-const RELATION_PROPERTIES = [
-  "actor",
-  "object",
-  "target",
-  "origin",
-  "result",
-  "instrument",
-  "attributedTo",
-] as const;
 
 /** Database answers the preparation needs about local identities. */
 export interface IdentityLookups {
@@ -251,22 +247,7 @@ export function allocate(resources: readonly NewResource[]): Allocation {
 }
 
 // Paths come from submitted documents, whose keys may be spelled
-// `__proto__`; only own properties are read or defined.
-function valueAt(document: JsonValue, path: FieldPath): JsonValue | undefined {
-  let value: JsonValue | undefined = document;
-  for (const segment of path) {
-    if (
-      value === null ||
-      typeof value !== "object" ||
-      !Object.hasOwn(value, segment)
-    ) {
-      return undefined;
-    }
-    value = (value as Record<string | number, JsonValue>)[segment];
-  }
-  return value;
-}
-
+// `__proto__`; only own properties are defined.
 function setAt(document: JsonObject, path: FieldPath, value: JsonValue): void {
   const parent = valueAt(document, path.slice(0, -1));
   if (parent === null || typeof parent !== "object") {
@@ -408,83 +389,32 @@ export function checkIndexable(document: JsonObject): Diagnostic[] {
 }
 
 /**
- * Indexes a saved document's root addressing and relations by meaning.
- * @returns Addressing occurrences at their source positions, and relations.
+ * Indexes a saved document's root addressing and relations by meaning, as
+ * `interpretDocument()` reads them for every document it embeds as well.
+ * Several spellings of one property must have been refused by
+ * {@link checkIndexable}, or their positions would collide.
+ * @returns Addressing occurrences at their source positions, without
+ *          anonymous recipients, and relations.
  */
 export function indexDocument(document: JsonObject): {
   addressing: AddressingOccurrence[];
   relations: RevisionRelationInput[];
 } {
-  const nodes = describeDocument(document) ?? [];
-  const root = nodes.find(({ path }) => path.length === 0);
+  const root = interpretDocument(document)?.[0];
   if (root == null) return { addressing: [], relations: [] };
-  const children = new Map(nodes.map((node) => [pathKey(node.path), node]));
-  const identifiers = new Map(
-    root.identifiers.map((entry) => [pathKey(entry.path), entry.iri]),
-  );
-  // An embedded document names a target by its id; a Link by its href.
-  const target = (path: FieldPath): string | undefined => {
-    const fromRoot = identifiers.get(pathKey(path));
-    if (fromRoot != null) return fromRoot;
-    const node = children.get(pathKey(path));
-    if (node == null) return undefined;
-    const property = node.kind === "link" ? "href" : "id";
-    // A functional property may be a list with one non-null entry.
-    return node.identifiers.find(
-      (entry) =>
-        entry.property === property &&
-        (entry.path.length === path.length + 1 ||
-          (entry.path.length === path.length + 2 &&
-            typeof entry.path.at(-1) === "number")),
-    )?.iri;
+  return {
+    addressing: root.addressing.flatMap(({ property, position, iri }) =>
+      iri == null ? [] : [{ property, position, iri }],
+    ),
+    relations: root.relations.map(
+      ({ property, path, representation, iri }) => ({
+        property,
+        path,
+        representation,
+        targetIri: iri,
+      }),
+    ),
   };
-  const occurrences = (
-    property: string,
-  ): { path: FieldPath; position: number }[] => {
-    // Several spellings of one property were refused by checkIndexable().
-    const source = root.properties.get(property)?.[0];
-    if (source == null) return [];
-    const value = document[source];
-    if (Array.isArray(value)) {
-      return value.map((_, position) => ({
-        path: [source, position],
-        position,
-      }));
-    }
-    return value == null ? [] : [{ path: [source], position: 0 }];
-  };
-  const addressing: AddressingOccurrence[] = [];
-  for (const property of ADDRESSING_PROPERTIES) {
-    for (const { path, position } of occurrences(property)) {
-      const iri = target(path);
-      if (iri != null) addressing.push({ property, position, iri });
-    }
-  }
-  const relations: RevisionRelationInput[] = [];
-  for (const property of RELATION_PROPERTIES) {
-    for (const { path } of occurrences(property)) {
-      const node = children.get(pathKey(path));
-      if (node == null) {
-        const iri = identifiers.get(pathKey(path));
-        if (iri != null) {
-          relations.push({
-            property,
-            path,
-            representation: "reference",
-            targetIri: iri,
-          });
-        }
-      } else {
-        relations.push({
-          property,
-          path,
-          representation: node.kind === "link" ? "link" : "embedded",
-          targetIri: target(path) ?? null,
-        });
-      }
-    }
-  }
-  return { addressing, relations };
 }
 
 /**

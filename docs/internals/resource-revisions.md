@@ -215,8 +215,7 @@ generic canonical resource can have no typed detail; its GraphQL
 such a resource from its current revision. The common write
 operations described in [local writes](local-writes.md) save new resources as
 revisions only and keep legacy typed objects in step when editing or deleting
-them. Historical authorization and the other federation surfaces are separate
-work.
+them. The other federation surfaces are separate work.
 
 Appending a whiteout does not create or send a `Delete` activity. The common
 delete operation appends it together with the `Delete`, outbox entry and the
@@ -233,3 +232,34 @@ round-trip fixtures, not claims of semantic validation or peer
 interoperability. Run `mise run test` for PGlite coverage and
 `mise run test:postgres` with an isolated `DRFED_TEST_POSTGRES_URL` for
 PostgreSQL migration and concurrency checks.
+
+
+GraphQL reads
+-------------
+
+`Resource.currentRevision`, `Resource.revisions` (newest first by sequence)
+and `ResourceRevision` nodes read histories, generic resources included. A
+revision returns its saved `document` as is, with blind recipients. Its
+`root` and everything below it come from `interpretDocument()` in
+`@drfed/federation/document`, which reads every vocabulary document by
+meaning through `describeDocument()`; local writes build their revision
+indexes with the same function. Relations are read from the document for
+every embedded document, not from `revision_relations`, which hold the root's
+only. When the validator cannot read the document, such as one whose context is
+outside the offline allowlist or one with an unsupported property,
+`interpreted` is false, `root` is null and `diagnostics` tell why; nothing
+falls back to typed rows.
+
+Every revision follows the rule of its resource, in `readableHistory()` in
+*packages/graphql/src/readable.ts*: the resource must be readable as
+`Resource.detail` decides, so local histories are open to anyone. A Relay node
+lookup of a revision checks its resource the same way. Deletion hides no
+revision: deleting a resource appends a whiteout, and its history, like that of
+a resource whose author is deleted, stays readable to whoever may read the
+resource, whether or not it has legacy typed rows. Only the existing fields,
+such as `Resource.detail`, keep hiding deleted typed rows. Readability is the
+existing rule, which reads legacy typed rows. A relation's or recipient's
+`resource` is opened as `Activity.object` is, deleted or not. Until the team
+decides what opens them, `unprovenGenericHistory()` there closes the histories
+of generic resources with a revision not captured locally, while their IRI and
+kind stay readable.

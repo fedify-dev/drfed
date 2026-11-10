@@ -22,9 +22,11 @@ import {
   activityDeliveries,
   actors,
   addressing,
+  collections,
   instanceMembers,
   instances,
   objects,
+  resourceRevisions,
   resources,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
@@ -116,6 +118,15 @@ const carriers = alias(activities, "readable_carriers");
 const entries = alias(addressing, "readable_addressing");
 const targets = alias(resources, "readable_targets");
 const deliveries = alias(activityDeliveries, "readable_deliveries");
+const visibleOwners = alias(actors, "visible_owners");
+const ownedObjects = alias(objects, "visible_objects");
+const ownedActivities = alias(activities, "visible_activities");
+const ownedCollections = alias(collections, "visible_collections");
+const typedActors = alias(actors, "history_actors");
+const typedObjects = alias(objects, "history_objects");
+const typedActivities = alias(activities, "history_activities");
+const typedCollections = alias(collections, "history_collections");
+const capturedRevisions = alias(resourceRevisions, "history_revisions");
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}
@@ -201,6 +212,94 @@ export function readableResource(viewer: Viewer, id: SQLWrapper): SQL {
 }
 
 /**
+ * Excludes deleted actors and objects, including resources authored or
+ * owned by deleted actors.  Revisions do not use it: a deletion appends a
+ * whiteout, and the history before it stays readable, as
+ * {@link readableHistory} tells.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function visibleResource(id: SQLWrapper): SQL {
+  return sql`not exists (
+    select 1 from ${actors} ${visibleOwners}
+    where ${visibleOwners.id} = ${id} and ${visibleOwners.deleted} is not null
+  ) and not exists (
+    select 1 from ${objects} ${ownedObjects}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedObjects.actorId}
+    where ${ownedObjects.id} = ${id}
+      and (${ownedObjects.deleted} is not null or ${visibleOwners.deleted} is not null)
+  ) and not exists (
+    select 1 from ${activities} ${ownedActivities}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedActivities.actorId}
+    where ${ownedActivities.id} = ${id} and ${visibleOwners.deleted} is not null
+  ) and not exists (
+    select 1 from ${collections} ${ownedCollections}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedCollections.ownerActorId}
+    where ${ownedCollections.id} = ${id} and ${visibleOwners.deleted} is not null
+  )`;
+}
+
+/**
+ * Matches a generic resource, one without a legacy typed row, with a
+ * revision DrFed did not save itself: received, embedded or fetched.
+ *
+ * PENDING TEAM DECISION: no evidence opens such a history yet, since the
+ * rules of {@link readableResource} are those of typed rows, and no write
+ * path creates such resources yet.  Until the team decides what opens them,
+ * their revisions are closed, while the resource itself, its IRI and kind,
+ * stays readable as before.  This is the one place that rule lives;
+ * {@link readableHistory} applies it.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function unprovenGenericHistory(id: SQLWrapper): SQL {
+  return sql`(not ${legacyTypedRow(id)} and exists (
+    select 1 from ${resourceRevisions} ${capturedRevisions}
+    where ${capturedRevisions.resourceId} = ${id}
+      and ${capturedRevisions.capture} <> 'local'
+  ))`;
+}
+
+/**
+ * Matches a resource with a legacy typed row, whose readability
+ * {@link readableResource} decides by that row.  It is the only place
+ * {@link unprovenGenericHistory} reads legacy typed tables, so that it goes
+ * when they do.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+function legacyTypedRow(id: SQLWrapper): SQL {
+  return sql`(exists (
+    select 1 from ${actors} ${typedActors} where ${typedActors.id} = ${id}
+  ) or exists (
+    select 1 from ${objects} ${typedObjects} where ${typedObjects.id} = ${id}
+  ) or exists (
+    select 1 from ${activities} ${typedActivities} where ${typedActivities.id} = ${id}
+  ) or exists (
+    select 1 from ${collections} ${typedCollections} where ${typedCollections.id} = ${id}
+  ))`;
+}
+
+/**
+ * Restricts resources to those whose revisions the viewer may read.  Every
+ * revision, past ones included, follows the rule of its resource: it must be
+ * readable, as {@link readableResource} tells, and its history must not be
+ * one {@link unprovenGenericHistory} closes.  Local resources are therefore
+ * readable by anyone, with their blind recipients and whether published or
+ * not, as `Object.document` is.  Deletion hides no revision: it appends a
+ * whiteout, and the history before it, of a deleted resource or of one
+ * whose author is deleted, stays readable to whoever may read the resource.
+ * Readability is the existing rule, which still reads legacy typed rows;
+ * everything else about revisions is read from the revisions themselves.
+ * @param viewer The viewer and the database.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function readableHistory(viewer: Viewer, id: SQLWrapper): SQL {
+  return and(readableResource(viewer, id), not(unprovenGenericHistory(id)))!;
+}
+
+/**
  * Finds the resources among the given IDs that the viewer may not read, as
  * {@link readableResource} decides.  IDs of anything but a resource are never
  * among them.
@@ -232,30 +331,63 @@ export const isReadableResource = async (
   id: Uuid,
 ): Promise<boolean> => !(await unreadableResources(viewer, [id])).has(id);
 
-const nodeIdOf = (node: unknown): Uuid | null =>
+const uuidOf = (node: unknown, key: "id" | "resourceId"): Uuid | null =>
   node != null &&
   typeof node === "object" &&
-  "id" in node &&
-  validateUuid(node.id)
-    ? node.id
+  key in node &&
+  validateUuid((node as Record<typeof key, unknown>)[key])
+    ? ((node as Record<typeof key, unknown>)[key] as Uuid)
     : null;
+
+/**
+ * Tells the resource a Relay node belongs to without being its typed detail,
+ * as a revision belongs to its resource.  Such a node is hidden as that
+ * resource's history is, by {@link readableHistory}, and nothing of its own,
+ * such as a whiteout's deletion time, hides it.
+ * @returns The resource ID, or null for any other node.
+ */
+export const owningResourceOf = (node: unknown): Uuid | null =>
+  uuidOf(node, "resourceId");
 
 /**
  * Replaces the Relay nodes the viewer may not read by null, as if they did
  * not exist.  Activities, objects, and resources share their IDs, so a node's
- * ID alone tells whether it is one the viewer may not read.
+ * ID alone tells whether it is one the viewer may not read; a node that
+ * belongs to a resource, such as a revision, is checked against that
+ * resource's history instead, as {@link owningResourceOf} tells.
  * @returns The nodes, in the same order.
  */
 export async function hideUnreadableNodes(
   viewer: Viewer,
   nodes: readonly unknown[],
 ): Promise<unknown[]> {
-  const hidden = await unreadableResources(
-    viewer,
-    nodes.map(nodeIdOf).filter((id) => id != null),
+  const owningIds = nodes.map(owningResourceOf);
+  const ids = nodes.map((node, index) =>
+    owningIds[index] == null ? uuidOf(node, "id") : null,
   );
-  return nodes.map((node) => {
-    const id = nodeIdOf(node);
+  const owned = [...new Set(owningIds.filter((id) => id != null))];
+  const [hidden, readableOwners] = await Promise.all([
+    unreadableResources(
+      viewer,
+      ids.filter((id) => id != null),
+    ),
+    owned.length === 0
+      ? []
+      : viewer.db
+          .select({ id: resources.id })
+          .from(resources)
+          .where(
+            and(
+              inArray(resources.id, owned),
+              readableHistory(viewer, resources.id),
+            ),
+          ),
+  ]);
+  const open = new Set(readableOwners.map(({ id }) => id));
+  return nodes.map((node, index) => {
+    const owner = owningIds[index];
+    if (owner != null) return open.has(owner) ? node : null;
+    const id = ids[index];
     return id != null && hidden.has(id) ? null : node;
   });
 }
