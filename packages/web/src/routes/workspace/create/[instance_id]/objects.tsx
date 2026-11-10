@@ -34,6 +34,7 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
+import { ResourceLink } from "~/components/ResourceLink.tsx";
 import { showToast } from "~/components/Toast.tsx";
 import { actorLabel } from "~/label.ts";
 
@@ -83,6 +84,10 @@ const createObjectMutation = graphql`
       resultType: __typename
       ... on Object {
         id
+        iri
+        resource {
+          id
+        }
       }
       ... on CreateObjectError {
         message
@@ -156,10 +161,16 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
   const [commitCreateObject, isCreating] =
     createMutation<CreateObjectMutation>(createObjectMutation);
   const [message, setMessage] = createSignal<string>("");
+  // The object created last, shown until the next submission starts.
+  const [created, setCreated] = createSignal<{
+    readonly iri: string;
+    readonly resourceId: string;
+  }>();
 
   const submit = (form: HTMLFormElement) => {
     if (isCreating()) return;
     setMessage("");
+    setCreated(undefined);
     const formData = new FormData(form);
     const addressingText = formData.get("addressing");
     let addressing: unknown;
@@ -197,6 +208,7 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
         }
         const result = response.createObject;
         if (result.resultType === "Object") {
+          setCreated({ iri: result.iri, resourceId: result.resource.id });
           form.reset();
           setMessage("Object created successfully.");
           showToast(message(), "success");
@@ -369,6 +381,16 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
                 </div>
               </fieldset>
             </form>
+            <Show when={created()}>
+              {(object) => (
+                <p class={objectStyles.created}>
+                  Created <code>{object().iri}</code> ·{" "}
+                  <ResourceLink id={object().resourceId}>
+                    View resource
+                  </ResourceLink>
+                </p>
+              )}
+            </Show>
           </section>
         </main>
       )}

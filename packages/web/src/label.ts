@@ -23,3 +23,16 @@ export const actorLabel = (actor: {
   readonly handle?: string | null | undefined;
   readonly iri: string;
 }): string => actor.handle ?? actor.iri;
+
+const activityStreams = "https://www.w3.org/ns/activitystreams#";
+
+/**
+ * What names a vocabulary type to a reader: the term of an ActivityStreams
+ * type, such as `Note`, or any other type IRI in full.  Show the full IRI
+ * beside it, as a `title` for one, since a term hides its namespace.
+ * @returns The term or the IRI.
+ */
+export const typeLabel = (iri: string): string =>
+  iri.startsWith(activityStreams) && iri.length > activityStreams.length
+    ? iri.slice(activityStreams.length)
+    : iri;

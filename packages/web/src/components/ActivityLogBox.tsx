@@ -21,6 +21,7 @@ import { createFragment } from "solid-relay";
 import type { ActivityLogBox_log$key } from "./__generated__/ActivityLogBox_log.graphql.ts";
 import { ActivityLogSource } from "./ActivityLogSource.tsx";
 import { CopyButton } from "./CopyButton.tsx";
+import { ResourceLink } from "./ResourceLink.tsx";
 
 import styles from "~/styles/activity-log.module.css";
 
@@ -46,6 +47,11 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
         created
         payload
         rawBody
+        activity {
+          resource {
+            id
+          }
+        }
       }
     `,
     () => props.$log,
@@ -117,6 +123,13 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
             </span>
           </summary>
           <Show when={open()}>
+            <Show when={log().activity?.resource.id}>
+              {(id) => (
+                <p>
+                  <ResourceLink id={id()}>Stored activity</ResourceLink>
+                </p>
+              )}
+            </Show>
             <p>
               {log().direction === "inbound" && log().payload == undefined
                 ? "Raw received body"

@@ -152,6 +152,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   white-space: pre-line;
 }
 
+.created {
+  border-top: 1px solid var(--line);
+  margin: 1.25rem 0 0;
+  overflow-wrap: anywhere;
+  padding-top: 1rem;
+}
+
+.created code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
 @media (max-width: 600px) {
   .identity {
     grid-template-columns: minmax(0, 1fr);

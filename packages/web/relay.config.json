@@ -4,6 +4,7 @@
   "language": "typescript",
   "customScalarTypes": {
     "DateTime": "string",
+    "JSON": "unknown",
     "URL": "string",
     "UUID": "string"
   },

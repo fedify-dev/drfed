@@ -20,6 +20,7 @@ import { createFragment } from "solid-relay";
 
 import type { ActorObjectList_actor$key } from "./__generated__/ActorObjectList_actor.graphql.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { ResourceLink } from "./ResourceLink.tsx";
 
 import styles from "~/styles/actor.module.css";
 
@@ -40,6 +41,9 @@ export function ActorObjectList(props: { $actor: ActorObjectList_actor$key }) {
               contentHtml
               published
               iri
+              resource {
+                id
+              }
             }
           }
         }
@@ -79,6 +83,9 @@ export function ActorObjectList(props: { $actor: ActorObjectList_actor$key }) {
                             <time dateTime={object().published}>
                               {object().published}
                             </time>
+                            <ResourceLink id={object().resource.id}>
+                              Revisions and saved document
+                            </ResourceLink>
                           </header>
                           <pre class={styles.objectContent}>
                             <code>{object().contentHtml}</code>
