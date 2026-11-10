@@ -82,6 +82,33 @@ before paging, so that neither cursors nor `totalCount` tell of it.
 [ActivityPub]: https://www.w3.org/TR/activitypub/
 
 
+Resource revisions
+------------------
+
+`Resource.currentRevision` and `Resource.revisions`, newest first, return the
+saved revisions of any resource, including those saved without legacy
+details; `node` and `nodes` look up a `ResourceRevision` by its ID.
+`ResourceRevision.document` is the saved JSON as is, and `root` describes it
+by meaning: each `DocumentNode`, the root or one embedded at any depth, has
+its type IRI, its own `id` or `href`, its relations and recipients in source
+order, and its custom extension properties.  A relation or recipient names
+the resource currently registered under its IRI, opened as
+`Activity.object` is, while `node` keeps the embedded value as saved.  When
+the validator cannot read the document, `interpreted` is false and
+`diagnostics` tell why.
+
+A revision, past ones included, is readable exactly when its resource is, as
+above.  Deletion hides no revision: deleting a resource appends a whiteout
+and leaves the history before it readable, and deleting its author hides
+none of it either, while `Resource.detail` and the other existing fields
+keep hiding what was deleted.  Local
+histories, blind recipients included, are readable by anyone.  The histories
+of resources without legacy details that hold revisions received from
+elsewhere are closed for now.  See [resource revision internals].
+
+[resource revision internals]: https://drfed.org/internals/resource-revisions#graphql-reads
+
+
 Login mail and shutdown
 -----------------------
 

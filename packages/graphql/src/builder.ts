@@ -31,7 +31,11 @@ import { GraphQLScalarType, Kind } from "graphql";
 import { JSONResolver, URLResolver, UUIDResolver } from "graphql-scalars";
 
 import OperationsPlugin, { type OperationTracker } from "./operations.ts";
-import { hideUnreadableNodes, memberInstances } from "./readable.ts";
+import {
+  hideUnreadableNodes,
+  memberInstances,
+  owningResourceOf,
+} from "./readable.ts";
 
 /**
  * The context data for the GraphQL server, which includes the incoming request
@@ -173,18 +177,13 @@ export const builder = new SchemaBuilder<SchemaTypes>({
   relay: {
     nodeQueryOptions: {
       resolve: async (_, { id }, ctx, __, resolveNode) => {
-        const [node] = await hideUnreadableNodes(ctx, [
-          filterDeleted(await resolveNode(id)),
-        ]);
+        const [node] = await hideHiddenNodes(ctx, [await resolveNode(id)]);
         return node;
       },
     },
     nodesQueryOptions: {
       resolve: async (_, { ids }, ctx, __, resolveNodes) =>
-        await hideUnreadableNodes(
-          ctx,
-          (await resolveNodes(ids)).map(filterDeleted),
-        ),
+        await hideHiddenNodes(ctx, await resolveNodes(ids)),
     },
   },
   scopeAuth: {
@@ -223,6 +222,20 @@ const filterDeleted = (node: unknown): unknown =>
     ))
     ? null
     : node;
+
+// A node that belongs to a resource, such as a revision, is hidden as that
+// resource is, by hideUnreadableNodes(); its own deletion time, as that of a
+// whiteout, tells of the history it records and hides nothing.
+const hideHiddenNodes = (
+  context: UserContext,
+  nodes: readonly unknown[],
+): Promise<unknown[]> =>
+  hideUnreadableNodes(
+    context,
+    nodes.map((node) =>
+      owningResourceOf(node) == null ? filterDeleted(node) : node,
+    ),
+  );
 
 /**
  * Determines whether the viewer is an accepted member of the `Instance` that

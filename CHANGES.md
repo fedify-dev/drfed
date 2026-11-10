@@ -45,9 +45,23 @@ To be released.
 
 ### GraphQL APIs
 
+ -  Added `Resource.currentRevision` and `Resource.revisions`, newest first,
+    and the `ResourceRevision` node, which return the saved revisions of a
+    resource, including those of resources saved without legacy details.
+    Each revision returns its saved JSON, whiteout deletion details, and what
+    the current validator finds in it.  When the validator reads the
+    document, `root` describes it by meaning, whatever keys spell its
+    properties: the relations and recipients of the root and of every
+    document it embeds, with the resource currently registered under each
+    IRI, and its custom extension properties.  Revisions follow the read
+    rules of their resource; revisions received from elsewhere for a
+    resource without legacy details are not readable yet.  Deleting a
+    resource or its author hides none of its revisions.  [[#154]]
  -  Fixed `Resource.detail` to return `null` without a field error when the
     resource has no corresponding detail record.
     [[#150], [#164] by Hong Minhee\]
+
+[#154]: https://github.com/fedify-dev/drfed/issues/154
 
 ### JavaScript/TypeScript APIs
 
@@ -85,6 +99,13 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added the `@drfed/federation/document` subpath.  Its
+    `interpretDocument()` returns every vocabulary document of a saved
+    document with its relations, recipients, and custom extension
+    properties, read by meaning as the validator reads them.  [[#154]]
+ -  Added `extensionProperties` to the nodes `describeDocument()` in
+    `@drfed/models/document` returns: the source keys of each document's
+    custom extension properties.  [[#154]]
  -  Added the `@drfed/federation/serving` subpath.  It exports
     `publicDocument()`, the serialization federation reads use for saved
     documents, `parseVocab()`, which parses such a document into a Fedify
