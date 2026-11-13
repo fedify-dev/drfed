@@ -40,6 +40,7 @@ export type {
   CreateRequest,
   DeleteRequest,
   EditRequest,
+  EmbeddedSource,
   JsonObject,
   LocalWriteEnvironment,
   LocalWriteError,

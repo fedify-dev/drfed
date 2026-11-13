@@ -32,6 +32,7 @@ import {
   LegacyResourceRevisionError,
   ResourceRevisionStateError,
   RevisionConflictError,
+  type RevisionEmbeddingInput,
   appendResourceRevision,
   writeTypedResourceRevision,
 } from "@drfed/models/resource-revision";
@@ -44,6 +45,12 @@ import {
   localActorIris,
   registeredIris,
 } from "./actor.ts";
+import {
+  type SourceSnapshot,
+  declaredSources,
+  findEmbeddings,
+  loadSourceRevisions,
+} from "./embedding.ts";
 import {
   type WriteTarget,
   bindableExisting,
@@ -91,6 +98,7 @@ function lookups(
   return {
     localActors: (iris) => localActorIris(db, actor.instanceId, iris),
     registered: (iris) => registeredIris(db, iris),
+    revisions: (ids) => loadSourceRevisions(db, ids),
   };
 }
 
@@ -231,6 +239,7 @@ async function writeObjectVersion(
   target: WriteTarget,
   object: PreparedResource,
   typed: TypedProjection | null | undefined,
+  embeddings: readonly RevisionEmbeddingInput[],
 ): Promise<Uuid> {
   if (target.typed != null && typed != null) {
     const { attributedTo: _, ...columns } = typed;
@@ -242,6 +251,7 @@ async function writeObjectVersion(
       columns,
       addressingOccurrences: object.addressing,
       relations: object.relations,
+      embeddings,
     });
     return revision.id;
   }
@@ -254,6 +264,7 @@ async function writeObjectVersion(
     capture: "local",
     addressingOccurrences: object.addressing,
     relations: object.relations,
+    embeddings,
   });
   await replaceAddressing(tx, target.id, object.addressing);
   return revision.id;
@@ -416,15 +427,32 @@ export async function commitLocalWrite(
           allocation.timestamp,
         );
       }
+      const declared = declaredSources(
+        request.operation === "delete" ? undefined : request.sources,
+      );
+      // Children are saved before what embeds them, and an edited object
+      // before its Update, so each finds the revisions it embeds here.
+      const snapshots = new Map<string, SourceSnapshot>();
       for (const resource of resources) {
+        const embeddings = await findEmbeddings(
+          tx,
+          resource,
+          declared,
+          snapshots,
+        );
         if (target != null && resource.id === target.id) {
           const revisionId = await writeObjectVersion(
             tx,
             target,
             resource,
             typed,
+            embeddings,
           );
           saved.push({ ...resource, revisionId });
+          snapshots.set(resource.iri, {
+            revisionId,
+            document: resource.document,
+          });
           continue;
         }
         const revision = await appendResourceRevision(tx, {
@@ -436,9 +464,14 @@ export async function commitLocalWrite(
           capture: "local",
           addressingOccurrences: resource.addressing,
           relations: resource.relations,
+          embeddings,
         });
         await storeAddressingOccurrences(tx, resource.id, resource.addressing);
         saved.push({ ...resource, revisionId: revision.id });
+        snapshots.set(resource.iri, {
+          revisionId: revision.id,
+          document: resource.document,
+        });
       }
       if (outboxed) {
         const activity = saved.at(-1)!;

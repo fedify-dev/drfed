@@ -10,7 +10,12 @@ links:
     document, `root` describes it by meaning, whatever keys spell its
     properties: the relations and recipients of the root and of every
     document it embeds, with the resource currently registered under each
-    IRI, and its custom extension properties.  Revisions follow the read
-    rules of their resource; revisions received from elsewhere for a
-    resource without legacy details are not readable yet.  Deleting a
-    resource or its author hides none of its revisions.  [[#154]]
+    IRI, and its custom extension properties.  Each revision is read by
+    evidence of its own: local revisions by anyone, revisions addressed to the
+    public by anyone, and received revisions by members of the instance that
+    received them. `DocumentNode.source` tells which revision an embedded
+    document came from, whether it keeps that revision's contents or was
+    derived from it, and whether that revision is still current, superseded, or
+    deleted.  A revision that embeds documents from revisions the viewer may
+    not read is hidden as a whole.  Deleting a resource or its author hides
+    none of its revisions by itself.  [[#154]]

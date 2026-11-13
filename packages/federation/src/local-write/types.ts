@@ -61,6 +61,22 @@ export interface NewResource {
   readonly representation?: "embedded" | "reference";
 }
 
+/**
+ * The stored revision an embedded document of a request was derived from,
+ * such as a loaded `Note` changed for an experiment.  A revision's readers
+ * may read where each document it embeds came from; the server decides
+ * whether the document still keeps that revision or was derived from it.
+ */
+export interface EmbeddedSource {
+  /**
+   * The submitted path of an embedded document with an `id`, not a `Link`
+   * nor a new resource of the write.
+   */
+  readonly path: FieldPath;
+  /** A snapshot of the resource registered under the document's `id`. */
+  readonly revisionId: Uuid;
+}
+
 /** Saves new resources: an object alone, an activity, or both nested. */
 export interface CreateRequest {
   readonly operation: "create";
@@ -71,6 +87,8 @@ export interface CreateRequest {
   readonly resources: readonly NewResource[];
   /** Adds the root activity to the actor's outbox; needs a reservation. */
   readonly publish?: boolean;
+  /** Where embedded documents that are not new resources came from. */
+  readonly sources?: readonly EmbeddedSource[];
 }
 
 /**
@@ -85,6 +103,8 @@ export interface EditRequest {
   readonly expectedRevisionId: Uuid;
   /** The complete new version, usually the loaded document changed. */
   readonly document: JsonObject;
+  /** Where documents the new version embeds came from. */
+  readonly sources?: readonly EmbeddedSource[];
 }
 
 /**

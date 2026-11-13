@@ -41,6 +41,8 @@ import {
 } from "../document/interpret.ts";
 import { classifyHost } from "../origin.ts";
 import type { WritingActor } from "./actor.ts";
+import { effectiveContext, pathKey } from "./context.ts";
+import { type SourceRevision, checkSources } from "./embedding.ts";
 import { type Allocation, toMicroseconds } from "./token.ts";
 import {
   type CreateRequest,
@@ -69,6 +71,8 @@ export interface IdentityLookups {
   localActors(iris: readonly string[]): Promise<ReadonlySet<string>>;
   /** The IRIs that are registered resources. */
   registered(iris: readonly string[]): Promise<ReadonlySet<string>>;
+  /** The stored revisions among IDs, by their lowercase IDs. */
+  revisions(ids: readonly Uuid[]): Promise<ReadonlyMap<string, SourceRevision>>;
 }
 
 /** The submitted documents and their saved forms, ready to persist. */
@@ -78,13 +82,7 @@ export interface PreparedWrite {
   readonly resources: readonly PreparedResource[];
 }
 
-/**
- * Keys a path for maps and token allocations.
- * @returns The path's JSON.
- */
-export function pathKey(path: FieldPath): string {
-  return JSON.stringify(path);
-}
+export { pathKey } from "./context.ts";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -103,6 +101,26 @@ function isPath(value: unknown): value is FieldPath {
         (Number.isSafeInteger(segment) && segment >= 0),
     )
   );
+}
+
+/**
+ * Checks the shape of a request's declared sources.
+ * @returns Why they are malformed, or null.
+ */
+export function checkSourceShapes(sources: unknown): LocalWriteError | null {
+  return sources === undefined ||
+    (Array.isArray(sources) &&
+      sources.every(
+        (source: unknown) =>
+          isPlainObject(source) &&
+          isPath(source.path) &&
+          validateUuid(source.revisionId),
+      ))
+    ? null
+    : writeError(
+        "invalid_request",
+        "sources must be a list of paths with revision IDs.",
+      );
 }
 
 /**
@@ -127,6 +145,8 @@ export function checkCreateRequest(
   if (!Array.isArray(request.resources)) {
     return invalid("resources must be an array.");
   }
+  const sourceError = checkSourceShapes(request.sources);
+  if (sourceError != null) return sourceError;
   for (const resource of request.resources as unknown[]) {
     if (
       !isPlainObject(resource) ||
@@ -160,6 +180,10 @@ export function bindableRequest(request: CreateRequest): unknown {
       representation: representation ?? "embedded",
     })),
     publish: request.publish === true,
+    sources: (request.sources ?? []).map(({ path, revisionId }) => ({
+      path,
+      revisionId,
+    })),
   };
 }
 
@@ -359,11 +383,6 @@ export async function deniedClaims(
   ].map((path) => ({ allowed: false, path }));
 }
 
-function contextEntries(value: JsonValue | undefined): JsonValue[] {
-  if (value === undefined) return [];
-  return Array.isArray(value) ? [...value] : [value];
-}
-
 /**
  * Refuses a document that spells one indexed property in several ways, as
  * in `to` beside an alias of it: their occurrences would share positions,
@@ -438,16 +457,8 @@ function extractNested(
   const changes: NormalizationChange[] = [];
   const value = valueAt(working, path) as JsonObject;
   const standalone = structuredClone(value) as Record<string, JsonValue>;
-  const chain: JsonValue[] = [];
-  for (let length = 0; length <= path.length; length += 1) {
-    const prefix = path.slice(0, length);
-    if (!preparedNodes.has(pathKey(prefix))) continue;
-    const own = valueAt(prepared, [...prefix, "@context"]);
-    chain.push(...contextEntries(own));
-  }
+  const chain = effectiveContext(prepared, preparedNodes, path);
   const own = value["@context"];
-  // The validator reads a document without a context as ActivityStreams.
-  if (prepared["@context"] === undefined) chain.unshift(ACTIVITY_STREAMS);
   if (chain.length > 0) {
     const context = chain.length === 1 ? chain[0]! : chain;
     if (JSON.stringify(context) !== JSON.stringify(own ?? null)) {
@@ -515,6 +526,13 @@ export async function prepareCreate(
   const byPath = new Map(nodes.map((node) => [pathKey(node.path), node]));
   const descriptorError = checkDescriptors(request, byPath);
   if (descriptorError != null) return descriptorError;
+  const sourceError = await checkSources(
+    request.sources ?? [],
+    nodes,
+    new Set(request.resources.map(({ path }) => pathKey(path))),
+    lookups.revisions,
+  );
+  if (sourceError != null) return sourceError;
   const keys = request.resources.map(({ path }) => pathKey(path));
   if (
     allocation.ids.size !== keys.length ||

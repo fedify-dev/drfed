@@ -143,6 +143,50 @@ would otherwise leave occurrences out. Indexes stay `partial`; the documents
 remain authoritative.
 
 
+Embedded document sources
+-------------------------
+
+Every saved document records, for each embedded document with an `id`, the
+revision it came from when the server knows it, as
+[resource revisions](resource-revisions.md#embedded-document-sources)
+describe.  `Link` values and anonymous documents get no source.  The source is
+found in this order:
+
+1.  A resource saved earlier in the same write, such as a nested new resource
+    kept embedded or the version an edit's `Update` embeds.
+
+2.  A source the request declares for the embedded document's submitted path:
+
+    ~~~~ ts
+    const request = {
+      operation: "create",
+      actorId,
+      document: { type: "Like", object: changedNote },
+      resources: [{ path: [], kind: "activity" }],
+      sources: [{ path: ["object"], revisionId: loadedRevisionId }],
+    } as const;
+    ~~~~
+
+    An editor declares the revision it loaded a document from, so that a
+    changed copy keeps its source.  Both `create` and `edit` accept `sources`,
+    and the preview token binds them.  Each path must name an embedded document
+    with an `id` that is not a new resource of the write, and its revision
+    must be a snapshot of the resource registered under that `id`; otherwise
+    the write is refused.
+
+3.  The current revision of the resource registered under the `id`, only
+    when the embedded document keeps its contents unchanged.
+
+An embedded document is a `snapshot` of its source when its effective context
+equals the source document's and its JSON, apart from the `@context` key,
+equals the source document's, whatever the order of object keys.  Otherwise it
+is `derived`.  The comparison is strict, so a document only re-serialized
+differently reads as derived, never the reverse.  Previews and commit results
+do not report sources: a writer could otherwise learn whether a guessed
+document equals a revision they may not read.  Writes through
+`createLegacyObject()` record no sources.
+
+
 Edits and deletions
 -------------------
 

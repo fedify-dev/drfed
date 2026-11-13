@@ -26,8 +26,12 @@ import {
   instanceMembers,
   instances,
   objects,
+  resourceHeads,
   resourceRevisions,
   resources,
+  revisionAddressing,
+  revisionEmbeddings,
+  revisionReceipts,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
@@ -122,11 +126,17 @@ const visibleOwners = alias(actors, "visible_owners");
 const ownedObjects = alias(objects, "visible_objects");
 const ownedActivities = alias(activities, "visible_activities");
 const ownedCollections = alias(collections, "visible_collections");
-const typedActors = alias(actors, "history_actors");
-const typedObjects = alias(objects, "history_objects");
-const typedActivities = alias(activities, "history_activities");
-const typedCollections = alias(collections, "history_collections");
-const capturedRevisions = alias(resourceRevisions, "history_revisions");
+const typedActors = alias(actors, "legacy_typed_actors");
+const typedObjects = alias(objects, "legacy_typed_objects");
+const typedActivities = alias(activities, "legacy_typed_activities");
+const typedCollections = alias(collections, "legacy_typed_collections");
+const evidenced = alias(resourceRevisions, "evidenced_revisions");
+const evidencedAddressing = alias(revisionAddressing, "evidenced_addressing");
+const evidencedReceipts = alias(revisionReceipts, "evidenced_receipts");
+const receiptDeliveries = alias(activityDeliveries, "receipt_deliveries");
+const evidencedHeads = alias(resourceHeads, "evidenced_heads");
+const embedded = alias(revisionEmbeddings, "embedded_sources");
+const transitive = alias(revisionEmbeddings, "transitive_sources");
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}
@@ -215,7 +225,7 @@ export function readableResource(viewer: Viewer, id: SQLWrapper): SQL {
  * Excludes deleted actors and objects, including resources authored or
  * owned by deleted actors.  Revisions do not use it: a deletion appends a
  * whiteout, and the history before it stays readable, as
- * {@link readableHistory} tells.
+ * {@link readableRevision} tells.
  * @param id The resource ID in an outer query.
  * @returns The condition on the ID.
  */
@@ -240,31 +250,10 @@ export function visibleResource(id: SQLWrapper): SQL {
 }
 
 /**
- * Matches a generic resource, one without a legacy typed row, with a
- * revision DrFed did not save itself: received, embedded or fetched.
- *
- * PENDING TEAM DECISION: no evidence opens such a history yet, since the
- * rules of {@link readableResource} are those of typed rows, and no write
- * path creates such resources yet.  Until the team decides what opens them,
- * their revisions are closed, while the resource itself, its IRI and kind,
- * stays readable as before.  This is the one place that rule lives;
- * {@link readableHistory} applies it.
- * @param id The resource ID in an outer query.
- * @returns The condition on the ID.
- */
-export function unprovenGenericHistory(id: SQLWrapper): SQL {
-  return sql`(not ${legacyTypedRow(id)} and exists (
-    select 1 from ${resourceRevisions} ${capturedRevisions}
-    where ${capturedRevisions.resourceId} = ${id}
-      and ${capturedRevisions.capture} <> 'local'
-  ))`;
-}
-
-/**
  * Matches a resource with a legacy typed row, whose readability
  * {@link readableResource} decides by that row.  It is the only place
- * {@link unprovenGenericHistory} reads legacy typed tables, so that it goes
- * when they do.
+ * {@link readableRevision} reads legacy typed tables, so that it goes when
+ * they do.
  * @param id The resource ID in an outer query.
  * @returns The condition on the ID.
  */
@@ -280,23 +269,77 @@ function legacyTypedRow(id: SQLWrapper): SQL {
   ))`;
 }
 
+// What a revision itself proves of who may read it, whatever it embeds.
+const ownEvidence = (viewer: Viewer, id: SQLWrapper): SQL => sql`exists (
+  select 1 from ${resourceRevisions} ${evidenced}
+  where ${evidenced.id} = ${id} and (
+    ${evidenced.capture} = 'local'
+    or exists (
+      select 1 from ${revisionAddressing} ${evidencedAddressing}
+      where ${evidencedAddressing.revisionId} = ${evidenced.id}
+        and ${inArray(evidencedAddressing.iri, PUBLIC_IRIS)}
+    )
+    or exists (
+      select 1 from ${revisionReceipts} ${evidencedReceipts}
+      join ${activityDeliveries} ${receiptDeliveries}
+        on ${receiptDeliveries.id} = ${evidencedReceipts.deliveryId}
+      where ${evidencedReceipts.revisionId} = ${evidenced.id}
+        and ${receiptDeliveries.direction} = 'inbound'
+        and ${viewableInstance(viewer, receiptDeliveries.instanceId)}
+    )
+    or (
+      exists (
+        select 1 from ${resourceHeads} ${evidencedHeads}
+        where ${evidencedHeads.resourceId} = ${evidenced.resourceId}
+          and ${evidencedHeads.revisionId} = ${evidenced.id}
+      )
+      and ${legacyTypedRow(evidenced.resourceId)}
+      and ${readableResource(viewer, evidenced.resourceId)}
+    )
+  )
+)`;
+
 /**
- * Restricts resources to those whose revisions the viewer may read.  Every
- * revision, past ones included, follows the rule of its resource: it must be
- * readable, as {@link readableResource} tells, and its history must not be
- * one {@link unprovenGenericHistory} closes.  Local resources are therefore
- * readable by anyone, with their blind recipients and whether published or
- * not, as `Object.document` is.  Deletion hides no revision: it appends a
- * whiteout, and the history before it, of a deleted resource or of one
- * whose author is deleted, stays readable to whoever may read the resource.
- * Readability is the existing rule, which still reads legacy typed rows;
- * everything else about revisions is read from the revisions themselves.
+ * Restricts revisions to those the viewer may read.  An administrator reads
+ * every revision.  Anyone else reads a revision by evidence of that
+ * particular revision, never by the current state of its resource:
+ *
+ *  -  Its own evidence: DrFed saved it for a local actor, so it is readable
+ *     by anyone, with its blind recipients and whether published or not, as
+ *     `Object.document` is; its own addressing is public; a receipt links it
+ *     to an inbound delivery to a local instance the viewer may read, as
+ *     {@link viewableInstance} tells; or it is the current revision of a
+ *     resource with a legacy typed row that {@link readableResource} lets
+ *     the viewer read, since that row describes only its current version.
+ *  -  The evidence of what it embeds: every revision its recorded
+ *     embeddings name as their sources, and theirs in turn, must have its
+ *     own evidence too.  A local document embedding a private received
+ *     revision is thus readable only by those who could read that revision,
+ *     including when it was derived from it.
+ *
+ * A later revision being restricted, or deleted, hides no earlier one that
+ * was public, and a later delivery or public revision of the same IRI opens
+ * no earlier private one.  A revision of a deleted resource, or of one
+ * whose author is deleted, stays readable to whoever may read it.
  * @param viewer The viewer and the database.
- * @param id The resource ID in an outer query.
+ * @param id The revision ID in an outer query.
  * @returns The condition on the ID.
  */
-export function readableHistory(viewer: Viewer, id: SQLWrapper): SQL {
-  return and(readableResource(viewer, id), not(unprovenGenericHistory(id)))!;
+export function readableRevision(viewer: Viewer, id: SQLWrapper): SQL {
+  if (viewer.account?.admin === true) return sql`true`;
+  // Sources are stored before what embeds them, so the recursion ends; the
+  // union stops it on a cycle all the same.
+  return sql`(${ownEvidence(viewer, id)} and not exists (
+    with recursive readable_sources(id) as (
+      select ${embedded.sourceRevisionId} from ${revisionEmbeddings} ${embedded}
+      where ${embedded.revisionId} = ${id}
+      union
+      select ${transitive.sourceRevisionId} from ${revisionEmbeddings} ${transitive}
+      join readable_sources on readable_sources.id = ${transitive.revisionId}
+    )
+    select 1 from readable_sources
+    where not ${ownEvidence(viewer, sql`readable_sources.id`)}
+  ))`;
 }
 
 /**
@@ -341,9 +384,9 @@ const uuidOf = (node: unknown, key: "id" | "resourceId"): Uuid | null =>
 
 /**
  * Tells the resource a Relay node belongs to without being its typed detail,
- * as a revision belongs to its resource.  Such a node is hidden as that
- * resource's history is, by {@link readableHistory}, and nothing of its own,
- * such as a whiteout's deletion time, hides it.
+ * as a revision belongs to its resource.  Such a node is hidden by its own
+ * readability, as {@link readableRevision} tells, and nothing of its
+ * resource's, such as a deletion, hides it.
  * @returns The resource ID, or null for any other node.
  */
 export const owningResourceOf = (node: unknown): Uuid | null =>
@@ -353,40 +396,46 @@ export const owningResourceOf = (node: unknown): Uuid | null =>
  * Replaces the Relay nodes the viewer may not read by null, as if they did
  * not exist.  Activities, objects, and resources share their IDs, so a node's
  * ID alone tells whether it is one the viewer may not read; a node that
- * belongs to a resource, such as a revision, is checked against that
- * resource's history instead, as {@link owningResourceOf} tells.
+ * belongs to a resource, such as a revision, is checked by
+ * {@link readableRevision} instead, as {@link owningResourceOf} tells.
  * @returns The nodes, in the same order.
  */
 export async function hideUnreadableNodes(
   viewer: Viewer,
   nodes: readonly unknown[],
 ): Promise<unknown[]> {
-  const owningIds = nodes.map(owningResourceOf);
-  const ids = nodes.map((node, index) =>
-    owningIds[index] == null ? uuidOf(node, "id") : null,
+  const owned = nodes.map((node) =>
+    owningResourceOf(node) == null ? null : uuidOf(node, "id"),
   );
-  const owned = [...new Set(owningIds.filter((id) => id != null))];
-  const [hidden, readableOwners] = await Promise.all([
+  const ids = nodes.map((node, index) =>
+    owned[index] == null && owningResourceOf(node) == null
+      ? uuidOf(node, "id")
+      : null,
+  );
+  const revisionIds = [...new Set(owned.filter((id) => id != null))];
+  const [hidden, readableRevisions] = await Promise.all([
     unreadableResources(
       viewer,
       ids.filter((id) => id != null),
     ),
-    owned.length === 0
+    revisionIds.length === 0
       ? []
       : viewer.db
-          .select({ id: resources.id })
-          .from(resources)
+          .select({ id: resourceRevisions.id })
+          .from(resourceRevisions)
           .where(
             and(
-              inArray(resources.id, owned),
-              readableHistory(viewer, resources.id),
+              inArray(resourceRevisions.id, revisionIds),
+              readableRevision(viewer, resourceRevisions.id),
             ),
           ),
   ]);
-  const open = new Set(readableOwners.map(({ id }) => id));
+  const open = new Set(readableRevisions.map(({ id }) => id));
   return nodes.map((node, index) => {
-    const owner = owningIds[index];
-    if (owner != null) return open.has(owner) ? node : null;
+    if (owningResourceOf(node) != null) {
+      const id = owned[index];
+      return id != null && open.has(id) ? node : null;
+    }
     const id = ids[index];
     return id != null && hidden.has(id) ? null : node;
   });

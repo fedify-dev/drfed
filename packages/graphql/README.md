@@ -97,14 +97,17 @@ the resource currently registered under its IRI, opened as
 the validator cannot read the document, `interpreted` is false and
 `diagnostics` tell why.
 
-A revision, past ones included, is readable exactly when its resource is, as
-above.  Deletion hides no revision: deleting a resource appends a whiteout
-and leaves the history before it readable, and deleting its author hides
-none of it either, while `Resource.detail` and the other existing fields
-keep hiding what was deleted.  Local
-histories, blind recipients included, are readable by anyone.  The histories
-of resources without legacy details that hold revisions received from
-elsewhere are closed for now.  See [resource revision internals].
+Each revision is read by evidence of its own: anyone reads local revisions,
+blind recipients included, and revisions addressed to the public; members of
+a local instance read what a delivery to it carried; and a revision without
+such evidence is readable only while it is current and its resource is, as
+above.  A revision whose embedded documents came from revisions the viewer
+may not read is hidden as a whole.  Deletion hides no revision by itself,
+while `Resource.detail` and the other existing fields keep hiding what was
+deleted.  `DocumentNode.source` names the revision an embedded document came
+from, whether it keeps that revision's contents or was derived from it, and
+whether that revision is still current, superseded, or deleted.  See
+[resource revision internals].
 
 [resource revision internals]: https://drfed.org/internals/resource-revisions#graphql-reads
 

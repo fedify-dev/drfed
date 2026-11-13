@@ -32,11 +32,13 @@ import {
 import type {
   ResourceRevision as ResourceRevisionRow,
   Resource as ResourceRow,
+  RevisionEmbedding,
 } from "@drfed/models/schema";
+import type { Uuid } from "@drfed/models/uuid";
 import { and, eq, inArray } from "drizzle-orm";
 
 import builder, { type DrFedObjectRef, type UserContext } from "./builder.ts";
-import { readableHistory, readableResource } from "./readable.ts";
+import { readableResource, readableRevision } from "./readable.ts";
 import { Resource } from "./resource.ts";
 
 const ACTIVITY_STREAMS = "https://www.w3.org/ns/activitystreams#";
@@ -152,6 +154,44 @@ DocumentDiagnostic.implement({
   }),
 });
 
+const DocumentSourceRelation = builder.enumType("DocumentSourceRelation", {
+  description:
+    "How an embedded document relates to the revision it came from, as " +
+    "recorded when the document embedding it was saved.",
+  values: {
+    snapshot: {
+      description:
+        "It keeps the source revision's contents, apart from the context " +
+        "it inherits from the document embedding it.",
+    },
+    derived: {
+      description:
+        "It started from the source revision and was changed, as a test " +
+        "input with other addressing or an altered property.",
+    },
+  } satisfies Record<RevisionEmbedding["relation"], object>,
+});
+const DocumentSourceStatus = builder.enumType("DocumentSourceStatus", {
+  description:
+    "Where the source revision stands in its resource's history.  It " +
+    "compares revisions, not contents.",
+  values: {
+    current: { description: "It is the resource's current revision." },
+    superseded: {
+      description:
+        "A later revision is current, which may have the same contents.",
+    },
+    deleted: { description: "The resource's current revision is a whiteout." },
+  },
+});
+
+/** An embedding of a revision, with the source it names. */
+interface Source {
+  readonly relation: RevisionEmbedding["relation"];
+  readonly revision: ResourceRevisionRow;
+}
+const DocumentSource = builder.objectRef<Source>("DocumentSource");
+
 const DocumentNode = builder.objectRef<InterpretedNode>("DocumentNode");
 const DocumentRelation =
   builder.objectRef<RelationOccurrence>("DocumentRelation");
@@ -192,6 +232,102 @@ function registeredResource(
     lookups.set(iri, lookup);
   }
   return lookup;
+}
+
+// The revision each interpreted node belongs to.
+const nodeRevisions = new WeakMap<InterpretedNode, Uuid>();
+
+const embeddingLookups = new WeakMap<
+  UserContext,
+  Map<Uuid, Promise<ReadonlyMap<string, RevisionEmbedding>>>
+>();
+
+/**
+ * Loads the recorded embeddings of a revision by their paths, once per
+ * request.
+ * @returns The embeddings, keyed by the JSON of their paths.
+ */
+function embeddingsOf(
+  ctx: UserContext,
+  revisionId: Uuid,
+): Promise<ReadonlyMap<string, RevisionEmbedding>> {
+  let lookups = embeddingLookups.get(ctx);
+  if (lookups == null) {
+    lookups = new Map();
+    embeddingLookups.set(ctx, lookups);
+  }
+  let lookup = lookups.get(revisionId);
+  if (lookup == null) {
+    lookup = (async () =>
+      new Map(
+        (
+          await ctx.db
+            .select()
+            .from(schema.revisionEmbeddings)
+            .where(eq(schema.revisionEmbeddings.revisionId, revisionId))
+        ).map((row) => [JSON.stringify(row.path), row]),
+      ))();
+    lookups.set(revisionId, lookup);
+  }
+  return lookup;
+}
+
+/**
+ * Finds the recorded source of an embedded document, when the viewer may
+ * read the source revision.
+ * @returns The source, or null for the root, for a document whose source is
+ *          unknown, and for a source the viewer may not read.
+ */
+async function sourceOf(
+  ctx: UserContext,
+  node: InterpretedNode,
+): Promise<Source | null> {
+  const revisionId = nodeRevisions.get(node);
+  if (revisionId == null || node.path.length === 0) return null;
+  const embedding = (await embeddingsOf(ctx, revisionId)).get(
+    JSON.stringify(node.path),
+  );
+  if (embedding == null) return null;
+  const revision = await ctx.db.query.resourceRevisions.findFirst({
+    where: {
+      id: embedding.sourceRevisionId,
+      RAW: (table) => readableRevision(ctx, table.id),
+    },
+  });
+  return revision == null ? null : { relation: embedding.relation, revision };
+}
+
+/**
+ * Tells where a source revision stands against its resource's current
+ * revision.  An `unavailable` current revision, a legacy typed row without a
+ * retained document, is a later revision like any other.
+ * @returns The status, or null when the viewer may not read the current
+ *          revision.
+ */
+async function statusOf(
+  ctx: UserContext,
+  revision: ResourceRevisionRow,
+): Promise<"current" | "superseded" | "deleted" | null> {
+  const [current] = await ctx.db
+    .select({
+      id: schema.resourceRevisions.id,
+      kind: schema.resourceRevisions.kind,
+    })
+    .from(schema.resourceHeads)
+    .innerJoin(
+      schema.resourceRevisions,
+      eq(schema.resourceRevisions.id, schema.resourceHeads.revisionId),
+    )
+    .where(
+      and(
+        eq(schema.resourceHeads.resourceId, revision.resourceId),
+        readableRevision(ctx, schema.resourceRevisions.id),
+      ),
+    )
+    .limit(1);
+  if (current == null) return null;
+  if (current.id === revision.id) return "current";
+  return current.kind === "whiteout" ? "deleted" : "superseded";
 }
 
 const occurrenceFields = {
@@ -343,10 +479,44 @@ DocumentNode.implement({
       description:
         "Its own custom extension properties, by their source keys, sorted.",
     }),
+    source: t.field({
+      type: DocumentSource,
+      nullable: true,
+      description:
+        "The revision this embedded document came from, as recorded when " +
+        "the document embedding it was saved.  Null for the root, for an " +
+        "embedded document whose source is unknown, such as one saved " +
+        "before sources were recorded or pasted without one, and when the " +
+        "viewer may not read the source revision.",
+      resolve: (node, _, ctx) => sourceOf(ctx, node),
+    }),
   }),
 });
 
-type Content = Pick<ResourceRevisionRow, "kind" | "document">;
+DocumentSource.implement({
+  description:
+    "The revision an embedded document came from.  The viewer may read it, " +
+    "since a revision is readable only to those who may read its sources.",
+  fields: (t) => ({
+    relation: t.expose("relation", { type: DocumentSourceRelation }),
+    revision: t.field({
+      type: ResourceRevisionRef,
+      description: "The source revision, of the resource the document names.",
+      resolve: (source) => source.revision,
+    }),
+    status: t.field({
+      type: DocumentSourceStatus,
+      nullable: true,
+      description:
+        "Whether the source revision is still current, or a later revision " +
+        "or a deletion followed it; null when the viewer may not read the " +
+        "resource's current revision.",
+      resolve: (source, _, ctx) => statusOf(ctx, source.revision),
+    }),
+  }),
+});
+
+type Content = Pick<ResourceRevisionRow, "id" | "kind" | "document">;
 
 const interpretations = new WeakMap<Content, InterpretedNode | null>();
 const validations = new WeakMap<Content, readonly Diagnostic[]>();
@@ -358,12 +528,12 @@ const validations = new WeakMap<Content, readonly Diagnostic[]>();
  */
 function rootOf(revision: Content): InterpretedNode | null {
   if (!interpretations.has(revision)) {
-    interpretations.set(
-      revision,
+    const nodes =
       revision.kind === "snapshot"
-        ? (interpretDocument(revision.document)?.[0] ?? null)
-        : null,
-    );
+        ? interpretDocument(revision.document)
+        : null;
+    for (const node of nodes ?? []) nodeRevisions.set(node, revision.id);
+    interpretations.set(revision, nodes?.[0] ?? null);
   }
   return interpretations.get(revision)!;
 }
@@ -380,18 +550,24 @@ function diagnosticsOf(revision: Content): readonly Diagnostic[] {
   return diagnostics;
 }
 
-const content = { columns: { kind: true, document: true } } as const;
+const content = { columns: { id: true, kind: true, document: true } } as const;
 
 const ResourceRevisionRef = builder.drizzleNode("resourceRevisions", {
   name: "ResourceRevision",
   description:
-    "An immutable revision of a resource.  Every revision, past ones " +
-    "included, is readable exactly when its resource's history is: a local " +
-    "resource's by anyone, blind recipients and unpublished activities " +
-    "included; a remote one's as `Activity` and `Object` tell; never one " +
-    "hidden by a deletion.  A revision the viewer may not read is left out " +
-    "as if it did not exist.",
-  // A node lookup checks the revision against its resource.
+    "An immutable revision of a resource.  Each revision, past ones " +
+    "included, is readable by evidence of its own, not by the current " +
+    "state of its resource: one saved by DrFed for a local actor by anyone, " +
+    "blind recipients and unpublished activities included; one addressed " +
+    "to the public by anyone; one a receipt links to a delivery to a local " +
+    "instance the viewer is a member of by its members; and the current " +
+    "revision of a resource with a legacy typed row as `Activity` and " +
+    "`Object` tell.  A revision whose embedded documents came from other " +
+    "revisions is readable only by those who may read every one of them, " +
+    "and theirs in turn.  Administrators read every revision.  A later " +
+    "restriction or deletion of the resource hides no earlier revision.  A " +
+    "revision the viewer may not read is left out as if it did not exist.",
+  // A node lookup checks the revision by its own ID.
   select: { columns: { id: true, resourceId: true } },
   id: { column: (revision) => revision.id },
   fields: (t) => ({
@@ -469,7 +645,7 @@ builder.drizzleObjectField("resources", "currentRevision", (t) =>
     nullable: true,
     description:
       "The current revision; null for a resource without revisions, or when " +
-      "the viewer may not read the resource's revisions.",
+      "the viewer may not read the current revision.",
     select: { columns: { id: true } },
     resolve: async (resource, _, ctx) =>
       (await ctx.db.query.resourceRevisions.findFirst({
@@ -483,7 +659,7 @@ builder.drizzleObjectField("resources", "currentRevision", (t) =>
                   .from(schema.resourceHeads)
                   .where(eq(schema.resourceHeads.resourceId, resource.id)),
               ),
-              readableHistory(ctx, table.resourceId),
+              readableRevision(ctx, table.id),
             )!,
         },
       })) ?? null,
@@ -495,10 +671,10 @@ builder.drizzleObjectField("resources", "revisions", (t) =>
     "revisions",
     {
       description:
-        "Every revision, newest first.  Empty when the viewer may not read " +
-        "the resource's revisions.",
+        "The revisions the viewer may read, newest first.  Others are left " +
+        "out, so sequences may skip.",
       query: (_, ctx) => ({
-        where: { RAW: (table) => readableHistory(ctx, table.resourceId) },
+        where: { RAW: (table) => readableRevision(ctx, table.id) },
         orderBy: { sequence: "desc" },
       }),
     },

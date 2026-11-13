@@ -40,9 +40,11 @@ import { Activity } from "@fedify/vocab";
 import { asc, eq } from "drizzle-orm";
 
 import type { WritingActor } from "./actor.ts";
+import { checkSources } from "./embedding.ts";
 import {
   type IdentityLookups,
   checkIndexable,
+  checkSourceShapes,
   deniedClaims,
   indexDocument,
   pathKey,
@@ -100,7 +102,9 @@ export function checkExistingRequest(
   ) {
     return invalid("The document must be a JSON object.");
   }
-  return null;
+  return request.operation === "edit"
+    ? checkSourceShapes(request.sources)
+    : null;
 }
 
 /**
@@ -115,7 +119,15 @@ export function bindableExisting(
     actorId: request.actorId,
     objectId: request.objectId,
     expectedRevisionId: request.expectedRevisionId,
-    ...(request.operation === "edit" ? { document: request.document } : {}),
+    ...(request.operation === "edit"
+      ? {
+          document: request.document,
+          sources: (request.sources ?? []).map(({ path, revisionId }) => ({
+            path,
+            revisionId,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -413,6 +425,13 @@ export async function prepareEdit(
       validateDocument(submitted).diagnostics,
     );
   }
+  const sourceError = await checkSources(
+    request.sources ?? [],
+    nodes,
+    new Set(),
+    lookups.revisions,
+  );
+  if (sourceError != null) return sourceError;
   const root = nodes[0]!;
   if (root.type !== target.type) {
     return writeError(

@@ -169,6 +169,33 @@ ownership or grants access. For legacy data, `fetched` inherits the old
 conservative flag and is not proof that an HTTP fetch occurred.
 
 
+Embedded document sources
+-------------------------
+
+`revision_embeddings` records where an embedded document of a revision came
+from: its source path, the `source_revision_id` of a snapshot of another
+resource, and its `relation`.  A `snapshot` keeps the source revision's
+contents, apart from the context it inherits; a `derived` document started
+from that revision and was changed, for example to test how a peer handles
+other addressing.  An embedded document without a row has an unknown source,
+which proves neither that it was nor that it was never saved as a revision:
+older data and pasted documents lack the record.  An IRI reference is a
+separate choice, recorded as the `reference` representation of a relation,
+and has no source.
+
+Rows are written with the revision through the `embeddings` input of
+`appendResourceRevision()` and `writeTypedResourceRevision()`, and like other
+projections they cannot be added after the revision is published, changed or
+removed.  The database also refuses a source that is not a snapshot or that
+belongs to the same resource.  The
+[local writes](local-writes.md#embedded-document-sources) decide the rows;
+legacy capture and received documents record none.
+
+Comparing an embedded document with the current state therefore compares
+revisions of one resource by `sequence`, not timestamps of different
+transactions, which do not follow commit order.
+
+
 Legacy capture and upgrades
 ---------------------------
 
@@ -250,16 +277,43 @@ outside the offline allowlist or one with an unsupported property,
 `interpreted` is false, `root` is null and `diagnostics` tell why; nothing
 falls back to typed rows.
 
-Every revision follows the rule of its resource, in `readableHistory()` in
-*packages/graphql/src/readable.ts*: the resource must be readable as
-`Resource.detail` decides, so local histories are open to anyone. A Relay node
-lookup of a revision checks its resource the same way. Deletion hides no
-revision: deleting a resource appends a whiteout, and its history, like that of
-a resource whose author is deleted, stays readable to whoever may read the
-resource, whether or not it has legacy typed rows. Only the existing fields,
-such as `Resource.detail`, keep hiding deleted typed rows. Readability is the
-existing rule, which reads legacy typed rows. A relation's or recipient's
-`resource` is opened as `Activity.object` is, deleted or not. Until the team
-decides what opens them, `unprovenGenericHistory()` there closes the histories
-of generic resources with a revision not captured locally, while their IRI and
-kind stay readable.
+Each revision is read by evidence of its own, in `readableRevision()` in
+*packages/graphql/src/readable.ts*, not by the rule of its resource.  An
+administrator reads every revision.  Anyone else reads one that was captured
+`local`, whose own revision addressing names the public, or that a receipt
+links to an inbound delivery to a local instance the viewer is an accepted
+member of.  A revision without such evidence is readable only while it is the
+current revision of a resource with a legacy typed row that the viewer may
+read, as `Resource.detail` decides.  Local histories are therefore open to
+anyone, blind recipients and unpublished activities included.  Evidence for
+one revision opens no other: a later delivery naming the same IRI does not
+open an earlier private revision, and a later restriction of the current
+resource does not hide an earlier public one.  A Relay node lookup of a
+revision checks the revision itself, and `Resource.revisions` leaves out the
+ones the viewer may not read, so their sequences can skip.
+
+A revision is also readable only when the viewer may read, by the same
+evidence, every revision it carries through its
+[embedded document sources](#embedded-document-sources), directly or through
+the local revisions it embeds.  A local `Announce` that embeds a `Note`
+received only by one instance is thus readable only by that instance's
+members and administrators; anyone else reads it as if it did not exist.  The
+whole revision is hidden rather than the embedded part, so that the same saved
+JSON is never read differently by different viewers, and a reader of a
+revision may always read its sources.
+
+Deletion hides no revision by itself: deleting a resource appends a whiteout,
+and its earlier revisions, like those of a resource whose author is deleted,
+stay readable by their own evidence.  Only the existing fields, such as
+`Resource.detail`, keep hiding deleted typed rows.  A relation's or
+recipient's `resource` is opened as `Activity.object` is, deleted or not.
+
+`DocumentNode.source` tells where an embedded document came from: its
+`relation`, `snapshot` or `derived`, the source `revision`, and `status`,
+which compares that revision with the current revision of its resource:
+`current` when it is the current one, `deleted` when the current revision is
+a whiteout, and `superseded` otherwise.  The status compares revisions only,
+not contents.  It is null when the viewer may not read the current revision,
+which would otherwise tell of a revision they may not read.  `source` is null
+for the root, for an embedded document whose source is unknown, and when the
+viewer may not read the source revision.

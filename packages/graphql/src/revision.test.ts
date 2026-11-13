@@ -38,11 +38,14 @@ import {
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import { eq } from "drizzle-orm";
 
+import { hashSecret } from "./auth/hash.ts";
 import { type TestHarness, withTestHarness } from "./harness.test.ts";
 import {
   accountId,
+  created,
   globalId,
   localActorId,
+  localInstanceId,
   remoteActorId,
   seedAuthenticatedLocalInstance,
   seedLocalActor,
@@ -869,6 +872,343 @@ describe("Access to revisions", () => {
           },
         });
       }
+    });
+  });
+});
+
+/**
+ * Signs in an account that is no member of the local instance, or an
+ * administrator.
+ * @returns The request options that authenticate as it.
+ */
+async function seedViewer(db: Database, admin: boolean): Promise<RequestInit> {
+  const id = uuidV7();
+  const token = `token-${id}`;
+  await db.insert(schema.accounts).values({
+    id,
+    email: `${id}@example.com`,
+    name: admin ? "Admin" : "Outsider",
+    admin,
+    created,
+  });
+  await db.insert(schema.sessions).values({
+    id: uuidV7(),
+    accountId: id,
+    tokenHash: await hashSecret(token),
+  });
+  return { headers: { authorization: `Bearer ${token}` } };
+}
+
+/**
+ * Stores a revision received from elsewhere, addressed as given.
+ * @returns Its resource's IRI and the revision ID.
+ */
+async function receive(
+  db: Database,
+  iri: string,
+  to: readonly string[],
+  content: string,
+): Promise<{ resourceId: Uuid; revisionId: Uuid }> {
+  const resource = await ensureResource(db, iri);
+  const current = await loadCurrentResourceRevision(db, resource.id);
+  const revision = await appendResourceRevision(db, {
+    resourceId: resource.id,
+    resourceKind: "object",
+    expectedRevisionId: current?.id ?? null,
+    kind: "snapshot",
+    capture: "received",
+    document: { "@context": AS, id: iri, type: "Note", content, to: [...to] },
+    addressing: { to: [...to] },
+  });
+  return { resourceId: resource.id, revisionId: revision.id };
+}
+
+/** Links a revision to an inbound delivery to the local instance. */
+async function receipt(db: Database, revision: Uuid): Promise<void> {
+  const deliveryId = uuidV7();
+  await db.insert(schema.activityDeliveries).values({
+    id: deliveryId,
+    instanceId: localInstanceId,
+    direction: "inbound",
+    status: "received",
+    verificationResult: "verified",
+    inboxUrl: `${ACTOR_IRI}/inbox`,
+    body: Buffer.from(""),
+    completed: Temporal.Now.instant(),
+  });
+  await db
+    .insert(schema.revisionReceipts)
+    .values({ deliveryId, revisionId: revision, role: "object" });
+}
+
+/**
+ * Saves a local activity that embeds a document as its `object`, with the
+ * embedding recorded when a source is given.
+ * @returns The activity's resource ID and its revision ID.
+ */
+async function embed(
+  db: Database,
+  type: string,
+  object: JsonObject,
+  source?: { revisionId: Uuid; relation: "snapshot" | "derived" },
+): Promise<{ resourceId: Uuid; revisionId: Uuid }> {
+  const resource = await ensureResource(db, `${ACTOR_IRI}/${uuidV7()}`);
+  const revision = await appendResourceRevision(db, {
+    resourceId: resource.id,
+    resourceKind: "activity",
+    expectedRevisionId: null,
+    kind: "snapshot",
+    capture: "local",
+    document: {
+      "@context": AS,
+      id: resource.iri,
+      type,
+      actor: ACTOR_IRI,
+      object,
+    },
+    ...(source == null
+      ? {}
+      : {
+          embeddings: [
+            {
+              path: ["object"],
+              sourceRevisionId: source.revisionId,
+              relation: source.relation,
+            },
+          ],
+        }),
+  });
+  return { resourceId: resource.id, revisionId: revision.id };
+}
+
+const withoutContext = ({ "@context": _, ...rest }: JsonObject): JsonObject =>
+  rest;
+
+describe("Access to revisions by their embeddings", () => {
+  it("opens a document embedding a private received revision only to its readers", async () => {
+    await withWriter(async ({ harness, auth, query }) => {
+      const { db } = harness;
+      const iri = `https://remote.example/notes/${uuidV7()}`;
+      const followers = "https://remote.example/users/carol/followers";
+      const received = await receive(db, iri, [followers], "secret");
+      await receipt(db, received.revisionId);
+      const stored = await loadCurrentResourceRevision(db, received.resourceId);
+      const announce = await embed(
+        db,
+        "Announce",
+        withoutContext(stored!.document as JsonObject),
+        { revisionId: received.revisionId, relation: "snapshot" },
+      );
+      // An intermediate local revision carries the requirement on.
+      const announced = await loadCurrentResourceRevision(
+        db,
+        announce.resourceId,
+      );
+      const undo = await embed(
+        db,
+        "Undo",
+        withoutContext(announced!.document as JsonObject),
+        { revisionId: announce.revisionId, relation: "snapshot" },
+      );
+      const read = `query($announce: ID!, $announceRevision: ID!, $undo: ID!, $undoRevision: ID!) {
+        announcement: node(id: $announce) { ... on Resource {
+          currentRevision { id } revisions { edges { node { id } } }
+        } }
+        announceRevision: node(id: $announceRevision) { ... on ResourceRevision { id } }
+        undoing: node(id: $undo) { ... on Resource { currentRevision { id } } }
+        undoRevisions: nodes(ids: [$undoRevision]) { id }
+      }`;
+      const variables = {
+        announce: globalId("Resource", announce.resourceId),
+        announceRevision: revisionId(announce.revisionId),
+        undo: globalId("Resource", undo.resourceId),
+        undoRevision: revisionId(undo.revisionId),
+      };
+      const open = {
+        data: {
+          announcement: {
+            currentRevision: { id: variables.announceRevision },
+            revisions: {
+              edges: [{ node: { id: variables.announceRevision } }],
+            },
+          },
+          announceRevision: { id: variables.announceRevision },
+          undoing: { currentRevision: { id: variables.undoRevision } },
+          undoRevisions: [{ id: variables.undoRevision }],
+        },
+      };
+      const closed = {
+        data: {
+          announcement: { currentRevision: null, revisions: { edges: [] } },
+          announceRevision: null,
+          undoing: { currentRevision: null },
+          undoRevisions: [null],
+        },
+      };
+      const outsider = await seedViewer(db, false);
+      const admin = await seedViewer(db, true);
+      for (const init of [undefined, outsider]) {
+        const response = await harness.post({ query: read, variables }, init);
+        assert.deepEqual(await response.json(), closed);
+      }
+      for (const init of [auth, admin]) {
+        assert.deepEqual(await query(read, variables, init), open);
+      }
+    });
+  });
+
+  it("keeps an earlier public revision readable after a private one", async () => {
+    await withWriter(async ({ harness, query }) => {
+      const { db } = harness;
+      const iri = `https://remote.example/notes/${uuidV7()}`;
+      const first = await receive(db, iri, [PUBLIC_IRI], "public");
+      await receive(db, iri, ["https://remote.example/users/carol"], "private");
+      const stored = (await db.query.resourceRevisions.findFirst({
+        where: { id: first.revisionId },
+      }))!;
+      const like = await embed(
+        db,
+        "Like",
+        withoutContext(stored.document as JsonObject),
+        { revisionId: first.revisionId, relation: "snapshot" },
+      );
+      const read = `query($id: ID!, $like: ID!) {
+        node(id: $id) { ... on Resource {
+          currentRevision { id }
+          revisions { edges { node { sequence document } } }
+        } }
+        like: node(id: $like) { ... on Resource { currentRevision { root {
+          relations(property: object) { node { source {
+            relation status revision { sequence }
+          } } }
+        } } } }
+      }`;
+      const variables = {
+        id: globalId("Resource", first.resourceId),
+        like: globalId("Resource", like.resourceId),
+      };
+      const sourceOf = (status: string | null) => ({
+        currentRevision: {
+          root: {
+            relations: [
+              {
+                node: {
+                  source: {
+                    relation: "snapshot",
+                    status,
+                    revision: { sequence: 1 },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+      const response = await harness.post({ query: read, variables });
+      const text = await response.text();
+      assert.ok(!text.includes('"private"'));
+      assert.deepEqual(JSON.parse(text), {
+        data: {
+          node: {
+            currentRevision: null,
+            revisions: {
+              edges: [{ node: { sequence: 1, document: stored.document } }],
+            },
+          },
+          // Whether a later revision exists is not told without reading it.
+          like: sourceOf(null),
+        },
+      });
+      const admin = await seedViewer(db, true);
+      const body = await query(read, variables, admin);
+      assert.equal(body.data?.node.revisions.edges.length, 2);
+      assert.deepEqual(body.data?.like, sourceOf("superseded"));
+    });
+  });
+});
+
+describe("DocumentNode.source", () => {
+  const source = `query($id: ID!) { node(id: $id) { ... on Resource {
+    currentRevision { root { source { relation } relations(property: object) {
+      node { source { relation status revision { id sequence } } }
+    } } }
+  } } }`;
+
+  const read = async (
+    query: Writer["query"],
+    resourceId: Uuid,
+  ): Promise<unknown> => {
+    const body = await query(source, { id: globalId("Resource", resourceId) });
+    assert.equal(body.errors, undefined);
+    const root = body.data?.node.currentRevision.root;
+    // The root is no embedded document.
+    assert.equal(root.source, null);
+    return root.relations[0].node.source;
+  };
+
+  it("tells snapshots and derived documents and where their sources stand", async () => {
+    await withWriter(async ({ harness, query }) => {
+      const { db } = harness;
+      const note = await ensureResource(db, `${ACTOR_IRI}/notes/${uuidV7()}`);
+      const document = { id: note.iri, type: "Note", content: "1" };
+      const first = await appendResourceRevision(db, {
+        resourceId: note.id,
+        resourceKind: "object",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "local",
+        document: { "@context": AS, ...document },
+      });
+      const create = await embed(db, "Create", document, {
+        revisionId: first.id,
+        relation: "snapshot",
+      });
+      const announce = await embed(
+        db,
+        "Announce",
+        { ...document, content: "changed" },
+        { revisionId: first.id, relation: "derived" },
+      );
+      const pasted = await embed(db, "Like", document);
+      const expected = (relation: string, status: string) => ({
+        relation,
+        status,
+        revision: { id: revisionId(first.id), sequence: 1 },
+      });
+      assert.deepEqual(
+        await read(query, create.resourceId),
+        expected("snapshot", "current"),
+      );
+      assert.deepEqual(
+        await read(query, announce.resourceId),
+        expected("derived", "current"),
+      );
+      // A document embedded without a recorded source has an unknown one.
+      assert.equal(await read(query, pasted.resourceId), null);
+      const second = await appendResourceRevision(db, {
+        resourceId: note.id,
+        resourceKind: "object",
+        expectedRevisionId: first.id,
+        kind: "snapshot",
+        capture: "local",
+        document: { "@context": AS, ...document, content: "2" },
+      });
+      assert.deepEqual(
+        await read(query, create.resourceId),
+        expected("snapshot", "superseded"),
+      );
+      await appendResourceRevision(db, {
+        resourceId: note.id,
+        resourceKind: "object",
+        expectedRevisionId: second.id,
+        kind: "whiteout",
+        deleted: Temporal.Now.instant(),
+        formerTypes: ["Note"],
+      });
+      assert.deepEqual(
+        await read(query, create.resourceId),
+        expected("snapshot", "deleted"),
+      );
     });
   });
 });
