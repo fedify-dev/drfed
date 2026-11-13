@@ -3,9 +3,11 @@
   "devDependencies": {
     "@chillicream/agent-skills": "github:ChilliCream/agent-skills#23b4e12f696885fb5a71dacddddec69124207f94",
     "@dahlia/sacho": "github:dahlia/sacho#0.3.2",
+    "@drfed/federation": "workspace:*",
     "@drfed/graphql": "workspace:*",
     "@drfed/models": "workspace:*",
     "@electric-sql/pglite": "catalog:",
+    "@fedify/fedify": "catalog:",
     "@logtape/logtape": "catalog:",
     "@open-circle/agent-skills": "github:open-circle/agent-skills#21d123742218d3cd748056fad78aa88d7da3dc96",
     "@sigstore/oci": "0.7.2",

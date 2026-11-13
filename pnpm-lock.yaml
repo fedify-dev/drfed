@@ -136,6 +136,9 @@ importers:
       '@dahlia/sacho':
         specifier: github:dahlia/sacho#0.3.2
         version: https://codeload.github.com/dahlia/sacho/tar.gz/e8cb82260b34a29685fbe341e9c196d919cf9e9c
+      '@drfed/federation':
+        specifier: workspace:*
+        version: link:packages/federation
       '@drfed/graphql':
         specifier: workspace:*
         version: link:packages/graphql
@@ -145,6 +148,9 @@ importers:
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.3
+      '@fedify/fedify':
+        specifier: 'catalog:'
+        version: 2.4.3
       '@logtape/logtape':
         specifier: 'catalog:'
         version: 2.3.0-dev.840
@@ -1558,6 +1564,7 @@ packages:
   '@opentelemetry/sdk-trace-base@2.11.0':
     resolution: {integrity: sha512-H19x/TX/LZdqiYOjM7fqtSxwlplC5pgelavqbQdHbhdq0q/AI/TGkM2dfGuuynTXmJPeF2HoZVoPDu+TGoW78A==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 

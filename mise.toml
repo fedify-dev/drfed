@@ -394,6 +394,14 @@ $env.name = $env.usage_name
 node scripts/create-account.mts
 '''
 
+[tasks."seed:revisions"]
+description = "Seed resource revisions for UI work into a development PGlite database"
+depends = ["build:backend"]
+usage = '''
+flag "-d --data-path <path>" default=".pgdata" help="PGlite data directory; it must not be seeded yet"
+'''
+run = "node scripts/seed-revisions/main.mts"
+
 [tasks."generate:migrate"]
 description = "Generate database migration files"
 usage = """
