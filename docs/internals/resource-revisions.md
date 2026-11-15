@@ -302,8 +302,12 @@ anyone, as every local revision is, whether it records that `Note`'s revision
 as its source or was pasted without one: recording a source never makes a
 document harder to read.  Only following the source checks the source
 revision, as `DocumentNode.source` does below.  Received content stays
-protected where it is read: the received revision itself is readable only by
-the evidence above.
+protected where it is read or imported: the received revision itself is
+readable only by the evidence above, and a local write may declare as a
+source only a revision its member may read, as
+[local writes](local-writes.md#embedded-document-sources) describe.
+`unreadableRevisions(viewer, ids)` in `@drfed/graphql/readable` applies the
+same rule to a set of revisions for that check.
 
 Deletion hides no revision by itself: deleting a resource appends a whiteout,
 and its earlier revisions, like those of a resource whose author is deleted,

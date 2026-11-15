@@ -719,7 +719,9 @@ The GraphQL types for resource revisions live in *src/revision.ts*.  Each
 revision is read by evidence of its own, through `readableRevision()` in
 *src/readable.ts*, never by the current state of its resource nor by where
 its embedded documents came from; only `DocumentNode.source` checks a source
-revision.  Filter revisions by it before paging.
+revision.  Filter revisions by it before paging, and use
+`unreadableRevisions()` wherever another layer, such as a local write's
+`sources`, must apply the same rule.
 
 
 CLI and server changes

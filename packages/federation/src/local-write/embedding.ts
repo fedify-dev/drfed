@@ -15,10 +15,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import { type Database, type Transaction, schema } from "@drfed/models";
-import type {
-  DocumentNode,
-  FieldPath,
-  JsonValue,
+import {
+  DIAGNOSTIC_REASONS,
+  type DocumentNode,
+  type FieldPath,
+  type JsonValue,
 } from "@drfed/models/document";
 import type { RevisionEmbeddingInput } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
@@ -52,16 +53,26 @@ export interface SourceSnapshot {
   readonly document: JsonValue;
 }
 
+/** A snapshot this write saved, with the sources recorded for it. */
+export interface SavedSnapshot extends SourceSnapshot {
+  readonly embeddings: readonly RevisionEmbeddingInput[];
+}
+
 /**
  * Loads the revisions that requests name as sources, with the IRIs of their
  * resources.
- * @returns The revisions by their lowercase IDs; unknown IDs are absent.
+ * @param hidden The lowercase IDs of revisions the principal may not read,
+ *               which are left out as if they did not exist.
+ * @returns The revisions by their lowercase IDs; unknown and hidden IDs are
+ *          absent.
  */
 export async function loadSourceRevisions(
   db: Database | Transaction,
   ids: readonly Uuid[],
+  hidden: ReadonlySet<string> = new Set(),
 ): Promise<ReadonlyMap<string, SourceRevision>> {
-  if (ids.length === 0) return new Map();
+  const shown = ids.filter((id) => !hidden.has(id.toLowerCase()));
+  if (shown.length === 0) return new Map();
   const rows = await db
     .select({
       id: schema.resourceRevisions.id,
@@ -73,7 +84,7 @@ export async function loadSourceRevisions(
       schema.resources,
       eq(schema.resources.id, schema.resourceRevisions.resourceId),
     )
-    .where(inArray(schema.resourceRevisions.id, [...new Set(ids)]));
+    .where(inArray(schema.resourceRevisions.id, [...new Set(shown)]));
   return new Map(
     rows.map(({ id, kind, iri }) => [id.toLowerCase(), { iri, kind }]),
   );
@@ -83,11 +94,15 @@ export async function loadSourceRevisions(
  * Checks the sources a request declares against the submitted document:
  * each names, once, an embedded document that is not a `Link`, is not a new
  * resource of the write, and has an `id`, and a stored snapshot of the
- * resource registered under that `id`.
+ * resource registered under that `id` that the principal may read.  Every
+ * failure of the named revision, whether it does not exist, is no snapshot,
+ * belongs to another resource, or may not be read, is one and the same
+ * `source_unavailable`, so that it tells nothing of revisions the principal
+ * may not read.
  * @param sources The declared sources.
  * @param nodes The documents the submitted document describes.
  * @param newPaths The keys of the paths of the write's new resources.
- * @param revisions Looks up the declared revisions.
+ * @param revisions Looks up the declared revisions the principal may read.
  * @returns Why a declaration is invalid, or null.
  */
 export async function checkSources(
@@ -102,7 +117,7 @@ export async function checkSources(
   const invalid = (message: string) => writeError("invalid_request", message);
   const byPath = new Map(nodes.map((node) => [pathKey(node.path), node]));
   const seen = new Set<string>();
-  const named: { key: string; iri: string; revisionId: Uuid }[] = [];
+  const named: { path: FieldPath; iri: string; revisionId: Uuid }[] = [];
   for (const { path, revisionId } of sources) {
     const key = pathKey(path);
     if (seen.has(key)) return invalid(`The source of ${key} is listed twice.`);
@@ -116,16 +131,26 @@ export async function checkSources(
     }
     const iri = node.identifiers.find(({ property }) => property === "id")?.iri;
     if (iri == null) return invalid(`${key} has no id to name its source.`);
-    named.push({ key, iri, revisionId });
+    named.push({ path, iri, revisionId });
   }
   const found = await revisions(named.map(({ revisionId }) => revisionId));
-  for (const { key, iri, revisionId } of named) {
+  const unavailable = named.filter(({ iri, revisionId }) => {
     const revision = found.get(revisionId.toLowerCase());
-    if (revision?.kind !== "snapshot" || revision.iri !== iri) {
-      return invalid(`The source of ${key} is not a saved version of ${iri}.`);
-    }
-  }
-  return null;
+    return revision?.kind !== "snapshot" || revision.iri !== iri;
+  });
+  return unavailable.length === 0
+    ? null
+    : writeError(
+        "source_unavailable",
+        "A declared source is not a saved version of its document that " +
+          "can be read.",
+        unavailable.map(({ path }) => ({
+          reason: "source_unavailable",
+          ...DIAGNOSTIC_REASONS.source_unavailable,
+          path,
+          message: "The source is not a saved version that can be read.",
+        })),
+      );
 }
 
 /**
@@ -197,51 +222,6 @@ export function embeddingRelation(
     : "derived";
 }
 
-/**
- * Reads the current snapshots of the resources registered under IRIs.
- * @returns The snapshots by IRI; resources whose current revision is not a
- *          snapshot, and unregistered IRIs, are absent.
- */
-async function currentSnapshots(
-  tx: Transaction,
-  iris: readonly string[],
-): Promise<ReadonlyMap<string, SourceSnapshot>> {
-  if (iris.length === 0) return new Map();
-  const rows = await tx
-    .select({
-      iri: schema.resources.iri,
-      revisionId: schema.resourceRevisions.id,
-      document: schema.resourceRevisions.document,
-    })
-    .from(schema.resources)
-    .innerJoin(
-      schema.resourceHeads,
-      eq(schema.resourceHeads.resourceId, schema.resources.id),
-    )
-    .innerJoin(
-      schema.resourceRevisions,
-      and(
-        eq(
-          schema.resourceRevisions.resourceId,
-          schema.resourceHeads.resourceId,
-        ),
-        eq(schema.resourceRevisions.id, schema.resourceHeads.revisionId),
-      ),
-    )
-    .where(
-      and(
-        inArray(schema.resources.iri, [...new Set(iris)]),
-        eq(schema.resourceRevisions.kind, "snapshot"),
-      ),
-    );
-  return new Map(
-    rows.map(({ iri, revisionId, document }) => [
-      iri,
-      { revisionId, document: document as JsonValue },
-    ]),
-  );
-}
-
 async function storedSnapshots(
   tx: Transaction,
   ids: readonly Uuid[],
@@ -274,16 +254,18 @@ async function storedSnapshots(
  * depth.  Each takes its source from, in order:
  *
  *  1. the revision this write saved for its IRI, as a new nested resource
- *     or an edited object;
+ *     or an edited object; when the document keeps that revision, the
+ *     documents it embeds take the sources recorded for that revision too,
+ *     so that an `Update` records those of the version it carries;
  *  2. the revision the request declares for its submitted path, for a
- *     document the request submitted rather than one the server generated;
- *  3. the current snapshot of the resource registered under its IRI, only
- *     when the embedded document keeps it.
+ *     document the request submitted rather than one the server generated.
  *
- * Any other has an unknown source and no row.
+ * Any other has an unknown source and no row, even when it equals a stored
+ * revision of the resource under its IRI: a source is never guessed.
  * @param tx The write's transaction.
  * @param resource The prepared resource about to be saved.
- * @param declared Declared source revisions by the keys of submitted paths.
+ * @param declared Declared source revisions by the keys of submitted paths,
+ *                 already checked to be readable snapshots.
  * @param saved The snapshots this write has saved so far, by IRI.
  * @returns The embeddings to save with the resource's revision.
  */
@@ -291,7 +273,7 @@ export async function findEmbeddings(
   tx: Transaction,
   resource: PreparedResource,
   declared: ReadonlyMap<string, Uuid>,
-  saved: ReadonlyMap<string, SourceSnapshot>,
+  saved: ReadonlyMap<string, SavedSnapshot>,
 ): Promise<RevisionEmbeddingInput[]> {
   const nodes = interpretDocument(resource.document) ?? [];
   const nodePaths = new Set(nodes.map(({ path }) => pathKey(path)));
@@ -303,49 +285,47 @@ export async function findEmbeddings(
       node.iri !== resource.iri,
   );
   const declaredFor = (node: InterpretedNode): Uuid | undefined =>
-    resource.generated
+    resource.generated || saved.has(node.iri ?? "")
       ? undefined
       : declared.get(pathKey([...resource.path, ...node.path]));
-  const [declaredSnapshots, currentByIri] = await Promise.all([
-    storedSnapshots(
-      tx,
-      embedded.flatMap((node) => {
-        const id = saved.has(node.iri) ? undefined : declaredFor(node);
-        return id == null ? [] : [id];
-      }),
-    ),
-    currentSnapshots(
-      tx,
-      embedded
-        .filter((node) => !saved.has(node.iri) && declaredFor(node) == null)
-        .map(({ iri }) => iri),
-    ),
-  ]);
-  const relation = (node: InterpretedNode, source: SourceSnapshot) =>
-    embeddingRelation(
+  const declaredSnapshots = await storedSnapshots(
+    tx,
+    embedded.flatMap((node) => {
+      const id = declaredFor(node);
+      return id == null ? [] : [id];
+    }),
+  );
+  const direct = embedded.flatMap((node): RevisionEmbeddingInput[] => {
+    const declaredId = declaredFor(node);
+    const source =
+      saved.get(node.iri) ??
+      (declaredId == null
+        ? undefined
+        : declaredSnapshots.get(declaredId.toLowerCase()));
+    if (source == null) return [];
+    const relation = embeddingRelation(
       resource.document,
       nodePaths,
       node.path,
       node.value,
       source.document,
     );
-  return embedded.flatMap((node): RevisionEmbeddingInput[] => {
-    const own = saved.get(node.iri);
-    const declaredId = own == null ? declaredFor(node) : undefined;
-    const source =
-      own ??
-      (declaredId == null
-        ? currentByIri.get(node.iri)
-        : declaredSnapshots.get(declaredId.toLowerCase()));
-    if (source == null) return [];
-    const found = relation(node, source);
-    // An undeclared document matched by IRI alone has a source only when
-    // it keeps the current snapshot.
-    if (own == null && declaredId == null && found !== "snapshot") return [];
-    return [
-      { path: node.path, sourceRevisionId: source.revisionId, relation: found },
-    ];
+    return [{ path: node.path, sourceRevisionId: source.revisionId, relation }];
   });
+  const recorded = new Set(direct.map(({ path }) => pathKey(path)));
+  const inherited = direct.flatMap(({ path, sourceRevisionId, relation }) =>
+    relation === "snapshot"
+      ? [...saved.values()]
+          .filter(({ revisionId }) => revisionId === sourceRevisionId)
+          .flatMap(({ embeddings }) => embeddings)
+          .map((embedding) => ({
+            ...embedding,
+            path: [...path, ...embedding.path],
+          }))
+          .filter((embedding) => !recorded.has(pathKey(embedding.path)))
+      : [],
+  );
+  return [...direct, ...inherited];
 }
 
 /**

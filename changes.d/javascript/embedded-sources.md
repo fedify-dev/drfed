@@ -8,4 +8,8 @@ links:
     revision's contents or was derived from it.  `commitLocalWrite()` in
     `@drfed/federation/local-write` records them for every document it saves,
     and `create` and `edit` requests accept `sources` to declare the revision
-    an embedded document was loaded from.  [[#154]]
+    an embedded document was loaded from.  Declaring sources requires the
+    `unreadableRevisions` option of `previewLocalWrite()` and
+    `commitLocalWrite()`, such as `unreadableRevisions()` of the new
+    `@drfed/graphql/readable`; a source that is missing or that the member
+    may not read fails alike with `source_unavailable`.  [[#154]]

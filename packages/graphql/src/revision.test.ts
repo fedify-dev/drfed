@@ -21,12 +21,16 @@ import { describe, it } from "node:test";
 
 import {
   type CreateRequest,
+  type EmbeddedSource,
   type JsonObject,
   type LocalWriteEnvironment,
   type LocalWriteRequest,
+  type PreviewOptions,
+  type SavedResource,
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
+import { unreadableRevisions } from "@drfed/graphql/readable";
 import { type Database, schema } from "@drfed/models";
 import { PUBLIC_IRI, ensureResource } from "@drfed/models/resource";
 import {
@@ -60,6 +64,7 @@ const ACTOR_IRI = `https://test-instance.drfed.org/users/${localActorId}`;
 const FEATURED_IRI = `${ACTOR_IRI}/featured`;
 const BLIND = "https://remote.example/users/blind";
 const PRINCIPAL = { accountId: accountId as Uuid };
+const ACTIVITY: CreateRequest["resources"] = [{ path: [], kind: "activity" }];
 const CAROL = "https://remote.example/users/carol";
 
 const revisionId = (id: string): string =>
@@ -67,14 +72,21 @@ const revisionId = (id: string): string =>
 
 interface Writer {
   readonly harness: TestHarness;
+  readonly env: LocalWriteEnvironment;
+  /** The account of the local instance's member, who writes. */
+  readonly account: Account;
   readonly auth: RequestInit;
-  /** Saves new resources and returns their IDs and IRIs, root last. */
+  /**
+   * Saves new resources and returns their IDs and IRIs, root last.  Declared
+   * sources are checked against what the writer may read.
+   */
   save(
     document: JsonObject,
     resources?: CreateRequest["resources"],
+    sources?: readonly EmbeddedSource[],
   ): Promise<{ id: Uuid; iri: string }[]>;
   /** Commits an edit or deletion. */
-  change(request: LocalWriteRequest): Promise<void>;
+  change(request: LocalWriteRequest): Promise<readonly SavedResource[]>;
   /** Sends a query, anonymously unless `init` authenticates it. */
   query(
     query: string,
@@ -83,6 +95,15 @@ interface Writer {
   ): Promise<{ data?: Record<string, any>; errors?: unknown[] }>;
 }
 
+/**
+ * Checks declared sources as the GraphQL layer reads revisions for an
+ * account.
+ * @returns The options that pass the check to a local write.
+ */
+const readerOf = (db: Database, account: Account): PreviewOptions => ({
+  unreadableRevisions: (ids) => unreadableRevisions({ db, account }, ids),
+});
+
 async function withWriter(
   // oxlint-disable-next-line promise/prefer-await-to-callbacks
   callback: (writer: Writer) => Promise<void>,
@@ -90,6 +111,10 @@ async function withWriter(
   await withTestHarness(async (harness) => {
     const auth = await seedAuthenticatedLocalInstance(harness.db);
     await seedLocalActor(harness.db);
+    const account = await harness.db.query.accounts.findFirst({
+      where: { id: accountId },
+    });
+    assert.ok(account != null);
     const env: LocalWriteEnvironment = {
       db: harness.db,
       federation: harness.federation,
@@ -100,10 +125,12 @@ async function withWriter(
         ["sign", "verify"],
       ),
     };
+    const access = readerOf(harness.db, account);
     const commit = async (request: LocalWriteRequest) => {
-      const preview = await previewLocalWrite(env, PRINCIPAL, request);
+      const preview = await previewLocalWrite(env, PRINCIPAL, request, access);
       assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
       const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
+        ...access,
         previewToken: preview.preview.token,
         // Edits and deletions require a reservation; nothing is sent here.
         ...(request.operation === "create"
@@ -116,18 +143,21 @@ async function withWriter(
     // oxlint-disable-next-line promise/prefer-await-to-callbacks, node/callback-return
     await callback({
       harness,
+      env,
+      account,
       auth,
-      async save(document, resources = [{ path: [], kind: "object" }]) {
+      async save(document, resources, sources) {
         const result = await commit({
           operation: "create",
           actorId: localActorId,
           document: { "@context": AS, ...document },
-          resources,
+          resources: resources ?? [{ path: [], kind: "object" }],
+          ...(sources == null ? {} : { sources }),
         });
         return result.resources.map(({ id, iri }) => ({ id, iri }));
       },
       async change(request) {
-        await commit(request);
+        return (await commit(request)).resources;
       },
       async query(query, variables, init) {
         const response = await harness.post(
@@ -1154,6 +1184,63 @@ describe("Access to revisions across workspaces", () => {
       }
     });
   });
+
+  it("refuses a member of A to embed a revision only B received as a source", async () => {
+    await withWriter(async ({ harness, env, account, save }) => {
+      const { db } = harness;
+      const note = await privateNote(db);
+      const memberB = await seedViewer(db, { memberOf: note.workspaceB });
+      const admin = await seedViewer(db, { admin: true });
+      const like = (revision: Uuid): LocalWriteRequest => ({
+        operation: "create",
+        actorId: localActorId,
+        document: {
+          "@context": AS,
+          type: "Like",
+          object: note.embedded,
+          to: [PUBLIC_IRI],
+        },
+        resources: ACTIVITY,
+        sources: [{ path: ["object"], revisionId: revision }],
+      });
+      const access = readerOf(db, account);
+      const refused = await previewLocalWrite(
+        env,
+        PRINCIPAL,
+        like(note.revisionId),
+        access,
+      );
+      assert.ok(!refused.ok);
+      assert.equal(refused.error.type, "source_unavailable");
+      assert.deepEqual(
+        refused.error.diagnostics.map(({ path }) => path),
+        [["object"]],
+      );
+      // It fails as a revision that does not exist does.
+      assert.deepEqual(
+        await previewLocalWrite(env, PRINCIPAL, like(uuidV7()), access),
+        refused,
+      );
+      // Pasting it without a source is not refused.
+      await save(
+        { type: "Like", object: note.embedded, to: [PUBLIC_IRI] },
+        ACTIVITY,
+      );
+      // Members of B and administrators may read it, so may declare it.
+      assert.deepEqual(
+        await unreadableRevisions({ db, account }, [note.revisionId]),
+        new Set([note.revisionId]),
+      );
+      for (const viewer of [memberB, admin]) {
+        assert.deepEqual(
+          await unreadableRevisions({ db, account: viewer.account }, [
+            note.revisionId,
+          ]),
+          new Set(),
+        );
+      }
+    });
+  });
 });
 
 describe("Access to revisions by their own evidence", () => {
@@ -1309,6 +1396,96 @@ describe("DocumentNode.source", () => {
     assert.equal(root.source, null);
     return root.relations[0].node.source;
   };
+
+  it("follows a saved Create and the Update of its edited Note to the deletion", async () => {
+    await withWriter(async ({ harness, save, change, query }) => {
+      const [note, create] = await save(
+        {
+          type: "Create",
+          to: [PUBLIC_IRI],
+          object: { type: "Note", content: "A", to: [PUBLIC_IRI] },
+        },
+        [
+          { path: [], kind: "activity" },
+          { path: ["object"], kind: "object", representation: "embedded" },
+        ],
+      );
+      assert.ok(note != null && create != null);
+      const first = await head(harness.db, note.id);
+      const [, update] = await change(
+        edit(note.id, first.id, {
+          ...(first.document as JsonObject),
+          content: "B",
+        }),
+      );
+      assert.ok(update != null);
+      const second = await head(harness.db, note.id);
+      const of = (revision: Uuid, sequence: number, status: string) => ({
+        relation: "snapshot",
+        status,
+        revision: { id: revisionId(revision), sequence },
+      });
+      assert.deepEqual(
+        await read(query, create.id),
+        of(first.id, 1, "superseded"),
+      );
+      assert.deepEqual(
+        await read(query, update.id),
+        of(second.id, 2, "current"),
+      );
+      await change({
+        operation: "delete",
+        actorId: localActorId,
+        objectId: note.id,
+        expectedRevisionId: second.id,
+      });
+      assert.deepEqual(
+        await read(query, create.id),
+        of(first.id, 1, "deleted"),
+      );
+      assert.deepEqual(
+        await read(query, update.id),
+        of(second.id, 2, "deleted"),
+      );
+    });
+  });
+
+  it("knows the source of a loaded document only when it is declared", async () => {
+    await withWriter(async ({ harness, save, query }) => {
+      const [note] = await save({
+        type: "Note",
+        content: "A",
+        to: [PUBLIC_IRI],
+      });
+      assert.ok(note != null);
+      const loaded = await head(harness.db, note.id);
+      const object = withoutContext(loaded.document as JsonObject);
+      const sources = [{ path: ["object"], revisionId: loaded.id }];
+      const like = (embedded: JsonObject) => ({
+        type: "Like",
+        object: embedded,
+        to: [PUBLIC_IRI],
+      });
+      const [kept] = await save(like(object), ACTIVITY, sources);
+      const [derived] = await save(
+        like({ ...object, content: "changed" }),
+        ACTIVITY,
+        sources,
+      );
+      // A pasted copy has an unknown source, even when it keeps the
+      // current revision.
+      const [pasted] = await save(like(object), ACTIVITY);
+      assert.ok(kept != null && derived != null && pasted != null);
+      const of = (relation: string) => ({
+        relation,
+        status: "current",
+        revision: { id: revisionId(loaded.id), sequence: 1 },
+      });
+      assert.deepEqual(await read(query, kept.id), of("snapshot"));
+      assert.deepEqual(await read(query, derived.id), of("derived"));
+      assert.equal(await read(query, pasted.id), null);
+    });
+  });
 
   it("tells snapshots and derived documents and where their sources stand", async () => {
     await withWriter(async ({ harness, query }) => {

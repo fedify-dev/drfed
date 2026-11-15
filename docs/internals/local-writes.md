@@ -82,16 +82,17 @@ after the first write throw out of the transaction; nothing partial is left. A
 replayed token finds its resources already saved (`resource_conflict`) or the
 object already changed (`revision_conflict`).
 
-| Error                   | Meaning                                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------------------- |
-| `invalid_request`       | Malformed request or resource descriptors, or a missing token or reservation.                |
-| `invalid_document`      | Validator, authority or server-owned-field diagnostics at submitted paths.                   |
-| `actor_not_found`       | The actor is missing, deleted, not local, on an expired instance, or not the member's.       |
-| `invalid_instance_host` | The stored instance host cannot be parsed by this server.                                    |
-| `stale_preview`         | The token is invalid, expired, or for another account or request.                            |
-| `revision_conflict`     | The object's current revision is not the expected one.                                       |
-| `resource_conflict`     | The resources were already saved, or an IRI is another kind of resource.                     |
-| `unsupported_edit`      | The object is deleted, not the actor's, changes type, or cannot be kept in step (see below). |
+| Error                   | Meaning                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `invalid_request`       | Malformed request or resource descriptors, or a missing token or reservation.                 |
+| `invalid_document`      | Validator, authority or server-owned-field diagnostics at submitted paths.                    |
+| `actor_not_found`       | The actor is missing, deleted, not local, on an expired instance, or not the member's.        |
+| `invalid_instance_host` | The stored instance host cannot be parsed by this server.                                     |
+| `stale_preview`         | The token is invalid, expired, or for another account or request.                             |
+| `revision_conflict`     | The object's current revision is not the expected one.                                        |
+| `resource_conflict`     | The resources were already saved, or an IRI is another kind of resource.                      |
+| `unsupported_edit`      | The object is deleted, not the actor's, changes type, or cannot be kept in step (see below).  |
+| `source_unavailable`    | A declared source is missing, not a snapshot of its document, or one the member may not read. |
 
 
 Identity and documents
@@ -153,7 +154,10 @@ describe.  `Link` values and anonymous documents get no source.  The source is
 found in this order:
 
 1.  A resource saved earlier in the same write, such as a nested new resource
-    kept embedded or the version an edit's `Update` embeds.
+    kept embedded or the version an edit's `Update` embeds.  When the
+    embedded document keeps that resource's new revision, the documents it
+    embeds take the sources recorded for that revision at their own paths,
+    so an `Update` records the sources of the version it carries.
 
 2.  A source the request declares for the embedded document's submitted path:
 
@@ -170,12 +174,34 @@ found in this order:
     An editor declares the revision it loaded a document from, so that a
     changed copy keeps its source.  Both `create` and `edit` accept `sources`,
     and the preview token binds them.  Each path must name an embedded document
-    with an `id` that is not a new resource of the write, and its revision
-    must be a snapshot of the resource registered under that `id`; otherwise
-    the write is refused.
+    with an `id` that is not a new resource of the write; otherwise the
+    request is `invalid_request`.  Its revision must be a snapshot of the
+    resource registered under that `id` that the member may read; otherwise
+    the write fails with `source_unavailable`, with a diagnostic at the
+    declared path.  A missing revision and one the member may not read fail
+    alike, so the error tells nothing of revisions the member may not read.
 
-3.  The current revision of the resource registered under the `id`, only
-    when the embedded document keeps its contents unchanged.
+    The local write operations do not decide who may read a revision.  The
+    caller passes `unreadableRevisions(ids)` in the options of both
+    `previewLocalWrite()` and `commitLocalWrite()`, which check the declared
+    revisions again, since the member's access may change after the
+    preview.  GraphQL's rule is `unreadableRevisions(viewer, ids)` in
+    `@drfed/graphql/readable`:
+
+    ~~~~ ts
+    const access = {
+      unreadableRevisions: (ids: readonly Uuid[]) =>
+        unreadableRevisions({ db, account }, ids),
+    };
+    await previewLocalWrite(env, principal, request, access);
+    ~~~~
+
+    A request that declares sources without the check is `invalid_request`.
+
+Any other embedded document has an unknown source, even when it equals a
+stored revision of the resource under its `id`: the server never guesses a
+source from an IRI.  A pasted document and a loaded one declared as its
+source therefore differ only in `DocumentNode.source`.
 
 An embedded document is a `snapshot` of its source when its effective context
 equals the source document's and its JSON, apart from the `@context` key,

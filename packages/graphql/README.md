@@ -111,6 +111,12 @@ superseded, or deleted; it is null when the viewer may not read the source
 revision, and nothing else of the document changes.  See
 [resource revision internals].
 
+`unreadableRevisions(viewer, ids)` in `@drfed/graphql/readable` tells which
+revisions a viewer may not read by the same rule.  Pass it to
+`previewLocalWrite()` and `commitLocalWrite()` of
+`@drfed/federation/local-write`, which check that a writer declares as
+sources only revisions they may read.
+
 [resource revision internals]: https://drfed.org/internals/resource-revisions#graphql-reads
 
 

@@ -65,8 +65,11 @@ alone, an activity referring to existing resources, or an activity with new
 nested resources, atomically, and actual edits or deletions of a current
 object with a generated `Update` or `Delete`.  A preview shows every value the
 server adds and returns a token; the commit saves exactly those values after
-checking permission again.  Saving never delivers anything.  See the
-[local write internals] for the contract.
+checking permission again.  Saving never delivers anything.  A request may
+declare the revisions its embedded documents came from in `sources`; the
+caller then passes `unreadableRevisions()`, such as the one of
+`@drfed/graphql/readable`, so that only revisions the member may read are
+accepted.  See the [local write internals] for the contract.
 
 [local write internals]: https://drfed.org/internals/local-writes
 

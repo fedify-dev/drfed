@@ -46,7 +46,7 @@ import {
   registeredIris,
 } from "./actor.ts";
 import {
-  type SourceSnapshot,
+  type SavedSnapshot,
   declaredSources,
   findEmbeddings,
   loadSourceRevisions,
@@ -84,6 +84,7 @@ import {
   type LocalWriteRequest,
   LocalWriteRollback,
   type PreparedResource,
+  type PreviewOptions,
   type PreviewOutcome,
   type SavedResource,
   type WritePrincipal,
@@ -94,12 +95,38 @@ import {
 function lookups(
   db: Database | Transaction,
   actor: WritingActor,
+  hidden: ReadonlySet<string>,
 ): IdentityLookups {
   return {
     localActors: (iris) => localActorIris(db, actor.instanceId, iris),
     registered: (iris) => registeredIris(db, iris),
-    revisions: (ids) => loadSourceRevisions(db, ids),
+    revisions: (ids) => loadSourceRevisions(db, ids, hidden),
   };
+}
+
+/**
+ * Asks which of the revisions a request declares as sources the principal
+ * may not read.  It runs before the commit's transaction, since the check
+ * may read the database apart from it.
+ * @returns Their lowercase IDs, or why sources cannot be declared.
+ */
+async function hiddenSources(
+  request: LocalWriteRequest,
+  options: PreviewOptions | undefined,
+): Promise<ReadonlySet<string> | LocalWriteError> {
+  const ids =
+    request.operation === "delete"
+      ? []
+      : (request.sources ?? []).map(({ revisionId }) => revisionId);
+  if (ids.length === 0) return new Set();
+  if (typeof options?.unreadableRevisions !== "function") {
+    return writeError(
+      "invalid_request",
+      "Declaring sources requires a check of which revisions can be read.",
+    );
+  }
+  const hidden = await options.unreadableRevisions(ids);
+  return new Set([...hidden].map((id) => id.toLowerCase()));
 }
 
 function checkRequest(request: LocalWriteRequest): LocalWriteError | null {
@@ -149,6 +176,7 @@ async function prepare(
   actor: WritingActor,
   request: LocalWriteRequest,
   allocation: Allocation,
+  hidden: ReadonlySet<string>,
 ): Promise<PreparedOperation | LocalWriteError> {
   if (request.operation === "create") {
     return await prepareCreate(
@@ -157,7 +185,7 @@ async function prepare(
       actor,
       request,
       allocation,
-      lookups(db, actor),
+      lookups(db, actor, hidden),
     );
   }
   const target = await loadTarget(
@@ -176,7 +204,7 @@ async function prepare(
           target,
           request,
           allocation,
-          lookups(db, actor),
+          lookups(db, actor, hidden),
         )
       : await prepareDelete(env.federation, actor, target, allocation, () =>
           currentAddressing(db, target.id),
@@ -201,9 +229,12 @@ export async function previewLocalWrite(
   env: LocalWriteEnvironment,
   principal: WritePrincipal,
   request: LocalWriteRequest,
+  options?: PreviewOptions,
 ): Promise<PreviewOutcome> {
   const requestError = checkRequest(request);
   if (requestError != null) return { ok: false, error: requestError };
+  const hidden = await hiddenSources(request, options);
+  if (isLocalWriteError(hidden)) return { ok: false, error: hidden };
   const actor = await findWritingActor(
     env.db,
     env.rootOrigin,
@@ -213,7 +244,14 @@ export async function previewLocalWrite(
   );
   if (isLocalWriteError(actor)) return { ok: false, error: actor };
   const allocation = allocateFor(request);
-  const prepared = await prepare(env, env.db, actor, request, allocation);
+  const prepared = await prepare(
+    env,
+    env.db,
+    actor,
+    request,
+    allocation,
+    hidden,
+  );
   if (isLocalWriteError(prepared)) return { ok: false, error: prepared };
   const token = await issueToken(
     env.previewKey,
@@ -367,6 +405,8 @@ export async function commitLocalWrite(
       ),
     };
   }
+  const hidden = await hiddenSources(request, options);
+  if (isLocalWriteError(hidden)) return { ok: false, error: hidden };
   try {
     const result = await env.db.transaction(async (tx) => {
       const fail = (error: LocalWriteError): never => {
@@ -382,7 +422,14 @@ export async function commitLocalWrite(
       if (isLocalWriteError(actor)) fail(actor);
       const writer = actor as WritingActor;
       if (outboxed) await lockActorCollection(tx, writer.id, "outbox");
-      const prepared = await prepare(env, tx, writer, request, allocation);
+      const prepared = await prepare(
+        env,
+        tx,
+        writer,
+        request,
+        allocation,
+        hidden,
+      );
       if (isLocalWriteError(prepared)) fail(prepared);
       const { resources, target, typed } = prepared as PreparedOperation;
       const created = resources.filter(
@@ -432,7 +479,7 @@ export async function commitLocalWrite(
       );
       // Children are saved before what embeds them, and an edited object
       // before its Update, so each finds the revisions it embeds here.
-      const snapshots = new Map<string, SourceSnapshot>();
+      const snapshots = new Map<string, SavedSnapshot>();
       for (const resource of resources) {
         const embeddings = await findEmbeddings(
           tx,
@@ -452,6 +499,7 @@ export async function commitLocalWrite(
           snapshots.set(resource.iri, {
             revisionId,
             document: resource.document,
+            embeddings,
           });
           continue;
         }
@@ -471,6 +519,7 @@ export async function commitLocalWrite(
         snapshots.set(resource.iri, {
           revisionId: revision.id,
           document: resource.document,
+          embeddings,
         });
       }
       if (outboxed) {

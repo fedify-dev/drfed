@@ -89,6 +89,7 @@ export const DIAGNOSTIC_REASONS = {
   invalid_context: { category: "vocabulary", severity: "error" },
   unauthorized_local_identity: { category: "authority", severity: "error" },
   server_owned_field_conflict: { category: "authority", severity: "error" },
+  source_unavailable: { category: "authority", severity: "error" },
   context_unavailable_offline: { category: "support", severity: "error" },
   unsupported_context_form: { category: "support", severity: "error" },
   unsupported_type: { category: "support", severity: "error" },

@@ -63,9 +63,10 @@ export interface NewResource {
 
 /**
  * The stored revision an embedded document of a request was derived from,
- * such as a loaded `Note` changed for an experiment.  A revision's readers
- * may read where each document it embeds came from; the server decides
- * whether the document still keeps that revision or was derived from it.
+ * such as a loaded `Note` changed for an experiment.  The principal must be
+ * able to read it, as {@link PreviewOptions.unreadableRevisions} tells; the
+ * server decides whether the document still keeps that revision or was
+ * derived from it.
  */
 export interface EmbeddedSource {
   /**
@@ -128,13 +129,17 @@ export type LocalWriteErrorType =
   | "stale_preview"
   | "revision_conflict"
   | "resource_conflict"
-  | "unsupported_edit";
+  | "unsupported_edit"
+  | "source_unavailable";
 
 export interface LocalWriteError {
   readonly type: LocalWriteErrorType;
   /** For people; use `type` and `diagnostics` for decisions. */
   readonly message: string;
-  /** Document findings at submitted paths, for `invalid_document`. */
+  /**
+   * Document findings at submitted paths, for `invalid_document`, and the
+   * paths of declared sources, for `source_unavailable`.
+   */
   readonly diagnostics: readonly Diagnostic[];
 }
 
@@ -190,7 +195,21 @@ export type CommitOutcome =
   | { readonly ok: true; readonly result: LocalWriteResult }
   | { readonly ok: false; readonly error: LocalWriteError };
 
-export interface CommitOptions {
+export interface PreviewOptions {
+  /**
+   * Finds the revisions among IDs that the principal may not read.  Each
+   * revision a request declares in `sources` must be one the principal may
+   * read; the preview checks it, and the commit checks it again, since the
+   * principal's access may change in between.  One the principal may not
+   * read fails as one that does not exist does, with `source_unavailable`.
+   * Required to declare sources.
+   */
+  readonly unreadableRevisions?: (
+    ids: readonly Uuid[],
+  ) => Promise<ReadonlySet<Uuid>>;
+}
+
+export interface CommitOptions extends PreviewOptions {
   /** The token of the approved preview. */
   readonly previewToken: string;
   /**

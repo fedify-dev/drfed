@@ -35,14 +35,20 @@ const privateEmbedding: SeedCase = async ({ db, alice, writer }) => {
     to: [CAROL_FOLLOWERS_IRI],
     deliveredTo: [alice],
   });
+  // A member of A may read the Note, so may declare it as the source.
   const announce = await writer.save(
     { type: "Announce", object: withoutContext(note.document) },
     ACTIVITY,
+    [{ path: ["object"], revisionId: note.revisionId }],
   );
   const head = await loadHead(db, announce.id);
   const undo = await writer.save(
     { type: "Undo", object: withoutContext(head.document) },
     ACTIVITY,
+    [
+      { path: ["object"], revisionId: head.revisionId },
+      { path: ["object", "object"], revisionId: note.revisionId },
+    ],
   );
   return {
     number: 16,
@@ -69,6 +75,7 @@ const laterRestricted: SeedCase = async ({ db, alice, bob, writer }) => {
   const liked = await writer.save(
     { type: "Like", object: withoutContext(first.document) },
     ACTIVITY,
+    [{ path: ["object"], revisionId: first.revisionId }],
   );
   await receiveNote(db, {
     iri,

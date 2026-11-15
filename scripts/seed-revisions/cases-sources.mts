@@ -56,7 +56,11 @@ const declared = (note: SavedNote) => [
 
 const snapshotCurrent: SeedCase = async (context) => {
   const note = await saveNote(context, "Embedded as it is");
-  const saved = await context.writer.save(like(note.embedded), ACTIVITY);
+  const saved = await context.writer.save(
+    like(note.embedded),
+    ACTIVITY,
+    declared(note),
+  );
   return {
     number: 8,
     title: "Snapshot of a source that is still current",
@@ -66,7 +70,11 @@ const snapshotCurrent: SeedCase = async (context) => {
 
 const snapshotSuperseded: SeedCase = async (context) => {
   const note = await saveNote(context, "Embedded, then edited");
-  const saved = await context.writer.save(like(note.embedded), ACTIVITY);
+  const saved = await context.writer.save(
+    like(note.embedded),
+    ACTIVITY,
+    declared(note),
+  );
   await context.writer.edit(note.id, { content: "Edited after the Like" });
   return {
     number: 9,
@@ -77,7 +85,11 @@ const snapshotSuperseded: SeedCase = async (context) => {
 
 const snapshotDeleted: SeedCase = async (context) => {
   const note = await saveNote(context, "Embedded, then deleted");
-  const saved = await context.writer.save(like(note.embedded), ACTIVITY);
+  const saved = await context.writer.save(
+    like(note.embedded),
+    ACTIVITY,
+    declared(note),
+  );
   await context.writer.remove(note.id);
   return {
     number: 10,
@@ -119,7 +131,7 @@ const unknownSource: SeedCase = async (context) => {
   const { env, alice, writer } = context;
   const note = await saveNote(context, "Read by a script");
   await writer.edit(note.id, { content: "Edited before the script saved" });
-  // The stale version matches no current revision, and nothing is declared.
+  // Nothing is declared, so the stale copy has no known source.
   const stale = await writer.save(like(note.embedded), ACTIVITY);
   const legacy = await createLegacyObject(
     env,
@@ -154,7 +166,11 @@ const reserialized: SeedCase = async (context) => {
   const reordered = Object.fromEntries(
     Object.entries(note.embedded).toReversed(),
   );
-  const kept = await context.writer.save(like(reordered), ACTIVITY);
+  const kept = await context.writer.save(
+    like(reordered),
+    ACTIVITY,
+    declared(note),
+  );
   const recontextualized = await context.writer.save(
     like({
       "@context": [AS, { ex: "https://ext.example/ns#" }],
@@ -177,11 +193,19 @@ const reserialized: SeedCase = async (context) => {
 const deepSources: SeedCase = async (context) => {
   const { db, writer } = context;
   const note = await saveNote(context, "Embedded two levels deep");
-  const liked = await writer.save(like(note.embedded), ACTIVITY);
+  const liked = await writer.save(
+    like(note.embedded),
+    ACTIVITY,
+    declared(note),
+  );
   const head = await loadHead(db, liked.id);
   const undo = await writer.save(
     { type: "Undo", object: withoutContext(head.document) },
     ACTIVITY,
+    [
+      { path: ["object"], revisionId: head.revisionId },
+      { path: ["object", "object"], revisionId: note.revisionId },
+    ],
   );
   return {
     number: 15,

@@ -26,6 +26,7 @@ import {
   type JsonObject,
   type LocalWriteEnvironment,
   type LocalWriteRequest,
+  type PreviewOptions,
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
@@ -109,10 +110,25 @@ const activity = (
 const reserve: NonNullable<CommitOptions["reserveDispatch"]> = () =>
   Promise.resolve();
 
+/** Lets the principal read every revision. */
+const READ_ALL: PreviewOptions = {
+  unreadableRevisions: () => Promise.resolve(new Set()),
+};
+
+/**
+ * Lets the principal read every revision but the given ones.
+ * @returns The options that check declared sources so.
+ */
+const readAllBut = (...hidden: Uuid[]): PreviewOptions => ({
+  unreadableRevisions: (ids) =>
+    Promise.resolve(new Set(ids.filter((id) => hidden.includes(id)))),
+});
+
 async function write(env: LocalWriteEnvironment, request: LocalWriteRequest) {
-  const preview = await previewLocalWrite(env, PRINCIPAL, request);
+  const preview = await previewLocalWrite(env, PRINCIPAL, request, READ_ALL);
   assert.ok(preview.ok, JSON.stringify(!preview.ok && preview.error));
   const outcome = await commitLocalWrite(env, PRINCIPAL, request, {
+    ...READ_ALL,
     previewToken: preview.preview.token,
     ...(request.operation === "create" && request.publish !== true
       ? {}
@@ -263,7 +279,7 @@ describe("embedded document sources", () => {
     });
   });
 
-  it("records declared sources of an edited version, not of its Update", async () => {
+  it("records declared sources of an edited version, and in its Update", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
@@ -292,8 +308,14 @@ describe("embedded document sources", () => {
           relation: "snapshot",
         },
       ]);
-      // The past version the Update carries has no current match.
+      // The Update keeps the version, so it records the version's sources
+      // at its own paths.
       assert.deepEqual(await embeddings(harness.db, update.revisionId), [
+        {
+          path: ["object", "location"],
+          sourceRevisionId: first.id,
+          relation: "snapshot",
+        },
         {
           path: ["object"],
           sourceRevisionId: version.revisionId,
@@ -334,26 +356,69 @@ describe("embedded document sources", () => {
     });
   });
 
-  it("matches an undeclared document only to the current snapshot it keeps", async () => {
+  it("records the sources of nested documents at every depth", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { first } = await savedNote(env, harness.db);
+      const [note, root] = (
+        await write(
+          env,
+          create(
+            {
+              "@context": AS,
+              type: "Create",
+              to: [PUBLIC_IRI],
+              object: {
+                type: "Note",
+                content: "<p>Nested</p>",
+                to: [PUBLIC_IRI],
+                location: withoutContext(first.document),
+              },
+            },
+            [
+              { path: [], kind: "activity" },
+              { path: ["object"], kind: "object", representation: "embedded" },
+            ],
+            [{ path: ["object", "location"], revisionId: first.id }],
+          ),
+        )
+      ).resources;
+      assert.ok(note != null && root != null);
+      assert.deepEqual(await embeddings(harness.db, note.revisionId), [
+        {
+          path: ["location"],
+          sourceRevisionId: first.id,
+          relation: "snapshot",
+        },
+      ]);
+      assert.deepEqual(await embeddings(harness.db, root.revisionId), [
+        {
+          path: ["object", "location"],
+          sourceRevisionId: first.id,
+          relation: "snapshot",
+        },
+        {
+          path: ["object"],
+          sourceRevisionId: note.revisionId,
+          relation: "snapshot",
+        },
+      ]);
+    });
+  });
+
+  it("never guesses the source of an undeclared document", async () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
       const { first, current } = await savedNote(env, harness.db);
-      for (const [object, expected] of [
-        [
-          withoutContext(current.document),
-          [
-            {
-              path: ["object"],
-              sourceRevisionId: current.id,
-              relation: "snapshot",
-            },
-          ],
-        ],
-        // The past version and a changed copy have no known source.
-        [withoutContext(first.document), []],
-        [{ ...withoutContext(current.document), content: "<p>X</p>" }, []],
-      ] as const) {
+      // Not even a copy of the current snapshot, which a pasted document
+      // may equal by chance.
+      for (const object of [
+        withoutContext(current.document),
+        withoutContext(first.document),
+        { ...withoutContext(current.document), content: "<p>X</p>" },
+      ]) {
         const [like] = (
           await write(
             env,
@@ -366,10 +431,7 @@ describe("embedded document sources", () => {
           )
         ).resources;
         assert.ok(like != null);
-        assert.deepEqual(
-          await embeddings(harness.db, like.revisionId),
-          expected,
-        );
+        assert.deepEqual(await embeddings(harness.db, like.revisionId), []);
       }
     });
   });
@@ -440,16 +502,6 @@ describe("embedded document sources", () => {
           ]),
         ],
         [
-          "another resource's revision",
-          activity(like, [{ path: ["object"], revisionId: otherHead.id }]),
-        ],
-        [
-          "missing revision",
-          activity(like, [
-            { path: ["object"], revisionId: MISSING_REVISION_ID },
-          ]),
-        ],
-        [
           "no id",
           activity(
             {
@@ -495,10 +547,101 @@ describe("embedded document sources", () => {
         ],
       ];
       for (const [label, request] of cases) {
-        const preview = await previewLocalWrite(env, PRINCIPAL, request);
+        const preview = await previewLocalWrite(
+          env,
+          PRINCIPAL,
+          request,
+          READ_ALL,
+        );
         assert.ok(!preview.ok, label);
         assert.equal(preview.error.type, "invalid_request", label);
       }
+      // Declaring sources needs a check of what the principal may read.
+      const declared = activity(like, [
+        { path: ["object"], revisionId: first.id },
+      ]);
+      const unchecked = await previewLocalWrite(env, PRINCIPAL, declared);
+      assert.ok(!unchecked.ok);
+      assert.equal(unchecked.error.type, "invalid_request");
+    });
+  });
+
+  it("refuses unavailable sources alike, whatever makes them so", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { first } = await savedNote(env, harness.db);
+      const [other] = (await write(env, create(NOTE))).resources;
+      assert.ok(other != null);
+      const otherHead = await head(harness.db, other.id);
+      await write(env, {
+        operation: "delete",
+        actorId: localActorId,
+        objectId: other.id,
+        expectedRevisionId: otherHead.id,
+      });
+      const whiteout = await loadCurrentResourceRevision(harness.db, other.id);
+      assert.ok(whiteout?.kind === "whiteout");
+      const like = (revisionId: Uuid) =>
+        activity(
+          {
+            "@context": AS,
+            type: "Like",
+            object: withoutContext(first.document),
+            to: [PUBLIC_IRI],
+          },
+          [{ path: ["object"], revisionId }],
+        );
+      const cases: [string, Uuid, PreviewOptions][] = [
+        ["missing", MISSING_REVISION_ID, READ_ALL],
+        ["unreadable", first.id, readAllBut(first.id)],
+        ["another resource's", otherHead.id, READ_ALL],
+        ["a whiteout", whiteout.id, READ_ALL],
+      ];
+      const errors = [];
+      for (const [label, revisionId, options] of cases) {
+        const preview = await previewLocalWrite(
+          env,
+          PRINCIPAL,
+          like(revisionId),
+          options,
+        );
+        assert.ok(!preview.ok, label);
+        errors.push(preview.error);
+      }
+      // Nothing tells a revision the principal may not read from one that
+      // does not exist.
+      for (const error of errors) {
+        assert.deepEqual(error, {
+          type: "source_unavailable",
+          message: errors[0]!.message,
+          diagnostics: [
+            {
+              reason: "source_unavailable",
+              category: "authority",
+              severity: "error",
+              path: ["object"],
+              message: errors[0]!.diagnostics[0]!.message,
+            },
+          ],
+        });
+      }
+      // The commit checks again, since access may change after the preview.
+      const preview = await previewLocalWrite(
+        env,
+        PRINCIPAL,
+        like(first.id),
+        READ_ALL,
+      );
+      assert.ok(preview.ok);
+      const before = await harness.db.$count(schema.resourceRevisions);
+      const outcome = await commitLocalWrite(env, PRINCIPAL, like(first.id), {
+        ...readAllBut(first.id),
+        previewToken: preview.preview.token,
+      });
+      assert.ok(!outcome.ok);
+      assert.deepEqual(outcome.error, errors[0]);
+      assert.equal(await harness.db.$count(schema.resourceRevisions), before);
     });
   });
 
@@ -517,6 +660,7 @@ describe("embedded document sources", () => {
         env,
         PRINCIPAL,
         activity(like, [{ path: ["object"], revisionId: first.id }]),
+        READ_ALL,
       );
       assert.ok(preview.ok);
       for (const sources of [
@@ -527,7 +671,7 @@ describe("embedded document sources", () => {
           env,
           PRINCIPAL,
           activity(like, sources),
-          { previewToken: preview.preview.token },
+          { ...READ_ALL, previewToken: preview.preview.token },
         );
         assert.ok(!outcome.ok);
         assert.equal(outcome.error.type, "stale_preview");

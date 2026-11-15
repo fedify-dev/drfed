@@ -25,6 +25,7 @@ import {
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
+import { unreadableRevisions } from "@drfed/graphql/readable";
 import type { Database } from "@drfed/models";
 import { loadCurrentResourceRevision } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
@@ -89,7 +90,8 @@ export async function loadHead(db: Database, resourceId: Uuid): Promise<Head> {
 
 /**
  * Makes the writer of a workspace's actor.  Nothing it saves is delivered:
- * edits and deletions get a reservation that does nothing.
+ * edits and deletions get a reservation that does nothing.  Declared sources
+ * must be revisions the member may read, as GraphQL reads them.
  * @returns The writer.
  */
 export function createWriter(
@@ -97,12 +99,22 @@ export function createWriter(
   { actorId, member }: Workspace,
 ): Writer {
   const principal = { accountId: member.accountId };
+  const access = {
+    unreadableRevisions: async (ids: readonly Uuid[]) => {
+      const account = await env.db.query.accounts.findFirst({
+        where: { id: member.accountId },
+      });
+      if (account == null) throw new Error("The member has no account.");
+      return await unreadableRevisions({ db: env.db, account }, ids);
+    },
+  };
   const commit = async (
     request: LocalWriteRequest,
   ): Promise<LocalWriteResult> => {
-    const preview = await previewLocalWrite(env, principal, request);
+    const preview = await previewLocalWrite(env, principal, request, access);
     if (!preview.ok) throw new Error(JSON.stringify(preview.error));
     const outcome = await commitLocalWrite(env, principal, request, {
+      ...access,
       previewToken: preview.preview.token,
       ...(request.operation === "create"
         ? {}

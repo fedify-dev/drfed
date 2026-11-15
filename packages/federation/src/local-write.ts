@@ -50,6 +50,7 @@ export type {
   LocalWriteResult,
   NewResource,
   PreparedResource,
+  PreviewOptions,
   PreviewOutcome,
   SavedResource,
   WritePrincipal,
