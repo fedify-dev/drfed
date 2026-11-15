@@ -181,7 +181,9 @@ other addressing.  An embedded document without a row has an unknown source,
 which proves neither that it was nor that it was never saved as a revision:
 older data and pasted documents lack the record.  An IRI reference is a
 separate choice, recorded as the `reference` representation of a relation,
-and has no source.
+and has no source.  A source is no condition on reading the revision that
+records it: who may read an embedded document is decided by the revision
+embedding it alone.
 
 Rows are written with the revision through the `embeddings` input of
 `appendResourceRevision()` and `writeTypedResourceRevision()`, and like other
@@ -229,8 +231,8 @@ Fetched evidence is recomputed when `recordFetchedObject` changes. Deleting a
 typed object row removes its object receipts; deleting an activity or removing
 a delivery linkage removes that delivery's receipts; deleting a delivery
 cascades them. Unavailable and whiteout revisions receive no legacy receipt.
-Existing GraphQL permission checks still use their current evidence rules; the
-new index does not expose historical content.
+GraphQL reads each revision by this evidence, as
+[GraphQL reads](#graphql-reads) describe.
 
 
 Application boundaries
@@ -242,7 +244,9 @@ generic canonical resource can have no typed detail; its GraphQL
 such a resource from its current revision. The common write
 operations described in [local writes](local-writes.md) save new resources as
 revisions only and keep legacy typed objects in step when editing or deleting
-them. The other federation surfaces are separate work.
+them. GraphQL reads every revision by its own evidence, as
+[GraphQL reads](#graphql-reads) describe.  The other federation surfaces are
+separate work.
 
 Appending a whiteout does not create or send a `Delete` activity. The common
 delete operation appends it together with the `Delete`, outbox entry and the
@@ -292,15 +296,14 @@ resource does not hide an earlier public one.  A Relay node lookup of a
 revision checks the revision itself, and `Resource.revisions` leaves out the
 ones the viewer may not read, so their sequences can skip.
 
-A revision is also readable only when the viewer may read, by the same
-evidence, every revision it carries through its
-[embedded document sources](#embedded-document-sources), directly or through
-the local revisions it embeds.  A local `Announce` that embeds a `Note`
-received only by one instance is thus readable only by that instance's
-members and administrators; anyone else reads it as if it did not exist.  The
-whole revision is hidden rather than the embedded part, so that the same saved
-JSON is never read differently by different viewers, and a reader of a
-revision may always read its sources.
+What a revision embeds never decides whether it is readable.  A local
+`Announce` that embeds a `Note` only one instance received is readable by
+anyone, as every local revision is, whether it records that `Note`'s revision
+as its source or was pasted without one: recording a source never makes a
+document harder to read.  Only following the source checks the source
+revision, as `DocumentNode.source` does below.  Received content stays
+protected where it is read: the received revision itself is readable only by
+the evidence above.
 
 Deletion hides no revision by itself: deleting a resource appends a whiteout,
 and its earlier revisions, like those of a resource whose author is deleted,
@@ -316,4 +319,12 @@ a whiteout, and `superseded` otherwise.  The status compares revisions only,
 not contents.  It is null when the viewer may not read the current revision,
 which would otherwise tell of a revision they may not read.  `source` is null
 for the root, for an embedded document whose source is unknown, and when the
-viewer may not read the source revision.
+viewer may not read the source revision; these are not told apart, and
+`relation` is not kept alone either, since `snapshot` next to the embedded
+contents would tell those of a revision the viewer may not read.  Whatever
+`source` is, the embedded `node`, the `root` and the raw `document` read as
+the revision embedding them does.
+
+`Resource.revision(sequence:)` returns one revision by its sequence, and null
+both for a sequence with no revision and for a revision the viewer may not
+read.

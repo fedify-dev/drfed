@@ -101,12 +101,14 @@ Each revision is read by evidence of its own: anyone reads local revisions,
 blind recipients included, and revisions addressed to the public; members of
 a local instance read what a delivery to it carried; and a revision without
 such evidence is readable only while it is current and its resource is, as
-above.  A revision whose embedded documents came from revisions the viewer
-may not read is hidden as a whole.  Deletion hides no revision by itself,
-while `Resource.detail` and the other existing fields keep hiding what was
-deleted.  `DocumentNode.source` names the revision an embedded document came
-from, whether it keeps that revision's contents or was derived from it, and
-whether that revision is still current, superseded, or deleted.  See
+above.  Where a revision's embedded documents came from never hides it.
+Deletion hides no revision by itself, while `Resource.detail` and the other
+existing fields keep hiding what was deleted.  `Resource.revision(sequence:)`
+returns one revision by its sequence.  `DocumentNode.source` names the
+revision an embedded document came from, whether it keeps that revision's
+contents or was derived from it, and whether that revision is still current,
+superseded, or deleted; it is null when the viewer may not read the source
+revision, and nothing else of the document changes.  See
 [resource revision internals].
 
 [resource revision internals]: https://drfed.org/internals/resource-revisions#graphql-reads

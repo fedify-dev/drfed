@@ -30,7 +30,6 @@ import {
   resourceRevisions,
   resources,
   revisionAddressing,
-  revisionEmbeddings,
   revisionReceipts,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
@@ -135,8 +134,6 @@ const evidencedAddressing = alias(revisionAddressing, "evidenced_addressing");
 const evidencedReceipts = alias(revisionReceipts, "evidenced_receipts");
 const receiptDeliveries = alias(activityDeliveries, "receipt_deliveries");
 const evidencedHeads = alias(resourceHeads, "evidenced_heads");
-const embedded = alias(revisionEmbeddings, "embedded_sources");
-const transitive = alias(revisionEmbeddings, "transitive_sources");
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}
@@ -269,53 +266,25 @@ function legacyTypedRow(id: SQLWrapper): SQL {
   ))`;
 }
 
-// What a revision itself proves of who may read it, whatever it embeds.
-const ownEvidence = (viewer: Viewer, id: SQLWrapper): SQL => sql`exists (
-  select 1 from ${resourceRevisions} ${evidenced}
-  where ${evidenced.id} = ${id} and (
-    ${evidenced.capture} = 'local'
-    or exists (
-      select 1 from ${revisionAddressing} ${evidencedAddressing}
-      where ${evidencedAddressing.revisionId} = ${evidenced.id}
-        and ${inArray(evidencedAddressing.iri, PUBLIC_IRIS)}
-    )
-    or exists (
-      select 1 from ${revisionReceipts} ${evidencedReceipts}
-      join ${activityDeliveries} ${receiptDeliveries}
-        on ${receiptDeliveries.id} = ${evidencedReceipts.deliveryId}
-      where ${evidencedReceipts.revisionId} = ${evidenced.id}
-        and ${receiptDeliveries.direction} = 'inbound'
-        and ${viewableInstance(viewer, receiptDeliveries.instanceId)}
-    )
-    or (
-      exists (
-        select 1 from ${resourceHeads} ${evidencedHeads}
-        where ${evidencedHeads.resourceId} = ${evidenced.resourceId}
-          and ${evidencedHeads.revisionId} = ${evidenced.id}
-      )
-      and ${legacyTypedRow(evidenced.resourceId)}
-      and ${readableResource(viewer, evidenced.resourceId)}
-    )
-  )
-)`;
-
 /**
  * Restricts revisions to those the viewer may read.  An administrator reads
  * every revision.  Anyone else reads a revision by evidence of that
  * particular revision, never by the current state of its resource:
  *
- *  -  Its own evidence: DrFed saved it for a local actor, so it is readable
- *     by anyone, with its blind recipients and whether published or not, as
- *     `Object.document` is; its own addressing is public; a receipt links it
- *     to an inbound delivery to a local instance the viewer may read, as
- *     {@link viewableInstance} tells; or it is the current revision of a
- *     resource with a legacy typed row that {@link readableResource} lets
- *     the viewer read, since that row describes only its current version.
- *  -  The evidence of what it embeds: every revision its recorded
- *     embeddings name as their sources, and theirs in turn, must have its
- *     own evidence too.  A local document embedding a private received
- *     revision is thus readable only by those who could read that revision,
- *     including when it was derived from it.
+ *  -  DrFed saved it for a local actor, so it is readable by anyone, with
+ *     its blind recipients and whether published or not, as
+ *     `Object.document` is.
+ *  -  Its own addressing is public.
+ *  -  A receipt links it to an inbound delivery to a local instance the
+ *     viewer may read, as {@link viewableInstance} tells.
+ *  -  It is the current revision of a resource with a legacy typed row that
+ *     {@link readableResource} lets the viewer read, since that row
+ *     describes only its current version.
+ *
+ * What a revision embeds, and the revisions its embedded documents came
+ * from, never decide whether it is readable: a document recording its
+ * sources reads as the same document pasted without them.  Only following
+ * a source to its revision checks that revision.
  *
  * A later revision being restricted, or deleted, hides no earlier one that
  * was public, and a later delivery or public revision of the same IRI opens
@@ -327,19 +296,59 @@ const ownEvidence = (viewer: Viewer, id: SQLWrapper): SQL => sql`exists (
  */
 export function readableRevision(viewer: Viewer, id: SQLWrapper): SQL {
   if (viewer.account?.admin === true) return sql`true`;
-  // Sources are stored before what embeds them, so the recursion ends; the
-  // union stops it on a cycle all the same.
-  return sql`(${ownEvidence(viewer, id)} and not exists (
-    with recursive readable_sources(id) as (
-      select ${embedded.sourceRevisionId} from ${revisionEmbeddings} ${embedded}
-      where ${embedded.revisionId} = ${id}
-      union
-      select ${transitive.sourceRevisionId} from ${revisionEmbeddings} ${transitive}
-      join readable_sources on readable_sources.id = ${transitive.revisionId}
+  return sql`exists (
+    select 1 from ${resourceRevisions} ${evidenced}
+    where ${evidenced.id} = ${id} and (
+      ${evidenced.capture} = 'local'
+      or exists (
+        select 1 from ${revisionAddressing} ${evidencedAddressing}
+        where ${evidencedAddressing.revisionId} = ${evidenced.id}
+          and ${inArray(evidencedAddressing.iri, PUBLIC_IRIS)}
+      )
+      or exists (
+        select 1 from ${revisionReceipts} ${evidencedReceipts}
+        join ${activityDeliveries} ${receiptDeliveries}
+          on ${receiptDeliveries.id} = ${evidencedReceipts.deliveryId}
+        where ${evidencedReceipts.revisionId} = ${evidenced.id}
+          and ${receiptDeliveries.direction} = 'inbound'
+          and ${viewableInstance(viewer, receiptDeliveries.instanceId)}
+      )
+      or (
+        exists (
+          select 1 from ${resourceHeads} ${evidencedHeads}
+          where ${evidencedHeads.resourceId} = ${evidenced.resourceId}
+            and ${evidencedHeads.revisionId} = ${evidenced.id}
+        )
+        and ${legacyTypedRow(evidenced.resourceId)}
+        and ${readableResource(viewer, evidenced.resourceId)}
+      )
     )
-    select 1 from readable_sources
-    where not ${ownEvidence(viewer, sql`readable_sources.id`)}
-  ))`;
+  )`;
+}
+
+/**
+ * Finds the revisions among the given IDs that the viewer may not read, as
+ * {@link readableRevision} decides.  IDs of no stored revision are never
+ * among them.  A local write takes it to check the sources a writer
+ * declares, so that a writer embeds as a snapshot or derivation only what
+ * they may read.
+ * @returns The IDs the viewer may not read.
+ */
+export async function unreadableRevisions(
+  viewer: Viewer,
+  ids: readonly Uuid[],
+): Promise<ReadonlySet<Uuid>> {
+  if (ids.length === 0 || viewer.account?.admin === true) return new Set();
+  const rows = await viewer.db
+    .select({ id: resourceRevisions.id })
+    .from(resourceRevisions)
+    .where(
+      and(
+        inArray(resourceRevisions.id, [...new Set(ids)]),
+        not(readableRevision(viewer, resourceRevisions.id)),
+      ),
+    );
+  return new Set(rows.map(({ id }) => id));
 }
 
 /**
@@ -404,37 +413,26 @@ export async function hideUnreadableNodes(
   viewer: Viewer,
   nodes: readonly unknown[],
 ): Promise<unknown[]> {
-  const owned = nodes.map((node) =>
+  const revisionIds = nodes.map((node) =>
     owningResourceOf(node) == null ? null : uuidOf(node, "id"),
   );
-  const ids = nodes.map((node, index) =>
-    owned[index] == null && owningResourceOf(node) == null
-      ? uuidOf(node, "id")
-      : null,
+  const ids = nodes.map((node) =>
+    owningResourceOf(node) == null ? uuidOf(node, "id") : null,
   );
-  const revisionIds = [...new Set(owned.filter((id) => id != null))];
-  const [hidden, readableRevisions] = await Promise.all([
+  const [hidden, hiddenRevisions] = await Promise.all([
     unreadableResources(
       viewer,
       ids.filter((id) => id != null),
     ),
-    revisionIds.length === 0
-      ? []
-      : viewer.db
-          .select({ id: resourceRevisions.id })
-          .from(resourceRevisions)
-          .where(
-            and(
-              inArray(resourceRevisions.id, revisionIds),
-              readableRevision(viewer, resourceRevisions.id),
-            ),
-          ),
+    unreadableRevisions(
+      viewer,
+      revisionIds.filter((id) => id != null),
+    ),
   ]);
-  const open = new Set(readableRevisions.map(({ id }) => id));
   return nodes.map((node, index) => {
     if (owningResourceOf(node) != null) {
-      const id = owned[index];
-      return id != null && open.has(id) ? node : null;
+      const id = revisionIds[index];
+      return id == null || hiddenRevisions.has(id) ? null : node;
     }
     const id = ids[index];
     return id != null && hidden.has(id) ? null : node;

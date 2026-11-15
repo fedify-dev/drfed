@@ -55,9 +55,10 @@ To be released.
 
 ### GraphQL APIs
 
- -  Added `Resource.currentRevision` and `Resource.revisions`, newest first,
-    and the `ResourceRevision` node, which return the saved revisions of a
-    resource, including those of resources saved without legacy details.
+ -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
+    `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
+    return the saved revisions of a resource, including those of resources
+    saved without legacy details.
     Each revision returns its saved JSON, whiteout deletion details, and what
     the current validator finds in it.  When the validator reads the
     document, `root` describes it by meaning, whatever keys spell its
@@ -69,9 +70,9 @@ To be released.
     received them. `DocumentNode.source` tells which revision an embedded
     document came from, whether it keeps that revision's contents or was
     derived from it, and whether that revision is still current, superseded, or
-    deleted.  A revision that embeds documents from revisions the viewer may
-    not read is hidden as a whole.  Deleting a resource or its author hides
-    none of its revisions by itself.  [[#154]]
+    deleted; it is null when the viewer may not read that revision, and the
+    embedded document itself stays readable.  Deleting a resource or its
+    author hides none of its revisions by itself.  [[#154]]
  -  Fixed `Resource.detail` to return `null` without a field error when the
     resource has no corresponding detail record.
     [[#150], [#164] by Hong Minhee\]

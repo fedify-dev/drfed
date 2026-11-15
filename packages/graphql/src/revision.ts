@@ -185,10 +185,14 @@ const DocumentSourceStatus = builder.enumType("DocumentSourceStatus", {
   },
 });
 
-/** An embedding of a revision, with the source it names. */
+type SourceStatus = "current" | "superseded" | "deleted";
+
+/** A recorded embedding whose source revision the viewer may read. */
 interface Source {
   readonly relation: RevisionEmbedding["relation"];
   readonly revision: ResourceRevisionRow;
+  /** Null when the viewer may not read the resource's current revision. */
+  readonly status: SourceStatus | null;
 }
 const DocumentSource = builder.objectRef<Source>("DocumentSource");
 
@@ -237,36 +241,111 @@ function registeredResource(
 // The revision each interpreted node belongs to.
 const nodeRevisions = new WeakMap<InterpretedNode, Uuid>();
 
-const embeddingLookups = new WeakMap<
+const sourceLookups = new WeakMap<
   UserContext,
-  Map<Uuid, Promise<ReadonlyMap<string, RevisionEmbedding>>>
+  Map<Uuid, Promise<ReadonlyMap<string, Source>>>
 >();
 
 /**
- * Loads the recorded embeddings of a revision by their paths, once per
- * request.
- * @returns The embeddings, keyed by the JSON of their paths.
+ * Tells where a source revision stands against its resource's current
+ * revision.  An `unavailable` current revision, a legacy typed row without a
+ * retained document, is a later revision like any other.
+ * @param revision The source revision.
+ * @param current The current revision of its resource, when the viewer may
+ *                read it.
+ * @returns The status, or null without a readable current revision.
  */
-function embeddingsOf(
+const statusOf = (
+  revision: ResourceRevisionRow,
+  current: Pick<ResourceRevisionRow, "id" | "kind"> | undefined,
+): SourceStatus | null =>
+  current == null
+    ? null
+    : current.id === revision.id
+      ? "current"
+      : current.kind === "whiteout"
+        ? "deleted"
+        : "superseded";
+
+/**
+ * Loads the recorded sources of a revision's embedded documents that the
+ * viewer may read, with where each stands, in two queries per revision
+ * whatever the number of documents it embeds.  Lookups are shared within a
+ * request.
+ * @returns The sources, keyed by the JSON of the embedded documents' paths.
+ */
+function sourcesOf(
   ctx: UserContext,
   revisionId: Uuid,
-): Promise<ReadonlyMap<string, RevisionEmbedding>> {
-  let lookups = embeddingLookups.get(ctx);
+): Promise<ReadonlyMap<string, Source>> {
+  let lookups = sourceLookups.get(ctx);
   if (lookups == null) {
     lookups = new Map();
-    embeddingLookups.set(ctx, lookups);
+    sourceLookups.set(ctx, lookups);
   }
   let lookup = lookups.get(revisionId);
   if (lookup == null) {
-    lookup = (async () =>
-      new Map(
-        (
-          await ctx.db
-            .select()
-            .from(schema.revisionEmbeddings)
-            .where(eq(schema.revisionEmbeddings.revisionId, revisionId))
-        ).map((row) => [JSON.stringify(row.path), row]),
-      ))();
+    lookup = (async () => {
+      const embeddings = await ctx.db
+        .select({
+          path: schema.revisionEmbeddings.path,
+          relation: schema.revisionEmbeddings.relation,
+          revision: schema.resourceRevisions,
+        })
+        .from(schema.revisionEmbeddings)
+        .innerJoin(
+          schema.resourceRevisions,
+          eq(
+            schema.resourceRevisions.id,
+            schema.revisionEmbeddings.sourceRevisionId,
+          ),
+        )
+        .where(
+          and(
+            eq(schema.revisionEmbeddings.revisionId, revisionId),
+            readableRevision(ctx, schema.resourceRevisions.id),
+          ),
+        );
+      const resourceIds = [
+        ...new Set(embeddings.map(({ revision }) => revision.resourceId)),
+      ];
+      const heads =
+        resourceIds.length === 0
+          ? []
+          : await ctx.db
+              .select({
+                resourceId: schema.resourceHeads.resourceId,
+                id: schema.resourceRevisions.id,
+                kind: schema.resourceRevisions.kind,
+              })
+              .from(schema.resourceHeads)
+              .innerJoin(
+                schema.resourceRevisions,
+                eq(
+                  schema.resourceRevisions.id,
+                  schema.resourceHeads.revisionId,
+                ),
+              )
+              .where(
+                and(
+                  inArray(schema.resourceHeads.resourceId, resourceIds),
+                  readableRevision(ctx, schema.resourceRevisions.id),
+                ),
+              );
+      const current = new Map(
+        heads.map((head) => [head.resourceId, head] as const),
+      );
+      return new Map(
+        embeddings.map(({ path, relation, revision }) => [
+          JSON.stringify(path),
+          {
+            relation,
+            revision,
+            status: statusOf(revision, current.get(revision.resourceId)),
+          },
+        ]),
+      );
+    })();
     lookups.set(revisionId, lookup);
   }
   return lookup;
@@ -274,9 +353,11 @@ function embeddingsOf(
 
 /**
  * Finds the recorded source of an embedded document, when the viewer may
- * read the source revision.
+ * read the source revision.  Whatever it finds, the document itself reads
+ * as the revision embedding it does.
  * @returns The source, or null for the root, for a document whose source is
- *          unknown, and for a source the viewer may not read.
+ *          unknown, and for a source the viewer may not read, which are not
+ *          told apart.
  */
 async function sourceOf(
   ctx: UserContext,
@@ -284,50 +365,9 @@ async function sourceOf(
 ): Promise<Source | null> {
   const revisionId = nodeRevisions.get(node);
   if (revisionId == null || node.path.length === 0) return null;
-  const embedding = (await embeddingsOf(ctx, revisionId)).get(
-    JSON.stringify(node.path),
+  return (
+    (await sourcesOf(ctx, revisionId)).get(JSON.stringify(node.path)) ?? null
   );
-  if (embedding == null) return null;
-  const revision = await ctx.db.query.resourceRevisions.findFirst({
-    where: {
-      id: embedding.sourceRevisionId,
-      RAW: (table) => readableRevision(ctx, table.id),
-    },
-  });
-  return revision == null ? null : { relation: embedding.relation, revision };
-}
-
-/**
- * Tells where a source revision stands against its resource's current
- * revision.  An `unavailable` current revision, a legacy typed row without a
- * retained document, is a later revision like any other.
- * @returns The status, or null when the viewer may not read the current
- *          revision.
- */
-async function statusOf(
-  ctx: UserContext,
-  revision: ResourceRevisionRow,
-): Promise<"current" | "superseded" | "deleted" | null> {
-  const [current] = await ctx.db
-    .select({
-      id: schema.resourceRevisions.id,
-      kind: schema.resourceRevisions.kind,
-    })
-    .from(schema.resourceHeads)
-    .innerJoin(
-      schema.resourceRevisions,
-      eq(schema.resourceRevisions.id, schema.resourceHeads.revisionId),
-    )
-    .where(
-      and(
-        eq(schema.resourceHeads.resourceId, revision.resourceId),
-        readableRevision(ctx, schema.resourceRevisions.id),
-      ),
-    )
-    .limit(1);
-  if (current == null) return null;
-  if (current.id === revision.id) return "current";
-  return current.kind === "whiteout" ? "deleted" : "superseded";
 }
 
 const occurrenceFields = {
@@ -487,7 +527,9 @@ DocumentNode.implement({
         "the document embedding it was saved.  Null for the root, for an " +
         "embedded document whose source is unknown, such as one saved " +
         "before sources were recorded or pasted without one, and when the " +
-        "viewer may not read the source revision.",
+        "viewer may not read the source revision, which are not told " +
+        "apart.  It hides nothing else: the document reads as the revision " +
+        "embedding it does, whatever its source.",
       resolve: (node, _, ctx) => sourceOf(ctx, node),
     }),
   }),
@@ -495,8 +537,8 @@ DocumentNode.implement({
 
 DocumentSource.implement({
   description:
-    "The revision an embedded document came from.  The viewer may read it, " +
-    "since a revision is readable only to those who may read its sources.",
+    "The revision an embedded document came from, which the viewer may " +
+    "read.",
   fields: (t) => ({
     relation: t.expose("relation", { type: DocumentSourceRelation }),
     revision: t.field({
@@ -511,7 +553,7 @@ DocumentSource.implement({
         "Whether the source revision is still current, or a later revision " +
         "or a deletion followed it; null when the viewer may not read the " +
         "resource's current revision.",
-      resolve: (source, _, ctx) => statusOf(ctx, source.revision),
+      resolve: (source) => source.status,
     }),
   }),
 });
@@ -562,9 +604,8 @@ const ResourceRevisionRef = builder.drizzleNode("resourceRevisions", {
     "to the public by anyone; one a receipt links to a delivery to a local " +
     "instance the viewer is a member of by its members; and the current " +
     "revision of a resource with a legacy typed row as `Activity` and " +
-    "`Object` tell.  A revision whose embedded documents came from other " +
-    "revisions is readable only by those who may read every one of them, " +
-    "and theirs in turn.  Administrators read every revision.  A later " +
+    "`Object` tell.  Where its embedded documents came from never hides " +
+    "it.  Administrators read every revision.  A later " +
     "restriction or deletion of the resource hides no earlier revision.  A " +
     "revision the viewer may not read is left out as if it did not exist.",
   // A node lookup checks the revision by its own ID.
@@ -661,6 +702,26 @@ builder.drizzleObjectField("resources", "currentRevision", (t) =>
               ),
               readableRevision(ctx, table.id),
             )!,
+        },
+      })) ?? null,
+  }),
+);
+
+builder.drizzleObjectField("resources", "revision", (t) =>
+  t.field({
+    type: ResourceRevisionRef,
+    nullable: true,
+    args: { sequence: t.arg.int({ required: true }) },
+    description:
+      "The revision with the given sequence; null when there is none, or " +
+      "when the viewer may not read it, which are not told apart.",
+    select: { columns: { id: true } },
+    resolve: async (resource, { sequence }, ctx) =>
+      (await ctx.db.query.resourceRevisions.findFirst({
+        where: {
+          resourceId: resource.id,
+          sequence,
+          RAW: (table) => readableRevision(ctx, table.id),
         },
       })) ?? null,
   }),

@@ -715,6 +715,12 @@ The GraphQL types for activity deliveries live in
 *src/activity-delivery/entry.ts*.  Delivery contents are private to local
 instance members and administrators, including Relay node lookups.
 
+The GraphQL types for resource revisions live in *src/revision.ts*.  Each
+revision is read by evidence of its own, through `readableRevision()` in
+*src/readable.ts*, never by the current state of its resource nor by where
+its embedded documents came from; only `DocumentNode.source` checks a source
+revision.  Filter revisions by it before paging.
+
 
 CLI and server changes
 ----------------------
