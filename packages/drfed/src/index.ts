@@ -20,6 +20,7 @@ import process from "node:process";
 import createFederation, { createInboundRecorder } from "@drfed/federation";
 import { KeyGenerationQueue } from "@drfed/federation/task-queue";
 import { createYogaServer } from "@drfed/graphql";
+import type { Database } from "@drfed/models";
 import { type WebRuntime, createWebRuntime } from "@drfed/web";
 import { PgliteKvStore } from "@fedify/pglite";
 import { PostgresKvStore } from "@fedify/postgres";
@@ -35,6 +36,7 @@ import { printError, run } from "@optique/run";
 import { serve } from "srvx";
 
 import metadata from "../package.json" with { type: "json" };
+import { createLoginLink } from "./dev-login.ts";
 import { describeServerConfiguration } from "./diagnostics.ts";
 import { OperationRegistry } from "./operations.ts";
 import {
@@ -231,6 +233,12 @@ async function runServer(configuration: ServerOptions) {
         { origin: options.publicOrigin.origin },
       );
     }
+    const { loginLink } = options;
+    if (loginLink !== undefined) {
+      await operations.run(() =>
+        logLoginLink(db, loginLink.email, loginLink.origin),
+      );
+    }
   } catch (error) {
     process.off("SIGINT", shutdown);
     process.off("SIGTERM", shutdown);
@@ -250,6 +258,22 @@ async function runServer(configuration: ServerOptions) {
     }
     throw new Error("Could not start the server.", { cause: error });
   }
+}
+
+async function logLoginLink(
+  db: Database,
+  email: string,
+  origin: string,
+): Promise<void> {
+  const logger = getLogger(["drfed", "server"]);
+  const link = await createLoginLink(db, email, origin);
+  if (link === undefined) {
+    logger.warn("Cannot create a login link; no account has {email}.", {
+      email,
+    });
+    return;
+  }
+  logger.info("Log in as {email} at {link}.", { email, link: link.href });
 }
 
 async function runSchemaGenerator(

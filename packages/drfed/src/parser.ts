@@ -61,6 +61,8 @@ export const valueOptionNames = {
   dataPath: ["--pglite-data-path", "--data-path", "-d"],
   postgresUrl: ["--postgres-url", "--database-url", "-D"],
   migrationLockTimeout: ["--migration-lock-timeout"],
+  devLoginLink: ["--dev-login-link"],
+  devLoginOrigin: ["--dev-login-origin"],
   ...mailValueOptionNames,
   logLevel: loggingValueOptionNames.logLevel,
   logFormat: loggingValueOptionNames.logFormat,
@@ -226,6 +228,22 @@ export function createParser(
       description: message`Seed initial development data.`,
       hidden: true,
     }),
+    loginLink: optional(
+      option(...valueOptionNames.devLoginLink, email(), {
+        description: message`Log a link that logs in as the account with this email address once the server is listening.`,
+        hidden: true,
+      }),
+    ),
+    loginLinkOrigin: optional(
+      option(
+        ...valueOptionNames.devLoginOrigin,
+        origin({ allowedProtocols: ["http:", "https:"] }),
+        {
+          description: message`The web frontend origin of the logged login link. Defaults to the public web origin when serving the frontend.`,
+          hidden: true,
+        },
+      ),
+    ),
     logging,
     printConfig: withDefault(
       flag("--print-config", {
@@ -314,6 +332,30 @@ function required<T>(
 }
 
 /**
+ * Pair the account of a development login link with the frontend origin
+ * that confirms it, which must be allowed in login links.
+ * @returns The link to log, or `undefined` if none was requested.
+ */
+function resolveLoginLink(
+  account: string | undefined,
+  frontend: URL | undefined,
+  loginOrigins: ReadonlySet<string>,
+): { readonly email: string; readonly origin: string } | undefined {
+  if (account === undefined) return undefined;
+  if (frontend === undefined) {
+    throw new Error(
+      "Option --dev-login-link needs --dev-login-origin when the frontend is not served.",
+    );
+  }
+  if (!loginOrigins.has(frontend.origin)) {
+    throw new Error(
+      "The configured login origins must include the login link origin.",
+    );
+  }
+  return { email: account, origin: frontend.origin };
+}
+
+/**
  * Resolve domain constraints only after the source contexts have completed.
  * @returns Plain startup options; no database, mail or log sink is created.
  */
@@ -395,6 +437,11 @@ export function resolveOptions(options: RawOptions, cwd = process.cwd()) {
     mail: mail.mail,
     mailDiagnostic: mail.diagnostic,
     seed: server.seed,
+    loginLink: resolveLoginLink(
+      server.loginLink,
+      server.loginLinkOrigin ?? publicOrigin,
+      loginOrigins,
+    ),
     logging,
     drizzle: {
       ...database.database,
