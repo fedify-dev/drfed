@@ -54,12 +54,14 @@ export async function sendMail(
 
 const renderLoginEmail = (loginUrl: string): MessageContent => ({
   // FIXME: https://github.com/fedify-dev/drfed/issues/35
+  // oxlint-disable no-inline-comments
   text: `Hello, Welcome to DrFed! If you request to login to DrFed, please visit:
 
-open ${loginUrl}
+open ${loginUrl}${/* Split between the link and the last `\n` */ " "}
 
 Otherwise, please just ignore this mail.`,
 });
+// oxlint-enable no-inline-comments
 
 export function logReceipt(receipt: Receipt<string>): void {
   if (receipt.successful) {
