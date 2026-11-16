@@ -18,8 +18,29 @@
 import { type SQL, and, eq, gt, isNull, sql } from "drizzle-orm/sql";
 
 import type { Database, Transaction } from "./db.ts";
-import { type LoginChallenge, loginChallenges } from "./schema.ts";
+import {
+  LOGIN_CHALLENGE_CODE_LENGTH,
+  type LoginChallenge,
+  loginChallenges,
+} from "./schema.ts";
 import type { Uuid } from "./uuid.ts";
+
+const LOGIN_CHALLENGE_CODE_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/**
+ * Generates the plaintext code of a login challenge: lowercase base-36
+ * characters of {@link LOGIN_CHALLENGE_CODE_LENGTH}.
+ * @returns A random login challenge code.
+ */
+export const generateLoginChallengeCode = (): string =>
+  Array.from(
+    // `Uint16Array` keeps the modulo bias small, since `2 ** 16 % 36 = 16`
+    // while `2 ** 8 % 36 = 2 ** 32 % 36 = 4`.  It is not strictly uniform,
+    // but the bias is negligible.
+    crypto.getRandomValues(new Uint16Array(LOGIN_CHALLENGE_CODE_LENGTH)),
+    (num) =>
+      LOGIN_CHALLENGE_CODE_ALPHABET[num % LOGIN_CHALLENGE_CODE_ALPHABET.length],
+  ).join("");
 
 /**
  * An error that occurs when a login challenge operation fails.

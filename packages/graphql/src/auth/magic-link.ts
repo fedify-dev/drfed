@@ -17,11 +17,11 @@
 // oxlint-disable no-magic-numbers
 
 import { schema } from "@drfed/models";
+import { generateLoginChallengeCode } from "@drfed/models/login";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 
 import builder, { type UserContext } from "../builder.ts";
 import expandVerifyUrl from "./expand.ts";
-import { generateBase36Code } from "./hash.ts";
 import { sendMail } from "./mail.ts";
 
 interface LoginChallengeShape {
@@ -61,7 +61,7 @@ builder.mutationFields((t) => ({
     },
     async resolve(_root, { email, verifyUrl }, ctx) {
       const challengeId = uuidV7();
-      const code = generateBase36Code(schema.LOGIN_CHALLENGE_CODE_LENGTH);
+      const code = generateLoginChallengeCode();
       const loginUrl = expandVerifyUrl({
         challengeId,
         code,
