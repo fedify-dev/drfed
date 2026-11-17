@@ -22,7 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .header {
   background: color-mix(in srgb, var(--bg) 92%, transparent);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -90,7 +90,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .headerAction {
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink-faint);
   border-radius: var(--radius-pill);
   margin-left: auto;
   min-height: 2.4rem;

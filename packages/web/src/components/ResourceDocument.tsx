@@ -385,16 +385,20 @@ function NodeView<T extends LevelRelation>(props: {
               {node().iri ?? <span class={styles.faint}>Anonymous</span>}
             </span>
             <PathText path={path()} />
-            <Show when={props.depth > 0}>
-              <SourceLabels
-                source={node().source}
-                expected={props.sourceExpected}
-              />
-            </Show>
           </span>
         );
+        // The source links stay out of the summary, which must hold no
+        // interactive element of its own.
         const body = () => (
           <div class={styles.nodeBody}>
+            <Show when={props.depth > 0}>
+              <p class={styles.sourceRow}>
+                <SourceLabels
+                  source={node().source}
+                  expected={props.sourceExpected}
+                />
+              </p>
+            </Show>
             <DiagnosticList
               diagnostics={props.diagnostics.filter(
                 (diagnostic) => pathKey(diagnostic.path) === pathKey(path()),

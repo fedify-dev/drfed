@@ -35,6 +35,7 @@ import {
 } from "solid-relay";
 
 import { CopyButton } from "~/components/CopyButton.tsx";
+import { LoadingIndicator } from "~/components/LoadingIndicator.tsx";
 import { ResourceRevision } from "~/components/ResourceRevision.tsx";
 import { ResourceTimeline } from "~/components/ResourceTimeline.tsx";
 import { WORDING, parseSequence, resourceHref } from "~/resource.ts";
@@ -113,7 +114,7 @@ export default function ResourcePage(props: RouteSectionProps<RouteData>) {
           </p>
         }
       >
-        <Suspense fallback={<output>Loading resource…</output>}>
+        <Suspense fallback={<LoadingIndicator label="Loading resource…" />}>
           <ResourceContent data={props.data} />
         </Suspense>
       </ErrorBoundary>
@@ -159,17 +160,14 @@ function ResourceContent(props: { data: RouteData }) {
                 </Match>
                 <Match when>
                   <div class={styles.railLayout}>
-                    <section
-                      class={styles.panel}
-                      aria-labelledby="history-title"
-                    >
-                      <h2 id="history-title">History</h2>
+                    <section class={styles.panel}>
+                      <h2>History</h2>
                       <ResourceTimeline
                         $resource={resource()}
                         selected={shown()}
                       />
                     </section>
-                    <section class={styles.panel} aria-label="Revision">
+                    <section class={styles.panel}>
                       <Show
                         when={shown()}
                         fallback={
@@ -181,7 +179,9 @@ function ResourceContent(props: { data: RouteData }) {
                       >
                         {(sequence) => (
                           <Suspense
-                            fallback={<output>Loading revision…</output>}
+                            fallback={
+                              <LoadingIndicator label="Loading revision…" />
+                            }
                           >
                             <RevisionPanel
                               id={resource().id}

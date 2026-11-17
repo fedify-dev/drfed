@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .panel {
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   max-width: 28rem;
@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .header {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   margin: 0 calc(clamp(1.5rem, 4vw, 2rem) * -1) 1.5rem;
   padding: 0 clamp(1.5rem, 4vw, 2rem) 1.5rem;
 }
@@ -82,7 +82,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .input {
   background: var(--surface-2);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink-faint);
   border-radius: var(--radius-sm);
   color: var(--ink);
   min-width: 0;

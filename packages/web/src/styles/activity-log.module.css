@@ -53,7 +53,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .box {
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: 0.5rem;
   padding: 0.75rem;
 }
@@ -76,6 +76,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
+}
+.resourceLinks a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.5rem;
+}
+@media (pointer: coarse) {
+  .resourceLinks a {
+    min-block-size: 2.75rem;
+  }
 }
 
 .source pre {

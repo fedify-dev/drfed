@@ -64,7 +64,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .selectContent {
   background: var(--card);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink-faint);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-md);
   max-width: calc(100vw - 2rem);
@@ -116,7 +116,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .actions {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
@@ -125,7 +125,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .reset {
   background: var(--card);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink-faint);
   border-radius: var(--radius-sm);
   color: var(--ink);
   cursor: pointer;

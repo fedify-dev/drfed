@@ -25,6 +25,7 @@ import type { ActorObjectList_actor$key } from "./__generated__/ActorObjectList_
 import type { ActorObjectListRefetchQuery } from "./__generated__/ActorObjectListRefetchQuery.graphql.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { FilterCheckbox, FilterDisclosure } from "./FilterDisclosure.tsx";
+import { LoadingIndicator } from "./LoadingIndicator.tsx";
 
 import styles from "~/styles/actor.module.css";
 
@@ -100,7 +101,7 @@ export function ActorObjectList(props: { $actor: ActorObjectList_actor$key }) {
             </FilterDisclosure>
           </div>
           <Show when={pending()}>
-            <output class={styles.objectEmpty}>Loading objects…</output>
+            <LoadingIndicator label="Loading objects…" />
           </Show>
           <Show when={failed()}>
             <p class={styles.objectEmpty} role="alert">

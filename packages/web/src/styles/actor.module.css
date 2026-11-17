@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   display: flex;
   align-items: center;
   gap: 1rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   padding-bottom: 1.25rem;
 }
 .header > div {
@@ -55,7 +55,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 .panel {
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   padding: clamp(1rem, 3vw, 1.75rem);
 }
@@ -78,7 +78,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   grid-template-columns: 8rem minmax(0, 1fr);
   gap: 1rem;
   padding: 1rem 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 .fields dt {
   color: var(--ink-soft);
@@ -126,7 +126,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 .objectList > li {
   min-width: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
   padding: 1.5rem 0;
 }
 .objectList > li:last-child {
@@ -164,7 +164,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .objectHistory {
   grid-column: 1 / -1;
   justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.5rem;
   font-size: 0.8rem;
+}
+@media (pointer: coarse) {
+  .objectHistory {
+    min-block-size: 2.75rem;
+  }
 }
 .objectIri {
   flex: 1;
@@ -190,7 +198,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   font: inherit;
 }
 .deletedObject .objectContent {
-  border-left-color: var(--line-strong);
+  border-left-color: var(--rule);
   color: var(--ink-soft);
 }
 .deletedLabel {

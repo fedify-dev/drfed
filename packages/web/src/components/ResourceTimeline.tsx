@@ -22,6 +22,7 @@ import { createPaginationFragment } from "solid-relay";
 import { WORDING, resourceHref, timelineEntries } from "~/resource.ts";
 
 import type { ResourceTimeline_resource$key } from "./__generated__/ResourceTimeline_resource.graphql.ts";
+import { LoadingIndicator } from "./LoadingIndicator.tsx";
 import { TimeText } from "./ResourceRevision.tsx";
 
 import styles from "~/styles/resource.module.css";
@@ -89,7 +90,9 @@ export function ResourceTimeline(props: {
     <Show when={data()}>
       {(resource) => (
         <div>
-          <ol class={styles.timeline}>
+          {/* Safari drops list semantics without list markers. */}
+          {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
+          <ol class={styles.timeline} role="list">
             <For each={entries()}>
               {(entry) => (
                 <Switch>
@@ -159,7 +162,7 @@ export function ResourceTimeline(props: {
             </p>
           </Show>
           <Show when={data.isLoadingNext}>
-            <output class={styles.empty}>Loading older revisions…</output>
+            <LoadingIndicator label="Loading older revisions…" />
           </Show>
           <Show when={data.hasNext && !data.isLoadingNext && !failed()}>
             <button type="button" class={styles.loadMore} onClick={loadOlder}>

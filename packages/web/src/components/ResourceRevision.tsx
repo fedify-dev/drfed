@@ -139,10 +139,7 @@ export function ResourceRevision(props: {
   return (
     <Show when={data()}>
       {(revision) => (
-        <article
-          class={styles.revision}
-          aria-label={`Revision ${revision().sequence}`}
-        >
+        <article class={styles.revision}>
           <header class={styles.revisionHeader}>
             <h2>{props.head ? "Current revision" : "Earlier revision"}</h2>
             <dl class={styles.fields}>

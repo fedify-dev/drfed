@@ -55,6 +55,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   --on-accent: #ffffff;
   --line: #e9e5e1;
   --line-strong: #dad4cf;
+  /* Borders and separators: halfway between the strong line and the faint
+     ink in oklab, so that they stand out of the ground in either scheme
+     (2:1 light, 2.8:1 dark).  Control boundaries take --ink-faint, at 3:1. */
+  --rule: color-mix(in oklab, var(--line-strong), var(--ink-faint));
   --danger: #cf3f43;
   --success: #247a46;
   --warning: #9a5800;

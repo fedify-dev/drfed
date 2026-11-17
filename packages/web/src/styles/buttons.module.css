@@ -30,7 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   justify-content: center;
   background: var(--card);
   color: var(--ink);
-  border: 1px solid var(--line);
+  border: 1px solid var(--ink-faint);
   border-radius: var(--radius-sm);
   padding: 0.35rem 0.65rem;
   cursor: pointer;

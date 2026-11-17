@@ -19,7 +19,8 @@ import { type JSX, Show } from "solid-js";
 import styles from "~/styles/filter.module.css";
 
 /**
- * A disclosure above a list that opens the conditions it is filtered by.
+ * A disclosure above a list that opens the conditions it is filtered by,
+ * within a `search` landmark.
  * @returns The disclosure, with the number of active conditions on its
  *          toggle.
  */
@@ -31,18 +32,20 @@ export function FilterDisclosure(props: {
   children: JSX.Element;
 }) {
   return (
-    <details class={styles.filter}>
-      <summary class={styles.toggle}>
-        Filter
-        <Show when={props.active > 0}>
-          <span class={styles.count}> ({props.active})</span>
-        </Show>
-      </summary>
-      <fieldset class={styles.conditions}>
-        <legend class={styles.legend}>Show in {props.label}</legend>
-        {props.children}
-      </fieldset>
-    </details>
+    <search class={styles.filter}>
+      <details>
+        <summary class={styles.toggle}>
+          Filter
+          <Show when={props.active > 0}>
+            <span class={styles.count}> ({props.active})</span>
+          </Show>
+        </summary>
+        <fieldset class={styles.conditions}>
+          <legend class={styles.legend}>Show in {props.label}</legend>
+          {props.children}
+        </fieldset>
+      </details>
+    </search>
   );
 }
 
@@ -60,13 +63,14 @@ export function FilterCheckbox(props: {
     <label class={styles.condition}>
       <input
         type="checkbox"
+        class={styles.checkbox}
         checked={props.checked}
         disabled={props.disabled}
         onChange={(event) => {
           props.onChange(event.currentTarget.checked);
         }}
       />
-      {props.label}
+      <span>{props.label}</span>
     </label>
   );
 }
