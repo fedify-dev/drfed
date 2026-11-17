@@ -6,12 +6,14 @@ tarball integrity are recorded in *pnpm-lock.yaml*. There are no checked-in
 skill copies. *.claude/skills* points to this directory; pnpm also links the
 same dependency skills into *.crush/skills/*.
 
-| Git development dependency  | Skills                                      | Source                     |
-| --------------------------- | ------------------------------------------- | -------------------------- |
-| `@open-circle/agent-skills` | `formisch`, `valibot`                       | [open-circle/agent-skills] |
-| `@chillicream/agent-skills` | `graphql-schema-design`                     | [ChilliCream/agent-skills] |
-| `relay-github-root`         | `relay-best-practices`, `relay-performance` | [facebook/relay]           |
-| `@dahlia/sacho`             | `sacho`                                     | [dahlia/sacho]             |
+| Git development dependency  | Skills                                      | Source                             |
+| --------------------------- | ------------------------------------------- | ---------------------------------- |
+| `@open-circle/agent-skills` | `formisch`, `valibot`                       | [open-circle/agent-skills]         |
+| `@chillicream/agent-skills` | `graphql-schema-design`                     | [ChilliCream/agent-skills]         |
+| `relay-github-root`         | `relay-best-practices`, `relay-performance` | [facebook/relay]                   |
+| `@dahlia/sacho`             | `sacho`                                     | [dahlia/sacho]                     |
+| `modern-web-guidance`       | `modern-web-guidance`, `chrome-extensions`  | [GoogleChrome/modern-web-guidance] |
+| `@leonxlnx/taste-skill`     | `design-taste-frontend`                     | [leonxlnx/taste-skill]             |
 
 The pinned skill contents match the latest upstream versions checked during
 this migration. ChilliCream is pinned to the last change to its GraphQL schema
@@ -38,3 +40,5 @@ updated source approval in *pnpm-workspace.yaml* together.
 [ChilliCream/agent-skills]: https://github.com/ChilliCream/agent-skills
 [facebook/relay]: https://github.com/facebook/relay
 [dahlia/sacho]: https://github.com/dahlia/sacho
+[GoogleChrome/modern-web-guidance]: https://github.com/GoogleChrome/modern-web-guidance
+[leonxlnx/taste-skill]: https://github.com/leonxlnx/taste-skill

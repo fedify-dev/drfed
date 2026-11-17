@@ -8,12 +8,14 @@
     "@drfed/models": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@fedify/fedify": "catalog:",
+    "@leonxlnx/taste-skill": "github:leonxlnx/taste-skill#f6b76575f949707b4e3c37cd86cb44b0b98643e8",
     "@logtape/logtape": "catalog:",
     "@open-circle/agent-skills": "github:open-circle/agent-skills#21d123742218d3cd748056fad78aa88d7da3dc96",
     "@sigstore/oci": "0.7.2",
     "@types/node": "catalog:",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
+    "modern-web-guidance": "github:GoogleChrome/modern-web-guidance#64a6d708f5a43f2cd3fde5d4d7db3905ba1bdf65",
     "relay-github-root": "github:facebook/relay#52c2e68711a698a9708997b9bdf7532c4d7ecdd6",
     "vitepress": "^1.6.4"
   }
