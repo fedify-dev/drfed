@@ -296,6 +296,14 @@ resource does not hide an earlier public one.  A Relay node lookup of a
 revision checks the revision itself, and `Resource.revisions` leaves out the
 ones the viewer may not read, so their sequences can skip.
 
+The `Resource` a history is read through follows the same evidence, in
+`readableResourceNode()`: a `node` lookup of a `Resource`, a relation's or
+recipient's `resource`, and `Activity.object` return it when the viewer may
+read it as `Resource.detail` decides or may read any of its revisions.  A
+`Resource` node shares its ID with the typed `Object` or `Activity` of the
+same resource, so the lookup tells them apart by the typename of the global
+ID; the typed node and `Resource.detail` keep following the current state.
+
 What a revision embeds never decides whether it is readable.  A local
 `Announce` that embeds a `Note` only one instance received is readable by
 anyone, as every local revision is, whether it records that `Note`'s revision
@@ -312,8 +320,11 @@ same rule to a set of revisions for that check.
 Deletion hides no revision by itself: deleting a resource appends a whiteout,
 and its earlier revisions, like those of a resource whose author is deleted,
 stay readable by their own evidence.  Only the existing fields, such as
-`Resource.detail`, keep hiding deleted typed rows.  A relation's or
-recipient's `resource` is opened as `Activity.object` is, deleted or not.
+`Resource.detail`, keep hiding deleted typed rows.  `Actor.objects` leaves
+deleted objects out unless its `filter` sets `includeDeleted`, which lists
+them with `Object.deleted` so that their histories can be reached.  A
+relation's or recipient's `resource` is opened as `Activity.object` is, deleted
+or not.
 
 `DocumentNode.source` tells where an embedded document came from: its
 `relation`, `snapshot` or `derived`, the source `revision`, and `status`,

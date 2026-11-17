@@ -19,4 +19,9 @@ links:
     derived from it, and whether that revision is still current, superseded, or
     deleted; it is null when the viewer may not read that revision, and the
     embedded document itself stays readable.  Deleting a resource or its
-    author hides none of its revisions by itself.  [[#154]]
+    author hides none of its revisions by itself.  A `Resource` is returned by
+    `node`, `Activity.object`, and relations and recipients whenever the
+    viewer may read one of its revisions, even after its current state was
+    restricted, while `Resource.detail` and the typed node stay hidden.
+    `Actor.objects` takes a `filter` whose `includeDeleted` lists deleted
+    objects too, and `Object.deleted` tells when one was deleted.  [[#154]]

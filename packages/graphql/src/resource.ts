@@ -32,6 +32,7 @@ import {
 import {
   type Viewer,
   isReadableResource,
+  isReadableResourceNode,
   readableResource,
   visibleResource,
 } from "./readable.ts";
@@ -357,10 +358,10 @@ const ActivityRef = builder.drizzleNode("activities", {
       nullable: true,
       description:
         "The resource the activity acts on, or null when there is none or " +
-        "the viewer may not read it.",
+        "the viewer may read neither it nor any of its revisions.",
       select: { with: { object: true } },
       resolve: async (row, _, ctx) =>
-        row.object != null && (await isReadableResource(ctx, row.object.id))
+        row.object != null && (await isReadableResourceNode(ctx, row.object.id))
           ? row.object
           : null,
     }),

@@ -38,7 +38,7 @@ import type { Uuid } from "@drfed/models/uuid";
 import { and, eq, inArray } from "drizzle-orm";
 
 import builder, { type DrFedObjectRef, type UserContext } from "./builder.ts";
-import { readableResource, readableRevision } from "./readable.ts";
+import { readableResourceNode, readableRevision } from "./readable.ts";
 import { Resource } from "./resource.ts";
 
 const ACTIVITY_STREAMS = "https://www.w3.org/ns/activitystreams#";
@@ -209,8 +209,8 @@ const resourceLookups = new WeakMap<
 
 /**
  * Finds the resource registered under an IRI, as `Activity.object` opens
- * it: only when the viewer may read it.  A deleted one is found too, since
- * its revisions stay readable.  Lookups are shared within a request, since
+ * it: only when the viewer may read it or one of its revisions.  A deleted
+ * one is found too, since its revisions stay readable.  Lookups are shared within a request, since
  * a document may name one IRI many times.
  * @returns The resource, or null.
  */
@@ -230,7 +230,7 @@ function registeredResource(
       (await ctx.db.query.resources.findFirst({
         where: {
           iri,
-          RAW: (table) => readableResource(ctx, table.id),
+          RAW: (table) => readableResourceNode(ctx, table.id),
         },
       })) ?? null)();
     lookups.set(iri, lookup);
@@ -380,8 +380,9 @@ const occurrenceFields = {
     "with a compact IRI expanded; null for an anonymous embedded value.",
   resource:
     "The resource currently registered under `iri`, or null when there is " +
-    "none, or when the viewer may not read it.  A deleted resource is " +
-    "returned too, since its revisions stay readable.  It is never fetched.",
+    "none, or when the viewer may read neither it nor any of its " +
+    "revisions.  A deleted resource is returned too, since its revisions " +
+    "stay readable.  It is never fetched.",
 } as const;
 
 DocumentRelation.implement({

@@ -134,6 +134,7 @@ const evidencedAddressing = alias(revisionAddressing, "evidenced_addressing");
 const evidencedReceipts = alias(revisionReceipts, "evidenced_receipts");
 const receiptDeliveries = alias(activityDeliveries, "receipt_deliveries");
 const evidencedHeads = alias(resourceHeads, "evidenced_heads");
+const listedRevisions = alias(resourceRevisions, "listed_revisions");
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}
@@ -327,6 +328,27 @@ export function readableRevision(viewer: Viewer, id: SQLWrapper): SQL {
 }
 
 /**
+ * Restricts resources to those the viewer may know of as `Resource` nodes:
+ * those {@link readableResource} lets the viewer read, and those with a
+ * revision the viewer may read, as {@link readableRevision} tells.  A
+ * resource's current state, which its legacy typed row describes, may be
+ * restricted after an earlier revision was public or received; that hides
+ * neither the revision nor the resource it is read through.  The typed
+ * details of the resource still follow {@link readableResource}.
+ * @param viewer The viewer and the database.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function readableResourceNode(viewer: Viewer, id: SQLWrapper): SQL {
+  if (viewer.account?.admin === true) return sql`true`;
+  return sql`(${readableResource(viewer, id)} or exists (
+    select 1 from ${resourceRevisions} ${listedRevisions}
+    where ${listedRevisions.resourceId} = ${id}
+      and ${readableRevision(viewer, listedRevisions.id)}
+  ))`;
+}
+
+/**
  * Finds the revisions among the given IDs that the viewer may not read, as
  * {@link readableRevision} decides.  IDs of no stored revision are never
  * among them.  A local write takes it to check the sources a writer
@@ -383,6 +405,39 @@ export const isReadableResource = async (
   id: Uuid,
 ): Promise<boolean> => !(await unreadableResources(viewer, [id])).has(id);
 
+/**
+ * Finds the resources among the given IDs that the viewer may not know of as
+ * `Resource` nodes, as {@link readableResourceNode} decides.  IDs of anything
+ * but a resource are never among them.
+ * @returns The IDs the viewer may not know of.
+ */
+export async function unreadableResourceNodes(
+  viewer: Viewer,
+  ids: readonly Uuid[],
+): Promise<ReadonlySet<Uuid>> {
+  if (ids.length === 0 || viewer.account?.admin === true) return new Set();
+  const rows = await viewer.db
+    .select({ id: resources.id })
+    .from(resources)
+    .where(
+      and(
+        inArray(resources.id, [...new Set(ids)]),
+        not(readableResourceNode(viewer, resources.id)),
+      ),
+    );
+  return new Set(rows.map(({ id }) => id));
+}
+
+/**
+ * Determines whether the viewer may know of the resource as a `Resource`
+ * node.
+ * @returns Whether {@link readableResourceNode} holds for it.
+ */
+export const isReadableResourceNode = async (
+  viewer: Viewer,
+  id: Uuid,
+): Promise<boolean> => !(await unreadableResourceNodes(viewer, [id])).has(id);
+
 const uuidOf = (node: unknown, key: "id" | "resourceId"): Uuid | null =>
   node != null &&
   typeof node === "object" &&
@@ -401,40 +456,57 @@ const uuidOf = (node: unknown, key: "id" | "resourceId"): Uuid | null =>
 export const owningResourceOf = (node: unknown): Uuid | null =>
   uuidOf(node, "resourceId");
 
+/** How {@link hideUnreadableNodes} checks a node. */
+type NodeKind = "revision" | "resource" | "typed";
+
 /**
  * Replaces the Relay nodes the viewer may not read by null, as if they did
- * not exist.  Activities, objects, and resources share their IDs, so a node's
- * ID alone tells whether it is one the viewer may not read; a node that
- * belongs to a resource, such as a revision, is checked by
- * {@link readableRevision} instead, as {@link owningResourceOf} tells.
+ * not exist.  Activities, objects, and resources share their IDs, so the
+ * caller tells which nodes are `Resource` nodes, which are checked by
+ * {@link readableResourceNode}; the ID of any other node tells whether
+ * {@link readableResource} lets the viewer read it.  A node that belongs to a
+ * resource, such as a revision, is checked by {@link readableRevision}
+ * instead, as {@link owningResourceOf} tells.
+ * @param viewer The viewer and the database.
+ * @param nodes The resolved nodes.
+ * @param resourceNodes Whether the node at each index is a `Resource` node.
  * @returns The nodes, in the same order.
  */
 export async function hideUnreadableNodes(
   viewer: Viewer,
   nodes: readonly unknown[],
+  resourceNodes: readonly boolean[] = [],
 ): Promise<unknown[]> {
-  const revisionIds = nodes.map((node) =>
-    owningResourceOf(node) == null ? null : uuidOf(node, "id"),
-  );
-  const ids = nodes.map((node) =>
-    owningResourceOf(node) == null ? uuidOf(node, "id") : null,
-  );
-  const [hidden, hiddenRevisions] = await Promise.all([
-    unreadableResources(
-      viewer,
-      ids.filter((id) => id != null),
-    ),
-    unreadableRevisions(
-      viewer,
-      revisionIds.filter((id) => id != null),
-    ),
+  const kindOf = (node: unknown, index: number): NodeKind =>
+    owningResourceOf(node) != null
+      ? "revision"
+      : resourceNodes[index] === true
+        ? "resource"
+        : "typed";
+  const kinds = nodes.map((node, index) => kindOf(node, index));
+  const idsOf = (kind: NodeKind) =>
+    nodes.map((node, index) =>
+      kinds[index] === kind ? uuidOf(node, "id") : null,
+    );
+  const ids = {
+    revision: idsOf("revision"),
+    resource: idsOf("resource"),
+    typed: idsOf("typed"),
+  };
+  const present = (list: readonly (Uuid | null)[]) =>
+    list.filter((id) => id != null);
+  const [hiddenTyped, hiddenResources, hiddenRevisions] = await Promise.all([
+    unreadableResources(viewer, present(ids.typed)),
+    unreadableResourceNodes(viewer, present(ids.resource)),
+    unreadableRevisions(viewer, present(ids.revision)),
   ]);
   return nodes.map((node, index) => {
-    if (owningResourceOf(node) != null) {
-      const id = revisionIds[index];
+    const kind: NodeKind = kinds[index] ?? "typed";
+    const id = ids[kind][index];
+    if (kind === "revision") {
       return id == null || hiddenRevisions.has(id) ? null : node;
     }
-    const id = ids[index];
+    const hidden = kind === "resource" ? hiddenResources : hiddenTyped;
     return id != null && hidden.has(id) ? null : node;
   });
 }

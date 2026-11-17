@@ -423,7 +423,6 @@ export const relations = defineRelations(schema, (r) => ({
     objects: r.many.objects({
       from: r.actors.id,
       to: r.objects.actorId,
-      where: { deleted: { isNull: true } },
     }),
     instance: r.one.instances({
       from: r.actors.instanceId,

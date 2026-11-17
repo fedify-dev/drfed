@@ -627,6 +627,66 @@ describe("Actor.objects", () => {
       assert.deepEqual(previous.data.node.objects.edges, connection.edges);
     });
   });
+
+  it("lists deleted objects too when the filter includes them", async () => {
+    await withTestHarness(async ({ db, post }) => {
+      await seedLocalActor(db);
+      const [liveId, deletedId] = [uuid(), uuid()];
+      const deleted = Temporal.Instant.from("2026-02-01T00:00:00Z");
+      await seedObjects(
+        db,
+        [liveId, deletedId].map((id, index) => ({
+          id,
+          actorId: localActorId,
+          type: "Note" as const,
+          iri: `https://test.example/${id}`,
+          contentHtml: "test",
+          published: Temporal.Instant.from(
+            index === 0 ? "2026-01-02T00:00:00Z" : "2026-01-01T00:00:00Z",
+          ),
+          deleted: id === deletedId ? deleted : null,
+        })),
+      );
+      const query = `query($actor: ID!, $filter: ActorObjectFilter) {
+        node(id: $actor) { ... on Actor {
+          objects(first: 10, filter: $filter) {
+            totalCount edges { node { uuid deleted } }
+          }
+        } }
+      }`;
+      const list = async (filter: unknown) =>
+        await (
+          await post({
+            query,
+            variables: { actor: globalId("Actor", localActorId), filter },
+          })
+        ).json();
+      const live = { node: { uuid: liveId, deleted: null } };
+      for (const filter of [null, {}, { includeDeleted: false }]) {
+        assert.deepEqual(await list(filter), {
+          data: { node: { objects: { totalCount: 1, edges: [live] } } },
+        });
+      }
+      assert.deepEqual(await list({ includeDeleted: true }), {
+        data: {
+          node: {
+            objects: {
+              totalCount: 2,
+              edges: [
+                live,
+                {
+                  node: {
+                    uuid: deletedId,
+                    deleted: "2026-02-01T00:00:00Z",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      });
+    });
+  });
 });
 
 describe("Query.node", () => {

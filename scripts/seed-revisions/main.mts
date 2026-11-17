@@ -25,6 +25,7 @@ import process from "node:process";
 import type { SeedCase, SeededCase } from "./case.mts";
 import { ACCESS_CASES } from "./cases-access.mts";
 import { DOCUMENT_CASES } from "./cases-documents.mts";
+import { LINK_CASES } from "./cases-links.mts";
 import { SOURCE_CASES } from "./cases-sources.mts";
 import { openSeedEnvironment } from "./environment.mts";
 import { type Viewer, reportCases } from "./report.mts";
@@ -36,6 +37,7 @@ const CASES: readonly SeedCase[] = [
   ...DOCUMENT_CASES,
   ...SOURCE_CASES,
   ...ACCESS_CASES,
+  ...LINK_CASES,
 ];
 
 // The development server reads its origins from this file; use the same.

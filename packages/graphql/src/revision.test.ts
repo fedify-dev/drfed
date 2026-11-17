@@ -1378,6 +1378,82 @@ describe("Access to revisions by their own evidence", () => {
   });
 });
 
+describe("Resource nodes read through their revisions", () => {
+  // The rule for a remote resource with a legacy typed row follows its
+  // current state, which no delivery to the viewer's workspace opens here;
+  // only a receipt opens its revision.
+  it("finds a resource by a revision the viewer may read, but not its typed details", async () => {
+    await withWriter(async ({ harness, query }) => {
+      const { db } = harness;
+      await seedRemoteActor(db);
+      const workspaceB = await seedWorkspace(db);
+      const memberB = await seedViewer(db, { memberOf: workspaceB });
+      const outsider = await seedViewer(db);
+      const remoteId = uuidV7();
+      const iri = `https://remote.example.com/notes/${remoteId}`;
+      const document = { type: "Note", content: "private" };
+      await seedObjects(db, {
+        id: remoteId,
+        actorId: remoteActorId,
+        type: "Note",
+        iri,
+        contentHtml: "private",
+        document,
+        addressing: { to: [CAROL] },
+      });
+      const revision = await db.transaction((tx) =>
+        captureLegacyResourceRevision(tx, remoteId),
+      );
+      await receipt(db, revision, workspaceB);
+      const like = await embed(db, "Like", { ...document, id: iri });
+      const read = `query($id: ID!, $typed: ID!, $like: ID!) {
+        node(id: $id) { ... on Resource {
+          iri
+          detail { __typename }
+          revisions { edges { node { sequence document } } }
+        } }
+        typed: node(id: $typed) { ... on Object { uuid } }
+        nodes(ids: [$id, $typed]) { id }
+        like: node(id: $like) { ... on Resource { currentRevision { root {
+          relations(property: object) { resource { iri } }
+        } } } }
+      }`;
+      const variables = {
+        id: globalId("Resource", remoteId),
+        typed: globalId("Object", remoteId),
+        like: globalId("Resource", like.resourceId),
+      };
+      const relations = (resource: unknown) => ({
+        currentRevision: { root: { relations: [{ resource }] } },
+      });
+      assert.deepEqual(await query(read, variables, memberB.auth), {
+        data: {
+          node: {
+            iri,
+            // The typed details follow the rule of the current state.
+            detail: null,
+            revisions: { edges: [{ node: { sequence: 1, document } }] },
+          },
+          typed: null,
+          nodes: [{ id: variables.id }, null],
+          like: relations({ iri }),
+        },
+      });
+      // Without a revision to read, nothing tells of the resource.
+      for (const init of [undefined, outsider.auth]) {
+        assert.deepEqual(await query(read, variables, init), {
+          data: {
+            node: null,
+            typed: null,
+            nodes: [null, null],
+            like: relations(null),
+          },
+        });
+      }
+    });
+  });
+});
+
 describe("DocumentNode.source", () => {
   const source = `query($id: ID!) { node(id: $id) { ... on Resource {
     currentRevision { root { source { relation } relations(property: object) {

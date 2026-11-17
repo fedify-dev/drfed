@@ -63,6 +63,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   margin: 0;
   font-size: 1.3rem;
 }
+.panelHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+}
 .fields {
   margin: 1.25rem 0 0;
 }
@@ -154,6 +161,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   grid-column: 1 / -1;
   min-width: 0;
 }
+.objectHistory {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 0.8rem;
+}
 .objectIri {
   flex: 1;
   min-width: 0;
@@ -176,6 +188,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 .objectContent code {
   font: inherit;
+}
+.deletedObject .objectContent {
+  border-left-color: var(--line-strong);
+  color: var(--ink-soft);
+}
+.deletedLabel {
+  color: var(--ink-soft);
+  font-weight: 400;
 }
 .objectEmpty {
   color: var(--ink-soft);
