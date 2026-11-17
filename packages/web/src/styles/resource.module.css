@@ -1,0 +1,405 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/* The resource page: a history rail beside the revision it shows. */
+
+.page {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+  padding-bottom: 3rem;
+}
+.backLink {
+  color: var(--ink-soft);
+  font-weight: 700;
+  justify-self: start;
+  text-decoration: none;
+}
+.page a {
+  color: var(--ink);
+  text-decoration-color: var(--accent-soft);
+  text-underline-offset: 0.2rem;
+}
+.page a:focus-visible,
+.page summary:focus-visible,
+.page button:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+.header {
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  padding-bottom: 1.25rem;
+}
+.header h1 {
+  font-family: var(--font-mono);
+  font-size: clamp(1.1rem, 3vw, 1.6rem);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.label {
+  color: var(--accent-strong);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 1.75rem);
+}
+.panel h2 {
+  font-size: 1.3rem;
+  margin: 0 0 1rem;
+}
+.notice {
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent-soft);
+  border-radius: var(--radius-sm);
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+}
+.empty {
+  color: var(--ink-soft);
+  display: block;
+  margin: 0;
+}
+.faint {
+  color: var(--ink-faint);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+.sectionLabel {
+  color: var(--ink-soft);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  margin: 1rem 0 0.5rem;
+  text-transform: uppercase;
+}
+.path {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.iri {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.position {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+/* Pills.  Source labels are all neutral and told apart by their words. */
+.pill,
+.pillEmbedded {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 700;
+  padding: 0.05rem 0.5rem;
+  white-space: nowrap;
+}
+.pillEmbedded {
+  border-color: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.labels {
+  align-items: baseline;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+}
+.page .sourceLink {
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Layout. */
+.railLayout {
+  align-items: start;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(14rem, 17rem) minmax(0, 1fr);
+}
+.loadMore {
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 700;
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+}
+.loadMore:hover {
+  background: var(--surface-2);
+}
+
+/* The timeline: dots on a line. */
+.timeline {
+  border-left: 2px solid var(--line-strong);
+  list-style: none;
+  margin: 0 0 0 0.45rem;
+  min-width: 0;
+  padding: 0;
+}
+.timeline > li {
+  padding: 0.5rem 0.5rem 0.5rem 1.1rem;
+  position: relative;
+}
+.revisionEntry {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.timeline > .revisionEntry::before {
+  background: var(--card);
+  border: 2px solid var(--accent-soft);
+  border-radius: 50%;
+  content: "";
+  height: 0.7rem;
+  left: -0.45rem;
+  position: absolute;
+  top: 0.85rem;
+  width: 0.7rem;
+}
+.timeline > .selectedEntry {
+  background: var(--surface-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.timeline > .selectedEntry::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.2rem var(--accent-tint);
+}
+.timeline > .whiteoutEntry::before {
+  border-color: var(--danger);
+}
+.timeline > .whiteoutEntry.selectedEntry::before {
+  background: var(--danger);
+}
+.timeline > .gapEntry {
+  border-left: 2px dashed var(--line-strong);
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-left: -2px;
+}
+.entryLine {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+.page .entrySequence {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.entryDetail {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+/* A revision. */
+.revision {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.revisionHeader h2 {
+  margin: 0;
+}
+.fields {
+  margin: 0.75rem 0 0;
+}
+.fields > div {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  padding: 0.6rem 0;
+}
+.fields dt {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+.fields dd {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Saved JSON. */
+.json {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  margin-top: 0.75rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+}
+.json > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.json pre {
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Validator findings. */
+.diagnostics {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+.diagnostics > li {
+  background: var(--surface-2);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.75rem;
+}
+.diagnostics > li.diagnosticError {
+  border-left-color: var(--danger);
+}
+.diagnostics p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.diagnosticHead {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.diagnosticError .diagnosticHead strong {
+  color: var(--danger);
+}
+.diagnosticWarning .diagnosticHead strong {
+  color: var(--warning);
+}
+
+/* Document nodes. */
+.rootNode {
+  min-width: 0;
+}
+.nodeHeader {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  min-width: 0;
+}
+.nodeType {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.nodeSummary {
+  cursor: pointer;
+  list-style-position: outside;
+}
+.nodeSummary .nodeHeader {
+  display: inline-flex;
+}
+.nodeBody {
+  min-width: 0;
+}
+.groups {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+.groups dt code {
+  font-weight: 700;
+}
+.groups dd {
+  margin: 0.25rem 0 0;
+  min-width: 0;
+}
+.values {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1rem;
+}
+.value {
+  min-width: 0;
+}
+.valueLine {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  min-width: 0;
+}
+.extensionValue {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 0.5rem 0.75rem;
+  white-space: pre-wrap;
+}
+
+/* An embedded document, joined to its parent by a guide line. */
+.embedded {
+  min-width: 0;
+}
+.embedded > .nodeBody {
+  border-left: 1px solid var(--line-strong);
+  margin-left: 0.4rem;
+  padding-left: 1rem;
+}
+
+@media (max-width: 900px) {
+  .railLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .railLayout > :first-child {
+    order: 2;
+  }
+}
+@media (max-width: 600px) {
+  .fields > div {
+    gap: 0.25rem;
+    grid-template-columns: 1fr;
+  }
+}
