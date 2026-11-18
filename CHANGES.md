@@ -123,10 +123,12 @@ To be released.
  -  Added the `@drfed/federation/document` subpath.  Its
     `interpretDocument()` returns every vocabulary document of a saved
     document with its relations, recipients, and custom extension
-    properties, read by meaning as the validator reads them.  [[#154]]
+    properties, read by meaning as the validator reads them.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
  -  Added `extensionProperties` to the nodes `describeDocument()` in
     `@drfed/models/document` returns: the source keys of each document's
-    custom extension properties.  [[#154]]
+    custom extension properties.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
  -  Added the `@drfed/federation/serving` subpath.  It exports
     `publicDocument()`, the serialization federation reads use for saved
     documents, `parseVocab()`, which parses such a document into a Fedify
@@ -168,12 +170,14 @@ To be released.
     `unreadableRevisions` option of `previewLocalWrite()` and
     `commitLocalWrite()`, such as `unreadableRevisions()` of the new
     `@drfed/graphql/readable`; a source that is missing or that the member
-    may not read fails alike with `source_unavailable`.  [[#154]]
+    may not read fails alike with `source_unavailable`.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 [#152]: https://github.com/fedify-dev/drfed/issues/152
 [#166]: https://github.com/fedify-dev/drfed/pull/166
 [#173]: https://github.com/fedify-dev/drfed/pull/173
+[#182]: https://github.com/fedify-dev/drfed/pull/182
 
 
 Version 0.1.0
