@@ -9,6 +9,18 @@ This document is also the coding-agent guide for the repository.  *AGENTS.md*
 and *CLAUDE.md* point here on purpose.
 
 
+Debugging tool, not SNS
+-----------------------
+
+DrFed is a debugging tool for building social network services, not a social
+network service itself.  Reading its code as an SNS leads to a wrong
+understanding, wrong code, and wrong reviews.  For example, an SNS hides
+content once it is deleted, but DrFed may need to show it after deletion,
+because tracing how a resource changed and was deleted is what a debugging
+tool is for.  Read and write the code with this purpose in mind, and never
+confuse DrFed with an SNS.
+
+
 AI policy
 ---------
 
