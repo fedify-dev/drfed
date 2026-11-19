@@ -100,7 +100,10 @@ async function createMembers(db: Database): Promise<Record<string, Member>> {
   const members: Record<string, Member> = {};
   for (const { key, name, email, admin } of ACCOUNTS) {
     const accountId = uuidV7();
-    const token = `seed-${key}-token`;
+    const token = crypto
+      .getRandomValues(new Uint8Array(32))
+      .toBase64({ alphabet: "base64url", omitPadding: true });
+
     await db
       .insert(schema.accounts)
       .values({ id: accountId, email, name, admin, created });
