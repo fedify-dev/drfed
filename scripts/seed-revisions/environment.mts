@@ -118,48 +118,60 @@ async function createMembers(db: Database): Promise<Record<string, Member>> {
 }
 
 async function createWorkspace(
-  db: Database,
   graphql: GraphqlRequest,
   member: Member,
   slug: string,
 ): Promise<Workspace> {
-  const mutate = async (query: string, variables: Record<string, unknown>) => {
+  // Mutations report refusals as union members, not top-level errors, so
+  // anything but the expected typename stops the seed.
+  const mutate = async (
+    field: string,
+    expected: string,
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<any> => {
     const body = await graphql(member, query, variables);
     if (body.errors != null) throw new Error(JSON.stringify(body.errors));
+    const result = body.data?.[field];
+    // oxlint-disable-next-line no-underscore-dangle
+    if (result?.__typename !== expected) {
+      throw new Error(
+        `${field} for ${slug} returned ${JSON.stringify(result ?? null)}.`,
+      );
+    }
+    return result;
   };
-  await mutate(
-    "mutation($slug: String!) { createInstance(slug: $slug) { __typename } }",
+  const instance = await mutate(
+    "createInstance",
+    "Instance",
+    `mutation($slug: String!) {
+         createInstance(slug: $slug) {
+           __typename
+           ... on Instance { id uuid host }
+           ... on CreateInstanceError { type message }
+         }
+       }`,
     { slug },
   );
-  const [instance] = await db
-    .select({ id: schema.instances.id, host: schema.instances.host })
-    .from(schema.instances)
-    .innerJoin(
-      schema.localInstances,
-      eq(schema.localInstances.id, schema.instances.localId),
-    )
-    .where(eq(schema.localInstances.slug, slug));
-  if (instance == null) throw new Error(`Instance ${slug} was not created.`);
-  await mutate(
+  const generated = await mutate(
+    "generateActors",
+    "CreateActorsSuccess",
     `mutation($instance: ID!) {
-      generateActors(instance: $instance, size: 1) { __typename }
-    }`,
-    { instance: globalId("Instance", instance.id) },
+         generateActors(instance: $instance, size: 1) {
+           __typename
+           ... on CreateActorsSuccess { actors { uuid iri username } }
+           ... on CreateActorsError { type message }
+         }
+       }`,
+    { instance: instance.id },
   );
-  const [actor] = await db
-    .select({
-      id: schema.actors.id,
-      iri: schema.resources.iri,
-      username: schema.actors.username,
-    })
-    .from(schema.actors)
-    .innerJoin(schema.resources, eq(schema.resources.id, schema.actors.id))
-    .where(eq(schema.actors.instanceId, instance.id));
+
+  const [actor] = generated.actors;
   if (actor == null) throw new Error(`No actor was created on ${slug}.`);
   return {
-    instanceId: instance.id,
+    instanceId: instance.uuid as Uuid,
     host: instance.host,
-    actorId: actor.id,
+    actorId: actor.uuid as Uuid,
     actorIri: actor.iri,
     actorUsername: actor.username ?? "",
     member,
@@ -229,8 +241,8 @@ export async function openSeedEnvironment(
           ["sign", "verify"],
         ),
       },
-      alice: await createWorkspace(db, graphql, alice, SLUG_A),
-      bob: await createWorkspace(db, graphql, bob, SLUG_B),
+      alice: await createWorkspace(graphql, alice, SLUG_A),
+      bob: await createWorkspace(graphql, bob, SLUG_B),
       admin,
       close: () => store.close(),
     };
