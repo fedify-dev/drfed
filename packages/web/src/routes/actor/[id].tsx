@@ -40,8 +40,8 @@ const actorDetailQuery = graphql`
   query ActorDetailQuery($id: ID!) @throwOnFieldError {
     node(id: $id) {
       ... on Actor @alias(as: "actor") {
+        id
         ...ActorDetail_actor
-        ...ActorObjectList_actor
       }
     }
   }
@@ -103,7 +103,7 @@ function ActorDetailContent(props: { id: string | undefined }) {
         {(value) => (
           <>
             <ActorDetail $actor={value()} />
-            <ActorObjectList $actor={value()} />
+            <ActorObjectList id={value().id} />
           </>
         )}
       </Show>
