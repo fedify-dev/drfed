@@ -174,12 +174,14 @@ found in this order:
     An editor declares the revision it loaded a document from, so that a
     changed copy keeps its source.  Both `create` and `edit` accept `sources`,
     and the preview token binds them.  Each path must name an embedded document
-    with an `id` that is not a new resource of the write; otherwise the
-    request is `invalid_request`.  Its revision must be a snapshot of the
-    resource registered under that `id` that the member may read; otherwise
-    the write fails with `source_unavailable`, with a diagnostic at the
-    declared path.  A missing revision and one the member may not read fail
-    alike, so the error tells nothing of revisions the member may not read.
+    with an `id` that is neither a new resource of the write nor the object
+    an edit changes, since a source is a revision of another resource;
+    otherwise the request is `invalid_request`.  Its revision must be a
+    snapshot of the resource registered under that `id` that the member may
+    read; otherwise the write fails with `source_unavailable`, with a
+    diagnostic at the declared path.  A missing revision and one the member
+    may not read fail alike, so the error tells nothing of revisions the
+    member may not read.
 
     The local write operations do not decide who may read a revision.  The
     caller passes `unreadableRevisions(ids)` in the options of both

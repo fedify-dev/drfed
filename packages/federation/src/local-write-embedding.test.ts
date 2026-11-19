@@ -473,7 +473,7 @@ describe("embedded document sources", () => {
     await withFederation(async (harness) => {
       await seedMember(harness.db);
       const env = await environment(harness);
-      const { note, first } = await savedNote(env, harness.db);
+      const { note, first, current } = await savedNote(env, harness.db);
       const [other] = (await write(env, create(NOTE))).resources;
       assert.ok(other != null);
       const otherHead = await head(harness.db, other.id);
@@ -543,6 +543,22 @@ describe("embedded document sources", () => {
             expectedRevisionId: otherHead.id,
             document: otherHead.document,
             sources: [{ path: ["object"], revisionId: "nope" as Uuid }],
+          },
+        ],
+        [
+          // The saved version would drop the declaration, and the Update
+          // would name the new version as the source of the old copy.
+          "the edited object itself",
+          {
+            operation: "edit",
+            actorId: localActorId,
+            objectId: note.id,
+            expectedRevisionId: current.id,
+            document: {
+              ...current.document,
+              location: withoutContext(first.document),
+            },
+            sources: [{ path: ["location"], revisionId: first.id }],
           },
         ],
       ];

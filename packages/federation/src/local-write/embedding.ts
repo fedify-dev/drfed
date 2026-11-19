@@ -93,15 +93,18 @@ export async function loadSourceRevisions(
 /**
  * Checks the sources a request declares against the submitted document:
  * each names, once, an embedded document that is not a `Link`, is not a new
- * resource of the write, and has an `id`, and a stored snapshot of the
- * resource registered under that `id` that the principal may read.  Every
- * failure of the named revision, whether it does not exist, is no snapshot,
- * belongs to another resource, or may not be read, is one and the same
- * `source_unavailable`, so that it tells nothing of revisions the principal
- * may not read.
+ * resource of the write, and has an `id` other than that of a resource the
+ * write saves, since a source is always a revision of another resource, and
+ * a stored snapshot of the resource registered under that `id` that the
+ * principal may read.  Every failure of the named revision, whether it does
+ * not exist, is no snapshot, belongs to another resource, or may not be read,
+ * is one and the same `source_unavailable`, so that it tells nothing of
+ * revisions the principal may not read.
  * @param sources The declared sources.
  * @param nodes The documents the submitted document describes.
  * @param newPaths The keys of the paths of the write's new resources.
+ * @param ownIris The IRIs of the existing resources the write saves, such as
+ *                the object an edit changes.
  * @param revisions Looks up the declared revisions the principal may read.
  * @returns Why a declaration is invalid, or null.
  */
@@ -109,6 +112,7 @@ export async function checkSources(
   sources: readonly EmbeddedSource[],
   nodes: readonly DocumentNode[],
   newPaths: ReadonlySet<string>,
+  ownIris: ReadonlySet<string>,
   revisions: (
     ids: readonly Uuid[],
   ) => Promise<ReadonlyMap<string, SourceRevision>>,
@@ -131,6 +135,9 @@ export async function checkSources(
     }
     const iri = node.identifiers.find(({ property }) => property === "id")?.iri;
     if (iri == null) return invalid(`${key} has no id to name its source.`);
+    if (ownIris.has(iri)) {
+      return invalid(`${key} is the object being saved, not another one.`);
+    }
     named.push({ path, iri, revisionId });
   }
   const found = await revisions(named.map(({ revisionId }) => revisionId));

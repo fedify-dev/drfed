@@ -429,6 +429,7 @@ export async function prepareEdit(
     request.sources ?? [],
     nodes,
     new Set(),
+    new Set([target.iri]),
     lookups.revisions,
   );
   if (sourceError != null) return sourceError;

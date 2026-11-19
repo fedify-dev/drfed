@@ -530,6 +530,7 @@ export async function prepareCreate(
     request.sources ?? [],
     nodes,
     new Set(request.resources.map(({ path }) => pathKey(path))),
+    new Set(),
     lookups.revisions,
   );
   if (sourceError != null) return sourceError;
