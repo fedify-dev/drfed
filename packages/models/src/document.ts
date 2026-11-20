@@ -89,6 +89,7 @@ export const DIAGNOSTIC_REASONS = {
   invalid_context: { category: "vocabulary", severity: "error" },
   unauthorized_local_identity: { category: "authority", severity: "error" },
   server_owned_field_conflict: { category: "authority", severity: "error" },
+  source_unavailable: { category: "authority", severity: "error" },
   context_unavailable_offline: { category: "support", severity: "error" },
   unsupported_context_form: { category: "support", severity: "error" },
   unsupported_type: { category: "support", severity: "error" },
@@ -2603,6 +2604,12 @@ export interface DocumentNode {
    */
   readonly properties: ReadonlyMap<string, readonly string[]>;
   /**
+   * The source keys of the document's own custom extension properties, whose
+   * values are preserved as opaque JSON, sorted by key.  Together with
+   * the keys in `properties` and `@context`, they are all of its keys.
+   */
+  readonly extensionProperties: readonly string[];
+  /**
    * String IRI references held by this document's own reference properties
    * (`id`, `actor`, `object`, addressing, `href`, and so on), with compact
    * IRIs expanded through the context's prefixes.  Values inside embedded
@@ -3043,6 +3050,10 @@ export function describeDocument(
       fields.filter(({ compatible }) => compatible),
       context,
     ),
+    // Validation has reported any other unnamed key as an error.
+    extensionProperties: fields
+      .filter(({ name }) => name == null)
+      .map(({ source }) => source),
   }));
   const described = [
     ...extensions.map(({ values, path, context }) =>

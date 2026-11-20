@@ -32,9 +32,11 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   gap: 0.75rem;
 }
 
+/* Each entry takes three quarters of the row, on the side of its direction,
+   so that the two directions stay apart without leaving half a row empty. */
 .row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -43,15 +45,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .incoming {
-  grid-column: 1;
+  grid-column: 1 / span 3;
 }
 
 .outgoing {
-  grid-column: 2;
+  grid-column: 2 / span 3;
 }
 
 .box {
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: 0.5rem;
   padding: 0.75rem;
 }
@@ -68,6 +70,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .recipientLine {
   display: block;
+}
+
+.resourceLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.resourceLinks a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.5rem;
+}
+@media (pointer: coarse) {
+  .resourceLinks a {
+    min-block-size: 2.75rem;
+  }
 }
 
 .source pre {

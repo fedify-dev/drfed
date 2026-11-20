@@ -32,6 +32,7 @@ import {
   LegacyResourceRevisionError,
   ResourceRevisionStateError,
   RevisionConflictError,
+  type RevisionEmbeddingInput,
   appendResourceRevision,
   writeTypedResourceRevision,
 } from "@drfed/models/resource-revision";
@@ -45,6 +46,15 @@ import {
   registeredIris,
 } from "./actor.ts";
 import {
+  type CarriedRevision,
+  type SavedSnapshot,
+  declaredSources,
+  findEmbeddings,
+  loadEmbeddings,
+  loadSourceRevisions,
+} from "./embedding.ts";
+import {
+  UPDATE_OBJECT_PATH,
   type WriteTarget,
   bindableExisting,
   checkExistingRequest,
@@ -77,6 +87,7 @@ import {
   type LocalWriteRequest,
   LocalWriteRollback,
   type PreparedResource,
+  type PreviewOptions,
   type PreviewOutcome,
   type SavedResource,
   type WritePrincipal,
@@ -87,11 +98,38 @@ import {
 function lookups(
   db: Database | Transaction,
   actor: WritingActor,
+  hidden: ReadonlySet<string>,
 ): IdentityLookups {
   return {
     localActors: (iris) => localActorIris(db, actor.instanceId, iris),
     registered: (iris) => registeredIris(db, iris),
+    revisions: (ids) => loadSourceRevisions(db, ids, hidden),
   };
+}
+
+/**
+ * Asks which of the revisions a request declares as sources the principal
+ * may not read.  It runs before the commit's transaction, since the check
+ * may read the database apart from it.
+ * @returns Their lowercase IDs, or why sources cannot be declared.
+ */
+async function hiddenSources(
+  request: LocalWriteRequest,
+  options: PreviewOptions | undefined,
+): Promise<ReadonlySet<string> | LocalWriteError> {
+  const ids =
+    request.operation === "delete"
+      ? []
+      : (request.sources ?? []).map(({ revisionId }) => revisionId);
+  if (ids.length === 0) return new Set();
+  if (typeof options?.unreadableRevisions !== "function") {
+    return writeError(
+      "invalid_request",
+      "Declaring sources requires a check of which revisions can be read.",
+    );
+  }
+  const hidden = await options.unreadableRevisions(ids);
+  return new Set([...hidden].map((id) => id.toLowerCase()));
 }
 
 function checkRequest(request: LocalWriteRequest): LocalWriteError | null {
@@ -141,6 +179,7 @@ async function prepare(
   actor: WritingActor,
   request: LocalWriteRequest,
   allocation: Allocation,
+  hidden: ReadonlySet<string>,
 ): Promise<PreparedOperation | LocalWriteError> {
   if (request.operation === "create") {
     return await prepareCreate(
@@ -149,7 +188,7 @@ async function prepare(
       actor,
       request,
       allocation,
-      lookups(db, actor),
+      lookups(db, actor, hidden),
     );
   }
   const target = await loadTarget(
@@ -168,7 +207,7 @@ async function prepare(
           target,
           request,
           allocation,
-          lookups(db, actor),
+          lookups(db, actor, hidden),
         )
       : await prepareDelete(env.federation, actor, target, allocation, () =>
           currentAddressing(db, target.id),
@@ -193,9 +232,12 @@ export async function previewLocalWrite(
   env: LocalWriteEnvironment,
   principal: WritePrincipal,
   request: LocalWriteRequest,
+  options?: PreviewOptions,
 ): Promise<PreviewOutcome> {
   const requestError = checkRequest(request);
   if (requestError != null) return { ok: false, error: requestError };
+  const hidden = await hiddenSources(request, options);
+  if (isLocalWriteError(hidden)) return { ok: false, error: hidden };
   const actor = await findWritingActor(
     env.db,
     env.rootOrigin,
@@ -205,7 +247,14 @@ export async function previewLocalWrite(
   );
   if (isLocalWriteError(actor)) return { ok: false, error: actor };
   const allocation = allocateFor(request);
-  const prepared = await prepare(env, env.db, actor, request, allocation);
+  const prepared = await prepare(
+    env,
+    env.db,
+    actor,
+    request,
+    allocation,
+    hidden,
+  );
   if (isLocalWriteError(prepared)) return { ok: false, error: prepared };
   const token = await issueToken(
     env.previewKey,
@@ -231,6 +280,7 @@ async function writeObjectVersion(
   target: WriteTarget,
   object: PreparedResource,
   typed: TypedProjection | null | undefined,
+  embeddings: readonly RevisionEmbeddingInput[],
 ): Promise<Uuid> {
   if (target.typed != null && typed != null) {
     const { attributedTo: _, ...columns } = typed;
@@ -242,6 +292,7 @@ async function writeObjectVersion(
       columns,
       addressingOccurrences: object.addressing,
       relations: object.relations,
+      embeddings,
     });
     return revision.id;
   }
@@ -254,6 +305,7 @@ async function writeObjectVersion(
     capture: "local",
     addressingOccurrences: object.addressing,
     relations: object.relations,
+    embeddings,
   });
   await replaceAddressing(tx, target.id, object.addressing);
   return revision.id;
@@ -356,6 +408,8 @@ export async function commitLocalWrite(
       ),
     };
   }
+  const hidden = await hiddenSources(request, options);
+  if (isLocalWriteError(hidden)) return { ok: false, error: hidden };
   try {
     const result = await env.db.transaction(async (tx) => {
       const fail = (error: LocalWriteError): never => {
@@ -371,7 +425,14 @@ export async function commitLocalWrite(
       if (isLocalWriteError(actor)) fail(actor);
       const writer = actor as WritingActor;
       if (outboxed) await lockActorCollection(tx, writer.id, "outbox");
-      const prepared = await prepare(env, tx, writer, request, allocation);
+      const prepared = await prepare(
+        env,
+        tx,
+        writer,
+        request,
+        allocation,
+        hidden,
+      );
       if (isLocalWriteError(prepared)) fail(prepared);
       const { resources, target, typed } = prepared as PreparedOperation;
       const created = resources.filter(
@@ -416,15 +477,51 @@ export async function commitLocalWrite(
           allocation.timestamp,
         );
       }
+      const declared = declaredSources(
+        request.operation === "delete" ? undefined : request.sources,
+      );
+      // Children are saved before what embeds them, and an edited object
+      // before its Update, so each finds the revisions it embeds here.
+      const snapshots = new Map<string, SavedSnapshot>();
+      // What the generated Update or Delete carries: the version this write
+      // saves, or the last version before the deletion.
+      const carried = async (): Promise<CarriedRevision | undefined> => {
+        if (target == null) return undefined;
+        if (request.operation === "delete") {
+          return {
+            revisionId: target.head.id,
+            document: target.head.document,
+            embeddings: await loadEmbeddings(tx, target.head.id),
+            embeddedAt: null,
+          };
+        }
+        const version = snapshots.get(target.iri);
+        return version == null
+          ? undefined
+          : { ...version, embeddedAt: UPDATE_OBJECT_PATH };
+      };
       for (const resource of resources) {
+        const embeddings = await findEmbeddings(
+          tx,
+          resource,
+          declared,
+          snapshots,
+          resource.generated ? await carried() : undefined,
+        );
         if (target != null && resource.id === target.id) {
           const revisionId = await writeObjectVersion(
             tx,
             target,
             resource,
             typed,
+            embeddings,
           );
           saved.push({ ...resource, revisionId });
+          snapshots.set(resource.iri, {
+            revisionId,
+            document: resource.document,
+            embeddings,
+          });
           continue;
         }
         const revision = await appendResourceRevision(tx, {
@@ -436,9 +533,15 @@ export async function commitLocalWrite(
           capture: "local",
           addressingOccurrences: resource.addressing,
           relations: resource.relations,
+          embeddings,
         });
         await storeAddressingOccurrences(tx, resource.id, resource.addressing);
         saved.push({ ...resource, revisionId: revision.id });
+        snapshots.set(resource.iri, {
+          revisionId: revision.id,
+          document: resource.document,
+          embeddings,
+        });
       }
       if (outboxed) {
         const activity = saved.at(-1)!;

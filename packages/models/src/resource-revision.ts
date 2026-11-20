@@ -31,6 +31,7 @@ import {
   type NewActivityPubObject,
   type ResourceRevision,
   type RevisionAddressing,
+  type RevisionEmbedding,
   type RevisionRelation,
   activities,
   addressingPropertyEnum,
@@ -42,6 +43,8 @@ import {
   resourceRevisions,
   resources,
   revisionAddressing,
+  revisionEmbeddingRelationEnum,
+  revisionEmbeddings,
   revisionRelations,
 } from "./schema.ts";
 import { storableText } from "./text.ts";
@@ -67,6 +70,19 @@ export interface RevisionRelationInput {
   readonly targetIri?: string | null;
 }
 
+/**
+ * Where an embedded document of a new snapshot came from, as
+ * `revisionEmbeddings` records it.  The caller decides the relation by
+ * comparing the documents; nothing is compared here.
+ */
+export interface RevisionEmbeddingInput {
+  /** The embedded document's source path from the root; never `[]`. */
+  readonly path: readonly (string | number)[];
+  /** A snapshot of another resource, stored before this revision. */
+  readonly sourceRevisionId: Uuid;
+  readonly relation: RevisionEmbedding["relation"];
+}
+
 interface AppendBase {
   readonly resourceId: Uuid;
   readonly resourceKind: "object" | "activity";
@@ -86,6 +102,8 @@ export type AppendResourceRevisionInput = AppendBase &
          */
         readonly addressingOccurrences?: readonly AddressingOccurrence[];
         readonly relations?: readonly RevisionRelationInput[];
+        /** Embedded documents whose source is known, each path once. */
+        readonly embeddings?: readonly RevisionEmbeddingInput[];
         readonly projection?: ResourceRevision["projection"];
       }
     | {
@@ -241,6 +259,44 @@ function relationRows(
   });
 }
 
+function embeddingRows(
+  input: readonly RevisionEmbeddingInput[] = [],
+): Omit<RevisionEmbedding, "revisionId">[] {
+  if (!Array.isArray(input)) {
+    throw new TypeError("Embedding projections must be arrays.");
+  }
+  const paths = new Set<string>();
+  return input.map(({ path, sourceRevisionId, relation }) => {
+    if (
+      !Array.isArray(path) ||
+      path.length < 1 ||
+      Array.from(path).some(
+        (part) =>
+          typeof part !== "string" &&
+          !(Number.isSafeInteger(part) && part >= 0),
+      )
+    ) {
+      throw new TypeError(
+        "An embedding path must name a nonempty list of field names and " +
+          "nonnegative indexes.",
+      );
+    }
+    for (const part of path) if (typeof part === "string") text(part);
+    const key = JSON.stringify(path);
+    if (paths.has(key)) {
+      throw new TypeError("Each embedding path must be given once.");
+    }
+    paths.add(key);
+    if (!validateUuid(sourceRevisionId)) {
+      throw new TypeError("Expected a source revision UUID.");
+    }
+    if (!revisionEmbeddingRelationEnum.enumValues.includes(relation)) {
+      throw new TypeError("Invalid embedding relation.");
+    }
+    return { path: [...path], sourceRevisionId, relation };
+  });
+}
+
 async function current(
   db: Database | Transaction,
   resourceId: Uuid,
@@ -286,6 +342,7 @@ interface PreparedRevision extends AppendBase {
   readonly projection: ResourceRevision["projection"] | undefined;
   readonly addressing: Omit<RevisionAddressing, "revisionId">[];
   readonly relations: Omit<RevisionRelation, "revisionId">[];
+  readonly embeddings: Omit<RevisionEmbedding, "revisionId">[];
   readonly deleted: Temporal.Instant | null;
   readonly formerTypes: string[] | null;
 }
@@ -330,6 +387,7 @@ function prepareSnapshot(
     projection,
     addressing,
     relations: relationRows(input.relations),
+    embeddings: embeddingRows(input.embeddings),
     deleted: null,
     formerTypes: null,
   };
@@ -353,6 +411,7 @@ function prepareWhiteout(
     projection: undefined,
     addressing: [],
     relations: [],
+    embeddings: [],
     deleted: input.deleted,
     formerTypes,
   };
@@ -473,6 +532,7 @@ async function appendPrepared(
     formerTypes,
     addressing,
     relations,
+    embeddings,
   } = input;
   const id = uuidV7();
   const [revision] = await tx
@@ -510,6 +570,11 @@ async function appendPrepared(
     await tx
       .insert(revisionRelations)
       .values(relations.map((row) => ({ ...row, revisionId: id })));
+  }
+  if (embeddings.length > 0) {
+    await tx
+      .insert(revisionEmbeddings)
+      .values(embeddings.map((row) => ({ ...row, revisionId: id })));
   }
   if (previous === null) {
     await tx.insert(resourceHeads).values({ resourceId, revisionId: id });
@@ -661,6 +726,8 @@ export type TypedResourceRevisionInput = TypedRevisionBase &
           Partial<Pick<TypedObjectColumns, "type">>;
         readonly addressingOccurrences: readonly AddressingOccurrence[];
         readonly relations?: readonly RevisionRelationInput[];
+        /** Embedded documents whose source is known, each path once. */
+        readonly embeddings?: readonly RevisionEmbeddingInput[];
         readonly projection?: ResourceRevision["projection"];
       }
     | {
@@ -740,6 +807,9 @@ export async function writeTypedResourceRevision(
           ...(input.relations === undefined
             ? {}
             : { relations: input.relations }),
+          ...(input.embeddings === undefined
+            ? {}
+            : { embeddings: input.embeddings }),
           ...(input.projection === undefined
             ? {}
             : { projection: input.projection }),

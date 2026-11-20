@@ -82,16 +82,17 @@ after the first write throw out of the transaction; nothing partial is left. A
 replayed token finds its resources already saved (`resource_conflict`) or the
 object already changed (`revision_conflict`).
 
-| Error                   | Meaning                                                                                      |
-| ----------------------- | -------------------------------------------------------------------------------------------- |
-| `invalid_request`       | Malformed request or resource descriptors, or a missing token or reservation.                |
-| `invalid_document`      | Validator, authority or server-owned-field diagnostics at submitted paths.                   |
-| `actor_not_found`       | The actor is missing, deleted, not local, on an expired instance, or not the member's.       |
-| `invalid_instance_host` | The stored instance host cannot be parsed by this server.                                    |
-| `stale_preview`         | The token is invalid, expired, or for another account or request.                            |
-| `revision_conflict`     | The object's current revision is not the expected one.                                       |
-| `resource_conflict`     | The resources were already saved, or an IRI is another kind of resource.                     |
-| `unsupported_edit`      | The object is deleted, not the actor's, changes type, or cannot be kept in step (see below). |
+| Error                   | Meaning                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `invalid_request`       | Malformed request or resource descriptors, or a missing token or reservation.                 |
+| `invalid_document`      | Validator, authority or server-owned-field diagnostics at submitted paths.                    |
+| `actor_not_found`       | The actor is missing, deleted, not local, on an expired instance, or not the member's.        |
+| `invalid_instance_host` | The stored instance host cannot be parsed by this server.                                     |
+| `stale_preview`         | The token is invalid, expired, or for another account or request.                             |
+| `revision_conflict`     | The object's current revision is not the expected one.                                        |
+| `resource_conflict`     | The resources were already saved, or an IRI is another kind of resource.                      |
+| `unsupported_edit`      | The object is deleted, not the actor's, changes type, or cannot be kept in step (see below).  |
+| `source_unavailable`    | A declared source is missing, not a snapshot of its document, or one the member may not read. |
 
 
 Identity and documents
@@ -136,9 +137,90 @@ from its semantic `to`, `cc`, `bto`, `bcc` and `audience`, each value at its
 source position: IRIs as resolved, embedded documents by `id`, `Link` values by
 `href`, also written as a list of one value, and anonymous values without a row.
 Relations index `actor`, `object`, `target`, `origin`, `result`, `instrument`
-and `attributedTo`. A document that spells one of these properties in several
-ways is refused, since its index would otherwise leave occurrences out. Indexes
-stay `partial`; the documents remain authoritative.
+and `attributedTo`. Both indexes come from `interpretDocument()` in
+`@drfed/federation/document`, which GraphQL reads use too. A document that
+spells one of these properties in several ways is refused, since its index
+would otherwise leave occurrences out. Indexes stay `partial`; the documents
+remain authoritative.
+
+
+Embedded document sources
+-------------------------
+
+Every saved document records, for each embedded document with an `id`, the
+revision it came from when the server knows it, as
+[resource revisions](resource-revisions.md#embedded-document-sources)
+describe.  `Link` values and anonymous documents get no source.  The source is
+found in this order:
+
+1.  A resource saved earlier in the same write, such as a nested new resource
+    kept embedded.  When the embedded document keeps that resource's new
+    revision, the documents it embeds take the sources recorded for that
+    revision at their own paths.
+
+2.  A source the request declares for the embedded document's submitted path:
+
+    ~~~~ ts
+    const request = {
+      operation: "create",
+      actorId,
+      document: { type: "Like", object: changedNote },
+      resources: [{ path: [], kind: "activity" }],
+      sources: [{ path: ["object"], revisionId: loadedRevisionId }],
+    } as const;
+    ~~~~
+
+    An editor declares the revision it loaded a document from, so that a
+    changed copy keeps its source.  Both `create` and `edit` accept `sources`,
+    and the preview token binds them.  Each path must name an embedded document
+    with an `id` that is neither a new resource of the write nor the object
+    an edit changes, since a source is a revision of another resource;
+    otherwise the request is `invalid_request`.  Its revision must be a
+    snapshot of the resource registered under that `id` that the member may
+    read; otherwise the write fails with `source_unavailable`, with a
+    diagnostic at the declared path.  A missing revision and one the member
+    may not read fail alike, so the error tells nothing of revisions the
+    member may not read.
+
+    The local write operations do not decide who may read a revision.  The
+    caller passes `unreadableRevisions(ids)` in the options of both
+    `previewLocalWrite()` and `commitLocalWrite()`, which check the declared
+    revisions again, since the member's access may change after the
+    preview.  GraphQL's rule is `unreadableRevisions(viewer, ids)` in
+    `@drfed/graphql/readable`:
+
+    ~~~~ ts
+    const access = {
+      unreadableRevisions: (ids: readonly Uuid[]) =>
+        unreadableRevisions({ db, account }, ids),
+    };
+    await previewLocalWrite(env, principal, request, access);
+    ~~~~
+
+    A request that declares sources without the check is `invalid_request`.
+
+A generated `Update` or `Delete` takes its sources only from the revision
+it carries, never from an IRI.  The `Update` records the version it embeds
+under `object`, and when it keeps the version, the sources recorded for the
+version at the same paths beneath it, so an older copy of the object inside
+the version keeps its unknown source.  The addressing an `Update` copies from
+the version, and a `Delete` from the last version, takes the sources
+recorded for that version under the same keys.
+
+Any other embedded document has an unknown source, even when it equals a
+stored revision of the resource under its `id`: the server never guesses a
+source from an IRI.  A pasted document and a loaded one declared as its
+source therefore differ only in `DocumentNode.source`.
+
+An embedded document is a `snapshot` of its source when its effective context
+equals the source document's and its JSON, apart from the `@context` key,
+equals the source document's, whatever the order of object keys.  Otherwise it
+is `derived`.  The comparison is strict: a document that means the same but is
+written differently, such as with a compact IRI expanded or under another
+context, reads as derived, never the reverse.  Previews and commit results
+do not report sources: a writer could otherwise learn whether a guessed
+document equals a revision they may not read.  Writes through
+`createLegacyObject()` record no sources.
 
 
 Edits and deletions
@@ -156,8 +238,11 @@ A deletion appends a whiteout and keeps the object's current addressing, which
 describes the last content. The generated `Delete` refers to the object by IRI
 and copies the last version's addressing under its context.
 
-Resources created by the common write have revisions only, so GraphQL details
-ignore them until #154; federation reads serve their documents. Objects created
+Resources created by the common write have revisions only, so GraphQL
+`Resource.detail` ignores them; `Resource.currentRevision` and
+`Resource.revisions` read them, as [resource
+revisions](resource-revisions.md#graphql-reads) describe, and federation reads
+serve their documents. Objects created
 by the `createObject` mutation also have legacy typed rows that serving reads;
 `writeTypedResourceRevision()` keeps those rows in step. Before writing, the
 served columns must agree with the current revision, or the object is refused

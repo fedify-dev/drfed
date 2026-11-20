@@ -39,7 +39,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .header {
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   display: flex;
   gap: 1rem;
   justify-content: space-between;
@@ -75,7 +75,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 .details,
 .actors {
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: clamp(1.25rem, 3vw, 1.75rem);
@@ -103,7 +103,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .endpointList div {
   align-items: baseline;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
   display: grid;
   gap: 1rem;
   grid-template-columns: 8rem minmax(0, 1fr);
@@ -152,7 +152,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .actorList {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 .actorCard {
@@ -163,7 +163,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .actorCard + .actorCard {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 .actorMarker {

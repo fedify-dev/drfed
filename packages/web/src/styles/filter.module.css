@@ -1,0 +1,122 @@
+/*
+DrFed: A web-based platform for developing and debugging ActivityPub apps
+Copyright (C) 2026 DrFed team
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+.filter {
+  position: relative;
+}
+/* Stays a list item, so that it keeps its disclosure marker. */
+.toggle {
+  cursor: pointer;
+  display: list-item;
+  inline-size: fit-content;
+  list-style-position: inside;
+  border: 1px solid var(--ink-faint);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.75rem;
+  color: var(--ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.toggle:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 0.2rem;
+}
+.count {
+  color: var(--accent-strong);
+}
+.conditions {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  border: 0;
+  padding: 0;
+}
+.legend {
+  margin-block-end: 0.25rem;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.condition {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 1.5rem;
+  font-size: 0.9rem;
+  accent-color: var(--accent-strong);
+}
+
+@media (pointer: coarse) {
+  .toggle,
+  .condition {
+    min-block-size: 2.75rem;
+  }
+}
+
+/* Without accent-color, the native box is hidden and drawn in its place. */
+@supports not (accent-color: var(--accent-strong)) {
+  .checkbox {
+    position: absolute;
+    clip-path: inset(50%);
+    overflow: hidden;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    white-space: nowrap;
+  }
+  .checkbox + span {
+    position: relative;
+    padding-inline-start: 1.6rem;
+  }
+  .checkbox + span::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0;
+    top: 50%;
+    width: 1.1rem;
+    height: 1.1rem;
+    translate: 0 -50%;
+    box-sizing: border-box;
+    border: 2px solid var(--ink-faint);
+    background: var(--surface);
+  }
+  .checkbox:focus-visible + span::before {
+    outline: 3px solid var(--accent-soft);
+    outline-offset: 2px;
+  }
+  .checkbox:checked + span::before {
+    border-color: var(--accent-strong);
+    background: var(--accent-strong);
+  }
+  .checkbox:checked + span::after {
+    content: "\2713" / "";
+    position: absolute;
+    inset-inline-start: 0.2rem;
+    top: 50%;
+    translate: 0 -50%;
+    color: var(--bg);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+  .checkbox:disabled + span {
+    opacity: 0.6;
+  }
+}

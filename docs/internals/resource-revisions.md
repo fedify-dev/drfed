@@ -169,6 +169,35 @@ ownership or grants access. For legacy data, `fetched` inherits the old
 conservative flag and is not proof that an HTTP fetch occurred.
 
 
+Embedded document sources
+-------------------------
+
+`revision_embeddings` records where an embedded document of a revision came
+from: its source path, the `source_revision_id` of a snapshot of another
+resource, and its `relation`.  A `snapshot` keeps the source revision's
+contents, apart from the context it inherits; a `derived` document started
+from that revision and was changed, for example to test how a peer handles
+other addressing.  An embedded document without a row has an unknown source,
+which proves neither that it was nor that it was never saved as a revision:
+older data and pasted documents lack the record.  An IRI reference is a
+separate choice, recorded as the `reference` representation of a relation,
+and has no source.  A source is no condition on reading the revision that
+records it: who may read an embedded document is decided by the revision
+embedding it alone.
+
+Rows are written with the revision through the `embeddings` input of
+`appendResourceRevision()` and `writeTypedResourceRevision()`, and like other
+projections they cannot be added after the revision is published, changed or
+removed.  The database also refuses a source that is not a snapshot or that
+belongs to the same resource.  The
+[local writes](local-writes.md#embedded-document-sources) decide the rows;
+legacy capture and received documents record none.
+
+Comparing an embedded document with the current state therefore compares
+revisions of one resource by `sequence`, not timestamps of different
+transactions, which do not follow commit order.
+
+
 Legacy capture and upgrades
 ---------------------------
 
@@ -202,8 +231,8 @@ Fetched evidence is recomputed when `recordFetchedObject` changes. Deleting a
 typed object row removes its object receipts; deleting an activity or removing
 a delivery linkage removes that delivery's receipts; deleting a delivery
 cascades them. Unavailable and whiteout revisions receive no legacy receipt.
-Existing GraphQL permission checks still use their current evidence rules; the
-new index does not expose historical content.
+GraphQL reads each revision by this evidence, as
+[GraphQL reads](#graphql-reads) describe.
 
 
 Application boundaries
@@ -215,8 +244,9 @@ generic canonical resource can have no typed detail; its GraphQL
 such a resource from its current revision. The common write
 operations described in [local writes](local-writes.md) save new resources as
 revisions only and keep legacy typed objects in step when editing or deleting
-them. Historical authorization and the other federation surfaces are separate
-work.
+them. GraphQL reads every revision by its own evidence, as
+[GraphQL reads](#graphql-reads) describe.  The other federation surfaces are
+separate work.
 
 Appending a whiteout does not create or send a `Delete` activity. The common
 delete operation appends it together with the `Delete`, outbox entry and the
@@ -233,3 +263,84 @@ round-trip fixtures, not claims of semantic validation or peer
 interoperability. Run `mise run test` for PGlite coverage and
 `mise run test:postgres` with an isolated `DRFED_TEST_POSTGRES_URL` for
 PostgreSQL migration and concurrency checks.
+
+
+GraphQL reads
+-------------
+
+`Resource.currentRevision`, `Resource.revisions` (newest first by sequence)
+and `ResourceRevision` nodes read histories, generic resources included. A
+revision returns its saved `document` as is, with blind recipients. Its
+`root` and everything below it come from `interpretDocument()` in
+`@drfed/federation/document`, which reads every vocabulary document by
+meaning through `describeDocument()`; local writes build their revision
+indexes with the same function. Relations are read from the document for
+every embedded document, not from `revision_relations`, which hold the root's
+only. When the validator cannot read the document, such as one whose context is
+outside the offline allowlist or one with an unsupported property,
+`interpreted` is false, `root` is null and `diagnostics` tell why; nothing
+falls back to typed rows.
+
+Each revision is read by evidence of its own, in `readableRevision()` in
+*packages/graphql/src/readable.ts*, not by the rule of its resource.  An
+administrator reads every revision.  Anyone else reads one that was captured
+`local`, whose own revision addressing names the public, or that a receipt
+links to an inbound delivery to a local instance the viewer is an accepted
+member of.  A revision without such evidence is readable only while it is the
+current revision of a resource with a legacy typed row that the viewer may
+read under `readableResource()`, even after a deletion hides
+`Resource.detail`.  Local histories are therefore open to
+anyone, blind recipients and unpublished activities included.  Evidence for
+one revision opens no other: a later delivery naming the same IRI does not
+open an earlier private revision, and a later restriction of the current
+resource does not hide an earlier public one.  A Relay node lookup of a
+revision checks the revision itself, and `Resource.revisions` leaves out the
+ones the viewer may not read, so their sequences can skip.
+
+The `Resource` a history is read through follows the same evidence, in
+`readableResourceNode()`: a `node` lookup of a `Resource`, a relation's or
+recipient's `resource`, and `Activity.object` return it when the viewer may
+read it under `readableResource()` or may read any of its revisions.  A
+`Resource` node shares its ID with the typed `Object` or `Activity` of the
+same resource, so the lookup tells them apart by the typename of the global
+ID; the typed node and `Resource.detail` keep following the current state.
+
+What a revision embeds never decides whether it is readable.  A local
+`Announce` that embeds a `Note` only one instance received is readable by
+anyone, as every local revision is, whether it records that `Note`'s revision
+as its source or was pasted without one: recording a source never makes a
+document harder to read.  Only following the source checks the source
+revision, as `DocumentNode.source` does below.  Received content stays
+protected where it is read or imported: the received revision itself is
+readable only by the evidence above, and a local write may declare as a
+source only a revision its member may read, as
+[local writes](local-writes.md#embedded-document-sources) describe.
+`unreadableRevisions(viewer, ids)` in `@drfed/graphql/readable` applies the
+same rule to a set of revisions for that check.
+
+Deletion hides no revision by itself: deleting a resource appends a whiteout,
+and its earlier revisions, like those of a resource whose author is deleted,
+stay readable by their own evidence.  Only the existing fields, such as
+`Resource.detail`, keep hiding deleted typed rows.  `Actor.objects` leaves
+deleted objects out unless its `filter` sets `includeDeleted`, which lists
+them with `Object.deleted` so that their histories can be reached.  A
+relation's or recipient's `resource` is opened as `Activity.object` is, deleted
+or not.
+
+`DocumentNode.source` tells where an embedded document came from: its
+`relation`, `snapshot` or `derived`, the source `revision`, and `status`,
+which compares that revision with the current revision of its resource:
+`current` when it is the current one, `deleted` when the current revision is
+a whiteout, and `superseded` otherwise.  The status compares revisions only,
+not contents.  It is null when the viewer may not read the current revision,
+which would otherwise tell of a revision they may not read.  `source` is null
+for the root, for an embedded document whose source is unknown, and when the
+viewer may not read the source revision; these are not told apart, and
+`relation` is not kept alone either, since `snapshot` next to the embedded
+contents would tell those of a revision the viewer may not read.  Whatever
+`source` is, the embedded `node`, the `root` and the raw `document` read as
+the revision embedding them does.
+
+`Resource.revision(sequence:)` returns one revision by its sequence, and null
+both for a sequence with no revision and for a revision the viewer may not
+read.

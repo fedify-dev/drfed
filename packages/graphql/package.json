@@ -74,6 +74,10 @@
       "types": "./dist/object.d.mts",
       "default": "./dist/object.mjs"
     },
+    "./readable": {
+      "types": "./dist/readable.d.mts",
+      "default": "./dist/readable.mjs"
+    },
     "./activity-delivery": {
       "types": "./dist/activity-delivery/entry.d.mts",
       "default": "./dist/activity-delivery/entry.mjs"
@@ -93,6 +97,7 @@
       "src/instance.ts",
       "src/schema.ts",
       "src/object.ts",
+      "src/readable.ts",
       "src/activity-delivery/entry.ts"
     ],
     "dts": {

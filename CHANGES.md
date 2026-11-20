@@ -55,9 +55,38 @@ To be released.
 
 ### GraphQL APIs
 
+ -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
+    `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
+    return the saved revisions of a resource, including those of resources
+    saved without legacy details.
+    Each revision returns its saved JSON, whiteout deletion details, and what
+    the current validator finds in it.  When the validator reads the
+    document, `root` describes it by meaning, whatever keys spell its
+    properties: the relations and recipients of the root and of every
+    document it embeds, with the resource currently registered under each
+    IRI, and its custom extension properties.  Each revision is read by
+    evidence of its own: local revisions by anyone, revisions addressed to the
+    public by anyone, and received revisions by members of the instance that
+    received them.  Administrators read every revision, and the current
+    revision of a resource with legacy details is also readable to whoever
+    may read those details.  `DocumentNode.source` tells which revision an
+    embedded document came from, whether it keeps that revision's contents or
+    was derived from it, and whether that revision is still current,
+    superseded, or deleted; it is null when the viewer may not read that
+    revision, and the embedded document itself stays readable.  Deleting a
+    resource or its author hides none of its revisions by itself.  A `Resource`
+    is returned by `node`, `Activity.object`, and relations and recipients
+    whenever the viewer may read one of its revisions, even after its current
+    state was restricted, while `Resource.detail` and the typed node stay
+    hidden. `Actor.objects` takes a `filter` whose `includeDeleted` lists
+    deleted objects too, and `Object.deleted` tells when one was deleted.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
  -  Fixed `Resource.detail` to return `null` without a field error when the
     resource has no corresponding detail record.
     [[#150], [#164] by Hong Minhee\]
+
+[#154]: https://github.com/fedify-dev/drfed/issues/154
+[#182]: https://github.com/fedify-dev/drfed/pull/182
 
 ### JavaScript/TypeScript APIs
 
@@ -95,6 +124,15 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added the `@drfed/federation/document` subpath.  Its
+    `interpretDocument()` returns every vocabulary document of a saved
+    document with its relations, recipients, and custom extension
+    properties, read by meaning as the validator reads them.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
+ -  Added `extensionProperties` to the nodes `describeDocument()` in
+    `@drfed/models/document` returns: the source keys of each document's
+    custom extension properties.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
  -  Added the `@drfed/federation/serving` subpath.  It exports
     `publicDocument()`, the serialization federation reads use for saved
     documents, `parseVocab()`, which parses such a document into a Fedify
@@ -126,6 +164,18 @@ To be released.
     poll-specific rules remain separate work. The supported properties and
     representation limits are documented in *packages/models/README.md*.
     [[#151], [#166] by Jiwon Kwon\]
+ -  `appendResourceRevision()` and `writeTypedResourceRevision()` in
+    `@drfed/models/resource-revision` accept `embeddings`, which record the
+    revision each embedded document came from and whether it keeps that
+    revision's contents or was derived from it.  `commitLocalWrite()` in
+    `@drfed/federation/local-write` records them for every document it saves,
+    and `create` and `edit` requests accept `sources` to declare the revision
+    an embedded document was loaded from.  Declaring sources requires the
+    `unreadableRevisions` option of `previewLocalWrite()` and
+    `commitLocalWrite()`, such as `unreadableRevisions()` of the new
+    `@drfed/graphql/readable`; a source that is missing or that the member
+    may not read fails alike with `source_unavailable`.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 [#152]: https://github.com/fedify-dev/drfed/issues/152

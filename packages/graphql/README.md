@@ -75,11 +75,55 @@ when addressed to the public (section 5.6):
 
 `as:Public` and `Public` count as the public as well as its full IRI.  What the
 viewer may not read is left out as if it did not exist: `node` and `nodes`
-return null for it, as do `Resource.detail` and `Activity.object`, and
-`Actor.objects`, `Object.activities`, and `Collection.items` leave it out
-before paging, so that neither cursors nor `totalCount` tell of it.
+return null for it, as does `Resource.detail`, and `Actor.objects`,
+`Object.activities`, and `Collection.items` leave it out before paging, so
+that neither cursors nor `totalCount` tell of it.  A `Resource`, which a
+history is read through, is returned by `node`, `Activity.object`, and the
+`resource` of relations and recipients also when the viewer may read any of
+its revisions; see below.
 
 [ActivityPub]: https://www.w3.org/TR/activitypub/
+
+
+Resource revisions
+------------------
+
+`Resource.currentRevision` and `Resource.revisions`, newest first, return the
+saved revisions of any resource, including those saved without legacy
+details; `node` and `nodes` look up a `ResourceRevision` by its ID.
+`ResourceRevision.document` is the saved JSON as is, and `root` describes it
+by meaning: each `DocumentNode`, the root or one embedded at any depth, has
+its type IRI, its own `id` or `href`, its relations and recipients in source
+order, and its custom extension properties.  A relation or recipient names
+the resource currently registered under its IRI, opened as
+`Activity.object` is, while `node` keeps the embedded value as saved.  When
+the validator cannot read the document, `interpreted` is false and
+`diagnostics` tell why.
+
+Each revision is read by evidence of its own: anyone reads local revisions,
+blind recipients included, and revisions addressed to the public; members of
+a local instance read what a delivery to it carried; and a revision without
+such evidence is readable only while it is current and its resource is, as
+above.  A `Resource` with a revision the viewer may read is found even when
+its current state is restricted, while its typed details stay hidden.
+Where a revision's embedded documents came from never hides it.
+Deletion hides no revision by itself, while `Resource.detail` and the other
+existing fields keep hiding what was deleted; `Actor.objects` lists deleted
+objects, with `Object.deleted`, only when its filter sets `includeDeleted`.
+`Resource.revision(sequence:)` returns one revision by its sequence.
+`DocumentNode.source` names the revision an embedded document came from,
+whether it keeps that revision's contents or was derived from it, and whether
+that revision is still current, superseded, or deleted; it is null when the
+viewer may not read the source revision, and nothing else of the document
+changes.  See [resource revision internals].
+
+`unreadableRevisions(viewer, ids)` in `@drfed/graphql/readable` tells which
+revisions a viewer may not read by the same rule.  Pass it to
+`previewLocalWrite()` and `commitLocalWrite()` of
+`@drfed/federation/local-write`, which check that a writer declares as
+sources only revisions they may read.
+
+[resource revision internals]: https://drfed.org/internals/resource-revisions#graphql-reads
 
 
 Login mail and shutdown

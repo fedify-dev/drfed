@@ -14,9 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import { A } from "@solidjs/router";
 import { graphql } from "relay-runtime";
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { createFragment } from "solid-relay";
+
+import { resourceHref } from "~/resource.ts";
 
 import type { ActivityLogBox_log$key } from "./__generated__/ActivityLogBox_log.graphql.ts";
 import { ActivityLogSource } from "./ActivityLogSource.tsx";
@@ -46,6 +49,15 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
         created
         payload
         rawBody
+        activity {
+          resource {
+            id
+          }
+          object {
+            id
+            kind
+          }
+        }
       }
     `,
     () => props.$log,
@@ -117,6 +129,27 @@ export function ActivityLogBox(props: { $log: ActivityLogBox_log$key }) {
             </span>
           </summary>
           <Show when={open()}>
+            <Show when={log().activity}>
+              {(activity) => (
+                <p class={styles.resourceLinks}>
+                  <A href={resourceHref(activity().resource.id)}>
+                    Activity history
+                  </A>
+                  <Show
+                    when={
+                      activity().object?.kind === "object" ||
+                      activity().object?.kind === "activity"
+                        ? activity().object
+                        : undefined
+                    }
+                  >
+                    {(object) => (
+                      <A href={resourceHref(object().id)}>Object history</A>
+                    )}
+                  </Show>
+                </p>
+              )}
+            </Show>
             <p>
               {log().direction === "inbound" && log().payload == undefined
                 ? "Raw received body"

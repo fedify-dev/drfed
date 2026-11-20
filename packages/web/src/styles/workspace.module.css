@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .header {
   align-items: center;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   display: flex;
   gap: 1rem;
   justify-content: space-between;
@@ -86,7 +86,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .instanceList {
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
@@ -101,7 +101,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .instanceCard + .instanceCard {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 .instanceCard:hover {
@@ -152,7 +152,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 .emptyState {
   background: var(--card);
-  border: 1px dashed var(--line-strong);
+  border: 1px dashed var(--rule);
   border-radius: var(--radius);
   margin: 0 auto;
   max-width: var(--container-narrow);
@@ -176,7 +176,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 }
 
 .secondaryButton {
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--ink-faint);
   color: var(--ink);
   min-height: 2.75rem;
   padding: 0.65rem 1rem;

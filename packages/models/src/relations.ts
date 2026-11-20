@@ -37,6 +37,11 @@ export const relations = defineRelations(schema, (r) => ({
       from: r.resourceRevisions.id,
       to: r.revisionReceipts.revisionId,
     }),
+    embeddings: r.many.revisionEmbeddings({
+      from: r.resourceRevisions.id,
+      to: r.revisionEmbeddings.revisionId,
+      alias: "embeddings",
+    }),
   },
   resourceHeads: {
     resource: r.one.resources({
@@ -60,6 +65,19 @@ export const relations = defineRelations(schema, (r) => ({
   revisionRelations: {
     revision: r.one.resourceRevisions({
       from: r.revisionRelations.revisionId,
+      to: r.resourceRevisions.id,
+      optional: false,
+    }),
+  },
+  revisionEmbeddings: {
+    revision: r.one.resourceRevisions({
+      from: r.revisionEmbeddings.revisionId,
+      to: r.resourceRevisions.id,
+      optional: false,
+      alias: "embeddings",
+    }),
+    source: r.one.resourceRevisions({
+      from: r.revisionEmbeddings.sourceRevisionId,
       to: r.resourceRevisions.id,
       optional: false,
     }),
@@ -405,7 +423,6 @@ export const relations = defineRelations(schema, (r) => ({
     objects: r.many.objects({
       from: r.actors.id,
       to: r.objects.actorId,
-      where: { deleted: { isNull: true } },
     }),
     instance: r.one.instances({
       from: r.actors.instanceId,

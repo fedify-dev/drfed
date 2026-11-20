@@ -9,6 +9,18 @@ This document is also the coding-agent guide for the repository.  *AGENTS.md*
 and *CLAUDE.md* point here on purpose.
 
 
+Debugging tool, not SNS
+-----------------------
+
+DrFed is a debugging tool for building social network services, not a social
+network service itself.  Reading its code as an SNS leads to a wrong
+understanding, wrong code, and wrong reviews.  For example, an SNS hides
+content once it is deleted, but DrFed may need to show it after deletion,
+because tracing how a resource changed and was deleted is what a debugging
+tool is for.  Read and write the code with this purpose in mind, and never
+confuse DrFed with an SNS.
+
+
 AI policy
 ---------
 
@@ -149,6 +161,11 @@ runs the Relay compiler and the SolidStart frontend build.
 `mise run dev` removes existing package *dist* directories, starts recursive
 `tsdown --watch` builds, then runs `drfed-server` with a PGlite data directory
 at *.pgdata*.
+
+`mise run seed:revisions` adds resource revisions for UI work to that store,
+then prints the accounts and what each viewer reads of every resource.  Stop
+`mise run dev` first, since only one process can open the store.  A store is
+seeded once: remove it to seed again, or seed another one with `--data-path`.
 
 
 Runtime and packaging expectations
@@ -714,6 +731,14 @@ and `t.drizzleField()` patterns.  Keep resolver database access through
 The GraphQL types for activity deliveries live in
 *src/activity-delivery/entry.ts*.  Delivery contents are private to local
 instance members and administrators, including Relay node lookups.
+
+The GraphQL types for resource revisions live in *src/revision.ts*.  Each
+revision is read by evidence of its own, through `readableRevision()` in
+*src/readable.ts*, never by the current state of its resource nor by where
+its embedded documents came from; only `DocumentNode.source` checks a source
+revision.  Filter revisions by it before paging, and use
+`unreadableRevisions()` wherever another layer, such as a local write's
+`sources`, must apply the same rule.
 
 
 CLI and server changes

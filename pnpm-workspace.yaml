@@ -28,6 +28,10 @@ permissions:
     skills: true
   "@optique/core":
     skills: true
+  "modern-web-guidance@https://codeload.github.com/GoogleChrome/modern-web-guidance/tar.gz/64a6d708f5a43f2cd3fde5d4d7db3905ba1bdf65":
+    skills: true
+  "@leonxlnx/taste-skill@https://codeload.github.com/leonxlnx/taste-skill/tar.gz/f6b76575f949707b4e3c37cd86cb44b0b98643e8":
+    skills: true
   solid-relay:
     skills: true
 

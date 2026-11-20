@@ -4126,6 +4126,7 @@ describe("describeDocument() semantic view", () => {
         },
       ],
       custom: { type: "Note", actor: "https://example.com/mallory" },
+      "https://ext.example/ns#flag": true,
     };
     const original = structuredClone(input);
     const nodes = describeDocument(input);
@@ -4165,6 +4166,12 @@ describe("describeDocument() semantic view", () => {
       object: ["object"],
       type: ["type"],
     });
+    // Neither `@context` nor any key of a standard property is an extension.
+    assert.deepEqual(nodes[0]!.extensionProperties, [
+      "custom",
+      "https://ext.example/ns#flag",
+    ]);
+    assert.deepEqual(nodes[1]!.extensionProperties, []);
     assert.deepEqual(input, original);
   });
 

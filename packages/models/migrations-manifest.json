@@ -116,6 +116,14 @@
     {
       "name": "20261026192411_capture_legacy_resource_revisions",
       "sha256": "25deff8bc6684620fb679c1d339c8803cdcb1b5a8c5f9a9771c95411a185eee3"
+    },
+    {
+      "name": "20261113080536_revision_embeddings",
+      "sha256": "52427c6e8a430652bbca4aa351bcb35d0933ac372b221e9dd13cd2a537c68084"
+    },
+    {
+      "name": "20261113080537_guard_revision_embeddings",
+      "sha256": "565918b747d0a6d092cdb1d68cf709a729b705c17489b2e333aca294c692b8f5"
     }
   ]
 }

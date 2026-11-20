@@ -1064,6 +1064,47 @@ export const revisionRelations = pgTable(
   ],
 );
 
+export const revisionEmbeddingRelationEnum = pgEnum(
+  "revision_embedding_relation",
+  ["snapshot", "derived"],
+);
+/**
+ * Where an embedded document of a revision came from, recorded when the
+ * revision was saved: the revision of another resource whose contents it
+ * keeps, apart from the context it inherits, or from which it was derived.
+ * An embedded document without a row has an unknown source.  Rows are part
+ * of the immutable history of their revision.
+ */
+export const revisionEmbeddings = pgTable(
+  "revision_embeddings",
+  {
+    revisionId: uuid("revision_id")
+      .$type<Uuid>()
+      .notNull()
+      .references(() => resourceRevisions.id, { onDelete: "restrict" }),
+    path: jsonb().$type<readonly (string | number)[]>().notNull(),
+    sourceRevisionId: uuid("source_revision_id").$type<Uuid>().notNull(),
+    relation: revisionEmbeddingRelationEnum().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.revisionId, t.path] }),
+    foreignKey({
+      name: "revision_embeddings_source_revision_fkey",
+      columns: [t.sourceRevisionId],
+      foreignColumns: [resourceRevisions.id],
+    }).onDelete("restrict"),
+    check(
+      "revision_embeddings_path_check",
+      sql`jsonb_typeof(${t.path}) = 'array' AND jsonb_array_length(${t.path}) > 0`,
+    ),
+    check(
+      "revision_embeddings_source_check",
+      sql`${t.sourceRevisionId} <> ${t.revisionId}`,
+    ),
+    index("revision_embeddings_source_index").on(t.sourceRevisionId),
+  ],
+);
+
 export const revisionReceiptRoleEnum = pgEnum("revision_receipt_role", [
   "activity",
   "object",
@@ -1094,3 +1135,4 @@ export type ResourceHead = typeof resourceHeads.$inferSelect;
 export type RevisionAddressing = typeof revisionAddressing.$inferSelect;
 export type RevisionRelation = typeof revisionRelations.$inferSelect;
 export type RevisionReceipt = typeof revisionReceipts.$inferSelect;
+export type RevisionEmbedding = typeof revisionEmbeddings.$inferSelect;

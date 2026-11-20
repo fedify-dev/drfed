@@ -125,6 +125,15 @@ const ObjectRef = builder.drizzleNode("objects", {
       description:
         "The time the object was stored in DrFed, distinct from its publication time.",
     }),
+    deleted: t.expose("deleted", {
+      type: "DateTime",
+      nullable: true,
+      description:
+        "When the object was deleted, or null while it is not.  Only " +
+        "`Actor.objects` returns deleted objects, when its filter includes " +
+        "them; its revisions, a whiteout last, stay readable through " +
+        "`resource`.",
+    }),
   }),
 });
 export const ActivityPubObject: DrFedObjectRef = ObjectRef;
@@ -164,9 +173,28 @@ builder.drizzleObjectField("objects", "activities", (t) =>
   }),
 );
 
+const ActorObjectFilter = builder.inputType("ActorObjectFilter", {
+  description: "Narrows the objects `Actor.objects` lists.",
+  fields: (t) => ({
+    includeDeleted: t.boolean({
+      required: true,
+      defaultValue: false,
+      description:
+        "Whether deleted objects are listed too, so that their histories " +
+        "can be inspected.",
+    }),
+  }),
+});
+type ObjectFilter = typeof ActorObjectFilter.$inferInput | null | undefined;
+const includesDeleted = (filter: ObjectFilter): boolean =>
+  filter?.includeDeleted === true;
+
 const objectsConnection = drizzleConnectionHelpers(builder, "objects", {
-  query: (_, ctx) => ({
-    where: { RAW: (table) => readableResource(ctx, table.id) },
+  query: ({ filter }: { filter?: ObjectFilter }, ctx) => ({
+    where: {
+      ...(includesDeleted(filter) ? {} : { deleted: { isNull: true } }),
+      RAW: (table) => readableResource(ctx, table.id),
+    },
     orderBy: { published: "desc", id: "desc" },
   }),
 });
@@ -174,8 +202,9 @@ builder.drizzleObjectField("actors", "objects", (t) =>
   t.connection(
     {
       type: ActivityPubObject,
+      args: { filter: t.arg({ type: ActorObjectFilter }) },
       description:
-        "Non-deleted objects the viewer may read, newest publication first. A local actor's objects are readable whatever their addressing; see `Object` for a remote actor's.",
+        "Objects the viewer may read, newest publication first, without deleted ones unless the filter includes them. A local actor's objects are readable whatever their addressing; see `Object` for a remote actor's.",
       select(args, ctx, nestedSelection) {
         return {
           with: {
@@ -191,7 +220,9 @@ builder.drizzleObjectField("actors", "objects", (t) =>
               schema.objects,
               and(
                 eq(schema.objects.actorId, actor.id),
-                isNull(schema.objects.deleted),
+                includesDeleted(args.filter)
+                  ? undefined
+                  : isNull(schema.objects.deleted),
                 readableResource(ctx, schema.objects.id),
               ),
             );
@@ -204,7 +235,7 @@ builder.drizzleObjectField("actors", "objects", (t) =>
       fields: (fb) => ({
         totalCount: fb.int({
           description:
-            "The number of non-deleted objects authored by this actor that the viewer may read.",
+            "The number of objects authored by this actor that the viewer may read, counted with the same filter as the list.",
           resolve: (connection) => connection.totalCount(),
         }),
       }),

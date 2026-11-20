@@ -32,7 +32,9 @@ import {
 import {
   type Viewer,
   isReadableResource,
+  isReadableResourceNode,
   readableResource,
+  visibleResource,
 } from "./readable.ts";
 
 export const ResourceKind = builder.enumType("ResourceKind", {
@@ -356,10 +358,10 @@ const ActivityRef = builder.drizzleNode("activities", {
       nullable: true,
       description:
         "The resource the activity acts on, or null when there is none or " +
-        "the viewer may not read it.",
+        "the viewer may read neither it nor any of its revisions.",
       select: { with: { object: true } },
       resolve: async (row, _, ctx) =>
-        row.object != null && (await isReadableResource(ctx, row.object.id))
+        row.object != null && (await isReadableResourceNode(ctx, row.object.id))
           ? row.object
           : null,
     }),
@@ -414,28 +416,3 @@ const ActivityRef = builder.drizzleNode("activities", {
 });
 export const Activity: DrFedObjectRef = ActivityRef;
 registerAddressingFields("activities");
-
-/**
- * Excludes deleted actors and objects, including resources authored or
- * owned by deleted actors.
- * @returns A predicate for a resource ID in an outer query.
- */
-function visibleResource(id: SQLWrapper): SQL {
-  return sql`not exists (
-    select 1 from ${schema.actors}
-    where ${schema.actors.id} = ${id} and ${schema.actors.deleted} is not null
-  ) and not exists (
-    select 1 from ${schema.objects}
-    join ${schema.actors} on ${schema.actors.id} = ${schema.objects.actorId}
-    where ${schema.objects.id} = ${id}
-      and (${schema.objects.deleted} is not null or ${schema.actors.deleted} is not null)
-  ) and not exists (
-    select 1 from ${schema.activities}
-    join ${schema.actors} on ${schema.actors.id} = ${schema.activities.actorId}
-    where ${schema.activities.id} = ${id} and ${schema.actors.deleted} is not null
-  ) and not exists (
-    select 1 from ${schema.collections}
-    join ${schema.actors} on ${schema.actors.id} = ${schema.collections.ownerActorId}
-    where ${schema.collections.id} = ${id} and ${schema.actors.deleted} is not null
-  )`;
-}

@@ -22,10 +22,15 @@ import {
   activityDeliveries,
   actors,
   addressing,
+  collections,
   instanceMembers,
   instances,
   objects,
+  resourceHeads,
+  resourceRevisions,
   resources,
+  revisionAddressing,
+  revisionReceipts,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
@@ -116,6 +121,20 @@ const carriers = alias(activities, "readable_carriers");
 const entries = alias(addressing, "readable_addressing");
 const targets = alias(resources, "readable_targets");
 const deliveries = alias(activityDeliveries, "readable_deliveries");
+const visibleOwners = alias(actors, "visible_owners");
+const ownedObjects = alias(objects, "visible_objects");
+const ownedActivities = alias(activities, "visible_activities");
+const ownedCollections = alias(collections, "visible_collections");
+const typedActors = alias(actors, "legacy_typed_actors");
+const typedObjects = alias(objects, "legacy_typed_objects");
+const typedActivities = alias(activities, "legacy_typed_activities");
+const typedCollections = alias(collections, "legacy_typed_collections");
+const evidenced = alias(resourceRevisions, "evidenced_revisions");
+const evidencedAddressing = alias(revisionAddressing, "evidenced_addressing");
+const evidencedReceipts = alias(revisionReceipts, "evidenced_receipts");
+const receiptDeliveries = alias(activityDeliveries, "receipt_deliveries");
+const evidencedHeads = alias(resourceHeads, "evidenced_heads");
+const listedRevisions = alias(resourceRevisions, "listed_revisions");
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}
@@ -201,6 +220,160 @@ export function readableResource(viewer: Viewer, id: SQLWrapper): SQL {
 }
 
 /**
+ * Excludes deleted actors and objects, including resources authored or
+ * owned by deleted actors.  Revisions do not use it: a deletion appends a
+ * whiteout, and the history before it stays readable, as
+ * {@link readableRevision} tells.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function visibleResource(id: SQLWrapper): SQL {
+  return sql`not exists (
+    select 1 from ${actors} ${visibleOwners}
+    where ${visibleOwners.id} = ${id} and ${visibleOwners.deleted} is not null
+  ) and not exists (
+    select 1 from ${objects} ${ownedObjects}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedObjects.actorId}
+    where ${ownedObjects.id} = ${id}
+      and (${ownedObjects.deleted} is not null or ${visibleOwners.deleted} is not null)
+  ) and not exists (
+    select 1 from ${activities} ${ownedActivities}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedActivities.actorId}
+    where ${ownedActivities.id} = ${id} and ${visibleOwners.deleted} is not null
+  ) and not exists (
+    select 1 from ${collections} ${ownedCollections}
+    join ${actors} ${visibleOwners} on ${visibleOwners.id} = ${ownedCollections.ownerActorId}
+    where ${ownedCollections.id} = ${id} and ${visibleOwners.deleted} is not null
+  )`;
+}
+
+/**
+ * Matches a resource with a legacy typed row, whose readability
+ * {@link readableResource} decides by that row.  It is the only place
+ * {@link readableRevision} reads legacy typed tables, so that it goes when
+ * they do.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+function legacyTypedRow(id: SQLWrapper): SQL {
+  return sql`(exists (
+    select 1 from ${actors} ${typedActors} where ${typedActors.id} = ${id}
+  ) or exists (
+    select 1 from ${objects} ${typedObjects} where ${typedObjects.id} = ${id}
+  ) or exists (
+    select 1 from ${activities} ${typedActivities} where ${typedActivities.id} = ${id}
+  ) or exists (
+    select 1 from ${collections} ${typedCollections} where ${typedCollections.id} = ${id}
+  ))`;
+}
+
+/**
+ * Restricts revisions to those the viewer may read.  An administrator reads
+ * every revision.  Anyone else reads a revision by evidence of that
+ * particular revision, never by the current state of its resource:
+ *
+ *  -  DrFed saved it for a local actor, so it is readable by anyone, with
+ *     its blind recipients and whether published or not, as
+ *     `Object.document` is.
+ *  -  Its own addressing is public.
+ *  -  A receipt links it to an inbound delivery to a local instance the
+ *     viewer may read, as {@link viewableInstance} tells.
+ *  -  It is the current revision of a resource with a legacy typed row that
+ *     {@link readableResource} lets the viewer read, since that row
+ *     describes only its current version.
+ *
+ * What a revision embeds, and the revisions its embedded documents came
+ * from, never decide whether it is readable: a document recording its
+ * sources reads as the same document pasted without them.  Only following
+ * a source to its revision checks that revision.
+ *
+ * A later revision being restricted, or deleted, hides no earlier one that
+ * was public, and a later delivery or public revision of the same IRI opens
+ * no earlier private one.  A revision of a deleted resource, or of one
+ * whose author is deleted, stays readable to whoever may read it.
+ * @param viewer The viewer and the database.
+ * @param id The revision ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function readableRevision(viewer: Viewer, id: SQLWrapper): SQL {
+  if (viewer.account?.admin === true) return sql`true`;
+  return sql`exists (
+    select 1 from ${resourceRevisions} ${evidenced}
+    where ${evidenced.id} = ${id} and (
+      ${evidenced.capture} = 'local'
+      or exists (
+        select 1 from ${revisionAddressing} ${evidencedAddressing}
+        where ${evidencedAddressing.revisionId} = ${evidenced.id}
+          and ${inArray(evidencedAddressing.iri, PUBLIC_IRIS)}
+      )
+      or exists (
+        select 1 from ${revisionReceipts} ${evidencedReceipts}
+        join ${activityDeliveries} ${receiptDeliveries}
+          on ${receiptDeliveries.id} = ${evidencedReceipts.deliveryId}
+        where ${evidencedReceipts.revisionId} = ${evidenced.id}
+          and ${receiptDeliveries.direction} = 'inbound'
+          and ${viewableInstance(viewer, receiptDeliveries.instanceId)}
+      )
+      or (
+        exists (
+          select 1 from ${resourceHeads} ${evidencedHeads}
+          where ${evidencedHeads.resourceId} = ${evidenced.resourceId}
+            and ${evidencedHeads.revisionId} = ${evidenced.id}
+        )
+        and ${legacyTypedRow(evidenced.resourceId)}
+        and ${readableResource(viewer, evidenced.resourceId)}
+      )
+    )
+  )`;
+}
+
+/**
+ * Restricts resources to those the viewer may know of as `Resource` nodes:
+ * those {@link readableResource} lets the viewer read, and those with a
+ * revision the viewer may read, as {@link readableRevision} tells.  A
+ * resource's current state, which its legacy typed row describes, may be
+ * restricted after an earlier revision was public or received; that hides
+ * neither the revision nor the resource it is read through.  The typed
+ * details of the resource still follow {@link readableResource}.
+ * @param viewer The viewer and the database.
+ * @param id The resource ID in an outer query.
+ * @returns The condition on the ID.
+ */
+export function readableResourceNode(viewer: Viewer, id: SQLWrapper): SQL {
+  if (viewer.account?.admin === true) return sql`true`;
+  return sql`(${readableResource(viewer, id)} or exists (
+    select 1 from ${resourceRevisions} ${listedRevisions}
+    where ${listedRevisions.resourceId} = ${id}
+      and ${readableRevision(viewer, listedRevisions.id)}
+  ))`;
+}
+
+/**
+ * Finds the revisions among the given IDs that the viewer may not read, as
+ * {@link readableRevision} decides.  IDs of no stored revision are never
+ * among them.  A local write takes it to check the sources a writer
+ * declares, so that a writer embeds as a snapshot or derivation only what
+ * they may read.
+ * @returns The IDs the viewer may not read.
+ */
+export async function unreadableRevisions(
+  viewer: Viewer,
+  ids: readonly Uuid[],
+): Promise<ReadonlySet<Uuid>> {
+  if (ids.length === 0 || viewer.account?.admin === true) return new Set();
+  const rows = await viewer.db
+    .select({ id: resourceRevisions.id })
+    .from(resourceRevisions)
+    .where(
+      and(
+        inArray(resourceRevisions.id, [...new Set(ids)]),
+        not(readableRevision(viewer, resourceRevisions.id)),
+      ),
+    );
+  return new Set(rows.map(({ id }) => id));
+}
+
+/**
  * Finds the resources among the given IDs that the viewer may not read, as
  * {@link readableResource} decides.  IDs of anything but a resource are never
  * among them.
@@ -232,30 +405,108 @@ export const isReadableResource = async (
   id: Uuid,
 ): Promise<boolean> => !(await unreadableResources(viewer, [id])).has(id);
 
-const nodeIdOf = (node: unknown): Uuid | null =>
+/**
+ * Finds the resources among the given IDs that the viewer may not know of as
+ * `Resource` nodes, as {@link readableResourceNode} decides.  IDs of anything
+ * but a resource are never among them.
+ * @returns The IDs the viewer may not know of.
+ */
+export async function unreadableResourceNodes(
+  viewer: Viewer,
+  ids: readonly Uuid[],
+): Promise<ReadonlySet<Uuid>> {
+  if (ids.length === 0 || viewer.account?.admin === true) return new Set();
+  const rows = await viewer.db
+    .select({ id: resources.id })
+    .from(resources)
+    .where(
+      and(
+        inArray(resources.id, [...new Set(ids)]),
+        not(readableResourceNode(viewer, resources.id)),
+      ),
+    );
+  return new Set(rows.map(({ id }) => id));
+}
+
+/**
+ * Determines whether the viewer may know of the resource as a `Resource`
+ * node.
+ * @returns Whether {@link readableResourceNode} holds for it.
+ */
+export const isReadableResourceNode = async (
+  viewer: Viewer,
+  id: Uuid,
+): Promise<boolean> => !(await unreadableResourceNodes(viewer, [id])).has(id);
+
+const uuidOf = (node: unknown, key: "id" | "resourceId"): Uuid | null =>
   node != null &&
   typeof node === "object" &&
-  "id" in node &&
-  validateUuid(node.id)
-    ? node.id
+  key in node &&
+  validateUuid((node as Record<typeof key, unknown>)[key])
+    ? ((node as Record<typeof key, unknown>)[key] as Uuid)
     : null;
 
 /**
+ * Tells the resource a Relay node belongs to without being its typed detail,
+ * as a revision belongs to its resource.  Such a node is hidden by its own
+ * readability, as {@link readableRevision} tells, and nothing of its
+ * resource's, such as a deletion, hides it.
+ * @returns The resource ID, or null for any other node.
+ */
+export const owningResourceOf = (node: unknown): Uuid | null =>
+  uuidOf(node, "resourceId");
+
+/** How {@link hideUnreadableNodes} checks a node. */
+type NodeKind = "revision" | "resource" | "typed";
+
+/**
  * Replaces the Relay nodes the viewer may not read by null, as if they did
- * not exist.  Activities, objects, and resources share their IDs, so a node's
- * ID alone tells whether it is one the viewer may not read.
+ * not exist.  Activities, objects, and resources share their IDs, so the
+ * caller tells which nodes are `Resource` nodes, which are checked by
+ * {@link readableResourceNode}; the ID of any other node tells whether
+ * {@link readableResource} lets the viewer read it.  A node that belongs to a
+ * resource, such as a revision, is checked by {@link readableRevision}
+ * instead, as {@link owningResourceOf} tells.
+ * @param viewer The viewer and the database.
+ * @param nodes The resolved nodes.
+ * @param resourceNodes Whether the node at each index is a `Resource` node.
  * @returns The nodes, in the same order.
  */
 export async function hideUnreadableNodes(
   viewer: Viewer,
   nodes: readonly unknown[],
+  resourceNodes: readonly boolean[] = [],
 ): Promise<unknown[]> {
-  const hidden = await unreadableResources(
-    viewer,
-    nodes.map(nodeIdOf).filter((id) => id != null),
-  );
-  return nodes.map((node) => {
-    const id = nodeIdOf(node);
+  const kindOf = (node: unknown, index: number): NodeKind =>
+    owningResourceOf(node) != null
+      ? "revision"
+      : resourceNodes[index] === true
+        ? "resource"
+        : "typed";
+  const kinds = nodes.map((node, index) => kindOf(node, index));
+  const idsOf = (kind: NodeKind) =>
+    nodes.map((node, index) =>
+      kinds[index] === kind ? uuidOf(node, "id") : null,
+    );
+  const ids = {
+    revision: idsOf("revision"),
+    resource: idsOf("resource"),
+    typed: idsOf("typed"),
+  };
+  const present = (list: readonly (Uuid | null)[]) =>
+    list.filter((id) => id != null);
+  const [hiddenTyped, hiddenResources, hiddenRevisions] = await Promise.all([
+    unreadableResources(viewer, present(ids.typed)),
+    unreadableResourceNodes(viewer, present(ids.resource)),
+    unreadableRevisions(viewer, present(ids.revision)),
+  ]);
+  return nodes.map((node, index) => {
+    const kind: NodeKind = kinds[index] ?? "typed";
+    const id = ids[kind][index];
+    if (kind === "revision") {
+      return id == null || hiddenRevisions.has(id) ? null : node;
+    }
+    const hidden = kind === "resource" ? hiddenResources : hiddenTyped;
     return id != null && hidden.has(id) ? null : node;
   });
 }

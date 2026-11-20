@@ -16,7 +16,6 @@
 
 import { type Database, type Transaction, schema } from "@drfed/models";
 import {
-  ADDRESSING_PROPERTIES,
   DIAGNOSTIC_REASONS,
   type Diagnostic,
   type JsonValue,
@@ -40,9 +39,11 @@ import { Activity } from "@fedify/vocab";
 import { asc, eq } from "drizzle-orm";
 
 import type { WritingActor } from "./actor.ts";
+import { addressingKeys, checkSources } from "./embedding.ts";
 import {
   type IdentityLookups,
   checkIndexable,
+  checkSourceShapes,
   deniedClaims,
   indexDocument,
   pathKey,
@@ -67,6 +68,8 @@ import {
 const activityStreams = "https://www.w3.org/ns/activitystreams";
 /** The allocation key of the activity an edit or deletion generates. */
 export const generatedKey = pathKey(["#generated"]);
+/** Where the `Update` an edit generates embeds the version it carries. */
+export const UPDATE_OBJECT_PATH = ["object"] as const;
 
 /** The current local object an edit or deletion acts on. */
 export interface WriteTarget {
@@ -100,7 +103,9 @@ export function checkExistingRequest(
   ) {
     return invalid("The document must be a JSON object.");
   }
-  return null;
+  return request.operation === "edit"
+    ? checkSourceShapes(request.sources)
+    : null;
 }
 
 /**
@@ -115,7 +120,15 @@ export function bindableExisting(
     actorId: request.actorId,
     objectId: request.objectId,
     expectedRevisionId: request.expectedRevisionId,
-    ...(request.operation === "edit" ? { document: request.document } : {}),
+    ...(request.operation === "edit"
+      ? {
+          document: request.document,
+          sources: (request.sources ?? []).map(({ path, revisionId }) => ({
+            path,
+            revisionId,
+          })),
+        }
+      : {}),
   };
 }
 
@@ -214,14 +227,12 @@ export async function currentAddressing(
  * @returns The addressing properties and their values.
  */
 function copyAddressing(document: JsonObject): Record<string, JsonValue> {
-  const root = describeDocument(document)?.[0];
-  const copy: Record<string, JsonValue> = {};
-  for (const property of ADDRESSING_PROPERTIES) {
-    for (const source of root?.properties.get(property) ?? []) {
-      copy[source] = structuredClone(document[source]!);
-    }
-  }
-  return copy;
+  return Object.fromEntries(
+    addressingKeys(document).map((key) => [
+      key,
+      structuredClone(document[key]!),
+    ]),
+  );
 }
 
 function generatedIri(
@@ -413,6 +424,14 @@ export async function prepareEdit(
       validateDocument(submitted).diagnostics,
     );
   }
+  const sourceError = await checkSources(
+    request.sources ?? [],
+    nodes,
+    new Set(),
+    new Set([target.iri]),
+    lookups.revisions,
+  );
+  if (sourceError != null) return sourceError;
   const root = nodes[0]!;
   if (root.type !== target.type) {
     return writeError(

@@ -34,8 +34,15 @@ import { type Uuid, uuidV7, validateUuid } from "@drfed/models/uuid";
 import type { Federation } from "@fedify/fedify";
 import { Object as APObject, Activity, Create } from "@fedify/vocab";
 
+import {
+  RELATION_PROPERTIES,
+  interpretDocument,
+  valueAt,
+} from "../document/interpret.ts";
 import { classifyHost } from "../origin.ts";
 import type { WritingActor } from "./actor.ts";
+import { effectiveContext, pathKey } from "./context.ts";
+import { type SourceRevision, checkSources } from "./embedding.ts";
 import { type Allocation, toMicroseconds } from "./token.ts";
 import {
   type CreateRequest,
@@ -57,15 +64,6 @@ const NESTING_PROPERTIES: ReadonlySet<string> = new Set([
   "result",
   "instrument",
 ]);
-const RELATION_PROPERTIES = [
-  "actor",
-  "object",
-  "target",
-  "origin",
-  "result",
-  "instrument",
-  "attributedTo",
-] as const;
 
 /** Database answers the preparation needs about local identities. */
 export interface IdentityLookups {
@@ -73,6 +71,8 @@ export interface IdentityLookups {
   localActors(iris: readonly string[]): Promise<ReadonlySet<string>>;
   /** The IRIs that are registered resources. */
   registered(iris: readonly string[]): Promise<ReadonlySet<string>>;
+  /** The stored revisions among IDs, by their lowercase IDs. */
+  revisions(ids: readonly Uuid[]): Promise<ReadonlyMap<string, SourceRevision>>;
 }
 
 /** The submitted documents and their saved forms, ready to persist. */
@@ -82,13 +82,7 @@ export interface PreparedWrite {
   readonly resources: readonly PreparedResource[];
 }
 
-/**
- * Keys a path for maps and token allocations.
- * @returns The path's JSON.
- */
-export function pathKey(path: FieldPath): string {
-  return JSON.stringify(path);
-}
+export { pathKey } from "./context.ts";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -107,6 +101,26 @@ function isPath(value: unknown): value is FieldPath {
         (Number.isSafeInteger(segment) && segment >= 0),
     )
   );
+}
+
+/**
+ * Checks the shape of a request's declared sources.
+ * @returns Why they are malformed, or null.
+ */
+export function checkSourceShapes(sources: unknown): LocalWriteError | null {
+  return sources === undefined ||
+    (Array.isArray(sources) &&
+      sources.every(
+        (source: unknown) =>
+          isPlainObject(source) &&
+          isPath(source.path) &&
+          validateUuid(source.revisionId),
+      ))
+    ? null
+    : writeError(
+        "invalid_request",
+        "sources must be a list of paths with revision IDs.",
+      );
 }
 
 /**
@@ -131,6 +145,8 @@ export function checkCreateRequest(
   if (!Array.isArray(request.resources)) {
     return invalid("resources must be an array.");
   }
+  const sourceError = checkSourceShapes(request.sources);
+  if (sourceError != null) return sourceError;
   for (const resource of request.resources as unknown[]) {
     if (
       !isPlainObject(resource) ||
@@ -164,6 +180,10 @@ export function bindableRequest(request: CreateRequest): unknown {
       representation: representation ?? "embedded",
     })),
     publish: request.publish === true,
+    sources: (request.sources ?? []).map(({ path, revisionId }) => ({
+      path,
+      revisionId,
+    })),
   };
 }
 
@@ -251,22 +271,7 @@ export function allocate(resources: readonly NewResource[]): Allocation {
 }
 
 // Paths come from submitted documents, whose keys may be spelled
-// `__proto__`; only own properties are read or defined.
-function valueAt(document: JsonValue, path: FieldPath): JsonValue | undefined {
-  let value: JsonValue | undefined = document;
-  for (const segment of path) {
-    if (
-      value === null ||
-      typeof value !== "object" ||
-      !Object.hasOwn(value, segment)
-    ) {
-      return undefined;
-    }
-    value = (value as Record<string | number, JsonValue>)[segment];
-  }
-  return value;
-}
-
+// `__proto__`; only own properties are defined.
 function setAt(document: JsonObject, path: FieldPath, value: JsonValue): void {
   const parent = valueAt(document, path.slice(0, -1));
   if (parent === null || typeof parent !== "object") {
@@ -378,11 +383,6 @@ export async function deniedClaims(
   ].map((path) => ({ allowed: false, path }));
 }
 
-function contextEntries(value: JsonValue | undefined): JsonValue[] {
-  if (value === undefined) return [];
-  return Array.isArray(value) ? [...value] : [value];
-}
-
 /**
  * Refuses a document that spells one indexed property in several ways, as
  * in `to` beside an alias of it: their occurrences would share positions,
@@ -408,83 +408,32 @@ export function checkIndexable(document: JsonObject): Diagnostic[] {
 }
 
 /**
- * Indexes a saved document's root addressing and relations by meaning.
- * @returns Addressing occurrences at their source positions, and relations.
+ * Indexes a saved document's root addressing and relations by meaning, as
+ * `interpretDocument()` reads them for every document it embeds as well.
+ * Several spellings of one property must have been refused by
+ * {@link checkIndexable}, or their positions would collide.
+ * @returns Addressing occurrences at their source positions, without
+ *          anonymous recipients, and relations.
  */
 export function indexDocument(document: JsonObject): {
   addressing: AddressingOccurrence[];
   relations: RevisionRelationInput[];
 } {
-  const nodes = describeDocument(document) ?? [];
-  const root = nodes.find(({ path }) => path.length === 0);
+  const root = interpretDocument(document)?.[0];
   if (root == null) return { addressing: [], relations: [] };
-  const children = new Map(nodes.map((node) => [pathKey(node.path), node]));
-  const identifiers = new Map(
-    root.identifiers.map((entry) => [pathKey(entry.path), entry.iri]),
-  );
-  // An embedded document names a target by its id; a Link by its href.
-  const target = (path: FieldPath): string | undefined => {
-    const fromRoot = identifiers.get(pathKey(path));
-    if (fromRoot != null) return fromRoot;
-    const node = children.get(pathKey(path));
-    if (node == null) return undefined;
-    const property = node.kind === "link" ? "href" : "id";
-    // A functional property may be a list with one non-null entry.
-    return node.identifiers.find(
-      (entry) =>
-        entry.property === property &&
-        (entry.path.length === path.length + 1 ||
-          (entry.path.length === path.length + 2 &&
-            typeof entry.path.at(-1) === "number")),
-    )?.iri;
+  return {
+    addressing: root.addressing.flatMap(({ property, position, iri }) =>
+      iri == null ? [] : [{ property, position, iri }],
+    ),
+    relations: root.relations.map(
+      ({ property, path, representation, iri }) => ({
+        property,
+        path,
+        representation,
+        targetIri: iri,
+      }),
+    ),
   };
-  const occurrences = (
-    property: string,
-  ): { path: FieldPath; position: number }[] => {
-    // Several spellings of one property were refused by checkIndexable().
-    const source = root.properties.get(property)?.[0];
-    if (source == null) return [];
-    const value = document[source];
-    if (Array.isArray(value)) {
-      return value.map((_, position) => ({
-        path: [source, position],
-        position,
-      }));
-    }
-    return value == null ? [] : [{ path: [source], position: 0 }];
-  };
-  const addressing: AddressingOccurrence[] = [];
-  for (const property of ADDRESSING_PROPERTIES) {
-    for (const { path, position } of occurrences(property)) {
-      const iri = target(path);
-      if (iri != null) addressing.push({ property, position, iri });
-    }
-  }
-  const relations: RevisionRelationInput[] = [];
-  for (const property of RELATION_PROPERTIES) {
-    for (const { path } of occurrences(property)) {
-      const node = children.get(pathKey(path));
-      if (node == null) {
-        const iri = identifiers.get(pathKey(path));
-        if (iri != null) {
-          relations.push({
-            property,
-            path,
-            representation: "reference",
-            targetIri: iri,
-          });
-        }
-      } else {
-        relations.push({
-          property,
-          path,
-          representation: node.kind === "link" ? "link" : "embedded",
-          targetIri: target(path) ?? null,
-        });
-      }
-    }
-  }
-  return { addressing, relations };
 }
 
 /**
@@ -508,16 +457,8 @@ function extractNested(
   const changes: NormalizationChange[] = [];
   const value = valueAt(working, path) as JsonObject;
   const standalone = structuredClone(value) as Record<string, JsonValue>;
-  const chain: JsonValue[] = [];
-  for (let length = 0; length <= path.length; length += 1) {
-    const prefix = path.slice(0, length);
-    if (!preparedNodes.has(pathKey(prefix))) continue;
-    const own = valueAt(prepared, [...prefix, "@context"]);
-    chain.push(...contextEntries(own));
-  }
+  const chain = effectiveContext(prepared, preparedNodes, path);
   const own = value["@context"];
-  // The validator reads a document without a context as ActivityStreams.
-  if (prepared["@context"] === undefined) chain.unshift(ACTIVITY_STREAMS);
   if (chain.length > 0) {
     const context = chain.length === 1 ? chain[0]! : chain;
     if (JSON.stringify(context) !== JSON.stringify(own ?? null)) {
@@ -585,6 +526,14 @@ export async function prepareCreate(
   const byPath = new Map(nodes.map((node) => [pathKey(node.path), node]));
   const descriptorError = checkDescriptors(request, byPath);
   if (descriptorError != null) return descriptorError;
+  const sourceError = await checkSources(
+    request.sources ?? [],
+    nodes,
+    new Set(request.resources.map(({ path }) => pathKey(path))),
+    new Set(),
+    lookups.revisions,
+  );
+  if (sourceError != null) return sourceError;
   const keys = request.resources.map(({ path }) => pathKey(path));
   if (
     allocation.ids.size !== keys.length ||
