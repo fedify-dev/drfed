@@ -25,7 +25,7 @@ import {
   query,
 } from "@solidjs/router";
 import { graphql } from "relay-runtime";
-import { Show, createSignal } from "solid-js";
+import { Show, createSignal, onCleanup } from "solid-js";
 import {
   createMutation,
   createPreloadedQuery,
@@ -169,6 +169,14 @@ export default function CreateObjectsPage(props: RouteSectionProps) {
   const [commitCreateObject, isCreating] =
     createMutation<CreateObjectMutation>(createObjectMutation);
   const [message, setMessage] = createSignal<string>("");
+  // A creation can finish after the page has moved to another instance or
+  // been left.  Its result then must not touch this page or its form.
+  let active = true;
+  onCleanup(() => {
+    active = false;
+  });
+  const isCurrent = (instanceId: string | undefined) =>
+    active && props.params.instance_id === instanceId;
 
   const submit = (form: HTMLFormElement) => {
     if (isCreating()) return;
@@ -199,9 +207,23 @@ export default function CreateObjectsPage(props: RouteSectionProps) {
       showToast(message(), "fail");
       return;
     }
+    const submittedFor = props.params.instance_id;
+    const host = data()?.instance?.host;
     commitCreateObject({
       variables: input.output,
       onCompleted(response, errors) {
+        if (!isCurrent(submittedFor)) {
+          const succeeded =
+            (errors ?? []).length === 0 &&
+            response.createObject.resultType === "Object";
+          showToast(
+            succeeded
+              ? `Object created successfully on ${host}.`
+              : `Unable to create the object on ${host}.`,
+            succeeded ? "success" : "fail",
+          );
+          return;
+        }
         if (errors != null && errors.length > 0) {
           setMessage(errors.map((error) => error.message).join("\n"));
           showToast(message(), "fail");
@@ -223,6 +245,10 @@ export default function CreateObjectsPage(props: RouteSectionProps) {
         }
       },
       onError: (error) => {
+        if (!isCurrent(submittedFor)) {
+          showToast(`Unable to create the object on ${host}.`, "fail");
+          return;
+        }
         setMessage(error.message);
         showToast(message(), "fail");
       },

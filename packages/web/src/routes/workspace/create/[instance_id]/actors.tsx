@@ -24,7 +24,7 @@ import {
   query,
 } from "@solidjs/router";
 import { graphql } from "relay-runtime";
-import { Show, createComputed, createSignal, on } from "solid-js";
+import { Show, createComputed, createSignal, on, onCleanup } from "solid-js";
 import {
   createMutation,
   createPreloadedQuery,
@@ -33,7 +33,7 @@ import {
 } from "solid-relay";
 import * as v from "valibot";
 
-import { navigateWithToast } from "~/components/Toast.tsx";
+import { navigateWithToast, showToast } from "~/components/Toast.tsx";
 
 import type { GenerateActorsMutation } from "./__generated__/GenerateActorsMutation.graphql.ts";
 import type { GetHostQuery } from "./__generated__/GetHostQuery.graphql.ts";
@@ -113,6 +113,14 @@ export default function CreateActorsPage(props: RouteSectionProps) {
   );
   const [commitGenerateActors, isGeneratingActors] =
     createMutation<GenerateActorsMutation>(generateActorsMutation);
+  // A generation can finish after the page has moved to another instance or
+  // been left.  Its result then must not touch this page.
+  let active = true;
+  onCleanup(() => {
+    active = false;
+  });
+  const isCurrent = (instanceId: string | undefined) =>
+    active && props.params.instance_id === instanceId;
 
   const data = createPreloadedQuery<GetHostQuery>(getHostQuery, () => {
     if (props.params.instance_id === undefined) {
@@ -137,9 +145,22 @@ export default function CreateActorsPage(props: RouteSectionProps) {
       return;
     }
     setErrorMessage(undefined);
+    const submittedFor = props.params.instance_id;
     commitGenerateActors({
       variables: { instance, size },
       onCompleted: (response, errors) => {
+        if (!isCurrent(submittedFor)) {
+          const succeeded =
+            (errors ?? []).length === 0 &&
+            response.generateActors.resultType === "CreateActorsSuccess";
+          showToast(
+            succeeded
+              ? `Successfully created actors on ${host}.`
+              : `Unable to generate actors on ${host}.`,
+            succeeded ? "success" : "fail",
+          );
+          return;
+        }
         const graphQLErrors = errors ?? [];
         if (graphQLErrors.length > 0) {
           setErrorMessage(
@@ -198,6 +219,10 @@ export default function CreateActorsPage(props: RouteSectionProps) {
         }
       },
       onError: (error) => {
+        if (!isCurrent(submittedFor)) {
+          showToast(`Unable to generate actors on ${host}.`, "fail");
+          return;
+        }
         setErrorMessage(error.message);
       },
     });
