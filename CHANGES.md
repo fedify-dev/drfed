@@ -30,7 +30,10 @@ To be released.
     showing the previous actor or instance when moving within the web UI to
     another page of the same kind.  The object creation form no longer
     submits with an actor of the previously shown instance, and the page
-    title now follows the page shown.  [[#183], [#184] by Hyeonseo Kim\]
+    title now follows the page shown.  An actor or object creation that
+    finishes after leaving its page no longer changes the page shown and is
+    reported in a notification naming its instance.
+    [[#183], [#184] by Hyeonseo Kim\]
  -  Published the official container image `ghcr.io/fedify-dev/drfed` for
     `linux/amd64` and `linux/arm64`, with all four commands, along with
     installation guides for Docker, Podman, and other container tools and
