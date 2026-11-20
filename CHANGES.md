@@ -77,12 +77,14 @@ To be released.
     viewer may read one of its revisions, even after its current state was
     restricted, while `Resource.detail` and the typed node stay hidden.
     `Actor.objects` takes a `filter` whose `includeDeleted` lists deleted
-    objects too, and `Object.deleted` tells when one was deleted.  [[#154]]
+    objects too, and `Object.deleted` tells when one was deleted.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim\]
  -  Fixed `Resource.detail` to return `null` without a field error when the
     resource has no corresponding detail record.
     [[#150], [#164] by Hong Minhee\]
 
 [#154]: https://github.com/fedify-dev/drfed/issues/154
+[#182]: https://github.com/fedify-dev/drfed/pull/182
 
 ### JavaScript/TypeScript APIs
 
@@ -177,7 +179,6 @@ To be released.
 [#152]: https://github.com/fedify-dev/drfed/issues/152
 [#166]: https://github.com/fedify-dev/drfed/pull/166
 [#173]: https://github.com/fedify-dev/drfed/pull/173
-[#182]: https://github.com/fedify-dev/drfed/pull/182
 
 
 Version 0.1.0

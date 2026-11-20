@@ -1,6 +1,7 @@
 ---
 links:
   '#154': https://github.com/fedify-dev/drfed/issues/154
+  '#182': https://github.com/fedify-dev/drfed/pull/182
 ---
  -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
     `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
@@ -24,4 +25,5 @@ links:
     viewer may read one of its revisions, even after its current state was
     restricted, while `Resource.detail` and the typed node stay hidden.
     `Actor.objects` takes a `filter` whose `includeDeleted` lists deleted
-    objects too, and `Object.deleted` tells when one was deleted.  [[#154]]
+    objects too, and `Object.deleted` tells when one was deleted.
+    [[#154], [#182] by Chanhaeng Lee, Hyeonseo Kim]
