@@ -98,34 +98,40 @@ export const route = {
   },
 } satisfies RouteDefinition;
 
-type RouteData = ReturnType<typeof loadResourcePageQuery>;
-
-export default function ResourcePage(props: RouteSectionProps<RouteData>) {
+export default function ResourcePage(props: RouteSectionProps) {
   return (
     <main class={styles.page}>
       <Title>Resource — DrFed</Title>
       <A class={styles.backLink} href="/workspace">
         ← All instances
       </A>
-      <ErrorBoundary
-        fallback={
-          <p role="alert">
-            Unable to load this resource. Please reload the page to try again.
-          </p>
-        }
-      >
-        <Suspense fallback={<LoadingIndicator label="Loading resource…" />}>
-          <ResourceContent data={props.data} />
-        </Suspense>
-      </ErrorBoundary>
+      {/* The page stays mounted when only the ID changes.  Keyed so that
+          the next resource is rendered anew.  Kept in place, the page went
+          on showing the previous resource after a navigation, and a caught
+          error or a copy result would carry over. */}
+      <Show when={props.params.id} keyed>
+        {(id) => (
+          <ErrorBoundary
+            fallback={
+              <p role="alert">
+                Unable to load this resource. Please reload the page to try
+                again.
+              </p>
+            }
+          >
+            <Suspense fallback={<LoadingIndicator label="Loading resource…" />}>
+              <ResourceContent id={id} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+      </Show>
     </main>
   );
 }
 
-function ResourceContent(props: { data: RouteData }) {
-  const data = createPreloadedQuery<ResourcePageQuery>(
-    resourcePageQuery,
-    () => props.data,
+function ResourceContent(props: { id: string }) {
+  const data = createPreloadedQuery<ResourcePageQuery>(resourcePageQuery, () =>
+    loadResourcePageQuery(props.id),
   );
   const [search] = useSearchParams<{ revision?: string }>();
   const parameter = () => search.revision;

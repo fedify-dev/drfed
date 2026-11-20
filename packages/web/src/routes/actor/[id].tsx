@@ -71,28 +71,33 @@ export default function ActorDetailPage(props: RouteSectionProps) {
       <A class={styles.backLink} href="/workspace">
         ← All instances
       </A>
-      <ErrorBoundary
-        fallback={
-          <p role="alert">
-            Unable to load this actor. Please reload the page to try again.
-          </p>
-        }
-      >
-        <Suspense fallback={<output>Loading actor…</output>}>
-          <ActorDetailContent id={props.params.id} />
-        </Suspense>
-      </ErrorBoundary>
+      {/* The page stays mounted when only the ID changes.  Keyed so that
+          the next actor is rendered anew.  Kept in place, the page went on
+          showing the previous actor after a navigation, and a caught error
+          or a copy result would carry over. */}
+      <Show when={props.params.id} keyed>
+        {(id) => (
+          <ErrorBoundary
+            fallback={
+              <p role="alert">
+                Unable to load this actor. Please reload the page to try again.
+              </p>
+            }
+          >
+            <Suspense fallback={<output>Loading actor…</output>}>
+              <ActorDetailContent id={id} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+      </Show>
     </main>
   );
 }
 
-function ActorDetailContent(props: { id: string | undefined }) {
-  const data = createPreloadedQuery<ActorDetailQuery>(actorDetailQuery, () => {
-    if (props.id === undefined) {
-      throw new Error("Missing actor ID route parameter.");
-    }
-    return loadActorDetailQuery(props.id);
-  });
+function ActorDetailContent(props: { id: string }) {
+  const data = createPreloadedQuery<ActorDetailQuery>(actorDetailQuery, () =>
+    loadActorDetailQuery(props.id),
+  );
   const actor = () => {
     const node = data()?.node;
     return node?.actor;
