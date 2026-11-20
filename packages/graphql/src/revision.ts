@@ -378,6 +378,10 @@ const occurrenceFields = {
   iri:
     "A reference's IRI, an embedded document's `id`, or a `Link`'s `href`, " +
     "with a compact IRI expanded; null for an anonymous embedded value.",
+  node:
+    "The embedded document or `Link` as the saved document embeds it, " +
+    "which may differ from the resource's current revision; null for a " +
+    "reference.",
   resource:
     "The resource currently registered under `iri`, or null when there is " +
     "none, or when the viewer may read neither it nor any of its " +
@@ -408,10 +412,7 @@ DocumentRelation.implement({
     node: t.expose("node", {
       type: DocumentNode,
       nullable: true,
-      description:
-        "The embedded document or `Link` as the saved document embeds it, " +
-        "which may differ from the resource's current revision; null for a " +
-        "reference.",
+      description: occurrenceFields.node,
     }),
     resource: t.field({
       type: Resource,
@@ -446,6 +447,11 @@ DocumentRecipient.implement({
       type: "URL",
       nullable: true,
       description: occurrenceFields.iri,
+    }),
+    node: t.expose("node", {
+      type: DocumentNode,
+      nullable: true,
+      description: occurrenceFields.node,
     }),
     resource: t.field({
       type: Resource,

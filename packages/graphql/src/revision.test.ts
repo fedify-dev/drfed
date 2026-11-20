@@ -516,7 +516,9 @@ describe("Resource.currentRevision", () => {
           document
           root {
             addressing { property position path representation iri }
-            bcc: addressing(property: bcc) { iri resource { kind } }
+            bcc: addressing(property: bcc) {
+              iri node { iri document } resource { kind }
+            }
           }
         } } } }`,
         { id: globalId("Resource", note.id) },
@@ -559,8 +561,12 @@ describe("Resource.currentRevision", () => {
         },
       ]);
       assert.deepEqual(revision.root.bcc, [
-        { iri: BLIND, resource: { kind: "unknown" } },
-        { iri: BLIND, resource: { kind: "unknown" } },
+        {
+          iri: BLIND,
+          node: { iri: BLIND, document: { type: "Person", id: BLIND } },
+          resource: { kind: "unknown" },
+        },
+        { iri: BLIND, node: null, resource: { kind: "unknown" } },
       ]);
     });
   });
