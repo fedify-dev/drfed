@@ -288,7 +288,8 @@ administrator reads every revision.  Anyone else reads one that was captured
 links to an inbound delivery to a local instance the viewer is an accepted
 member of.  A revision without such evidence is readable only while it is the
 current revision of a resource with a legacy typed row that the viewer may
-read, as `Resource.detail` decides.  Local histories are therefore open to
+read under `readableResource()`, even after a deletion hides
+`Resource.detail`.  Local histories are therefore open to
 anyone, blind recipients and unpublished activities included.  Evidence for
 one revision opens no other: a later delivery naming the same IRI does not
 open an earlier private revision, and a later restriction of the current
@@ -299,7 +300,7 @@ ones the viewer may not read, so their sequences can skip.
 The `Resource` a history is read through follows the same evidence, in
 `readableResourceNode()`: a `node` lookup of a `Resource`, a relation's or
 recipient's `resource`, and `Activity.object` return it when the viewer may
-read it as `Resource.detail` decides or may read any of its revisions.  A
+read it under `readableResource()` or may read any of its revisions.  A
 `Resource` node shares its ID with the typed `Object` or `Activity` of the
 same resource, so the lookup tells them apart by the typename of the global
 ID; the typed node and `Resource.detail` keep following the current state.

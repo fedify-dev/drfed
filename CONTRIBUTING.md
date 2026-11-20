@@ -162,6 +162,11 @@ runs the Relay compiler and the SolidStart frontend build.
 `tsdown --watch` builds, then runs `drfed-server` with a PGlite data directory
 at *.pgdata*.
 
+`mise run seed:revisions` adds resource revisions for UI work to that store,
+then prints the accounts and what each viewer reads of every resource.  Stop
+`mise run dev` first, since only one process can open the store.  A store is
+seeded once: remove it to seed again, or seed another one with `--data-path`.
+
 
 Runtime and packaging expectations
 ----------------------------------

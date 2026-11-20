@@ -208,8 +208,9 @@ source therefore differ only in `DocumentNode.source`.
 An embedded document is a `snapshot` of its source when its effective context
 equals the source document's and its JSON, apart from the `@context` key,
 equals the source document's, whatever the order of object keys.  Otherwise it
-is `derived`.  The comparison is strict, so a document only re-serialized
-differently reads as derived, never the reverse.  Previews and commit results
+is `derived`.  The comparison is strict: a document that means the same but is
+written differently, such as with a compact IRI expanded or under another
+context, reads as derived, never the reverse.  Previews and commit results
 do not report sources: a writer could otherwise learn whether a guessed
 document equals a revision they may not read.  Writes through
 `createLegacyObject()` record no sources.
