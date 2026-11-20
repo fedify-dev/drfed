@@ -49,7 +49,7 @@
     "@faker-js/faker": "catalog:",
     "@formisch/solid": "1.0.0",
     "@kobalte/core": "^0.13.13",
-    "@solidjs/meta": "^0.29.4",
+    "@solidjs/meta": "^0.29.8",
     "@solidjs/router": "^1.0.0",
     "@solidjs/start": "^2.0.6",
     "nitro": "3.0.260610-beta",
