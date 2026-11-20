@@ -64,9 +64,7 @@ export const route = {
   },
 } satisfies RouteDefinition;
 
-type RouteData = ReturnType<typeof loadActorDetailQuery>;
-
-export default function ActorDetailPage(props: RouteSectionProps<RouteData>) {
+export default function ActorDetailPage(props: RouteSectionProps) {
   return (
     <main class={styles.page}>
       <Title>Actor — DrFed</Title>
@@ -81,18 +79,20 @@ export default function ActorDetailPage(props: RouteSectionProps<RouteData>) {
         }
       >
         <Suspense fallback={<output>Loading actor…</output>}>
-          <ActorDetailContent data={props.data} />
+          <ActorDetailContent id={props.params.id} />
         </Suspense>
       </ErrorBoundary>
     </main>
   );
 }
 
-function ActorDetailContent(props: { data: RouteData }) {
-  const data = createPreloadedQuery<ActorDetailQuery>(
-    actorDetailQuery,
-    () => props.data,
-  );
+function ActorDetailContent(props: { id: string | undefined }) {
+  const data = createPreloadedQuery<ActorDetailQuery>(actorDetailQuery, () => {
+    if (props.id === undefined) {
+      throw new Error("Missing actor ID route parameter.");
+    }
+    return loadActorDetailQuery(props.id);
+  });
   const actor = () => {
     const node = data()?.node;
     return node?.actor;

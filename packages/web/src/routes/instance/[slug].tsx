@@ -96,14 +96,15 @@ export const route = {
   },
 } satisfies RouteDefinition;
 
-type RouteData = ReturnType<typeof loadInstanceDetailQuery>;
-
-export default function InstanceDetailPage(
-  props: RouteSectionProps<RouteData>,
-) {
+export default function InstanceDetailPage(props: RouteSectionProps) {
   const data = createPreloadedQuery<InstanceDetailQuery>(
     instanceDetailQuery,
-    () => props.data,
+    () => {
+      if (props.params.slug === undefined) {
+        throw new Error("Missing slug route parameter.");
+      }
+      return loadInstanceDetailQuery(props.params.slug);
+    },
   );
 
   const instanceData = () => data()?.localInstanceBySlug?.instance;
