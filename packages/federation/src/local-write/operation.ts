@@ -46,12 +46,15 @@ import {
   registeredIris,
 } from "./actor.ts";
 import {
+  type CarriedRevision,
   type SavedSnapshot,
   declaredSources,
   findEmbeddings,
+  loadEmbeddings,
   loadSourceRevisions,
 } from "./embedding.ts";
 import {
+  UPDATE_OBJECT_PATH,
   type WriteTarget,
   bindableExisting,
   checkExistingRequest,
@@ -480,12 +483,30 @@ export async function commitLocalWrite(
       // Children are saved before what embeds them, and an edited object
       // before its Update, so each finds the revisions it embeds here.
       const snapshots = new Map<string, SavedSnapshot>();
+      // What the generated Update or Delete carries: the version this write
+      // saves, or the last version before the deletion.
+      const carried = async (): Promise<CarriedRevision | undefined> => {
+        if (target == null) return undefined;
+        if (request.operation === "delete") {
+          return {
+            revisionId: target.head.id,
+            document: target.head.document,
+            embeddings: await loadEmbeddings(tx, target.head.id),
+            embeddedAt: null,
+          };
+        }
+        const version = snapshots.get(target.iri);
+        return version == null
+          ? undefined
+          : { ...version, embeddedAt: UPDATE_OBJECT_PATH };
+      };
       for (const resource of resources) {
         const embeddings = await findEmbeddings(
           tx,
           resource,
           declared,
           snapshots,
+          resource.generated ? await carried() : undefined,
         );
         if (target != null && resource.id === target.id) {
           const revisionId = await writeObjectVersion(

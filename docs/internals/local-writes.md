@@ -154,10 +154,9 @@ describe.  `Link` values and anonymous documents get no source.  The source is
 found in this order:
 
 1.  A resource saved earlier in the same write, such as a nested new resource
-    kept embedded or the version an edit's `Update` embeds.  When the
-    embedded document keeps that resource's new revision, the documents it
-    embeds take the sources recorded for that revision at their own paths,
-    so an `Update` records the sources of the version it carries.
+    kept embedded.  When the embedded document keeps that resource's new
+    revision, the documents it embeds take the sources recorded for that
+    revision at their own paths.
 
 2.  A source the request declares for the embedded document's submitted path:
 
@@ -199,6 +198,14 @@ found in this order:
     ~~~~
 
     A request that declares sources without the check is `invalid_request`.
+
+A generated `Update` or `Delete` takes its sources only from the revision
+it carries, never from an IRI.  The `Update` records the version it embeds
+under `object`, and when it keeps the version, the sources recorded for the
+version at the same paths beneath it, so an older copy of the object inside
+the version keeps its unknown source.  The addressing an `Update` copies from
+the version, and a `Delete` from the last version, takes the sources
+recorded for that version under the same keys.
 
 Any other embedded document has an unknown source, even when it equals a
 stored revision of the resource under its `id`: the server never guesses a

@@ -16,10 +16,12 @@
 
 import { type Database, type Transaction, schema } from "@drfed/models";
 import {
+  ADDRESSING_PROPERTIES,
   DIAGNOSTIC_REASONS,
   type DocumentNode,
   type FieldPath,
   type JsonValue,
+  describeDocument,
 } from "@drfed/models/document";
 import type { RevisionEmbeddingInput } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
@@ -56,6 +58,50 @@ export interface SourceSnapshot {
 /** A snapshot this write saved, with the sources recorded for it. */
 export interface SavedSnapshot extends SourceSnapshot {
   readonly embeddings: readonly RevisionEmbeddingInput[];
+}
+
+/**
+ * A revision whose contents a generated activity carries: it embeds the
+ * revision's document, as an `Update` does, copies its addressing, or
+ * both.
+ */
+export interface CarriedRevision extends SavedSnapshot {
+  /**
+   * Where the activity embeds the revision's document, or null when it
+   * refers to it by IRI, as a `Delete` does.
+   */
+  readonly embeddedAt: FieldPath | null;
+}
+
+/**
+ * The source keys under which a document writes its own addressing, which
+ * a generated activity copies as written.
+ * @returns The keys, in the order of `ADDRESSING_PROPERTIES`; none when the
+ *          validator cannot read the document.
+ */
+export function addressingKeys(document: JsonObject): readonly string[] {
+  const root = describeDocument(document)?.[0];
+  return ADDRESSING_PROPERTIES.flatMap((property) => [
+    ...(root?.properties.get(property) ?? []),
+  ]);
+}
+
+/**
+ * Loads the sources recorded for a stored revision.
+ * @returns The recorded embeddings.
+ */
+export async function loadEmbeddings(
+  tx: Transaction,
+  revisionId: Uuid,
+): Promise<RevisionEmbeddingInput[]> {
+  return await tx
+    .select({
+      path: schema.revisionEmbeddings.path,
+      sourceRevisionId: schema.revisionEmbeddings.sourceRevisionId,
+      relation: schema.revisionEmbeddings.relation,
+    })
+    .from(schema.revisionEmbeddings)
+    .where(eq(schema.revisionEmbeddings.revisionId, revisionId));
 }
 
 /**
@@ -258,22 +304,25 @@ async function storedSnapshots(
  * Finds where the documents a saved document embeds came from, as
  * `revisionEmbeddings` records it.  Only embedded documents, not `Link`s,
  * with an `id` other than the saved resource's own are considered, at any
- * depth.  Each takes its source from, in order:
+ * depth.
  *
- *  1. the revision this write saved for its IRI, as a new nested resource
- *     or an edited object; when the document keeps that revision, the
- *     documents it embeds take the sources recorded for that revision too,
- *     so that an `Update` records those of the version it carries;
- *  2. the revision the request declares for its submitted path, for a
- *     document the request submitted rather than one the server generated.
+ * A document the request submitted takes each source from, in order:
  *
- * Any other has an unknown source and no row, even when it equals a stored
- * revision of the resource under its IRI: a source is never guessed.
+ *  1. the revision this write saved for its IRI, as a new nested resource;
+ *     when the document keeps that revision, the documents it embeds take
+ *     the sources recorded for that revision too;
+ *  2. the revision the request declares for its submitted path.
+ *
+ * An activity the server generated takes its sources only from the revision
+ * it carries, never from an IRI: see {@link carriedEmbeddings}.  Any other
+ * embedded document has an unknown source and no row, even when it equals a
+ * stored revision of the resource under its IRI: a source is never guessed.
  * @param tx The write's transaction.
  * @param resource The prepared resource about to be saved.
  * @param declared Declared source revisions by the keys of submitted paths,
  *                 already checked to be readable snapshots.
  * @param saved The snapshots this write has saved so far, by IRI.
+ * @param carried For a generated activity, the revision it carries.
  * @returns The embeddings to save with the resource's revision.
  */
 export async function findEmbeddings(
@@ -281,7 +330,9 @@ export async function findEmbeddings(
   resource: PreparedResource,
   declared: ReadonlyMap<string, Uuid>,
   saved: ReadonlyMap<string, SavedSnapshot>,
+  carried?: CarriedRevision,
 ): Promise<RevisionEmbeddingInput[]> {
+  if (resource.generated) return carriedEmbeddings(resource, carried);
   const nodes = interpretDocument(resource.document) ?? [];
   const nodePaths = new Set(nodes.map(({ path }) => pathKey(path)));
   const embedded = nodes.filter(
@@ -292,7 +343,7 @@ export async function findEmbeddings(
       node.iri !== resource.iri,
   );
   const declaredFor = (node: InterpretedNode): Uuid | undefined =>
-    resource.generated || saved.has(node.iri ?? "")
+    saved.has(node.iri ?? "")
       ? undefined
       : declared.get(pathKey([...resource.path, ...node.path]));
   const declaredSnapshots = await storedSnapshots(
@@ -333,6 +384,58 @@ export async function findEmbeddings(
       : [],
   );
   return [...direct, ...inherited];
+}
+
+/**
+ * Finds the sources of a generated activity from the revision it carries.
+ * The document it embeds, if any, comes from that revision, and when it
+ * keeps that revision, everything inside it takes the sources recorded for
+ * that revision at the same paths, and nothing else.  The addressing it
+ * copies as written takes the sources recorded for the same keys of that
+ * revision, with their relations: the copies are equal values under the
+ * same root context.  Nothing is looked up by IRI, so an older copy of a
+ * resource inside its own document never passes for a copy of the revision
+ * the write saved under that IRI.
+ * @param resource The generated activity.
+ * @param carried The revision it carries; without one, nothing is recorded.
+ * @returns The embeddings to save with the activity's revision.
+ */
+function carriedEmbeddings(
+  resource: PreparedResource,
+  carried: CarriedRevision | undefined,
+): RevisionEmbeddingInput[] {
+  if (carried == null) return [];
+  const nodes = interpretDocument(resource.document) ?? [];
+  const nodePaths = new Set(nodes.map(({ path }) => pathKey(path)));
+  const at = carried.embeddedAt == null ? null : pathKey(carried.embeddedAt);
+  const embedded = nodes
+    .filter(({ path }) => pathKey(path) === at)
+    .map(
+      (node): RevisionEmbeddingInput => ({
+        path: node.path,
+        sourceRevisionId: carried.revisionId,
+        relation: embeddingRelation(
+          resource.document,
+          nodePaths,
+          node.path,
+          node.value,
+          carried.document,
+        ),
+      }),
+    );
+  const inherited = embedded
+    .filter(({ relation }) => relation === "snapshot")
+    .flatMap(({ path }) =>
+      carried.embeddings.map((embedding) => ({
+        ...embedding,
+        path: [...path, ...embedding.path],
+      })),
+    );
+  const keys = new Set(addressingKeys(carried.document as JsonObject));
+  const copied = carried.embeddings.filter(
+    ({ path }) => typeof path[0] === "string" && keys.has(path[0]),
+  );
+  return [...embedded, ...inherited, ...copied];
 }
 
 /**

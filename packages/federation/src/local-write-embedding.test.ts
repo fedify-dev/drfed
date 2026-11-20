@@ -144,20 +144,26 @@ async function head(db: Database, id: Uuid) {
   return { ...revision, document: revision.document as JsonObject };
 }
 
+function byPath<T extends { readonly path: readonly (string | number)[] }>(
+  rows: readonly T[],
+): T[] {
+  return rows.toSorted((left, right) =>
+    JSON.stringify(left.path).localeCompare(JSON.stringify(right.path)),
+  );
+}
+
 async function embeddings(db: Database, revisionId: Uuid) {
   const rows = await db
     .select()
     .from(schema.revisionEmbeddings)
     .where(eq(schema.revisionEmbeddings.revisionId, revisionId));
-  return rows
-    .map(({ path, sourceRevisionId, relation }) => ({
+  return byPath(
+    rows.map(({ path, sourceRevisionId, relation }) => ({
       path,
       sourceRevisionId,
       relation,
-    }))
-    .toSorted((left, right) =>
-      JSON.stringify(left.path).localeCompare(JSON.stringify(right.path)),
-    );
+    })),
+  );
 }
 
 const withoutContext = ({ "@context": _, ...rest }: JsonObject): JsonObject =>
@@ -433,6 +439,118 @@ describe("embedded document sources", () => {
         assert.ok(like != null);
         assert.deepEqual(await embeddings(harness.db, like.revisionId), []);
       }
+    });
+  });
+
+  it("never takes an older copy inside an edited object for the new version", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { note, first, current } = await savedNote(env, harness.db);
+      const [version, update] = (
+        await write(env, {
+          operation: "edit",
+          actorId: localActorId,
+          objectId: note.id,
+          expectedRevisionId: current.id,
+          document: {
+            ...current.document,
+            location: withoutContext(first.document),
+          },
+        })
+      ).resources;
+      assert.ok(version != null && update != null);
+      assert.deepEqual(await embeddings(harness.db, version.revisionId), []);
+      // The copy shares the object's IRI, but it is not the version the
+      // write saved under that IRI, and its source stays unknown here too.
+      assert.deepEqual(await embeddings(harness.db, update.revisionId), [
+        {
+          path: ["object"],
+          sourceRevisionId: version.revisionId,
+          relation: "snapshot",
+        },
+      ]);
+    });
+  });
+
+  it("keeps the sources of the addressing an Update or a Delete copies", async () => {
+    await withFederation(async (harness) => {
+      await seedMember(harness.db);
+      const env = await environment(harness);
+      const { note, current } = await savedNote(env, harness.db);
+      const [recipient, place] = [
+        (await write(env, create(NOTE))).resources[0],
+        (await write(env, create(NOTE))).resources[0],
+      ];
+      assert.ok(recipient != null && place != null);
+      const source = await head(harness.db, recipient.id);
+      const located = await head(harness.db, place.id);
+      const [version, update] = (
+        await write(env, {
+          operation: "edit",
+          actorId: localActorId,
+          objectId: note.id,
+          expectedRevisionId: current.id,
+          document: {
+            ...current.document,
+            to: [
+              {
+                ...withoutContext(source.document),
+                location: withoutContext(located.document),
+              },
+            ],
+          },
+          sources: [
+            { path: ["to", 0], revisionId: source.id },
+            { path: ["to", 0, "location"], revisionId: located.id },
+          ],
+        })
+      ).resources;
+      assert.ok(version != null && update != null);
+      const recipientRows = [
+        { path: ["to", 0], sourceRevisionId: source.id, relation: "derived" },
+        {
+          path: ["to", 0, "location"],
+          sourceRevisionId: located.id,
+          relation: "snapshot",
+        },
+      ];
+      assert.deepEqual(
+        await embeddings(harness.db, version.revisionId),
+        byPath(recipientRows),
+      );
+      // The Update carries the version under object and copies its
+      // addressing to its root; both copies keep the version's sources.
+      assert.deepEqual(
+        await embeddings(harness.db, update.revisionId),
+        byPath([
+          {
+            path: ["object"],
+            sourceRevisionId: version.revisionId,
+            relation: "snapshot",
+          },
+          ...recipientRows.map((row) => ({
+            ...row,
+            path: ["object", ...row.path],
+          })),
+          ...recipientRows,
+        ]),
+      );
+      const [removal] = (
+        await write(env, {
+          operation: "delete",
+          actorId: localActorId,
+          objectId: note.id,
+          expectedRevisionId: version.revisionId,
+        })
+      ).resources;
+      assert.ok(removal != null);
+      // The Delete names the object by IRI and copies the addressing of
+      // its last version, with that version's sources.
+      assert.deepEqual(
+        await embeddings(harness.db, removal.revisionId),
+        byPath(recipientRows),
+      );
     });
   });
 
