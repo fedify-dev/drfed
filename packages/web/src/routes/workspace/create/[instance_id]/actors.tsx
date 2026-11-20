@@ -24,7 +24,7 @@ import {
   query,
 } from "@solidjs/router";
 import { graphql } from "relay-runtime";
-import { Show, createSignal } from "solid-js";
+import { Show, createComputed, createSignal, on } from "solid-js";
 import {
   createMutation,
   createPreloadedQuery,
@@ -71,8 +71,6 @@ export const route = {
   },
 } satisfies RouteDefinition;
 
-type RouteData = ReturnType<typeof loadInstanceQuery>;
-
 const generateActorsMutation = graphql`
   mutation GenerateActorsMutation($instance: ID!, $size: Int!) {
     generateActors(instance: $instance, size: $size) {
@@ -101,15 +99,27 @@ const generateActorsSchema = v.object({
   ),
 });
 
-export default function CreateActorsPage(props: RouteSectionProps<RouteData>) {
+export default function CreateActorsPage(props: RouteSectionProps) {
   const [errorMessage, setErrorMessage] = createSignal<string>();
+  // The page stays mounted when only instance_id changes; drop an error that
+  // belongs to the previous instance.
+  createComputed(
+    on(
+      () => props.params.instance_id,
+      () => {
+        setErrorMessage(undefined);
+      },
+    ),
+  );
   const [commitGenerateActors, isGeneratingActors] =
     createMutation<GenerateActorsMutation>(generateActorsMutation);
 
-  const data = createPreloadedQuery<GetHostQuery>(
-    getHostQuery,
-    () => props.data,
-  );
+  const data = createPreloadedQuery<GetHostQuery>(getHostQuery, () => {
+    if (props.params.instance_id === undefined) {
+      throw new Error("Missing instance_id route parameter.");
+    }
+    return loadInstanceQuery(props.params.instance_id);
+  });
 
   const generateActorsForm = createForm({
     schema: generateActorsSchema,

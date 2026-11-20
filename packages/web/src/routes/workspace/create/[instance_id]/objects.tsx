@@ -129,7 +129,6 @@ export const route = {
   },
 } satisfies RouteDefinition;
 
-type RouteData = ReturnType<typeof loadInstanceActorListQuery>;
 interface ActorOption {
   readonly id: string;
   readonly label: string;
@@ -141,10 +140,15 @@ const actorOptions = (
 ): ActorOption[] =>
   edges.map(({ node }) => ({ id: node.id, label: actorLabel(node) }));
 
-export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
+export default function CreateObjectsPage(props: RouteSectionProps) {
   const data = createPreloadedQuery<InstanceActorListQuery>(
     instanceActorListQuery,
-    () => props.data,
+    () => {
+      if (props.params.instance_id === undefined) {
+        throw new Error("Missing instance_id route parameter.");
+      }
+      return loadInstanceActorListQuery(props.params.instance_id);
+    },
   );
 
   const actors = () => data()?.instance?.actors?.edges;
@@ -152,6 +156,15 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
   const [currentActor, setCurrentActor] = createSignal<ActorOption | null>(
     null,
   );
+  // The page stays mounted when only instance_id changes, so a choice made on
+  // another instance must not outlive that instance's actor list.
+  const selectedActor = (): ActorOption | null => {
+    const options = actorOptions(actors() ?? []);
+    const chosen = currentActor();
+    return (
+      options.find((option) => option.id === chosen?.id) ?? options[0] ?? null
+    );
+  };
 
   const [commitCreateObject, isCreating] =
     createMutation<CreateObjectMutation>(createObjectMutation);
@@ -175,7 +188,7 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
       return;
     }
     const input = v.safeParse(createObjectSchema, {
-      actor: (currentActor() ?? actors()?.[0]?.node)?.id,
+      actor: selectedActor()?.id,
       name,
       contentHtml: formData.get("content"),
       type: formData.get("type"),
@@ -254,9 +267,7 @@ export default function CreateObjectsPage(props: RouteSectionProps<RouteData>) {
                   <Select<ActorOption>
                     class={styles.field}
                     disabled={isCreating()}
-                    value={
-                      currentActor() ?? actorOptions(actorList())[0] ?? null
-                    }
+                    value={selectedActor()}
                     onChange={setCurrentActor}
                     optionValue="id"
                     optionTextValue="label"
