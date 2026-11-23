@@ -16,6 +16,8 @@
 
 import {
   type InterpretedNode,
+  type InterpretedPoll,
+  type PollChoice,
   RELATION_PROPERTIES,
   type RecipientOccurrence,
   type RelationOccurrence,
@@ -197,6 +199,7 @@ interface Source {
 const DocumentSource = builder.objectRef<Source>("DocumentSource");
 
 const DocumentNode = builder.objectRef<InterpretedNode>("DocumentNode");
+const DocumentPollChoice = builder.objectRef<PollChoice>("DocumentPollChoice");
 const DocumentRelation =
   builder.objectRef<RelationOccurrence>("DocumentRelation");
 const DocumentRecipient =
@@ -462,6 +465,63 @@ DocumentRecipient.implement({
   }),
 });
 
+const PollChoiceMode = builder.enumType("PollChoiceMode", {
+  description: "How a Question's choices may be answered.",
+  values: {
+    exclusive: { description: "A single-choice poll, from `oneOf`." },
+    inclusive: { description: "A multiple-choice poll, from `anyOf`." },
+  } satisfies Record<NonNullable<InterpretedPoll["mode"]>, object>,
+});
+
+DocumentPollChoice.implement({
+  description: "One of a Question's choices as saved in this revision.",
+  fields: (t) => ({
+    path: t.expose("path", {
+      type: "JSON",
+      description: "The choice's source path from the root of the revision.",
+    }),
+    iri: t.expose("iri", {
+      type: "URL",
+      nullable: true,
+      description:
+        "The choice's IRI, or null for an anonymous embedded choice.",
+    }),
+    node: t.expose("node", {
+      type: DocumentNode,
+      nullable: true,
+      description: "The choice's saved document, or null for an IRI reference.",
+    }),
+  }),
+});
+
+const DocumentPoll = builder.objectRef<InterpretedPoll>("DocumentPoll");
+DocumentPoll.implement({
+  description: "The poll fields of a saved Question.",
+  fields: (t) => ({
+    mode: t.expose("mode", {
+      type: PollChoiceMode,
+      nullable: true,
+      description: "The choice mode, or null for a Question without choices.",
+    }),
+    choices: t.expose("choices", {
+      type: [DocumentPollChoice],
+      description: "The choices in source order, including duplicates.",
+    }),
+    closed: t.boolean({
+      nullable: true,
+      description: "The saved boolean closing value, or null if there is none.",
+      resolve: ({ closed }) => (typeof closed === "boolean" ? closed : null),
+    }),
+    closedAt: t.field({
+      type: "DateTime",
+      nullable: true,
+      description: "The saved closing instant, or null if there is none.",
+      resolve: ({ closed }) =>
+        typeof closed === "string" ? Temporal.Instant.from(closed) : null,
+    }),
+  }),
+});
+
 DocumentNode.implement({
   description:
     "A vocabulary document of a saved revision, the root or one embedded in " +
@@ -495,6 +555,12 @@ DocumentNode.implement({
     document: t.expose("value", {
       type: "JSON",
       description: "Its JSON as saved, with everything it embeds.",
+    }),
+    poll: t.expose("poll", {
+      type: DocumentPoll,
+      nullable: true,
+      description:
+        "The saved poll fields, or null for a type other than Question.",
     }),
     relations: t.field({
       type: [DocumentRelation],

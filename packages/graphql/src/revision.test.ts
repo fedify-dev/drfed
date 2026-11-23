@@ -191,6 +191,157 @@ const edit = (
 const currentRoot = (selection: string): string =>
   `query($id: ID!) { node(id: $id) { ... on Resource { currentRevision { root { ${selection} } } } } }`;
 
+describe("DocumentNode.poll", () => {
+  it("reads aliased Question choices and an explicit false closing value", async () => {
+    await withWriter(async ({ auth, save, query }) => {
+      const choice = {
+        type: "Note",
+        name: "Friday",
+        content: "The first choice",
+        score: 2,
+      };
+      const [poll] = await save({
+        "@context": [
+          AS,
+          {
+            options: { "@id": "as:anyOf", "@type": "@id" },
+            closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+            choice: "https://remote.example/choices/",
+            score: "https://example.com/score",
+          },
+        ],
+        type: "Question",
+        options: [choice, null, "choice:monday"],
+        closing: [null, false],
+      });
+      assert.ok(poll != null);
+      const result = await query(
+        currentRoot(`
+          poll {
+            mode closed closedAt
+            choices { path iri node { document extensions { key value } } }
+          }
+        `),
+        { id: globalId("Resource", poll.id) },
+        auth,
+      );
+      assert.deepEqual(result, {
+        data: {
+          node: {
+            currentRevision: {
+              root: {
+                poll: {
+                  mode: "inclusive",
+                  closed: false,
+                  closedAt: null,
+                  choices: [
+                    {
+                      path: ["options", 0],
+                      iri: null,
+                      node: {
+                        document: choice,
+                        extensions: [{ key: "score", value: 2 }],
+                      },
+                    },
+                    {
+                      path: ["options", 2],
+                      iri: "https://remote.example/choices/monday",
+                      node: null,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("reads the saved Question in a Create after its current poll changes", async () => {
+    await withWriter(async ({ auth, harness, save, change, query }) => {
+      const closed = "2026-11-14T21:00:00.123456789+09:00";
+      const [poll, creation] = await save(
+        {
+          type: "Create",
+          to: [PUBLIC_IRI],
+          object: {
+            type: "Question",
+            oneOf: { type: "Note", name: "Monday" },
+            closed,
+            to: [PUBLIC_IRI],
+          },
+        },
+        [...ACTIVITY, { path: ["object"], kind: "object" }],
+      );
+      assert.ok(poll != null && creation != null);
+      const current = await head(harness.db, poll.id);
+      const document = { ...(current.document as JsonObject) };
+      delete document.oneOf;
+      delete document.closed;
+      await change(edit(poll.id, current.id, document));
+
+      const result = await query(
+        `query($poll: ID!, $creation: ID!) {
+          poll: node(id: $poll) { ... on Resource {
+            currentRevision { root { poll { mode closed closedAt choices { iri } } } }
+          } }
+          creation: node(id: $creation) { ... on Resource {
+            currentRevision { root {
+              poll { mode }
+              relations(property: object) { node { poll {
+                mode closed closedAt choices { path node { document } }
+              } } }
+            } }
+          } }
+        }`,
+        {
+          poll: globalId("Resource", poll.id),
+          creation: globalId("Resource", creation.id),
+        },
+        auth,
+      );
+      assert.deepEqual(result, {
+        data: {
+          poll: {
+            currentRevision: {
+              root: {
+                poll: { mode: null, closed: null, closedAt: null, choices: [] },
+              },
+            },
+          },
+          creation: {
+            currentRevision: {
+              root: {
+                poll: null,
+                relations: [
+                  {
+                    node: {
+                      poll: {
+                        mode: "exclusive",
+                        closed: null,
+                        closedAt: "2026-11-14T12:00:00.123456789Z",
+                        choices: [
+                          {
+                            path: ["object", "oneOf"],
+                            node: {
+                              document: { type: "Note", name: "Monday" },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+    });
+  });
+});
+
 describe("Resource.currentRevision", () => {
   it("reads relations of embedded documents, as the Like in an Undo", async () => {
     await withWriter(async ({ save, query }) => {

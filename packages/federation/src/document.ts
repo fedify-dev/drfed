@@ -25,6 +25,8 @@
 
 export {
   type InterpretedNode,
+  type InterpretedPoll,
+  type PollChoice,
   RELATION_PROPERTIES,
   type RecipientOccurrence,
   type RecipientProperty,
