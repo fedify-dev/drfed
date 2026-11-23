@@ -15,18 +15,6 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 // oxlint-disable func-names func-style id-length
 
-// oxlint-disable no-magic-numbers
-const BASE36_CHAR = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-// It's not strictly uniform random sampling, but it's negligible enough.
-export const generateBase36Code = (len: number): string =>
-  Array.from(
-    // Choose `Uint16Array` cause `2 ** 16 % 36 = 16`
-    // It's greater than `2 ** 8 % 36 = 2 ** 32 % 36 = 4`.
-    crypto.getRandomValues(new Uint16Array(len)),
-    (num) => BASE36_CHAR[num % BASE36_CHAR.length],
-  ).join("");
-
 export const hashSecret = async (raw: string): Promise<string> =>
   new Uint8Array(
     await crypto.subtle.digest("SHA-256", textEncoder.encode(raw)),

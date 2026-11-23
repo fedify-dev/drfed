@@ -48,9 +48,12 @@ try {
 // DNS or /etc/hosts setup, which is what makes per-instance subdomains usable
 // in development.
 const defaultRootOrigin = "http://drfed.localhost:8888";
-const defaultLoginOrigins = [
-  process.env.DRFED_PUBLIC_ORIGIN ?? "http://localhost:3000",
-];
+// The seeded owner account, logged in as when --login-link has no address.
+const defaultLoginLinkEmail = "owner@example.com";
+// Where the frontend development server runs, which login links point to.
+const frontendOrigin =
+  process.env.DRFED_PUBLIC_ORIGIN ?? "http://localhost:3000";
+const defaultLoginOrigins = [frontendOrigin];
 const isWindows = process.platform === "win32";
 const pnpm = isWindows ? "pnpm.cmd" : "pnpm";
 
@@ -362,6 +365,16 @@ try {
   const seed = process.env.usage_no_seed !== "true";
   if (seed) {
     serverArgs.push("--dev-seed");
+  }
+
+  // The variable is set, possibly to an empty string, only when the flag is
+  // given.
+  const loginLink = process.env.usage_login_link;
+  if (loginLink != null) {
+    serverArgs.push(
+      `--dev-login-link=${loginLink === "" ? defaultLoginLinkEmail : loginLink}`,
+      `--dev-login-origin=${frontendOrigin}`,
+    );
   }
 
   serverProcess = spawnManaged(

@@ -442,6 +442,7 @@ flag "-L --log-level <level>" {
 }
 flag "--log-output <path>" help="Write logs to a file"
 flag "-S --no-seed" help="Skip database seeding"
+flag "--login-link <email>" help="Log a login link for the account with this email address after startup; an empty value (--login-link=) means owner@example.com"
 '''
 run = "node scripts/dev.mts"
 
