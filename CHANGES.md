@@ -22,6 +22,8 @@ To be released.
     incoming Create activities. Database upgrades retain existing object and
     activity documents, including those of deleted objects. Back up and stop
     DrFed before running `drfed-migrate`.  [[#150], [#164] by Hong Minhee\]
+ -  Added saved choices and closing values to the resource revision view
+    for standalone and embedded Questions. [[#155]]
  -  Changed <https://drfed.org/> to serve the DrFed documentation for the
     highest released version, prereleases included, along with a changelog
     page. Documentation for the development version is available at
@@ -47,6 +49,7 @@ To be released.
 [#137]: https://github.com/fedify-dev/drfed/pull/137
 [#150]: https://github.com/fedify-dev/drfed/issues/150
 [#153]: https://github.com/fedify-dev/drfed/issues/153
+[#155]: https://github.com/fedify-dev/drfed/issues/155
 [#164]: https://github.com/fedify-dev/drfed/pull/164
 [#167]: https://github.com/fedify-dev/drfed/pull/167
 [#177]: https://github.com/fedify-dev/drfed/pull/177
@@ -55,6 +58,8 @@ To be released.
 
 ### GraphQL APIs
 
+ -  Added `DocumentNode.poll` to read the choices and closing value of a saved
+    Question, including polls embedded in historical activities. [[#155]]
  -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
     `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
     return the saved revisions of a resource, including those of resources
@@ -184,7 +189,6 @@ To be released.
 
 [#151]: https://github.com/fedify-dev/drfed/issues/151
 [#152]: https://github.com/fedify-dev/drfed/issues/152
-[#155]: https://github.com/fedify-dev/drfed/issues/155
 [#166]: https://github.com/fedify-dev/drfed/pull/166
 [#173]: https://github.com/fedify-dev/drfed/pull/173
 
