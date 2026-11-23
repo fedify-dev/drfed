@@ -2906,14 +2906,18 @@ describe("validateDocument() supported document checks", () => {
         CONTEXT,
         {
           exclusive: { "@id": "as:oneOf", "@type": "@id" },
+          extraExclusive: { "@id": "as:oneOf", "@type": "@id" },
           inclusive: { "@id": "as:anyOf", "@type": "@id" },
+          absentInclusive: { "@id": "as:anyOf", "@type": "@id" },
         },
       ],
       type: "Update",
       object: {
         type: "Question",
         exclusive: [{ type: "Note", name: "A" }],
+        extraExclusive: [{ type: "Note", name: "C" }],
         inclusive: [{ type: "Note", name: "B" }],
+        absentInclusive: [null],
       },
     });
     assert.equal(result.complete, true);
@@ -2935,6 +2939,12 @@ describe("validateDocument() supported document checks", () => {
           reason: "mutually_exclusive_properties",
           category: "vocabulary",
           severity: "error",
+          path: ["object", "extraExclusive"],
+        },
+        {
+          reason: "mutually_exclusive_properties",
+          category: "vocabulary",
+          severity: "error",
           path: ["object", "inclusive"],
         },
       ],
@@ -2948,6 +2958,101 @@ describe("validateDocument() supported document checks", () => {
       }),
       null,
     );
+  });
+
+  it("validates a Question with many choice aliases and an absent opposing mode", () => {
+    const aliases = Array.from({ length: 256 }, (_, index) => `choice${index}`);
+    const result = validateDocument({
+      "@context": [
+        CONTEXT,
+        Object.fromEntries(
+          aliases.map((alias) => [
+            alias,
+            { "@id": "as:oneOf", "@type": "@id" },
+          ]),
+        ),
+      ],
+      type: "Question",
+      ...Object.fromEntries(
+        aliases.map((alias) => [alias, [{ type: "Note", name: alias }]]),
+      ),
+      anyOf: Array.from({ length: 5_000 }, () => null),
+    });
+    assert.deepEqual(result, { complete: true, diagnostics: [], changes: [] });
+  });
+
+  it("checks expanded Question choice references and embedded choice identifiers", () => {
+    const input = {
+      "@context": [
+        CONTEXT,
+        {
+          host: "https://example.org:",
+          options: { "@id": "as:anyOf", "@type": "@id" },
+        },
+      ],
+      type: "Create",
+      object: {
+        type: "Question",
+        options: ["host:bad", { type: "Note", id: "host:bad" }],
+      },
+    };
+    const result = validateDocument(input);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, category, severity, path }) => [
+        reason,
+        category,
+        severity,
+        path,
+      ]),
+      [
+        [
+          "unsupported_value_form",
+          "support",
+          "error",
+          ["object", "options", 0],
+        ],
+        [
+          "unsupported_value_form",
+          "support",
+          "error",
+          ["object", "options", 1, "id"],
+        ],
+      ],
+    );
+    assert.equal(describeDocument(input), null);
+  });
+
+  it("warns about Question choice forms Mastodon may not read without rejecting them", () => {
+    for (const [oneOf, expectedReason, expectedPath] of [
+      [{ type: "Note", name: "Monday" }, "poll_choices_not_list", ["oneOf"]],
+      [
+        ["https://example.com/choice", "https://example.com/other"],
+        "poll_choice_reference",
+        ["oneOf", 0],
+      ],
+    ] as const) {
+      const input = { "@context": CONTEXT, type: "Question", oneOf };
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(result.changes, []);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, category, severity, path }) => ({
+          reason,
+          category,
+          severity,
+          path,
+        })),
+        [
+          {
+            reason: expectedReason,
+            category: "compatibility",
+            severity: "warning",
+            path: expectedPath,
+          },
+        ],
+      );
+      assert.ok(describeDocument(input) != null);
+    }
   });
 
   it("keeps Question choice shape failures distinct from unsupported embedded types", () => {
@@ -2978,7 +3083,7 @@ describe("validateDocument() supported document checks", () => {
       const result = validateDocument({
         "@context": CONTEXT,
         type: "Question",
-        oneOf: { type: "Note" },
+        oneOf: [{ type: "Note" }],
         anyOf: value,
       });
       assert.deepEqual(result.diagnostics, []);
@@ -2987,7 +3092,7 @@ describe("validateDocument() supported document checks", () => {
       "@context": CONTEXT,
       type: "Question",
       oneOf: [],
-      anyOf: "https://example.com/choice",
+      anyOf: [{ type: "Note" }],
     });
     assert.deepEqual(
       result.diagnostics.map(({ reason, path }) => ({ reason, path })),
@@ -3056,12 +3161,13 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
-  it("enforces Question closed multiplicity and applicability", () => {
+  it("classifies multiple Question closing values as unsupported", () => {
     const poll = { "@context": CONTEXT, type: "Question" };
     const list = validateDocument({ ...poll, closed: [true, false] });
+    assert.equal(list.complete, false);
     assert.deepEqual(
       list.diagnostics.map(({ reason, path }) => ({ reason, path })),
-      [{ reason: "invalid_multiplicity", path: ["closed"] }],
+      [{ reason: "unsupported_value_form", path: ["closed"] }],
     );
     const aliases = validateDocument({
       ...poll,
@@ -3074,11 +3180,12 @@ describe("validateDocument() supported document checks", () => {
       closed: false,
       closing: "2026-11-05T12:34:56Z",
     });
+    assert.equal(aliases.complete, false);
     assert.deepEqual(
       aliases.diagnostics.map(({ reason, path }) => ({ reason, path })),
       [
-        { reason: "invalid_multiplicity", path: ["closed"] },
-        { reason: "invalid_multiplicity", path: ["closing"] },
+        { reason: "unsupported_value_form", path: ["closed"] },
+        { reason: "unsupported_value_form", path: ["closing"] },
       ],
     );
     const empty = validateDocument({ ...poll, closed: [] });
