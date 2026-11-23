@@ -1927,6 +1927,33 @@ function getInapplicableProperties(Type: VocabularyType): ReadonlySet<string> {
   return properties;
 }
 
+function checkInapplicableProperty(
+  property: string,
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null) return;
+  if (
+    (isQuestionChoice(property) || property === "closed") &&
+    Array.isArray(value) &&
+    value.length > 0
+  ) {
+    // Null-only poll lists are absent. Use the shared list checks so that
+    // malformed entries still receive diagnostics at their source paths.
+    let hasValue = false;
+    checkReferenceValues(value, path, report, () => {
+      hasValue = true;
+    });
+    if (!hasValue) return;
+  }
+  report(
+    "property_not_applicable",
+    path,
+    "This property does not apply to this document's type.",
+  );
+}
+
 function checkPathDepth(path: FieldPath, report: Report): boolean {
   if (path.length <= MAXIMUM_PATH_DEPTH) return true;
   report(
@@ -2160,12 +2187,7 @@ function checkDocumentValue(
           return;
         }
         if (inapplicableProperties.has(key)) {
-          if (value === null) return;
-          report(
-            "property_not_applicable",
-            fieldPath,
-            "This property does not apply to this document's type.",
-          );
+          checkInapplicableProperty(key, value, fieldPath, report);
           return;
         }
         checkFieldMultiplicity(

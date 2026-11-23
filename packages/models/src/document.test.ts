@@ -3140,6 +3140,38 @@ describe("validateDocument() supported document checks", () => {
     }
   });
 
+  it("treats null-only Question fields on other types as absent", () => {
+    const note = {
+      "@context": [
+        CONTEXT,
+        {
+          closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+        },
+      ],
+      type: "Note",
+      oneOf: [null],
+      anyOf: [null, null],
+      closing: [null],
+    };
+    assert.deepEqual(validateDocument(note), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    const malformed = validateDocument({
+      ...note,
+      oneOf: [null, { type: "Note" }],
+      closing: [null, undefined],
+    });
+    assert.deepEqual(
+      malformed.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "non_json_value", path: ["closing", 1] },
+        { reason: "property_not_applicable", path: ["oneOf"] },
+      ],
+    );
+  });
+
   it("accepts Question closed booleans and dates at nested source aliases", () => {
     for (const closed of [
       true,
