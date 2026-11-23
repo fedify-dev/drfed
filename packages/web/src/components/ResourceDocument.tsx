@@ -330,44 +330,51 @@ function PollFields(props: {
       <p class={styles.sectionLabel}>Poll</p>
       <dl class={styles.groups}>
         <div>
-          <dt>Choices</dt>
+          <dt class={styles.pollLabel}>Choices</dt>
           <dd>
             <Switch>
               <Match when={props.poll.mode === "exclusive"}>
-                Single-choice poll
+                <span class={styles.pollLabel}>Single-choice poll</span>
               </Match>
               <Match when={props.poll.mode === "inclusive"}>
-                Multiple-choice poll
+                <span class={styles.pollLabel}>Multiple-choice poll</span>
               </Match>
             </Switch>
             <Show
               when={props.poll.choices.length > 0}
               fallback={<span class={styles.faint}>No choices supplied</span>}
             >
-              <ol class={styles.pollChoices}>
+              {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
+              <ol class={`${styles.values} ${styles.pollChoices}`} role="list">
                 <For each={props.poll.choices}>
-                  {(choice) => (
-                    <li class={styles.value}>
-                      <span class={styles.valueLine}>
-                        <Show when={choice.iri}>
-                          {(iri) => <span class={styles.iri}>{iri()}</span>}
+                  {(choice) => {
+                    const path = toPath(choice.path);
+                    const segment = path.at(-1);
+                    const position = typeof segment === "number" ? segment : 0;
+                    return (
+                      <li class={styles.value}>
+                        <span class={styles.valueLine}>
+                          <span class={styles.position}>[{position}]</span>
+                          <Show when={choice.iri}>
+                            {(iri) => <span class={styles.iri}>{iri()}</span>}
+                          </Show>
+                          <PathText path={path} />
+                        </span>
+                        <Show when={choice.node}>
+                          {(node) => {
+                            const document = (): unknown => node().document;
+                            return (
+                              <JsonDisclosure
+                                value={document()}
+                                label={`Saved choice (${typeLabel(node().type)})`}
+                                open={false}
+                              />
+                            );
+                          }}
                         </Show>
-                        <PathText path={toPath(choice.path)} />
-                      </span>
-                      <Show when={choice.node}>
-                        {(node) => {
-                          const document = (): unknown => node().document;
-                          return (
-                            <JsonDisclosure
-                              value={document()}
-                              label={`Saved choice (${typeLabel(node().type)})`}
-                              open={false}
-                            />
-                          );
-                        }}
-                      </Show>
-                    </li>
-                  )}
+                      </li>
+                    );
+                  }}
                 </For>
               </ol>
             </Show>
