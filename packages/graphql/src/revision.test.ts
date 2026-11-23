@@ -258,16 +258,18 @@ describe("DocumentNode.poll", () => {
     });
   });
 
-  it("reads the saved Question in a Create after its current poll changes", async () => {
+  it("reads saved Questions in Create and Update after the current poll changes", async () => {
     await withWriter(async ({ auth, harness, save, change, query }) => {
       const closed = "2026-11-14T21:00:00.123456789+09:00";
+      const monday = { type: "Note", name: "Monday" };
+      const friday = { type: "Note", name: "Friday" };
       const [poll, creation] = await save(
         {
           type: "Create",
           to: [PUBLIC_IRI],
           object: {
             type: "Question",
-            oneOf: { type: "Note", name: "Monday" },
+            oneOf: monday,
             closed,
             to: [PUBLIC_IRI],
           },
@@ -275,32 +277,55 @@ describe("DocumentNode.poll", () => {
         [...ACTIVITY, { path: ["object"], kind: "object" }],
       );
       assert.ok(poll != null && creation != null);
+      const original = await head(harness.db, poll.id);
+      const { oneOf: _, ...originalFields } = original.document as JsonObject;
+      const [, update] = await change(
+        edit(poll.id, original.id, {
+          ...originalFields,
+          anyOf: [friday],
+          closed: false,
+        }),
+      );
+      assert.ok(update != null);
       const current = await head(harness.db, poll.id);
-      const document = { ...(current.document as JsonObject) };
-      delete document.oneOf;
-      delete document.closed;
-      await change(edit(poll.id, current.id, document));
+      const openEnded = { ...(current.document as JsonObject) };
+      delete openEnded.anyOf;
+      delete openEnded.closed;
+      await change(edit(poll.id, current.id, openEnded));
 
       const result = await query(
-        `query($poll: ID!, $creation: ID!) {
+        `query($poll: ID!, $creation: ID!, $update: ID!) {
           poll: node(id: $poll) { ... on Resource {
             currentRevision { root { poll { mode closed closedAt choices { iri } } } }
           } }
-          creation: node(id: $creation) { ... on Resource {
-            currentRevision { root {
-              poll { mode }
-              relations(property: object) { node { poll {
-                mode closed closedAt choices { path node { document } }
-              } } }
-            } }
+          creation: node(id: $creation) { ...activityPoll }
+          update: node(id: $update) { ...activityPoll }
+        }
+        fragment activityPoll on Resource {
+          currentRevision { root {
+            type
+            poll { mode }
+            relations(property: object) { node { poll {
+              mode closed closedAt choices { path node { document } }
+            } } }
           } }
         }`,
         {
           poll: globalId("Resource", poll.id),
           creation: globalId("Resource", creation.id),
+          update: globalId("Resource", update.id),
         },
         auth,
       );
+      const activityPoll = (type: string, pollFields: JsonObject) => ({
+        currentRevision: {
+          root: {
+            type: `${AS}#${type}`,
+            poll: null,
+            relations: [{ node: { poll: pollFields } }],
+          },
+        },
+      });
       assert.deepEqual(result, {
         data: {
           poll: {
@@ -310,32 +335,22 @@ describe("DocumentNode.poll", () => {
               },
             },
           },
-          creation: {
-            currentRevision: {
-              root: {
-                poll: null,
-                relations: [
-                  {
-                    node: {
-                      poll: {
-                        mode: "exclusive",
-                        closed: null,
-                        closedAt: "2026-11-14T12:00:00.123456789Z",
-                        choices: [
-                          {
-                            path: ["object", "oneOf"],
-                            node: {
-                              document: { type: "Note", name: "Monday" },
-                            },
-                          },
-                        ],
-                      },
-                    },
-                  },
-                ],
-              },
-            },
-          },
+          creation: activityPoll("Create", {
+            mode: "exclusive",
+            closed: null,
+            closedAt: "2026-11-14T12:00:00.123456789Z",
+            choices: [
+              { path: ["object", "oneOf"], node: { document: monday } },
+            ],
+          }),
+          update: activityPoll("Update", {
+            mode: "inclusive",
+            closed: false,
+            closedAt: null,
+            choices: [
+              { path: ["object", "anyOf", 0], node: { document: friday } },
+            ],
+          }),
         },
       });
     });
