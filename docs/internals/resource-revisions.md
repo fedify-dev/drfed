@@ -288,9 +288,10 @@ Other document types return null for `poll`.
  -  `mode` is `exclusive` for `oneOf` and `inclusive` for `anyOf`, even
     when the saved document uses aliases. An open-ended Question has a null
     mode and an empty choice list.
- -  `choices` keeps source order and duplicates. Each choice has its source
-    `path` and an `iri` for a reference or identified node. An embedded
-    choice has a `node` with its saved document and extensions.
+ -  `choices` is sorted by source key, then by list position. Duplicates are
+    preserved. Each choice has its source `path` and an `iri` for a reference
+    or identified node. An embedded choice has a `node` with its saved
+    document and extensions.
  -  `closed` holds a saved boolean, including `false`. `closedAt` holds a
     saved date-time as a `DateTime` instant. Both are null when absent.
 

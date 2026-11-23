@@ -119,7 +119,7 @@ export type PollChoice = Occurrence;
 export interface InterpretedPoll {
   /** The choice mode, or null when no choices are supplied. */
   readonly mode: "exclusive" | "inclusive" | null;
-  /** Embedded choices and IRI references in source order. */
+  /** Embedded choices and IRI references by source key, then list position. */
   readonly choices: readonly PollChoice[];
   /** The saved boolean or date-time, or null when absent. */
   readonly closed: boolean | string | null;

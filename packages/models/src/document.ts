@@ -428,6 +428,19 @@ function isJsonValueShape(value: unknown): boolean {
   );
 }
 
+function hasInvalidIriCharacters(value: string): boolean {
+  const hasControlOrSpace = Array.from(value).some((character) => {
+    const point = character.codePointAt(0)!;
+    return point <= 0x20 || point === 0x7f;
+  });
+  return (
+    !value.isWellFormed() ||
+    hasControlOrSpace ||
+    /[<>"{}|\\^`]/u.test(value) ||
+    /%(?![\da-f]{2})/iu.test(value)
+  );
+}
+
 // Reports reference-rule failures without owning the diagnostic collection.
 function checkReference(
   value: unknown,
@@ -452,41 +465,29 @@ function checkReference(
     }
     return;
   }
-  const hasControlOrSpace = Array.from(value).some((character) => {
-    const point = character.codePointAt(0)!;
-    return point <= 0x20 || point === 0x7f;
-  });
+  const iri = context == null ? value : expandIdentifier(value, context);
   if (
-    !value.isWellFormed() ||
-    hasControlOrSpace ||
-    /[<>"{}|\\^`]/u.test(value) ||
-    /%(?![\da-f]{2})/iu.test(value)
+    hasInvalidIriCharacters(value) ||
+    (iri !== value && hasInvalidIriCharacters(iri))
   ) {
     report(
       "invalid_iri",
       path,
       "Expected a syntactically valid IRI reference.",
     );
-  } else if (!IRI_SCHEME_PATTERN.test(value)) {
+  } else if (!IRI_SCHEME_PATTERN.test(iri)) {
     report(
       "unsupported_value_form",
       path,
       "Relative references need a base-IRI policy.",
     );
-  } else if (!URL.canParse(value)) {
+  } else if (!URL.canParse(iri)) {
     report(
       "unsupported_value_form",
       path,
-      "This IRI cannot be represented by the current URL parser.",
-    );
-  } else if (
-    context != null &&
-    !URL.canParse(expandIdentifier(value, context))
-  ) {
-    report(
-      "unsupported_value_form",
-      path,
-      "The expanded IRI cannot be represented by the current URL parser.",
+      iri === value
+        ? "This IRI cannot be represented by the current URL parser."
+        : "The expanded IRI cannot be represented by the current URL parser.",
     );
   }
 }

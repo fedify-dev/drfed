@@ -2987,6 +2987,7 @@ describe("validateDocument() supported document checks", () => {
         CONTEXT,
         {
           host: "https://example.org:",
+          choice_id: { "@id": "https://example.org/choices/", "@prefix": true },
           options: { "@id": "as:anyOf", "@type": "@id" },
         },
       ],
@@ -3020,6 +3021,33 @@ describe("validateDocument() supported document checks", () => {
       ],
     );
     assert.equal(describeDocument(input), null);
+
+    const compact = {
+      ...input,
+      object: {
+        ...input.object,
+        options: ["choice_id:A", { type: "Note", id: "choice_id:B" }],
+      },
+    };
+    const described = describeDocument(compact);
+    assert.ok(described != null);
+    assert.deepEqual(
+      described.flatMap(({ identifiers }) => identifiers),
+      [
+        {
+          property: "anyOf",
+          path: ["object", "options", 0],
+          value: "choice_id:A",
+          iri: "https://example.org/choices/A",
+        },
+        {
+          property: "id",
+          path: ["object", "options", 1, "id"],
+          value: "choice_id:B",
+          iri: "https://example.org/choices/B",
+        },
+      ],
+    );
   });
 
   it("warns about Question choice forms Mastodon may not read without rejecting them", () => {

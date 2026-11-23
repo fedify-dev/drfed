@@ -505,7 +505,8 @@ DocumentPoll.implement({
     }),
     choices: t.expose("choices", {
       type: [DocumentPollChoice],
-      description: "The choices in source order, including duplicates.",
+      description:
+        "Choices sorted by source key, then by list position, including duplicates.",
     }),
     closed: t.boolean({
       nullable: true,
