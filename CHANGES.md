@@ -23,7 +23,7 @@ To be released.
     activity documents, including those of deleted objects. Back up and stop
     DrFed before running `drfed-migrate`.  [[#150], [#164] by Hong Minhee\]
  -  Added saved choices and closing values to the resource revision view
-    for standalone and embedded Questions. [[#155]]
+    for standalone and embedded Questions. [[#155], [#185]]
  -  Changed <https://drfed.org/> to serve the DrFed documentation for the
     highest released version, prereleases included, along with a changelog
     page. Documentation for the development version is available at
@@ -55,11 +55,13 @@ To be released.
 [#177]: https://github.com/fedify-dev/drfed/pull/177
 [#183]: https://github.com/fedify-dev/drfed/issues/183
 [#184]: https://github.com/fedify-dev/drfed/pull/184
+[#185]: https://github.com/fedify-dev/drfed/pull/185
 
 ### GraphQL APIs
 
  -  Added `DocumentNode.poll` to read the choices and closing value of a saved
-    Question, including polls embedded in historical activities. [[#155]]
+    Question, including polls embedded in historical activities.
+    [[#155], [#185]]
  -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
     `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
     return the saved revisions of a resource, including those of resources
@@ -133,7 +135,8 @@ To be released.
     `Question` documents support single- or multiple-answer choices and
     boolean/date-time closing conditions. Supplying both choice modes reports
     `mutually_exclusive_properties` at the original fields. Supported choice
-    content and custom extensions are retained during validation. [[#155]]
+    content and custom extensions are retained during validation.
+    [[#155], [#185]]
  -  Added the `@drfed/federation/document` subpath.  Its
     `interpretDocument()` returns every vocabulary document of a saved
     document with its relations, recipients, and custom extension
