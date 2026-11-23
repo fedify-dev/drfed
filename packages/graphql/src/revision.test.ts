@@ -1148,6 +1148,7 @@ async function receipt(
   db: Database,
   revision: Uuid,
   instanceId: Uuid = localInstanceId,
+  role: "activity" | "object" = "object",
 ): Promise<void> {
   const deliveryId = uuidV7();
   await db.insert(schema.activityDeliveries).values({
@@ -1162,7 +1163,7 @@ async function receipt(
   });
   await db
     .insert(schema.revisionReceipts)
-    .values({ deliveryId, revisionId: revision, role: "object" });
+    .values({ deliveryId, revisionId: revision, role });
 }
 
 /**
@@ -1223,6 +1224,101 @@ const withoutIri = (value: unknown, iri: string): unknown =>
   JSON.parse(JSON.stringify(value).replaceAll(iri, "<iri>"));
 
 describe("Access to revisions across workspaces", () => {
+  it("limits a private received poll to viewers who can read its activity revision", async () => {
+    await withWriter(async ({ harness, auth, query }) => {
+      const { db } = harness;
+      const workspace = await seedWorkspace(db);
+      const member = await seedViewer(db, { memberOf: workspace });
+      const admin = await seedViewer(db, { admin: true });
+      const resource = await ensureResource(
+        db,
+        `https://remote.example/creates/${uuidV7()}`,
+      );
+      const choice = { type: "Note", name: "Private choice" };
+      const received = await appendResourceRevision(db, {
+        resourceId: resource.id,
+        resourceKind: "activity",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "received",
+        document: {
+          "@context": AS,
+          id: resource.iri,
+          type: "Create",
+          actor: CAROL,
+          to: [ACTOR_IRI],
+          object: {
+            type: "Question",
+            oneOf: [choice],
+            closed: false,
+            to: [ACTOR_IRI],
+          },
+        },
+        addressing: { to: [ACTOR_IRI] },
+      });
+      await receipt(db, received.id, workspace, "activity");
+
+      const read = `query($resource: ID!, $revision: ID!) {
+        direct: node(id: $revision) { ...pollRevision }
+        resource: node(id: $resource) { ... on Resource {
+          currentRevision { ...pollRevision }
+          revision(sequence: 1) { ...pollRevision }
+          revisions(first: 1) { edges { node { ...pollRevision } } }
+        } }
+      }
+      fragment pollRevision on ResourceRevision {
+        id
+        root { relations(property: object) { node { poll {
+          mode closed choices { node { document } }
+        } } } }
+      }`;
+      const variables = {
+        resource: globalId("Resource", resource.id),
+        revision: revisionId(received.id),
+      };
+      for (const init of [undefined, auth]) {
+        assert.deepEqual(await query(read, variables, init), {
+          data: {
+            direct: null,
+            resource: {
+              currentRevision: null,
+              revision: null,
+              revisions: { edges: [] },
+            },
+          },
+        });
+      }
+      const revision = {
+        id: variables.revision,
+        root: {
+          relations: [
+            {
+              node: {
+                poll: {
+                  mode: "exclusive",
+                  closed: false,
+                  choices: [{ node: { document: choice } }],
+                },
+              },
+            },
+          ],
+        },
+      };
+      for (const init of [member.auth, admin.auth]) {
+        assert.deepEqual(await query(read, variables, init), {
+          data: {
+            direct: revision,
+            resource: {
+              currentRevision: revision,
+              revision,
+              revisions: { edges: [{ node: revision }] },
+            },
+          },
+        });
+      }
+    });
+  });
+
   // Workspace A is the writer's local instance; only workspace B received a
   // private Note from elsewhere.
   const privateNote = async (db: Database) => {

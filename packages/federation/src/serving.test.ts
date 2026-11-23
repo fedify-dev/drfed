@@ -675,6 +675,112 @@ describe("federation reads of saved activities", () => {
 });
 
 describe("federation reads of saved objects and their history", () => {
+  it("serves a standalone Question saved as an object with its poll fields", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const context = [AS, { score: "https://ext.example/ns#score" }];
+      const choice = {
+        type: "Note",
+        name: "Monday",
+        content: "The first option",
+        score: 1,
+        to: [PUBLIC_IRI],
+      };
+      const saved = await save(
+        env,
+        {
+          "@context": context,
+          type: "Question",
+          anyOf: [
+            { ...choice, bto: [BLIND] },
+            { type: "Note", name: "Friday" },
+          ],
+          closed: false,
+          to: [PUBLIC_IRI],
+          bcc: [BLIND],
+        },
+        "object",
+      );
+      assert.equal(saved.iri, `${ACTOR_IRI}/${saved.id}`);
+      const { status, body } = await get(harness.federation, saved.iri);
+      assert.equal(status, 200);
+      assert.equal(body.id, saved.iri);
+      assert.equal(body.type, "Question");
+      assert.deepEqual(body["@context"], context);
+      assert.equal(body.closed, false);
+      assert.deepEqual(body.anyOf, [choice, { type: "Note", name: "Friday" }]);
+      assert.deepEqual(blindKeys(body), []);
+    });
+  });
+
+  it("serves the current Question and preserves its Create and Update snapshots", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      const context = [AS, { score: "https://ext.example/ns#score" }];
+      const pollFields = (
+        name: string,
+        score: number,
+        closed: string | boolean,
+      ) => ({
+        type: "Question",
+        content: `Choose ${name}`,
+        oneOf: [{ type: "Note", name, content: `Vote for ${name}`, score }],
+        closed,
+      });
+      const original = pollFields("Monday", 1, false);
+      const revised = pollFields("Friday", 2, "2026-11-14T12:00:00Z");
+      const latest = pollFields("Saturday", 3, true);
+      const [poll, create] = await write(env, {
+        operation: "create",
+        actorId: localActorId,
+        document: {
+          "@context": context,
+          type: "Create",
+          to: [PUBLIC_IRI],
+          object: { ...original, to: [PUBLIC_IRI], bcc: [BLIND] },
+        },
+        resources: [
+          { path: [], kind: "activity" },
+          { path: ["object"], kind: "object" },
+        ],
+        publish: true,
+      });
+      assert.ok(poll != null && create != null);
+      const update = await edit(env, poll.id, (document) => ({
+        ...document,
+        ...revised,
+      }));
+      const finalUpdate = await edit(env, poll.id, (document) => ({
+        ...document,
+        ...latest,
+      }));
+
+      for (const [activity, type, fields] of [
+        [create, "Create", original],
+        [update, "Update", revised],
+        [finalUpdate, "Update", latest],
+      ] as const) {
+        const { status, body } = await get(harness.federation, activity.iri);
+        assert.equal(status, 200, activity.iri);
+        assert.equal(body.id, activity.iri);
+        assert.equal(body.type, type);
+        assert.deepEqual(body["@context"], context);
+        assert.ok(body.object != null && typeof body.object === "object");
+        assert.partialDeepStrictEqual(body.object, { id: poll.iri, ...fields });
+        assert.deepEqual(blindKeys(body), []);
+      }
+
+      const { status, body } = await get(harness.federation, poll.iri);
+      assert.equal(status, 200);
+      assert.partialDeepStrictEqual(body, {
+        "@context": context,
+        id: poll.iri,
+        ...latest,
+      });
+      assert.deepEqual(blindKeys(body), []);
+    });
+  });
+
   it("serves a saved object as saved, and only a Public one", async () => {
     await withFederation(async (harness) => {
       const env = await setUp(harness);
@@ -942,6 +1048,43 @@ describe("embedded documents and implicit contexts", () => {
     assert.equal(collection.body.totalItems, items.length);
     return items.map(({ id }) => id);
   };
+
+  it("withholds a Question and its Create when the poll or a choice is private", async () => {
+    await withFederation(async (harness) => {
+      const env = await setUp(harness);
+      for (const pollIsPrivate of [true, false]) {
+        const [poll, create] = await write(env, {
+          operation: "create",
+          actorId: localActorId,
+          document: {
+            "@context": AS,
+            type: "Create",
+            to: [PUBLIC_IRI],
+            object: {
+              type: "Question",
+              to: [pollIsPrivate ? BOB : PUBLIC_IRI],
+              oneOf: [
+                {
+                  type: "Note",
+                  name: "Private choice",
+                  ...(pollIsPrivate ? {} : { to: [BOB] }),
+                },
+              ],
+            },
+          },
+          resources: [
+            { path: [], kind: "activity" },
+            { path: ["object"], kind: "object" },
+          ],
+          publish: true,
+        });
+        assert.ok(poll != null && create != null);
+        assert.equal((await get(harness.federation, poll.iri)).status, 404);
+        assert.equal((await get(harness.federation, create.iri)).status, 404);
+      }
+      assert.deepEqual(await outboxIds(harness.federation), []);
+    });
+  });
 
   it("does not serve a Public activity that embeds content addressed to others", async () => {
     await withFederation(async (harness) => {
