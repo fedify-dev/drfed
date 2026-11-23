@@ -361,6 +361,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   margin: 0;
   padding: 0 0 0 1rem;
 }
+.pollChoices {
+  margin: 0.5rem 0 0;
+  padding-inline-start: 1.5rem;
+}
+.pollChoices > li + li {
+  margin-block-start: 0.6rem;
+}
 .value {
   min-width: 0;
 }
