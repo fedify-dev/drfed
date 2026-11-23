@@ -284,11 +284,11 @@ or ordering between fields.
 intransitive activity: a non-null `object` on the Question itself is invalid.
 Open-ended Questions need no choices, and content may be absent or empty.
 
-| Question field | Supported values                                                                                                              |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `oneOf`        | Exclusive (single-answer) choices: an absolute IRI or supported embedded Object, singly or in a flat list.                    |
-| `anyOf`        | Inclusive (multiple-answer) choices, with the same value shapes as `oneOf`.                                                   |
-| `closed`       | A boolean or date-time string following the timestamp rules above. This is a single-value property, including across aliases. |
+| Question field | Supported values                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `oneOf`        | A single-choice poll accepts IRI references or supported embedded objects, singly or in a flat list.                     |
+| `anyOf`        | Choices for a multiple-choice poll, with the same value shapes as `oneOf`.                                               |
+| `closed`       | A boolean or date-time string following the timestamp rules above. DrFed supports one non-null value across all aliases. |
 
 Supplying non-null values in both choice modes reports
 `mutually_exclusive_properties` (vocabulary/error) at each contributing source
@@ -299,10 +299,15 @@ fields on other types receive `property_not_applicable`.
 Choices retain supported properties and custom extensions rather than being
 reduced to labels. Embedded choices require an explicit supported type, such
 as `Note` or `Object`, under the checker's shared type policy. Untyped choices
-receive `unsupported_type`. Embedded Link choices and resource-valued `closed`
-conditions receive `unsupported_value_form`: the vocabulary permits broader
-forms than the pinned Fedify decoder supports. IRI choices are not fetched
-or type-checked remotely. Custom choice extensions receive
+receive `unsupported_type`. Embedded Link choices, resource-valued `closed`
+conditions, and multiple closing values in a list or across aliases receive
+`unsupported_value_form`. Compact IRIs in choice references and embedded
+choice IDs are checked offline after prefix expansion.
+
+An embedded choice outside a list receives `poll_choices_not_list`, and an
+IRI choice receives `poll_choice_reference`. These compatibility warnings
+flag forms that Mastodon may fail to read because it expects a list of
+embedded choices. Custom choice extensions receive
 `extension_property_unchecked` warnings; successful validation does not
 guarantee their preservation during serialization or sending.
 
