@@ -147,8 +147,8 @@ export async function embeddedObject(
  * The expansion of an object embedded in a received activity, taken from the
  * activity's expansion as the first `as:object` of its first node, which is
  * the node Fedify reads as the object, since the embedded document lacks the
- * context it inherits.  Its dropped terms are those the activity dropped that
- * a document without the object does not.
+ * context it inherits.  Its dropped terms are those the activity drops more
+ * often than a document without the object does.
  * @returns The object's expansion.
  */
 export async function embeddedExpansion(
@@ -167,17 +167,22 @@ export async function embeddedExpansion(
       failure: "The expanded activity has no object node.",
     };
   }
-  const probed = await expandGathered(
-    replaceAt(payload, path, { "@id": PROBE }),
-    gathered,
-  );
-  const outside = new Set(
-    probed.outcome === "expanded" ? probed.droppedTerms : [],
-  );
+  const counts = async (document: unknown) => {
+    const dropped = new Map<string, number>();
+    await expandGathered(document, gathered, {
+      onDroppedTerm: (term) => dropped.set(term, (dropped.get(term) ?? 0) + 1),
+    });
+    return dropped;
+  };
+  const whole = await counts(payload);
+  const outside = await counts(replaceAt(payload, path, { "@id": PROBE }));
   return {
     outcome: "expanded",
     document: [first],
-    droppedTerms: activity.droppedTerms.filter((term) => !outside.has(term)),
+    droppedTerms: [...whole]
+      .filter(([term, count]) => count > (outside.get(term) ?? 0))
+      .map(([term]) => term)
+      .sort(),
     undefinedTerms: undefinedTermsOf([first]),
   };
 }

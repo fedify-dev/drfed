@@ -116,6 +116,44 @@ describe("gatherContexts()", () => {
 });
 
 describe("expandGathered()", () => {
+  it("replays a context a response linked to", async () => {
+    const document = { "@context": "https://example.test/a", name: "x" };
+    const gathered = await gatherContexts(document, (url) =>
+      Promise.resolve(
+        url === "https://example.test/a"
+          ? {
+              contextUrl: "https://example.test/b",
+              documentUrl: url,
+              document: { "@context": {} },
+            }
+          : {
+              contextUrl: null,
+              documentUrl: url,
+              document: { "@context": { name: NAME } },
+            },
+      ),
+    );
+    assert.deepEqual(await expandGathered(document, gathered), {
+      outcome: "expanded",
+      document: [{ [NAME]: [{ "@value": "x" }] }],
+      droppedTerms: [],
+      undefinedTerms: [],
+    });
+  });
+
+  it("never loads a stored string as a document", async () => {
+    const requested: string[] = [];
+    const gathered = await gatherContexts(
+      "https://example.test/doc",
+      loader({}, requested),
+    );
+    assert.deepEqual(requested, []);
+    assert.equal(
+      (await expandGathered("https://example.test/doc", gathered)).outcome,
+      "failed",
+    );
+  });
+
   it("fails on contexts that were not gathered", async () => {
     const expansion = await expandGathered(
       { "@context": "https://example.test/other", name: "a" },

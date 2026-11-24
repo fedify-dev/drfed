@@ -121,6 +121,45 @@ describe("expandDocument()", () => {
     const result = await expandDocument({ "@context": 1 });
     assert.equal(result.outcome, "failed");
   });
+
+  it("fails on a stored scalar instead of loading it as a URL", async () => {
+    const values = [AS, "plain", 1, true, null];
+    const results = await Promise.all(
+      values.map(async (value) => await expandDocument(value)),
+    );
+    for (const result of results) {
+      assert.equal(result.outcome, "failed");
+      assert.match(
+        result.outcome === "failed" ? result.failure : "",
+        /must be an object or array/u,
+      );
+    }
+  });
+
+  it("keeps a node with only an @id, as Fedify does", async () => {
+    assert.deepEqual(
+      await expandDocument({ "@id": "https://example.test/item" }),
+      {
+        outcome: "expanded",
+        document: [{ "@id": "https://example.test/item" }],
+        droppedTerms: [],
+        undefinedTerms: [],
+      },
+    );
+  });
+
+  it("reports each dropped occurrence", async () => {
+    const terms: string[] = [];
+    const result = await expandDocument(
+      { "@context": {}, alpha: 1, nested: [{ alpha: 2 }] },
+      { onDroppedTerm: (term) => terms.push(term) },
+    );
+    assert.deepEqual(result.outcome === "expanded" && result.droppedTerms, [
+      "alpha",
+      "nested",
+    ]);
+    assert.deepEqual(terms.sort(), ["alpha", "nested"]);
+  });
 });
 
 describe("expansionFailure()", () => {

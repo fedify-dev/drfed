@@ -26,6 +26,7 @@ import {
   appendResourceRevision,
   captureLegacyResourceRevision,
   loadRevisionExpansion,
+  recordRevisionExpansion,
   writeTypedResourceRevision,
 } from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
@@ -299,12 +300,19 @@ for (const backend of revisionBackends) {
         (await expansionOf(fixture, revisionId)).undefinedTerms,
         ["marker"],
       );
-      // A reused revision without one, as from before expansions, gets one.
+      // A reused fetched revision without one, as from before expansions,
+      // gets no offline failure that would keep the backfill away, but takes
+      // a given expansion.
       await fixture.query(
         "DELETE FROM revision_expansions WHERE revision_id = $1",
         [revisionId],
       );
       assert.equal(await capture(fixture, live.objectId), revisionId);
+      assert.equal(await loadRevisionExpansion(fixture.db, revisionId), null);
+      assert.equal(
+        await capture(fixture, live.objectId, { expansion: given }),
+        revisionId,
+      );
       assert.deepEqual(await expansionOf(fixture, revisionId), {
         ...given,
         failure: null,
@@ -320,13 +328,28 @@ for (const backend of revisionBackends) {
       const [snapshot, whiteout] = await revisionIds(fixture, deleted.objectId);
       assert.equal(snapshot?.kind, "snapshot");
       assert.equal(whiteout?.kind, "whiteout");
-      assert.equal(
-        (await expansionOf(fixture, snapshot.id)).outcome,
-        "expanded",
-      );
+      assert.equal(await loadRevisionExpansion(fixture.db, snapshot.id), null);
       assert.equal(
         (await expansionOf(fixture, whiteout.id)).outcome,
         "no_document",
+      );
+
+      // Recording checks the expansion against the revision's kind.
+      await assert.rejects(
+        recordRevisionExpansion(fixture.db, snapshot.id, null),
+        /A snapshot has a document to expand\./u,
+      );
+      await assert.rejects(
+        recordRevisionExpansion(fixture.db, whiteout.id, given),
+        /no document to expand/u,
+      );
+      assert.equal(
+        await recordRevisionExpansion(fixture.db, snapshot.id, given),
+        true,
+      );
+      assert.equal(
+        await recordRevisionExpansion(fixture.db, snapshot.id, given),
+        false,
       );
 
       // An embedded object lacks the context it inherits, so without a given

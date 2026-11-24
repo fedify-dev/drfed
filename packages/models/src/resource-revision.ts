@@ -115,10 +115,11 @@ export type AppendResourceRevisionInput = AppendBase &
         readonly embeddings?: readonly RevisionEmbeddingInput[];
         readonly projection?: ResourceRevision["projection"];
         /**
-         * The document's expansion, computed before the transaction.  When
-         * omitted, the document is expanded offline before this function
-         * opens its transaction; a caller already in a transaction should
-         * pass it.
+         * The document's expansion.  When omitted, the document is expanded
+         * offline, from preloaded contexts only, before this function opens
+         * its transaction, or within the caller's.  A document that needs
+         * remote contexts must be expanded before the caller's transaction
+         * and passed here, since none is fetched within it.
          */
         readonly expansion?: RevisionExpansionInput;
       }

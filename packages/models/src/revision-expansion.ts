@@ -135,9 +135,11 @@ export function expansionRow(
  * @param resourceId The captured resource.
  * @param expansion The expansion of the typed document, if the caller computed
  *                  it; otherwise the document is expanded offline here, from
- *                  preloaded contexts only.  An embedded snapshot lacks the
- *                  context it inherits, so without one it is left without a
- *                  row for the backfill, which expands it from its activity.
+ *                  preloaded contexts only, when it was written locally.  A
+ *                  received, embedded, or fetched snapshot may need remote
+ *                  contexts or the context it inherits, so without one it is
+ *                  left without a row for the backfill, which loads them;
+ *                  a failure recorded offline would keep the backfill away.
  */
 export async function recordMissingExpansions(
   tx: Transaction,
@@ -169,7 +171,7 @@ export async function recordMissingExpansions(
       rows.push(expansionRow(revision.id, null));
       continue;
     }
-    if (expansion === undefined && revision.capture === "embedded") continue;
+    if (expansion === undefined && revision.capture !== "local") continue;
     // oxlint-disable-next-line no-await-in-loop
     const own = expansion ?? (await expandDocument(revision.document));
     if (own.outcome === "no_document") {
@@ -262,8 +264,11 @@ export async function findCarryingActivityRevision(
  * so that the backfill can run again or alongside new writes.
  * @param db The database.
  * @param revisionId The revision.
- * @param expansion Its expansion, or null for a revision without a document.
+ * @param expansion Its expansion, or null for a revision without a document,
+ *                  which must be `unavailable` or a `whiteout`.
  * @returns Whether a row was inserted.
+ * @throws {TypeError} If the revision does not exist, or the expansion does
+ *                     not suit its kind.
  */
 export async function recordRevisionExpansion(
   db: Database | Transaction,
@@ -271,6 +276,22 @@ export async function recordRevisionExpansion(
   expansion: RevisionExpansionInput | null,
 ): Promise<boolean> {
   if (expansion !== null) checkRevisionExpansion(expansion);
+  const [revision] = await db
+    .select({ kind: resourceRevisions.kind })
+    .from(resourceRevisions)
+    .where(eq(resourceRevisions.id, revisionId))
+    .limit(1);
+  if (revision === undefined) {
+    throw new TypeError("The revision does not exist.");
+  }
+  // A revision's kind never changes, so checking it first is enough.
+  if ((revision.kind === "snapshot") !== (expansion !== null)) {
+    throw new TypeError(
+      revision.kind === "snapshot"
+        ? "A snapshot has a document to expand."
+        : `A revision of kind ${revision.kind} has no document to expand.`,
+    );
+  }
   const inserted = await db
     .insert(revisionExpansions)
     .values(expansionRow(revisionId, expansion))

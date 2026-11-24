@@ -23,6 +23,7 @@ import {
   type UnexpandedRevision,
   findCarryingActivityRevision,
   listUnexpandedRevisions,
+  loadRevisionExpansion,
   recordRevisionExpansion,
 } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
@@ -77,6 +78,12 @@ export async function backfillExpansions(
   );
   const limit = options.batchSize ?? 100;
   const counts = { expanded: 0, failed: 0, noDocument: 0 };
+  const record: Record = async (revisionId, expansion) => {
+    if (await recordRevisionExpansion(db, revisionId, expansion)) {
+      if (expansion === null) counts.noDocument += 1;
+      else counts[expansion.outcome] += 1;
+    }
+  };
   let after: Uuid | undefined;
   for (;;) {
     options.signal?.throwIfAborted();
@@ -87,16 +94,20 @@ export async function backfillExpansions(
     if (batch.length === 0) break;
     for (const revision of batch) {
       options.signal?.throwIfAborted();
-      const expansion = await expansionOf(db, revision, contextLoader);
-      if (await recordRevisionExpansion(db, revision.id, expansion)) {
-        if (expansion === null) counts.noDocument += 1;
-        else counts[expansion.outcome] += 1;
-      }
+      await record(
+        revision.id,
+        await expansionOf(db, revision, contextLoader, record),
+      );
     }
     after = batch.at(-1)?.id;
   }
   return counts;
 }
+
+type Record = (
+  revisionId: Uuid,
+  expansion: RevisionExpansionInput | null,
+) => Promise<void>;
 
 function loadOnce(loader: DocumentLoader): DocumentLoader {
   const loaded = new Map<string, Promise<RemoteDocument>>();
@@ -123,6 +134,7 @@ async function expansionOf(
   db: Database,
   revision: UnexpandedRevision,
   contextLoader: DocumentLoader,
+  record: Record,
 ): Promise<RevisionExpansionInput | null> {
   if (revision.kind !== "snapshot") return null;
   const { document } = revision;
@@ -151,7 +163,28 @@ async function expansionOf(
     };
   }
   const gathered = await gatherContexts(parent.document, contextLoader);
-  const activity = await expandGathered(parent.document, gathered);
+  // Take the object from the activity's recorded expansion, recording it
+  // first if needed, so that both agree even if a context changed between
+  // runs.  The current contexts only count the object's dropped terms.
+  if ((await loadRevisionExpansion(db, parent.id)) === null) {
+    await record(parent.id, await expandGathered(parent.document, gathered));
+  }
+  const recorded = await loadRevisionExpansion(db, parent.id);
+  if (recorded === null) throw new Error("The activity has no expansion.");
+  if (recorded.outcome !== "expanded" || recorded.document === null) {
+    return {
+      outcome: "failed",
+      failure:
+        recorded.failure ?? "The activity that carried the object has none.",
+      sourceRevisionId: parent.id,
+    };
+  }
+  const activity = {
+    outcome: "expanded",
+    document: recorded.document,
+    droppedTerms: recorded.droppedTerms ?? [],
+    undefinedTerms: recorded.undefinedTerms ?? [],
+  } as const;
   return {
     ...(await embeddedExpansion(
       parent.document,

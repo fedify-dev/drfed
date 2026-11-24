@@ -51,12 +51,22 @@ export interface ExpandDocumentOptions {
    * fails the expansion.
    */
   readonly contexts?: ReadonlyMap<string, GatheredContext>;
+  /**
+   * Called for each occurrence of a dropped term, before duplicates are
+   * removed from `droppedTerms`.
+   */
+  readonly onDroppedTerm?: (term: string) => void;
 }
 
 /** A remote context gathered before an expansion, keyed by requested URL. */
 export interface GatheredContext {
   /** The URL the context was finally loaded from, after redirects. */
   readonly documentUrl: string;
+  /**
+   * The context a response linked to, such as with an HTTP `Link` header,
+   * which the processor applies with the loaded one.
+   */
+  readonly contextUrl?: string | null;
   readonly document: unknown;
 }
 
@@ -73,12 +83,31 @@ function contextReader(
       );
     }
     const remote: RemoteDocument = {
-      contextUrl: null,
+      contextUrl: gathered.contextUrl ?? null,
       documentUrl: gathered.documentUrl,
       document: gathered.document,
     };
     return Promise.resolve(remote);
   };
+}
+
+/**
+ * Options the JSON-LD processor is given, as Fedify gives them when it reads
+ * a document, so that a node with only an `@id` is kept.
+ */
+export const EXPAND_OPTIONS = { keepFreeFloatingNodes: true } as const;
+
+/**
+ * Why a stored value cannot be expanded, if it cannot: the processor reads a
+ * string as the URL of a document to load, which a stored value is not.
+ * @param document The stored value.
+ * @returns The failure reason, or undefined for an object or array.
+ */
+export function unexpandableValue(document: unknown): string | undefined {
+  if (document !== null && typeof document === "object") return undefined;
+  return `A JSON-LD document must be an object or array, not ${
+    document === null ? "null" : typeof document
+  }.`;
 }
 
 const DROPPED_TERM_EVENTS: ReadonlySet<string> = new Set([
@@ -101,12 +130,17 @@ export async function expandDocument(
   document: unknown,
   options: ExpandDocumentOptions = {},
 ): Promise<DocumentExpansion> {
+  const unexpandable = unexpandableValue(document);
+  if (unexpandable !== undefined) {
+    return { outcome: "failed", failure: unexpandable };
+  }
   const dropped: string[] = [];
   let expanded: unknown;
   try {
     expanded = await jsonld.expand(
       document as ExpandInput,
       {
+        ...EXPAND_OPTIONS,
         documentLoader: contextReader(options.contexts),
         eventHandler: ({ event }: { event: JsonLdEvent }) => {
           const property = event.details?.property;
@@ -115,6 +149,7 @@ export async function expandDocument(
             typeof property === "string"
           ) {
             dropped.push(property);
+            options.onDroppedTerm?.(property);
           }
         },
       } as ExpandOptions,

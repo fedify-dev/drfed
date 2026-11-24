@@ -231,15 +231,20 @@ preloaded by `@fedify/vocab-runtime` and those it is given.  The inbound
 `Create` listener first gathers the remote contexts of a received document
 through the federation's `contextLoader`, with `gatherContexts()` in
 `@drfed/federation/expansion`, which expands the document once with a
-loader recording every context loaded, scoped ones included.  Within the
-transaction it then expands the activity from them.  An object embedded in it
+loader recording every context loaded, scoped ones included, and expands the
+activity from them, all before the transaction that stores the expansions
+with the revisions.  An object embedded in it
 lacks the context it inherits, so its expansion is the activity's first
 `as:object` node, the one Fedify reads as the object, with
 `source_revision_id` naming the activity revision it was taken from.  A
 fetched object is expanded from its own document.  Local writes use
 preloaded contexts only, so they are expanded offline when no expansion is
 given.  An embedded snapshot appended without an expansion is refused, and a
-legacy capture of one leaves it without a row.
+legacy capture of a received, embedded or fetched snapshot without one, such
+as an object reused from before expansions were stored, leaves it without a
+row rather than recording an offline failure.  Documents are expanded as
+Fedify reads them, keeping a node with only an `@id`; a stored value that is
+not an object or array, which the processor would load as a URL, fails.
 
 Unlike the other projections, rows are derived data: an incorrect expansion
 is a bug in DrFed, fixed by recomputing the rows of the revisions it affected.
@@ -260,7 +265,9 @@ loads remote contexts with Fedify's document loader, and keeps a row another
 writer recorded first, so it may run again.  It expands an embedded object
 from the first revision of the activity that first carried it, the
 `activity_id` of its typed row, and records a failure when that revision is
-missing or no longer holds the same object.  Startup never runs it.
+missing or no longer holds the same object.  It takes the object's node from
+the activity's recorded expansion, recording that first, so the two agree
+even when a remote context changed between runs.  Startup never runs it.
 
 
 Legacy capture and upgrades
