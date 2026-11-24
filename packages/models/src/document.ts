@@ -431,7 +431,7 @@ function isJsonValueShape(value: unknown): boolean {
 function hasInvalidIriCharacters(value: string): boolean {
   const hasControlOrSpace = Array.from(value).some((character) => {
     const point = character.codePointAt(0)!;
-    return point <= 0x20 || point === 0x7f;
+    return point <= 0x20 || (point >= 0x7f && point <= 0x9f);
   });
   return (
     !value.isWellFormed() ||

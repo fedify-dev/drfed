@@ -293,8 +293,11 @@ Open-ended Questions need no choices, and content may be absent or empty.
 Supplying non-null values in both choice modes reports
 `mutually_exclusive_properties` (vocabulary/error) at each contributing source
 field, including aliases inside nested documents. Null and null-only lists
-mean absence; empty lists receive the usual omission preview. Non-null poll
-fields on other types receive `property_not_applicable`.
+mean absence. Empty choice lists on `Question` receive the usual omission
+preview. On other types, poll fields with non-null scalar or object values
+receive `property_not_applicable`, including when those values are list
+entries. Empty lists on other types also receive `property_not_applicable`.
+Malformed entries, such as nested lists, receive diagnostics at their own paths.
 
 Choices retain supported properties and custom extensions rather than being
 reduced to labels. Embedded choices require an explicit supported type, such
@@ -304,10 +307,12 @@ conditions, and multiple closing values in a list or across aliases receive
 `unsupported_value_form`. Compact IRIs in choice references and embedded
 choice IDs are checked offline after prefix expansion.
 
-An embedded choice outside a list receives `poll_choices_not_list`, and an
-IRI choice receives `poll_choice_reference`. These compatibility warnings
-flag forms that Mastodon may fail to read because it expects a list of
-embedded choices. Custom choice extensions receive
+An embedded choice outside a list can trigger `poll_choices_not_list`, and a
+valid IRI choice can trigger `poll_choice_reference`. These compatibility
+warnings flag forms that Mastodon may fail to read because it expects a list
+of embedded choices. The validator reports each warning at most once per poll,
+at the first match in source-key order and then list order. It omits both
+warnings when the choice modes conflict. Custom choice extensions receive
 `extension_property_unchecked` warnings; successful validation does not
 guarantee their preservation during serialization or sending.
 

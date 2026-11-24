@@ -3721,6 +3721,27 @@ describe("validateDocument() supported document checks", () => {
     assert.equal(malformed.diagnostics[0]?.reason, "invalid_iri");
   });
 
+  it("rejects raw C1 control characters in IRI references", () => {
+    const result = validateDocument({
+      ...LIKE,
+      object: [
+        "https://example.com/a\u0080b",
+        "https://example.com/a\u0085b",
+        "https://example.com/a\u009fb",
+        "https://example.com/a\u00a0b",
+        "https://example.com/a%C2%85b",
+      ],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_iri", path: ["object", 0] },
+        { reason: "invalid_iri", path: ["object", 1] },
+        { reason: "invalid_iri", path: ["object", 2] },
+      ],
+    );
+  });
+
   it("retains exactly 100 warnings and marks truncation only for further findings", () => {
     for (const count of [99, 100, 101]) {
       const properties = Object.fromEntries(

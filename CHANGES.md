@@ -23,7 +23,7 @@ To be released.
     activity documents, including those of deleted objects. Back up and stop
     DrFed before running `drfed-migrate`.  [[#150], [#164] by Hong Minhee\]
  -  Added saved choices and closing values to the resource revision view
-    for standalone and embedded Questions. [[#155], [#185]]
+    for standalone and embedded `Question` objects. [[#155], [#185]]
  -  Changed <https://drfed.org/> to serve the DrFed documentation for the
     highest released version, prereleases included, along with a changelog
     page. Documentation for the development version is available at
@@ -60,7 +60,7 @@ To be released.
 ### GraphQL APIs
 
  -  Added `DocumentNode.poll` to read the choices and closing value of a saved
-    Question, including polls embedded in historical activities.
+    `Question`, including polls embedded in historical activities.
     [[#155], [#185]]
  -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
     `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
