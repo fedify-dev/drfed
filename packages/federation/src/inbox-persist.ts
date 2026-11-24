@@ -185,21 +185,29 @@ async function expandReceived(
   readonly activity: Expansion;
   readonly object: Expansion | undefined;
 }> {
-  const gathered = await gatherContexts(payload, ctx.contextLoader);
-  const activity = await expandGathered(payload, gathered);
+  // Expand the documents as they are stored, which JSON.stringify writes: a
+  // number JSON.parse read as Infinity, such as 1e400, is stored as null.
+  const received = asStored(payload);
+  const gathered = await gatherContexts(received, ctx.contextLoader);
+  const activity = await expandGathered(received, gathered);
   if (object.fetched) {
-    const own = await gatherContexts(object.document, ctx.contextLoader);
+    const document = asStored(object.document);
+    const own = await gatherContexts(document, ctx.contextLoader);
     return {
       activity,
-      object: await expandGathered(object.document, own),
+      object: await expandGathered(document, own),
     };
   }
   if (object.path === undefined) return { activity, object: undefined };
   return {
     activity,
-    object: await embeddedExpansion(payload, object.path, gathered, activity),
+    object: await embeddedExpansion(received, object.path, gathered, activity),
   };
 }
+
+/** @returns The value as a `json` column written through JSON.stringify holds it. */
+const asStored = (value: unknown): unknown =>
+  value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
 const textOf = (value: string | LanguageString | null): string | null =>
   value?.toString() ?? null;

@@ -240,6 +240,25 @@ for (const backend of revisionBackends) {
         /needs its given expansion/u,
       );
       assert.deepEqual(await revisionIds(fixture, resource.id), []);
+      // An embedded expansion names the revision it was taken from.
+      await assert.rejects(
+        appendResourceRevision(fixture.db, {
+          resourceId: resource.id,
+          resourceKind: "object",
+          expectedRevisionId: null,
+          kind: "snapshot",
+          document: { type: "Note" },
+          capture: "embedded",
+          expansion: {
+            outcome: "expanded",
+            document: [],
+            droppedTerms: [],
+            undefinedTerms: [],
+          },
+        }),
+        /names the revision it was taken from/u,
+      );
+      assert.deepEqual(await revisionIds(fixture, resource.id), []);
       // The table refuses rows whose columns contradict their outcome.
       const revision = await append(fixture, { type: "Note" });
       await assert.rejects(
@@ -399,4 +418,65 @@ for (const backend of revisionBackends) {
       );
     });
   });
+
+  it(
+    `fixes a given expansion when appending on ${backend}`,
+    options,
+    async () => {
+      await withRevisionDatabase(backend, async (fixture) => {
+        const resource = await ensureResource(
+          fixture.db,
+          `https://example.test/resources/${uuidV7()}`,
+        );
+        const undefinedTerms = ["first"];
+        const appending = appendResourceRevision(fixture.db, {
+          resourceId: resource.id,
+          resourceKind: "object",
+          expectedRevisionId: null,
+          kind: "snapshot",
+          document: { type: "Note" },
+          capture: "local",
+          expansion: {
+            outcome: "expanded",
+            document: [],
+            droppedTerms: [],
+            undefinedTerms,
+          },
+        });
+        // A change after the call does not reach the stored expansion.
+        undefinedTerms.push("later");
+        const revision = await appending;
+        assert.deepEqual(
+          (await expansionOf(fixture, revision.id)).undefinedTerms,
+          ["first"],
+        );
+
+        // An expansion JSON cannot hold is recorded as a failure.
+        const other = await ensureResource(
+          fixture.db,
+          `https://example.test/resources/${uuidV7()}`,
+        );
+        const infinite = await appendResourceRevision(fixture.db, {
+          resourceId: other.id,
+          resourceKind: "object",
+          expectedRevisionId: null,
+          kind: "snapshot",
+          document: { type: "Note" },
+          capture: "local",
+          expansion: {
+            outcome: "expanded",
+            document: [{ "urn:width": [{ "@value": Infinity }] }],
+            droppedTerms: [],
+            undefinedTerms: [],
+          },
+        });
+        const failed = await expansionOf(fixture, infinite.id);
+        assert.equal(failed.outcome, "failed");
+        assert.match(
+          failed.failure ?? "",
+          /cannot be stored as JSON: .*finite/u,
+        );
+      });
+    },
+  );
 }

@@ -31,8 +31,11 @@ import {
 import { RevisionConflictError } from "./revision-conflict-error.ts";
 import {
   type RevisionExpansionInput,
+  type SerializedExpansion,
+  checkExpansionSource,
   checkRevisionExpansion,
   expansionRow,
+  serializeExpansion,
 } from "./revision-expansion.ts";
 import {
   type NewActivityPubObject,
@@ -307,8 +310,12 @@ interface PreparedRevision extends AppendBase {
   readonly embeddings: Omit<RevisionEmbedding, "revisionId">[];
   readonly deleted: Temporal.Instant | null;
   readonly formerTypes: string[] | null;
-  /** Null for a whiteout; undefined until the snapshot is expanded. */
-  readonly expansion: RevisionExpansionInput | null | undefined;
+  /**
+   * Serialized when the revision is prepared, so that a caller changing its
+   * expansion afterwards cannot change what is stored; undefined until the
+   * snapshot is expanded.
+   */
+  readonly expansion: SerializedExpansion | undefined;
   /** The snapshot document, kept to expand it before the transaction. */
   readonly source: JsonObject | null;
 }
@@ -346,7 +353,10 @@ function prepareSnapshot(
       },
     );
   }
-  if (input.expansion !== undefined) checkRevisionExpansion(input.expansion);
+  if (input.expansion !== undefined) {
+    checkRevisionExpansion(input.expansion);
+    checkExpansionSource(input.capture, input.expansion);
+  }
   return {
     kind: "snapshot",
     serialized: json(input.document),
@@ -357,7 +367,10 @@ function prepareSnapshot(
     embeddings: embeddingRows(input.embeddings),
     deleted: null,
     formerTypes: null,
-    expansion: input.expansion,
+    expansion:
+      input.expansion === undefined
+        ? undefined
+        : serializeExpansion(input.expansion),
     source: input.document,
   };
 }
@@ -383,7 +396,7 @@ function prepareWhiteout(
     embeddings: [],
     deleted: input.deleted,
     formerTypes,
-    expansion: null,
+    expansion: serializeExpansion(null),
     source: null,
   };
 }
@@ -576,7 +589,7 @@ async function expanded(prepared: PreparedRevision): Promise<PreparedRevision> {
   if (expansion.outcome === "no_document") {
     throw new TypeError("A snapshot revision has a document.");
   }
-  return { ...prepared, expansion };
+  return { ...prepared, expansion: serializeExpansion(expansion) };
 }
 
 /**

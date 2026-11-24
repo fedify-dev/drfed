@@ -23,7 +23,7 @@ import {
   loadRevisionExpansion,
 } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
-import type { DocumentLoader } from "@fedify/fedify";
+import { type DocumentLoader, signRequest } from "@fedify/fedify";
 import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "../harness.test.ts";
@@ -33,6 +33,7 @@ import {
   addActor,
   createOf,
   createRecorder,
+  hostA,
   idOf,
   signed,
 } from "./inbox-fixture.test.ts";
@@ -208,5 +209,45 @@ it("backfills the expansions of revisions without one", async () => {
     const { expansion } = await expansionOf(db, objectId);
     assert.equal(expansion.outcome, "failed");
     assert.match(expansion.failure ?? "", /carried the object/u);
+  });
+});
+
+it("stores a received document with a number beyond the double range", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents);
+    // JSON.parse reads 1e400 as Infinity, which documents store as null.
+    const text = JSON.stringify(
+      createOf(alice, "huge", { object: { width: 7 } }),
+    ).replace('"width":7', '"width":1e400');
+    assert.match(text, /"width":1e400/u);
+    const request = new Request(`https://${hostA}/inbox`, {
+      method: "POST",
+      headers: { "content-type": "application/activity+json" },
+      body: text,
+    });
+    const response = await send(
+      await signRequest(request, signer.privateKey, signer.keyId),
+    );
+    assert.equal(response.status, 202);
+    const activity = await expansionOf(
+      db,
+      await idOf(db, "https://remote.example/activities/huge"),
+    );
+    const object = await expansionOf(
+      db,
+      await idOf(db, "https://remote.example/notes/huge"),
+    );
+    // The expansions are of the documents as stored, where width is null.
+    assert.equal(
+      (object.revision.document as { readonly width?: unknown } | null)?.width,
+      null,
+    );
+    for (const { expansion } of [activity, object]) {
+      assert.equal(expansion.outcome, "expanded");
+      assert.doesNotMatch(JSON.stringify(expansion.document), /width/u);
+    }
   });
 });

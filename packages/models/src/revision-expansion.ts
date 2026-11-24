@@ -96,32 +96,110 @@ function storableFailure(failure: string): string {
 }
 
 /**
+ * Checks that an embedded snapshot's expansion names the revision it was
+ * taken from, since an embedded document cannot be expanded on its own.
+ * @param capture How the snapshot was captured.
+ * @param expansion Its expansion.
+ * @throws {TypeError} If an embedded expansion has no source.
+ */
+export function checkExpansionSource(
+  capture: ResourceRevision["capture"] | undefined,
+  expansion: RevisionExpansionInput | null | undefined,
+): void {
+  if (
+    capture === "embedded" &&
+    expansion?.outcome === "expanded" &&
+    expansion.sourceRevisionId === undefined
+  ) {
+    throw new TypeError(
+      "An embedded snapshot's expansion names the revision it was taken from.",
+    );
+  }
+}
+
+/**
+ * An expansion serialized for storage, so that it is fixed when the revision
+ * is prepared rather than when the row is inserted.
+ */
+export interface SerializedExpansion {
+  readonly outcome: ResourceRevisionExpansionOutcome;
+  readonly document: string | null;
+  readonly droppedTerms: string | null;
+  readonly undefinedTerms: string | null;
+  readonly failure: string | null;
+  readonly sourceRevisionId: Uuid | null;
+}
+
+type ResourceRevisionExpansionOutcome = ExpansionRow["outcome"];
+
+/**
+ * Serializes an expansion for storage.  An expanded document that JSON cannot
+ * represent, such as one keeping a number beyond the double range, is
+ * recorded as a failure instead of failing the write.
+ * @param expansion The expansion, or null for a revision without a document.
+ * @returns The serialized expansion.
+ */
+export function serializeExpansion(
+  expansion: RevisionExpansionInput | null,
+): SerializedExpansion {
+  const none = {
+    document: null,
+    droppedTerms: null,
+    undefinedTerms: null,
+    failure: null,
+  };
+  if (expansion === null) {
+    return { ...none, outcome: "no_document", sourceRevisionId: null };
+  }
+  const sourceRevisionId = expansion.sourceRevisionId ?? null;
+  if (expansion.outcome === "expanded") {
+    try {
+      return {
+        outcome: "expanded",
+        document: json(expansion.document),
+        droppedTerms: json(expansion.droppedTerms),
+        undefinedTerms: json(expansion.undefinedTerms),
+        failure: null,
+        sourceRevisionId,
+      };
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      return {
+        ...none,
+        outcome: "failed",
+        failure: `The expanded document cannot be stored as JSON: ${error.message}`,
+        sourceRevisionId,
+      };
+    }
+  }
+  return {
+    ...none,
+    outcome: "failed",
+    failure: storableFailure(expansion.failure),
+    sourceRevisionId,
+  };
+}
+
+/**
  * Builds the row recording a revision's expansion.
  * @param revisionId The revision.
- * @param expansion The expansion, or null for a revision without a document.
+ * @param serialized The serialized expansion.
  * @returns The row to insert.
  */
 export function expansionRow(
   revisionId: Uuid,
-  expansion: RevisionExpansionInput | null,
+  serialized: SerializedExpansion,
 ): ExpansionRow {
-  if (expansion === null) return { revisionId, outcome: "no_document" };
-  const sourceRevisionId = expansion.sourceRevisionId ?? null;
-  if (expansion.outcome === "failed") {
-    return {
-      revisionId,
-      outcome: "failed",
-      failure: storableFailure(expansion.failure),
-      sourceRevisionId,
-    };
-  }
+  const value = (text: string | null) =>
+    text === null ? null : sql`${text}::json`;
   return {
     revisionId,
-    outcome: "expanded",
-    document: sql`${json(expansion.document)}::json`,
-    droppedTerms: sql`${json(expansion.droppedTerms)}::json`,
-    undefinedTerms: sql`${json(expansion.undefinedTerms)}::json`,
-    sourceRevisionId,
+    outcome: serialized.outcome,
+    document: value(serialized.document),
+    droppedTerms: value(serialized.droppedTerms),
+    undefinedTerms: value(serialized.undefinedTerms),
+    failure: serialized.failure,
+    sourceRevisionId: serialized.sourceRevisionId,
   };
 }
 
@@ -166,18 +244,25 @@ export async function recordMissingExpansions(
     )
     .orderBy(asc(resourceRevisions.sequence));
   const rows: ExpansionRow[] = [];
+  const given =
+    expansion === undefined ? undefined : serializeExpansion(expansion);
   for (const revision of missing) {
     if (revision.kind !== "snapshot") {
-      rows.push(expansionRow(revision.id, null));
+      rows.push(expansionRow(revision.id, serializeExpansion(null)));
       continue;
     }
-    if (expansion === undefined && revision.capture !== "local") continue;
-    // oxlint-disable-next-line no-await-in-loop
-    const own = expansion ?? (await expandDocument(revision.document));
-    if (own.outcome === "no_document") {
-      throw new TypeError("A snapshot revision has a document.");
+    if (given === undefined) {
+      if (revision.capture !== "local") continue;
+      // oxlint-disable-next-line no-await-in-loop
+      const own = await expandDocument(revision.document);
+      if (own.outcome === "no_document") {
+        throw new TypeError("A snapshot revision has a document.");
+      }
+      rows.push(expansionRow(revision.id, serializeExpansion(own)));
+      continue;
     }
-    rows.push(expansionRow(revision.id, own));
+    checkExpansionSource(revision.capture, expansion);
+    rows.push(expansionRow(revision.id, given));
   }
   if (rows.length > 0) {
     await tx.insert(revisionExpansions).values(rows).onConflictDoNothing();
@@ -276,8 +361,12 @@ export async function recordRevisionExpansion(
   expansion: RevisionExpansionInput | null,
 ): Promise<boolean> {
   if (expansion !== null) checkRevisionExpansion(expansion);
+  const serialized = serializeExpansion(expansion);
   const [revision] = await db
-    .select({ kind: resourceRevisions.kind })
+    .select({
+      kind: resourceRevisions.kind,
+      capture: resourceRevisions.capture,
+    })
     .from(resourceRevisions)
     .where(eq(resourceRevisions.id, revisionId))
     .limit(1);
@@ -292,9 +381,10 @@ export async function recordRevisionExpansion(
         : `A revision of kind ${revision.kind} has no document to expand.`,
     );
   }
+  checkExpansionSource(revision.capture, expansion);
   const inserted = await db
     .insert(revisionExpansions)
-    .values(expansionRow(revisionId, expansion))
+    .values(expansionRow(revisionId, serialized))
     .onConflictDoNothing()
     .returning({ revisionId: revisionExpansions.revisionId });
   return inserted.length > 0;
