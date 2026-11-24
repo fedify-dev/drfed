@@ -174,11 +174,14 @@ Prepare the database
 ~~~~ sh
 drfed-migrate --data-path .pgdata
 drfed-migrate --data-path .pgdata --check
+drfed-migrate --data-path .pgdata --expand-revisions
 ~~~~
 
 The first command applies migrations. `--check` inspects history without
 applying DrFed SQL and exits successfully only when the database is ready.
-Both accept the same configuration file and database selectors as the server.
+`--expand-revisions` applies migrations, then records the JSON-LD expansion
+of every revision stored without one, and cannot be combined with `--check`.
+All accept the same configuration file and database selectors as the server.
 Stop a PGlite server before running them.
 
 

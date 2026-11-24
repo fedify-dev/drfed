@@ -29,8 +29,9 @@ Snapshots retain parsed JSON values, including nested objects, arrays,
 extensions, custom contexts and the difference between a reference, an embedded
 object and a `Link`. They do not preserve source whitespace or numeric
 spellings. An inbound delivery's `body` retains the received bytes. Storage
-does not fetch references, expand contexts, validate vocabulary semantics, or
-infer a canonical kind from the document's `type`. A `Question`, for example,
+does not fetch references, validate vocabulary semantics, or infer a canonical
+kind from the document's `type`; the document's JSON-LD expansion is recorded
+beside it, as [Expansions](#expansions) describe. A `Question`, for example,
 can be stored as an object or a stored activity according to the caller's
 explicit `resourceKind`.
 
@@ -196,6 +197,70 @@ legacy capture and received documents record none.
 Comparing an embedded document with the current state therefore compares
 revisions of one resource by `sequence`, not timestamps of different
 transactions, which do not follow commit order.
+
+
+Expansions
+----------
+
+`revision_expansions` records the JSON-LD expanded form of each revision's
+document, one row per revision, so that later reads such as searches work on
+one uniform form instead of the many ways a document can be written.  It
+supplements the stored document, which stays the authority: expansion loses
+how keys were spelled, whether a value was an array, JSON `null`, and the
+`@context` itself.
+
+| `outcome`     | Recorded                                                     |
+| ------------- | ------------------------------------------------------------ |
+| `expanded`    | The expanded document, `dropped_terms` and `undefined_terms` |
+| `failed`      | The `failure` reason, including the causes it wraps          |
+| `no_document` | Nothing; the revision is `unavailable` or a `whiteout`       |
+
+Documents are expanded with the JSON-LD processor Fedify uses, re-exported by
+`@fedify/vocab-runtime/jsonld`, so that an expansion reads a document as
+Fedify read it.  Undefined terms are kept as they are read: the ActivityStreams
+context maps them with `"@vocab": "_:"`, so a document using `Hashtag` or
+`sensitive` under that context alone expands them to `_:Hashtag` and
+`_:sensitive`, which Fedify does not read either.  `undefined_terms` lists
+those terms, and `dropped_terms` lists those a context without `@vocab`
+discarded.  Mastodon and Fedify define such terms in an inline context, so
+their documents have neither.
+
+No network access happens inside the transaction that stores a revision.
+`expandDocument()` in `@drfed/models/expansion` reads only the contexts
+preloaded by `@fedify/vocab-runtime` and those it is given.  The inbound
+`Create` listener first gathers the remote contexts of a received document
+through the federation's `contextLoader`, with `gatherContexts()` in
+`@drfed/federation/expansion`, which expands the document once with a
+loader recording every context loaded, scoped ones included.  Within the
+transaction it then expands the activity from them.  An object embedded in it
+lacks the context it inherits, so its expansion is the activity's first
+`as:object` node, the one Fedify reads as the object, with
+`source_revision_id` naming the activity revision it was taken from.  A
+fetched object is expanded from its own document.  Local writes use
+preloaded contexts only, so they are expanded offline when no expansion is
+given.  An embedded snapshot appended without an expansion is refused, and a
+legacy capture of one leaves it without a row.
+
+Unlike the other projections, rows are derived data: an incorrect expansion
+is a bug in DrFed, fixed by recomputing the rows of the revisions it affected.
+Addressing, relations and embedding sources are sealed with their revision
+because they record what was stored; an expansion is an interpretation of it
+that the stored document can reproduce.  The table therefore has no
+immutability guard, and rows can be added after a revision is published, like
+the `revision_receipts` index.  Which contexts or which version of the
+processor produced an expansion is not recorded; the context URLs remain in
+the stored document.
+
+A revision without a row has not been expanded yet: it was stored before
+expansions were, or is an embedded object captured without one.
+`drfed-migrate --expand-revisions`, or `mise run expand:revisions` for a
+development store, records them through `backfillExpansions()` in
+`@drfed/federation/expansion-backfill`.  It runs outside transactions,
+loads remote contexts with Fedify's document loader, and keeps a row another
+writer recorded first, so it may run again.  It expands an embedded object
+from the first revision of the activity that first carried it, the
+`activity_id` of its typed row, and records a failure when that revision is
+missing or no longer holds the same object.  Startup never runs it.
 
 
 Legacy capture and upgrades

@@ -57,6 +57,16 @@ To be released.
 [#184]: https://github.com/fedify-dev/drfed/pull/184
 [#185]: https://github.com/fedify-dev/drfed/pull/185
 
+### CLIs
+
+ -  Added `drfed-migrate --expand-revisions`, which applies pending
+    migrations, then records the JSON-LD expansion of every revision stored
+    without one, loading the remote contexts its document names.  Run it once
+    after upgrading; running it again records nothing new.  It cannot be
+    combined with `--check`.  [[#187] by Hyeonseo Kim\]
+
+[#187]: https://github.com/fedify-dev/drfed/issues/187
+
 ### GraphQL APIs
 
  -  Added `DocumentNode.poll` to read the choices and closing value of a saved
@@ -126,6 +136,19 @@ To be released.
     `@drfed/models/resource` also accept addressing occurrences with their
     source positions.
     [[#152], [#173] by Hong Minhee\]
+ -  Added `@drfed/models/expansion`, whose `expandDocument()` expands a
+    document with the JSON-LD processor Fedify uses, reading only preloaded
+    and given contexts, and reports the terms it dropped or kept as blank node
+    identifiers.  Appending a revision through
+    `@drfed/models/resource-revision` now records its expansion, which
+    `loadRevisionExpansion()` reads; snapshots accept a precomputed
+    `expansion`, and an embedded snapshot requires one.
+    [[#187] by Hyeonseo Kim\]
+ -  Added `gatherContexts()` and `expandGathered()` to
+    `@drfed/federation/expansion`, which gather a document's remote contexts
+    before a transaction and expand it from them inside one, and
+    `backfillExpansions()` to `@drfed/federation/expansion-backfill`.
+    [[#187] by Hyeonseo Kim\]
  -  Added `@drfed/models/resource-revision` to append and read immutable
     ActivityStreams document histories. An append fails when its expected
     revision ID is stale, and object histories can end with a whiteout deletion

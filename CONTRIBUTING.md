@@ -167,6 +167,11 @@ then prints the accounts and what each viewer reads of every resource.  Stop
 `mise run dev` first, since only one process can open the store.  A store is
 seeded once: remove it to seed again, or seed another one with `--data-path`.
 
+`mise run expand:revisions` records the JSON-LD expansions of revisions that
+have none in that store, such as one created before expansions were stored.
+Stop `mise run dev` first.  It runs `drfed-migrate --expand-revisions`, which
+may run again safely.
+
 
 Runtime and packaging expectations
 ----------------------------------
