@@ -155,3 +155,58 @@ export const DOCUMENT_CASES: readonly SeedCase[] = [
   extensionsAndUninterpreted,
   deleted,
 ];
+
+const editedSingleChoicePoll: SeedCase = async ({ writer }) => {
+  const [poll, create] = await writer.saveAll(
+    {
+      type: "Create",
+      object: {
+        type: "Question",
+        name: "Which day should we meet?",
+        oneOf: [
+          { type: "Note", name: "Monday" },
+          { type: "Note", name: "Tuesday" },
+        ],
+        closed: false,
+      },
+    },
+    [
+      { path: ["object"], kind: "object", representation: "embedded" },
+      ...ACTIVITY,
+    ],
+  );
+  if (poll == null || create == null) throw new Error("Missing a resource.");
+  await writer.edit(poll.id, {
+    oneOf: [
+      { type: "Note", name: "Monday" },
+      { type: "Note", name: "Wednesday" },
+    ],
+    closed: "2026-11-20T12:00:00Z",
+  });
+  return {
+    number: 26,
+    title: "An edited single-choice poll and its original Create snapshot",
+    resources: [labelled("Question", poll), labelled("Create", create)],
+  };
+};
+
+const multipleChoicePoll: SeedCase = async ({ writer }) => {
+  const poll = await writer.save({
+    type: "Question",
+    name: "Which days are you available?",
+    anyOf: [
+      { type: "Note", name: "Thursday" },
+      { type: "Note", name: "Friday" },
+    ],
+  });
+  return {
+    number: 27,
+    title: "A standalone multiple-choice poll",
+    resources: [labelled("Question", poll)],
+  };
+};
+
+export const POLL_CASES: readonly SeedCase[] = [
+  editedSingleChoicePoll,
+  multipleChoicePoll,
+];
