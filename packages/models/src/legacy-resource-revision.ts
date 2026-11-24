@@ -18,19 +18,46 @@ import { sql } from "drizzle-orm";
 
 import type { Transaction } from "./db.ts";
 import { LegacyResourceRevisionError } from "./legacy-resource-revision-error.ts";
+import {
+  type RevisionExpansionInput,
+  checkRevisionExpansion,
+  recordMissingExpansions,
+} from "./revision-expansion.ts";
 import type { Uuid } from "./uuid.ts";
+
+/** Options for {@link captureLegacyResourceRevision}. */
+export interface CaptureLegacyResourceRevisionOptions {
+  /**
+   * The expansion of the typed row's document, computed before the
+   * transaction.  When omitted, a captured snapshot is expanded offline within
+   * the transaction.
+   */
+  readonly expansion?: RevisionExpansionInput;
+}
 
 /**
  * Captures fully written legacy typed state within its creating transaction.
  * This trusted compatibility operation performs no authorization or fetching.
  * Repeated calls return the original revision only when the typed state agrees.
+ * Revisions of the resource without an expansion get one, so that a capture
+ * reusing a revision made before expansions were stored records it too.
  * @returns The first retained revision ID, including an unavailable snapshot.
  * @throws {LegacyResourceRevisionError} When typed state cannot be captured.
  */
 export async function captureLegacyResourceRevision(
   tx: Transaction,
   resourceId: Uuid,
+  options: CaptureLegacyResourceRevisionOptions = {},
 ): Promise<Uuid> {
+  if (options.expansion !== undefined) {
+    checkRevisionExpansion(options.expansion);
+  }
+  const id = await capture(tx, resourceId);
+  await recordMissingExpansions(tx, resourceId, options.expansion);
+  return id;
+}
+
+async function capture(tx: Transaction, resourceId: Uuid): Promise<Uuid> {
   try {
     const [row] = await tx
       .select({

@@ -1200,3 +1200,4 @@ export type RevisionRelation = typeof revisionRelations.$inferSelect;
 export type RevisionReceipt = typeof revisionReceipts.$inferSelect;
 export type RevisionEmbedding = typeof revisionEmbeddings.$inferSelect;
 export type RevisionExpansion = typeof revisionExpansions.$inferSelect;
+export type NewRevisionExpansion = typeof revisionExpansions.$inferInsert;
