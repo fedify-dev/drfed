@@ -111,12 +111,17 @@ const loaderOf =
 
 /**
  * Record inbox requests with a federation that fetches only the documents.
+ * Contexts are loaded as usual, except those given, which are served as they
+ * are, as a remote server would.
  * @returns The federation, and how to send a request through the recorder.
  */
 export async function createRecorder(
   db: Database,
   documents: Documents,
-  { queue }: { readonly queue?: MessageQueue } = {},
+  {
+    queue,
+    contexts = new Map(),
+  }: { readonly queue?: MessageQueue; readonly contexts?: Documents } = {},
 ): Promise<{
   readonly federation: TrackedFederation;
   send(request: Request): Promise<Response>;
@@ -127,9 +132,13 @@ export async function createRecorder(
     undefined,
   );
   const documentLoader = loaderOf(documents);
+  const remoteContexts = loaderOf(contexts);
   const federation = await createFederation(db, {
     kv,
-    contextLoaderFactory: () => contextLoader,
+    contextLoaderFactory: () => (url, options) =>
+      contexts.has(url)
+        ? remoteContexts(url, options)
+        : contextLoader(url, options),
     documentLoaderFactory: () => documentLoader,
     authenticatedDocumentLoaderFactory: () => documentLoader,
     ...(queue == null ? {} : { queue, manuallyStartQueue: true }),

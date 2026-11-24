@@ -32,6 +32,10 @@ import {
   storableText,
   storeAddressing,
 } from "@drfed/models";
+import {
+  type DocumentExpansion,
+  undefinedTermsOf,
+} from "@drfed/models/expansion";
 import type { ActorType, ObjectType } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import type { InboxContext } from "@fedify/fedify";
@@ -57,6 +61,11 @@ import {
   type Receipt,
   noteFetchedObject,
 } from "./activity-delivery/tracking.ts";
+import {
+  type GatheredContexts,
+  expandGathered,
+  gatherContexts,
+} from "./expansion.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
 const logger = getLogger(["drfed", "federation"]);
@@ -82,8 +91,20 @@ interface Accepted {
   readonly objectDocument: unknown;
   /** Whether the object was fetched rather than taken from the activity. */
   readonly objectFetched: boolean;
+  /** The expansion of the activity as received, made before storing it. */
+  readonly activityExpansion: Expansion;
+  /**
+   * The expansion of `objectDocument`, made before storing it; undefined when
+   * the object's place in the activity was not found.
+   */
+  readonly objectExpansion: Expansion | undefined;
   readonly receipt: Receipt;
 }
+
+type Expansion = Exclude<
+  DocumentExpansion,
+  { readonly outcome: "no_document" }
+>;
 
 /** Why a `Create` is not stored. */
 class Refusal extends Error {
@@ -242,22 +263,95 @@ async function isObjectAt(
 
 /**
  * The object of a received activity, as it was received.
- * @returns The embedded object, or undefined when it is not found within
- *          the first {@link MAX_PROBES} places of the document.
+ * @returns The embedded object and its place, or undefined when it is not
+ *          found within the first {@link MAX_PROBES} places of the document.
  */
 async function embeddedObject(
   payload: unknown,
   contextLoader: DocumentLoader,
-): Promise<unknown> {
+): Promise<{ readonly document: unknown; readonly path: Path } | undefined> {
   // The document itself is the activity, never its object.
   const paths = objectPaths(payload).filter((path) => path.length > 0);
   for (const path of paths.slice(0, MAX_PROBES)) {
     if (await isObjectAt(payload, path, contextLoader)) {
-      return valueAt(payload, path);
+      return { document: valueAt(payload, path), path };
     }
   }
   logger.warn("Could not find the object of an activity as received.");
   return undefined;
+}
+
+/**
+ * The expansion of an object embedded in a received activity, taken from the
+ * activity's expansion as the first `as:object` of its first node, which is
+ * the node Fedify reads as the object, since the embedded document lacks the
+ * context it inherits.  Its dropped terms are those the activity dropped that
+ * a document without the object does not.
+ * @returns The object's expansion.
+ */
+async function embeddedExpansion(
+  payload: unknown,
+  path: Path,
+  gathered: GatheredContexts,
+  activity: Expansion,
+): Promise<Expansion> {
+  if (activity.outcome === "failed") return activity;
+  const [node] = activity.document;
+  const objects = isRecord(node) ? node[AS_OBJECT] : undefined;
+  const [first] = Array.isArray(objects) ? objects : [];
+  if (!isRecord(first)) {
+    return {
+      outcome: "failed",
+      failure: "The expanded activity has no object node.",
+    };
+  }
+  const probed = await expandGathered(
+    replaceAt(payload, path, { "@id": PROBE }),
+    gathered,
+  );
+  const outside = new Set(
+    probed.outcome === "expanded" ? probed.droppedTerms : [],
+  );
+  return {
+    outcome: "expanded",
+    document: [first],
+    droppedTerms: activity.droppedTerms.filter((term) => !outside.has(term)),
+    undefinedTerms: undefinedTermsOf([first]),
+  };
+}
+
+/**
+ * Expand a received activity and its object with the contexts Fedify loads,
+ * before the transaction that stores them, so that no context is fetched
+ * within it.
+ * @returns The expansions of the activity and of the object.
+ */
+async function expandReceived(
+  ctx: InboxContext<unknown>,
+  payload: unknown,
+  object: {
+    readonly document: unknown;
+    readonly path?: Path;
+    readonly fetched: boolean;
+  },
+): Promise<{
+  readonly activity: Expansion;
+  readonly object: Expansion | undefined;
+}> {
+  const gathered = await gatherContexts(payload, ctx.contextLoader);
+  const activity = await expandGathered(payload, gathered);
+  if (object.fetched) {
+    const own = await gatherContexts(object.document, ctx.contextLoader);
+    return {
+      activity,
+      object: await expandGathered(object.document, own),
+    };
+  }
+  if (object.path === undefined) return { activity, object: undefined };
+  return {
+    activity,
+    object: await embeddedExpansion(payload, object.path, gathered, activity),
+  };
 }
 
 const textOf = (value: string | LanguageString | null): string | null =>
@@ -292,6 +386,8 @@ async function loadObject(
 ): Promise<{
   readonly object: APObject;
   readonly document: unknown;
+  /** Where the object sits in the activity, when it was embedded there. */
+  readonly path?: Path;
   readonly fetched: boolean;
 }> {
   const objectIri = activity.objectId?.href;
@@ -311,11 +407,10 @@ async function loadObject(
   }
   if (object == null) throw new Refusal("it has no object");
   if (!fetched) {
-    return {
-      object,
-      document: await embeddedObject(receipt.payload, ctx.contextLoader),
-      fetched,
-    };
+    const embedded = await embeddedObject(receipt.payload, ctx.contextLoader);
+    return embedded === undefined
+      ? { object, document: undefined, fetched }
+      : { object, document: embedded.document, path: embedded.path, fetched };
   }
   const document = await object.toJsonLd({ contextLoader: ctx.contextLoader });
   noteFetchedObject(document);
@@ -363,11 +458,8 @@ async function accept(
 ): Promise<Accepted> {
   const activityIri = activity.id?.href;
   if (activityIri == null) throw new Refusal("it has no ID");
-  const { object, document, fetched } = await loadObject(
-    ctx,
-    activity,
-    receipt,
-  );
+  const loaded = await loadObject(ctx, activity, receipt);
+  const { object, document, fetched } = loaded;
   const objectIri = object.id?.href;
   const objectType = typeOf(objectTypes, object);
   if (objectType == null) throw new Refusal("its object is not supported");
@@ -395,6 +487,7 @@ async function accept(
   if (actor.inboxId == null) throw new Refusal("its actor has no inbox");
   const username = textOf(actor.preferredUsername);
   checkStorable({ "actor's preferredUsername": username });
+  const expansions = await expandReceived(ctx, receipt.payload, loaded);
   return {
     activityIri,
     activity,
@@ -412,6 +505,8 @@ async function accept(
     username,
     objectDocument: document,
     objectFetched: fetched,
+    activityExpansion: expansions.activity,
+    objectExpansion: expansions.object,
     receipt,
   };
 }
@@ -432,6 +527,8 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
   const objectAddressing = addressingOf(object);
   const activityAddressing = addressingOf(activity);
   await db.transaction(async (tx) => {
+    // Set when this transaction inserts the object, rather than reusing one.
+    let objectInserted = false;
     const instance = await ensureRemoteInstance(
       tx,
       canonicalizeAuthority(new URL(accepted.actorIri).host),
@@ -507,6 +604,7 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
           });
         if (row == null) throw new Error("Object insertion returned no row.");
         await storeAddressing(inner, row.id, objectAddressing);
+        objectInserted = true;
         return row;
       },
       undefined,
@@ -529,8 +627,28 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
         await storeAddressing(inner, resource.id, activityAddressing);
       },
     );
-    await captureLegacyResourceRevision(tx, stored.id);
-    await captureLegacyResourceRevision(tx, activityId);
+    // The activity first, since an embedded object's expansion refers to the
+    // activity revision it was taken from.  A reused object keeps the
+    // expansion of the document stored with it, not this activity's.
+    const activityRevisionId = await captureLegacyResourceRevision(
+      tx,
+      activityId,
+      { expansion: accepted.activityExpansion },
+    );
+    const objectExpansion = objectInserted
+      ? accepted.objectExpansion
+      : undefined;
+    await captureLegacyResourceRevision(
+      tx,
+      stored.id,
+      objectExpansion === undefined
+        ? {}
+        : {
+            expansion: accepted.objectFetched
+              ? objectExpansion
+              : { ...objectExpansion, sourceRevisionId: activityRevisionId },
+          },
+    );
   });
 }
 

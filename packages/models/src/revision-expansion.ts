@@ -129,7 +129,10 @@ export function expansionRow(
  * @param tx The capturing transaction.
  * @param resourceId The captured resource.
  * @param expansion The expansion of the typed document, if the caller computed
- *                  it; otherwise the document is expanded offline here.
+ *                  it; otherwise the document is expanded offline here, from
+ *                  preloaded contexts only.  An embedded snapshot lacks the
+ *                  context it inherits, so without one it is left without a
+ *                  row for the backfill, which expands it from its activity.
  */
 export async function recordMissingExpansions(
   tx: Transaction,
@@ -140,6 +143,7 @@ export async function recordMissingExpansions(
     .select({
       id: resourceRevisions.id,
       kind: resourceRevisions.kind,
+      capture: resourceRevisions.capture,
       document: resourceRevisions.document,
     })
     .from(resourceRevisions)
@@ -160,6 +164,7 @@ export async function recordMissingExpansions(
       rows.push(expansionRow(revision.id, null));
       continue;
     }
+    if (expansion === undefined && revision.capture === "embedded") continue;
     // oxlint-disable-next-line no-await-in-loop
     const own = expansion ?? (await expandDocument(revision.document));
     if (own.outcome === "no_document") {

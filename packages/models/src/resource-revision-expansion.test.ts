@@ -66,7 +66,10 @@ async function expansionOf(fixture: RevisionFixture, revisionId: Uuid) {
 async function legacyObject(
   fixture: RevisionFixture,
   document: JsonObject,
-  deleted: string | null = null,
+  {
+    deleted = null,
+    fetched = true,
+  }: { readonly deleted?: string | null; readonly fetched?: boolean } = {},
 ) {
   const instanceId = uuidV7();
   const actorId = uuidV7();
@@ -85,8 +88,14 @@ async function legacyObject(
     [actorId, instanceId],
   );
   await fixture.query(
-    "INSERT INTO objects (id, actor_id, type, content_html, document, deleted) VALUES ($1, $2, 'Note', 'first', $3::json, $4::timestamptz)",
-    [objectId, actorId, JSON.stringify({ ...document, id: iri }), deleted],
+    "INSERT INTO objects (id, actor_id, type, content_html, document, deleted, fetched) VALUES ($1, $2, 'Note', 'first', $3::json, $4::timestamptz, $5)",
+    [
+      objectId,
+      actorId,
+      JSON.stringify({ ...document, id: iri }),
+      deleted,
+      fetched,
+    ],
   );
   await fixture.db.transaction(
     async (tx) => await storeAddressing(tx, objectId, { to: [PUBLIC] }),
@@ -292,7 +301,7 @@ for (const backend of revisionBackends) {
       const deleted = await legacyObject(
         fixture,
         { "@context": AS, type: "Note", content: "gone" },
-        "2026-11-01T00:00:00Z",
+        { deleted: "2026-11-01T00:00:00Z" },
       );
       await capture(fixture, deleted.objectId);
       const [snapshot, whiteout] = await revisionIds(fixture, deleted.objectId);
@@ -306,6 +315,16 @@ for (const backend of revisionBackends) {
         (await expansionOf(fixture, whiteout.id)).outcome,
         "no_document",
       );
+
+      // An embedded object lacks the context it inherits, so without a given
+      // expansion it is left for the backfill.
+      const embedded = await legacyObject(
+        fixture,
+        { type: "Note", content: "inherited" },
+        { fetched: false },
+      );
+      const embeddedId = await capture(fixture, embedded.objectId);
+      assert.equal(await loadRevisionExpansion(fixture.db, embeddedId), null);
     });
   });
 
