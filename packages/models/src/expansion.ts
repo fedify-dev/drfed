@@ -45,32 +45,41 @@ export type DocumentExpansion =
 /** Options for {@link expandDocument}. */
 export interface ExpandDocumentOptions {
   /**
-   * Loads remote contexts.  Defaults to {@link offlineContextLoader}, which
-   * never accesses the network.
+   * Remote contexts gathered beforehand, by URL, besides the contexts
+   * preloaded by `@fedify/vocab-runtime`.  Expansion never accesses the
+   * network, so it may run inside a transaction; a context found in neither
+   * fails the expansion.
    */
-  readonly contextLoader?: DocumentLoader;
+  readonly contexts?: ReadonlyMap<string, GatheredContext>;
 }
 
-/**
- * A context loader that serves only the contexts preloaded by
- * `@fedify/vocab-runtime` and rejects every other URL without network
- * access.
- * @param url The context URL.
- * @returns The preloaded context document.
- */
-export const offlineContextLoader: DocumentLoader = (url) => {
-  if (!Object.hasOwn(preloadedContexts, url)) {
-    return Promise.reject(
-      new Error(`The context ${JSON.stringify(url)} is not preloaded.`),
-    );
-  }
-  const document: RemoteDocument = {
-    contextUrl: null,
-    documentUrl: url,
-    document: preloadedContexts[url],
+/** A remote context gathered before an expansion, keyed by requested URL. */
+export interface GatheredContext {
+  /** The URL the context was finally loaded from, after redirects. */
+  readonly documentUrl: string;
+  readonly document: unknown;
+}
+
+function contextReader(
+  contexts: ReadonlyMap<string, GatheredContext> = new Map(),
+): DocumentLoader {
+  return (url) => {
+    const gathered = Object.hasOwn(preloadedContexts, url)
+      ? { documentUrl: url, document: preloadedContexts[url] }
+      : contexts.get(url);
+    if (gathered === undefined) {
+      return Promise.reject(
+        new Error(`The context ${JSON.stringify(url)} was not gathered.`),
+      );
+    }
+    const remote: RemoteDocument = {
+      contextUrl: null,
+      documentUrl: gathered.documentUrl,
+      document: gathered.document,
+    };
+    return Promise.resolve(remote);
   };
-  return Promise.resolve(document);
-};
+}
 
 const DROPPED_TERM_EVENTS: ReadonlySet<string> = new Set([
   "invalid property",
@@ -81,10 +90,11 @@ type ExpandInput = Parameters<typeof jsonld.expand>[0];
 type ExpandOptions = NonNullable<Parameters<typeof jsonld.expand>[1]>;
 
 /**
- * Expands a document with the JSON-LD processor Fedify uses.  Expansion
- * failures are returned as a `failed` outcome rather than thrown.
+ * Expands a document with the JSON-LD processor Fedify uses, reading
+ * contexts only from those preloaded and those given.  Expansion failures are
+ * returned as a `failed` outcome rather than thrown.
  * @param document The document as stored.
- * @param options Options, including the context loader.
+ * @param options Options, including gathered contexts.
  * @returns The outcome of the expansion.
  */
 export async function expandDocument(
@@ -97,7 +107,7 @@ export async function expandDocument(
     expanded = await jsonld.expand(
       document as ExpandInput,
       {
-        documentLoader: options.contextLoader ?? offlineContextLoader,
+        documentLoader: contextReader(options.contexts),
         eventHandler: ({ event }: { event: JsonLdEvent }) => {
           const property = event.details?.property;
           if (
@@ -110,7 +120,7 @@ export async function expandDocument(
       } as ExpandOptions,
     );
   } catch (error) {
-    return { outcome: "failed", failure: failureOf(error) };
+    return { outcome: "failed", failure: expansionFailure(error) };
   }
   const nodes = Array.isArray(expanded) ? (expanded as unknown[]) : [expanded];
   return {
@@ -126,13 +136,42 @@ interface JsonLdEvent {
   readonly details?: { readonly property?: unknown };
 }
 
-function failureOf(error: unknown): string {
+function describeError(error: unknown): string {
   if (error instanceof Error) {
     return error.message === ""
       ? error.name
       : `${error.name}: ${error.message}`;
   }
   return String(error);
+}
+
+function causeOf(error: unknown): unknown {
+  if (error === null || typeof error !== "object") return undefined;
+  const { details, cause } = error as {
+    readonly details?: { readonly cause?: unknown };
+    readonly cause?: unknown;
+  };
+  return details?.cause ?? cause;
+}
+
+/**
+ * Describes why an expansion failed, followed by its causes, since the
+ * JSON-LD processor wraps the error a context loader threw.
+ * @param error The thrown error.
+ * @returns The reason recorded for a `failed` outcome.
+ */
+export function expansionFailure(error: unknown): string {
+  const reasons = [describeError(error)];
+  const seen = new Set<unknown>([error]);
+  for (
+    let cause = causeOf(error);
+    cause !== undefined && cause !== null && !seen.has(cause);
+    cause = causeOf(cause)
+  ) {
+    seen.add(cause);
+    reasons.push(describeError(cause));
+  }
+  return reasons.join(" Caused by ");
 }
 
 function distinct(values: readonly string[]): string[] {

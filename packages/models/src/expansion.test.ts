@@ -18,7 +18,7 @@ import { describe, it } from "node:test";
 
 import {
   expandDocument,
-  offlineContextLoader,
+  expansionFailure,
   undefinedTermsOf,
 } from "@drfed/models/expansion";
 
@@ -82,7 +82,7 @@ describe("expandDocument()", () => {
     });
   });
 
-  it("fails on a context that is not preloaded by default", async () => {
+  it("fails on a context that is neither preloaded nor gathered", async () => {
     const result = await expandDocument({
       "@context": "https://example.test/context",
       name: "a",
@@ -90,26 +90,25 @@ describe("expandDocument()", () => {
     assert.equal(result.outcome, "failed");
     assert.match(
       result.outcome === "failed" ? result.failure : "",
-      /^jsonld\.\w+: /u,
+      /^jsonld\.\w+: .* Caused by Error: The context "https:\/\/example\.test\/context" was not gathered\.$/u,
     );
   });
 
-  it("loads remote contexts through the given loader", async () => {
-    const urls: string[] = [];
+  it("reads gathered contexts", async () => {
     const result = await expandDocument(
       { "@context": "https://example.test/context", name: "a" },
       {
-        contextLoader: (url) => {
-          urls.push(url);
-          return Promise.resolve({
-            contextUrl: null,
-            documentUrl: url,
-            document: { "@context": { name: "https://schema.org/name" } },
-          });
-        },
+        contexts: new Map([
+          [
+            "https://example.test/context",
+            {
+              documentUrl: "https://example.test/context",
+              document: { "@context": { name: "https://schema.org/name" } },
+            },
+          ],
+        ]),
       },
     );
-    assert.deepEqual(urls, ["https://example.test/context"]);
     assert.deepEqual(result, {
       outcome: "expanded",
       document: [{ "https://schema.org/name": [{ "@value": "a" }] }],
@@ -124,15 +123,18 @@ describe("expandDocument()", () => {
   });
 });
 
-describe("offlineContextLoader()", () => {
-  it("serves preloaded contexts", async () => {
-    const remote = await offlineContextLoader(AS);
-    assert.equal(remote.documentUrl, AS);
-    assert.ok(remote.document != null);
-  });
-
-  it("rejects other URLs", async () => {
-    await assert.rejects(offlineContextLoader("https://example.test/context"));
+describe("expansionFailure()", () => {
+  it("follows causes, including jsonld details", () => {
+    const root = new Error("timed out");
+    const wrapped = Object.assign(new Error("loading failed"), {
+      name: "jsonld.InvalidUrl",
+      details: { cause: new Error("fetch failed", { cause: root }) },
+    });
+    assert.equal(
+      expansionFailure(wrapped),
+      "jsonld.InvalidUrl: loading failed Caused by Error: fetch failed Caused by Error: timed out",
+    );
+    assert.equal(expansionFailure("plain"), "plain");
   });
 });
 
