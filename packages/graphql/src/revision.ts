@@ -513,7 +513,7 @@ DocumentPoll.implement({
       description: "The saved boolean closing value, or null if there is none.",
       resolve: ({ closed }) => (typeof closed === "boolean" ? closed : null),
     }),
-    closedAt: t.field({
+    closedTime: t.field({
       type: "DateTime",
       nullable: true,
       description: "The saved closing instant, or null if there is none.",

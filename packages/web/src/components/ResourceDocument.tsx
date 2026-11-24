@@ -386,7 +386,7 @@ function PollFields(props: {
           </dt>
           <dd>
             <Switch fallback={<span class={styles.faint}>Not set</span>}>
-              <Match when={props.poll.closedAt}>
+              <Match when={props.poll.closedTime}>
                 {(instant) => <time dateTime={instant()}>{instant()}</time>}
               </Match>
               <Match when={typeof props.poll.closed === "boolean"}>
@@ -426,7 +426,7 @@ function NodeView<T extends LevelRelation>(props: {
         poll {
           mode
           closed
-          closedAt
+          closedTime
           choices {
             path
             iri

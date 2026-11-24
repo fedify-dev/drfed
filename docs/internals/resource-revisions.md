@@ -292,7 +292,7 @@ Other document types return null for `poll`.
     preserved. Each choice has its source `path` and an `iri` for a reference
     or identified node. An embedded choice has a `node` with its saved
     document and extensions.
- -  `closed` holds a saved boolean, including `false`. `closedAt` holds a
+ -  `closed` holds a saved boolean, including `false`. `closedTime` holds a
     saved date-time as a `DateTime` instant. Both are null when absent.
 
 The resource revision view shows the poll from the selected revision.

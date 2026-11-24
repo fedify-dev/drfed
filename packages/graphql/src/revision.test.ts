@@ -218,7 +218,7 @@ describe("DocumentNode.poll", () => {
       const result = await query(
         currentRoot(`
           poll {
-            mode closed closedAt
+            mode closed closedTime
             choices { path iri node { document extensions { key value } } }
           }
         `),
@@ -233,7 +233,7 @@ describe("DocumentNode.poll", () => {
                 poll: {
                   mode: "inclusive",
                   closed: false,
-                  closedAt: null,
+                  closedTime: null,
                   choices: [
                     {
                       path: ["options", 0],
@@ -296,7 +296,7 @@ describe("DocumentNode.poll", () => {
       const result = await query(
         `query($poll: ID!, $creation: ID!, $update: ID!) {
           poll: node(id: $poll) { ... on Resource {
-            currentRevision { root { poll { mode closed closedAt choices { iri } } } }
+            currentRevision { root { poll { mode closed closedTime choices { iri } } } }
           } }
           creation: node(id: $creation) { ...activityPoll }
           update: node(id: $update) { ...activityPoll }
@@ -306,7 +306,7 @@ describe("DocumentNode.poll", () => {
             type
             poll { mode }
             relations(property: object) { node { poll {
-              mode closed closedAt choices { path node { document } }
+              mode closed closedTime choices { path node { document } }
             } } }
           } }
         }`,
@@ -331,14 +331,19 @@ describe("DocumentNode.poll", () => {
           poll: {
             currentRevision: {
               root: {
-                poll: { mode: null, closed: null, closedAt: null, choices: [] },
+                poll: {
+                  mode: null,
+                  closed: null,
+                  closedTime: null,
+                  choices: [],
+                },
               },
             },
           },
           creation: activityPoll("Create", {
             mode: "exclusive",
             closed: null,
-            closedAt: "2026-11-14T12:00:00.123456789Z",
+            closedTime: "2026-11-14T12:00:00.123456789Z",
             choices: [
               { path: ["object", "oneOf"], node: { document: monday } },
             ],
@@ -346,7 +351,7 @@ describe("DocumentNode.poll", () => {
           update: activityPoll("Update", {
             mode: "inclusive",
             closed: false,
-            closedAt: null,
+            closedTime: null,
             choices: [
               { path: ["object", "anyOf", 0], node: { document: friday } },
             ],
