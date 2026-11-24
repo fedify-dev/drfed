@@ -16,12 +16,15 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
-import type { Database } from "@drfed/models";
+import { backfillExpansions } from "@drfed/federation/expansion-backfill";
+import { type Database, schema } from "@drfed/models";
 import {
   loadCurrentResourceRevision,
   loadRevisionExpansion,
 } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
+import type { DocumentLoader } from "@fedify/fedify";
+import { eq } from "drizzle-orm";
 
 import { withTestHarness } from "../harness.test.ts";
 import { seedLocalInstance } from "../seed.test.ts";
@@ -142,5 +145,68 @@ it("expands a fetched object on its own", async () => {
     const node = nodeOf(object.expansion.document);
     assert.equal(node["@id"], "https://remote.example/notes/fetched");
     assert.deepEqual(node[`${AS}#content`], [{ "@value": "<p>fetched</p>" }]);
+  });
+});
+
+it("backfills the expansions of revisions without one", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents, { contexts });
+    const body = createOf(alice, "1", {
+      activity: { "@context": [AS, NS], mood: "happy" },
+      object: { mood: "calm", bogus: 1 },
+    });
+    assert.equal((await send(await signed(signer, body))).status, 202);
+    const activityId = await idOf(db, "https://remote.example/activities/1");
+    const objectId = await idOf(db, "https://remote.example/notes/1");
+    const before = [
+      await expansionOf(db, activityId),
+      await expansionOf(db, objectId),
+    ];
+    const contextLoader: DocumentLoader = (url) =>
+      contexts.has(url)
+        ? Promise.resolve({
+            contextUrl: null,
+            documentUrl: url,
+            document: contexts.get(url),
+          })
+        : Promise.reject(new Error(`offline: ${url}`));
+
+    // As if stored before expansions were.
+    await db.delete(schema.revisionExpansions);
+    assert.deepEqual(await backfillExpansions(db, { contextLoader }), {
+      expanded: 2,
+      failed: 0,
+      noDocument: 0,
+    });
+    assert.deepEqual(
+      [await expansionOf(db, activityId), await expansionOf(db, objectId)],
+      before,
+    );
+    // Running again records nothing.
+    assert.deepEqual(await backfillExpansions(db, { contextLoader }), {
+      expanded: 0,
+      failed: 0,
+      noDocument: 0,
+    });
+
+    // An embedded object whose carrying activity cannot be found fails.
+    await db
+      .update(schema.objects)
+      .set({ activityId: null })
+      .where(eq(schema.objects.id, objectId));
+    await db
+      .delete(schema.revisionExpansions)
+      .where(eq(schema.revisionExpansions.revisionId, before[1]!.revision.id));
+    assert.deepEqual(await backfillExpansions(db, { contextLoader }), {
+      expanded: 0,
+      failed: 1,
+      noDocument: 0,
+    });
+    const { expansion } = await expansionOf(db, objectId);
+    assert.equal(expansion.outcome, "failed");
+    assert.match(expansion.failure ?? "", /carried the object/u);
   });
 });

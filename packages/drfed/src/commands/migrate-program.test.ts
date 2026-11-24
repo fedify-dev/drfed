@@ -191,3 +191,28 @@ it("uses mutually exclusive typed database selectors and rejects the removed dri
   );
   assert.equal(selected.database.driver, "postgres");
 });
+
+it("expands revisions only when applying migrations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "drfed-migrate-expand-"));
+  try {
+    const plain = await parse(["-d", "data"], {}, directory);
+    assert.equal(plain.expandRevisions, false);
+    assert.equal(describeMigrationConfiguration(plain).mode, "apply");
+    const expand = await parse(
+      ["-d", "data", "--expand-revisions"],
+      {},
+      directory,
+    );
+    assert.equal(expand.expandRevisions, true);
+    assert.equal(
+      describeMigrationConfiguration(expand).mode,
+      "apply-and-expand",
+    );
+    await assert.rejects(
+      parse(["-d", "data", "--check", "--expand-revisions"], {}, directory),
+      /--check and --expand-revisions cannot be used together\./u,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

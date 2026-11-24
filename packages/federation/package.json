@@ -62,6 +62,10 @@
       "types": "./dist/expansion.d.mts",
       "default": "./dist/expansion.mjs"
     },
+    "./expansion-backfill": {
+      "types": "./dist/expansion-backfill.d.mts",
+      "default": "./dist/expansion-backfill.mjs"
+    },
     "./local-write": {
       "types": "./dist/local-write.d.mts",
       "default": "./dist/local-write.mjs"
@@ -94,6 +98,7 @@
       "src/object.ts",
       "src/document.ts",
       "src/expansion.ts",
+      "src/expansion-backfill.ts",
       "src/local-write.ts",
       "src/origin.ts",
       "src/actor-key.ts",

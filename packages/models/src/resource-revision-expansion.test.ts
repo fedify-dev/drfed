@@ -226,6 +226,19 @@ for (const backend of revisionBackends) {
         TypeError,
       );
       assert.deepEqual(await revisionIds(fixture, resource.id), []);
+      // An embedded snapshot cannot be expanded without what it inherits.
+      await assert.rejects(
+        appendResourceRevision(fixture.db, {
+          resourceId: resource.id,
+          resourceKind: "object",
+          expectedRevisionId: null,
+          kind: "snapshot",
+          document: { type: "Note" },
+          capture: "embedded",
+        }),
+        /needs its given expansion/u,
+      );
+      assert.deepEqual(await revisionIds(fixture, resource.id), []);
       // The table refuses rows whose columns contradict their outcome.
       const revision = await append(fixture, { type: "Note" });
       await assert.rejects(

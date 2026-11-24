@@ -16,6 +16,7 @@
 
 import process from "node:process";
 
+import { backfillExpansions } from "@drfed/federation/expansion-backfill";
 import { MigrationPreparationError, PgliteStoreError } from "@drfed/models";
 import { text } from "@optique/core/message";
 import { printError, run } from "@optique/run";
@@ -86,8 +87,22 @@ export async function main(): Promise<void> {
         signal,
       ),
     );
+    let expansions: Awaited<ReturnType<typeof backfillExpansions>> | undefined;
+    if (options.expandRevisions && database.state.status === "ready") {
+      expansions = await operations.run((signal) =>
+        backfillExpansions(database.db, { signal }),
+      );
+    }
     console.log(
-      JSON.stringify({ command: "migrate", ...database.state }, null, 2),
+      JSON.stringify(
+        {
+          command: "migrate",
+          ...database.state,
+          ...(expansions === undefined ? {} : { expansions }),
+        },
+        null,
+        2,
+      ),
     );
     if (database.state.status !== "ready") failed = true;
   } catch (error) {

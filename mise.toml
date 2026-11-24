@@ -402,6 +402,17 @@ flag "-d --data-path <path>" default=".pgdata" help="PGlite data directory; it m
 '''
 run = "node scripts/seed-revisions/main.mts"
 
+[tasks."expand:revisions"]
+description = "Apply migrations and record the expansions of revisions stored without one in a development PGlite database"
+depends = ["build:server"]
+usage = '''
+flag "-d --data-path <path>" default=".pgdata" help="PGlite data directory; stop mise run dev first"
+'''
+run = '''
+#!/usr/bin/env nu
+node packages/drfed/bin/drfed-migrate.mjs --data-path $env.usage_data_path --expand-revisions
+'''
+
 [tasks."generate:migrate"]
 description = "Generate database migration files"
 usage = """

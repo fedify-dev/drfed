@@ -129,7 +129,13 @@ export type AppendResourceRevisionInput = AppendBase &
       }
   );
 
-export type { RevisionExpansionInput } from "./revision-expansion.ts";
+export {
+  type RevisionExpansionInput,
+  type UnexpandedRevision,
+  findCarryingActivityRevision,
+  listUnexpandedRevisions,
+  recordRevisionExpansion,
+} from "./revision-expansion.ts";
 
 /** Protected local JSON and projections, not an authorized or wire representation. */
 export interface StoredResourceRevision extends ResourceRevision {
@@ -559,6 +565,11 @@ async function appendPrepared(
 async function expanded(prepared: PreparedRevision): Promise<PreparedRevision> {
   if (prepared.expansion !== undefined || prepared.source === null) {
     return prepared;
+  }
+  // Without the context it inherits, an embedded document would expand to
+  // something else; it is expanded from the activity that carried it.
+  if (prepared.capture === "embedded") {
+    throw new TypeError("An embedded snapshot needs its given expansion.");
   }
   const expansion = await expandDocument(prepared.source);
   if (expansion.outcome === "no_document") {

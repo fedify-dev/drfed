@@ -13,13 +13,18 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 
-import type { Transaction } from "./db.ts";
+import type { Database, Transaction } from "./db.ts";
 import { type DocumentExpansion, expandDocument } from "./expansion.ts";
 import { json } from "./json-text.ts";
-import { resourceRevisions, revisionExpansions } from "./schema.ts";
+import {
+  type ResourceRevision,
+  objects,
+  resourceRevisions,
+  revisionExpansions,
+} from "./schema.ts";
 import { storableText } from "./text.ts";
 import { type Uuid, validateUuid } from "./uuid.ts";
 
@@ -175,4 +180,101 @@ export async function recordMissingExpansions(
   if (rows.length > 0) {
     await tx.insert(revisionExpansions).values(rows).onConflictDoNothing();
   }
+}
+
+/** A revision the backfill has not reached, as {@link listUnexpandedRevisions} lists it. */
+export interface UnexpandedRevision {
+  readonly id: Uuid;
+  readonly resourceId: Uuid;
+  readonly kind: ResourceRevision["kind"];
+  readonly capture: ResourceRevision["capture"];
+  readonly document: unknown;
+}
+
+/**
+ * Lists revisions without an expansion, in ID order.
+ * @param db The database.
+ * @param options Where to continue from, and how many to list.
+ * @returns Up to `limit` revisions after `after`.
+ */
+export async function listUnexpandedRevisions(
+  db: Database | Transaction,
+  options: { readonly after?: Uuid; readonly limit: number },
+): Promise<UnexpandedRevision[]> {
+  return await db
+    .select({
+      id: resourceRevisions.id,
+      resourceId: resourceRevisions.resourceId,
+      kind: resourceRevisions.kind,
+      capture: resourceRevisions.capture,
+      document: resourceRevisions.document,
+    })
+    .from(resourceRevisions)
+    .leftJoin(
+      revisionExpansions,
+      eq(revisionExpansions.revisionId, resourceRevisions.id),
+    )
+    .where(
+      and(
+        isNull(revisionExpansions.revisionId),
+        options.after === undefined
+          ? undefined
+          : gt(resourceRevisions.id, options.after),
+      ),
+    )
+    .orderBy(asc(resourceRevisions.id))
+    .limit(options.limit);
+}
+
+/**
+ * Finds the revision of the activity that first carried an embedded object,
+ * the one its typed row names, which an embedded revision's expansion is
+ * taken from.
+ * @param db The database.
+ * @param objectId The embedded object's resource.
+ * @returns The activity's first revision, or null if there is none.
+ */
+export async function findCarryingActivityRevision(
+  db: Database | Transaction,
+  objectId: Uuid,
+): Promise<{ readonly id: Uuid; readonly document: unknown } | null> {
+  const [row] = await db
+    .select({
+      id: resourceRevisions.id,
+      document: resourceRevisions.document,
+    })
+    .from(objects)
+    .innerJoin(
+      resourceRevisions,
+      and(
+        eq(resourceRevisions.resourceId, objects.activityId),
+        eq(resourceRevisions.sequence, 1),
+        eq(resourceRevisions.kind, "snapshot"),
+      ),
+    )
+    .where(eq(objects.id, objectId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Records the expansion of a revision that has none.  An existing row is kept,
+ * so that the backfill can run again or alongside new writes.
+ * @param db The database.
+ * @param revisionId The revision.
+ * @param expansion Its expansion, or null for a revision without a document.
+ * @returns Whether a row was inserted.
+ */
+export async function recordRevisionExpansion(
+  db: Database | Transaction,
+  revisionId: Uuid,
+  expansion: RevisionExpansionInput | null,
+): Promise<boolean> {
+  if (expansion !== null) checkRevisionExpansion(expansion);
+  const inserted = await db
+    .insert(revisionExpansions)
+    .values(expansionRow(revisionId, expansion))
+    .onConflictDoNothing()
+    .returning({ revisionId: revisionExpansions.revisionId });
+  return inserted.length > 0;
 }

@@ -32,10 +32,7 @@ import {
   storableText,
   storeAddressing,
 } from "@drfed/models";
-import {
-  type DocumentExpansion,
-  undefinedTermsOf,
-} from "@drfed/models/expansion";
+import type { DocumentExpansion } from "@drfed/models/expansion";
 import type { ActorType, ObjectType } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import type { InboxContext } from "@fedify/fedify";
@@ -54,18 +51,14 @@ import {
   Service,
 } from "@fedify/vocab";
 import { haveSameFe34Origin } from "@fedify/vocab-runtime";
-import jsonld from "@fedify/vocab-runtime/jsonld";
 import { getLogger } from "@logtape/logtape";
 
 import {
   type Receipt,
   noteFetchedObject,
 } from "./activity-delivery/tracking.ts";
-import {
-  type GatheredContexts,
-  expandGathered,
-  gatherContexts,
-} from "./expansion.ts";
+import { type Path, embeddedExpansion, embeddedObject } from "./embedded.ts";
+import { expandGathered, gatherContexts } from "./expansion.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
 const logger = getLogger(["drfed", "federation"]);
@@ -172,152 +165,6 @@ function languageOf(object: APObject): string | null {
   } catch {
     return null;
   }
-}
-
-const AS_OBJECT = "https://www.w3.org/ns/activitystreams#object";
-const PROBE = "urn:drfed:embedded-object";
-/**
- * How many places of a document are tried for its object, each by expanding
- * it again, so that a sender cannot make DrFed expand a large document over
- * and over.  An object not found within them is stored without its document,
- * which the activity's document still holds as received.
- */
-const MAX_PROBES = 64;
-
-type Path = readonly (string | number)[];
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value != null && !Array.isArray(value);
-
-/**
- * Every JSON object in a document, shallowest first, but those of contexts.
- * @returns Their paths.
- */
-function objectPaths(document: unknown): Path[] {
-  const paths: Path[] = [];
-  let level: { readonly value: unknown; readonly path: Path }[] = [
-    { value: document, path: [] },
-  ];
-  while (level.length > 0) {
-    paths.push(
-      ...level.filter(({ value }) => isRecord(value)).map(({ path }) => path),
-    );
-    level = level.flatMap(({ value, path }) =>
-      Array.isArray(value)
-        ? value.map((item, index) => ({ value: item, path: [...path, index] }))
-        : isRecord(value)
-          ? Object.entries(value)
-              .filter(([key]) => key !== "@context")
-              .map(([key, item]) => ({ value: item, path: [...path, key] }))
-          : [],
-    );
-  }
-  return paths;
-}
-
-const valueAt = (document: unknown, path: Path): unknown =>
-  path.reduce<unknown>(
-    (value, key) =>
-      Array.isArray(value) || isRecord(value)
-        ? (value as Record<string | number, unknown>)[key]
-        : undefined,
-    document,
-  );
-
-const replaceAt = (document: unknown, path: Path, value: unknown): unknown => {
-  const [key, ...rest] = path;
-  if (key == null) return value;
-  if (Array.isArray(document)) {
-    return document.map((item, index) =>
-      index === key ? replaceAt(item, rest, value) : item,
-    );
-  }
-  return isRecord(document)
-    ? { ...document, [key]: replaceAt(document[key], rest, value) }
-    : document;
-};
-
-/**
- * Whether the JSON object at a path is what Fedify reads as the object of
- * the activity: the first `as:object` of the first expanded node, under
- * whatever terms, aliases, graphs or containers the document uses.
- * @returns Whether a node in its place becomes the activity's object.
- */
-async function isObjectAt(
-  payload: unknown,
-  path: Path,
-  contextLoader: DocumentLoader,
-): Promise<boolean> {
-  try {
-    const [activity] = await jsonld.expand(
-      replaceAt(payload, path, { "@id": PROBE }) as Record<string, unknown>,
-      { documentLoader: contextLoader, keepFreeFloatingNodes: true },
-    );
-    const objects = isRecord(activity) ? activity[AS_OBJECT] : undefined;
-    const [first] = Array.isArray(objects) ? objects : [];
-    return isRecord(first) && first["@id"] === PROBE;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The object of a received activity, as it was received.
- * @returns The embedded object and its place, or undefined when it is not
- *          found within the first {@link MAX_PROBES} places of the document.
- */
-async function embeddedObject(
-  payload: unknown,
-  contextLoader: DocumentLoader,
-): Promise<{ readonly document: unknown; readonly path: Path } | undefined> {
-  // The document itself is the activity, never its object.
-  const paths = objectPaths(payload).filter((path) => path.length > 0);
-  for (const path of paths.slice(0, MAX_PROBES)) {
-    if (await isObjectAt(payload, path, contextLoader)) {
-      return { document: valueAt(payload, path), path };
-    }
-  }
-  logger.warn("Could not find the object of an activity as received.");
-  return undefined;
-}
-
-/**
- * The expansion of an object embedded in a received activity, taken from the
- * activity's expansion as the first `as:object` of its first node, which is
- * the node Fedify reads as the object, since the embedded document lacks the
- * context it inherits.  Its dropped terms are those the activity dropped that
- * a document without the object does not.
- * @returns The object's expansion.
- */
-async function embeddedExpansion(
-  payload: unknown,
-  path: Path,
-  gathered: GatheredContexts,
-  activity: Expansion,
-): Promise<Expansion> {
-  if (activity.outcome === "failed") return activity;
-  const [node] = activity.document;
-  const objects = isRecord(node) ? node[AS_OBJECT] : undefined;
-  const [first] = Array.isArray(objects) ? objects : [];
-  if (!isRecord(first)) {
-    return {
-      outcome: "failed",
-      failure: "The expanded activity has no object node.",
-    };
-  }
-  const probed = await expandGathered(
-    replaceAt(payload, path, { "@id": PROBE }),
-    gathered,
-  );
-  const outside = new Set(
-    probed.outcome === "expanded" ? probed.droppedTerms : [],
-  );
-  return {
-    outcome: "expanded",
-    document: [first],
-    droppedTerms: activity.droppedTerms.filter((term) => !outside.has(term)),
-    undefinedTerms: undefinedTermsOf([first]),
-  };
 }
 
 /**

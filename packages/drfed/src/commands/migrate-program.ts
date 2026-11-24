@@ -95,6 +95,12 @@ export function createMigrationProgram(
       }),
       false,
     ),
+    expandRevisions: withDefault(
+      flag("--expand-revisions", {
+        description: message`After applying migrations, record the JSON-LD expansion of every revision stored without one, loading remote contexts. Safe to run again.`,
+      }),
+      false,
+    ),
     printConfig: withDefault(
       flag("--print-config", {
         description: message`Print effective settings and provenance with credentials redacted, then exit without opening runtime resources.`,
@@ -138,9 +144,13 @@ export function resolveMigrationOptions(
   if (lockTimeoutMs === undefined) {
     throw new Error("Missing migration lock timeout.");
   }
+  if (raw.check && raw.expandRevisions) {
+    throw new Error("--check and --expand-revisions cannot be used together.");
+  }
   return {
     database: { ...selected.database, lockTimeoutMs },
     check: raw.check,
+    expandRevisions: raw.expandRevisions,
     printConfig: raw.printConfig,
     ignored: selected.ignored,
     provenance: configurationProvenance({
@@ -175,7 +185,11 @@ export function describeMigrationConfiguration(
     .sort((left, right) => rank[right.source] - rank[left.source])[0];
   return {
     command: "migrate" as const,
-    mode: options.check ? "check" : "apply",
+    mode: options.check
+      ? "check"
+      : options.expandRevisions
+        ? "apply-and-expand"
+        : "apply",
     settings: Object.fromEntries(
       Object.entries(values)
         .filter(([, value]) => value !== undefined)
