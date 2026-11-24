@@ -22,6 +22,8 @@ To be released.
     incoming Create activities. Database upgrades retain existing object and
     activity documents, including those of deleted objects. Back up and stop
     DrFed before running `drfed-migrate`.  [[#150], [#164] by Hong Minhee\]
+ -  Added saved choices and closing values to the resource revision view
+    for standalone and embedded `Question` objects. [[#155], [#185]]
  -  Changed <https://drfed.org/> to serve the DrFed documentation for the
     highest released version, prereleases included, along with a changelog
     page. Documentation for the development version is available at
@@ -47,14 +49,19 @@ To be released.
 [#137]: https://github.com/fedify-dev/drfed/pull/137
 [#150]: https://github.com/fedify-dev/drfed/issues/150
 [#153]: https://github.com/fedify-dev/drfed/issues/153
+[#155]: https://github.com/fedify-dev/drfed/issues/155
 [#164]: https://github.com/fedify-dev/drfed/pull/164
 [#167]: https://github.com/fedify-dev/drfed/pull/167
 [#177]: https://github.com/fedify-dev/drfed/pull/177
 [#183]: https://github.com/fedify-dev/drfed/issues/183
 [#184]: https://github.com/fedify-dev/drfed/pull/184
+[#185]: https://github.com/fedify-dev/drfed/pull/185
 
 ### GraphQL APIs
 
+ -  Added `DocumentNode.poll` to read the choices and closing value of a saved
+    `Question`, including polls embedded in historical activities.
+    [[#155], [#185]]
  -  Added `Resource.currentRevision`, `Resource.revisions`, newest first,
     `Resource.revision(sequence:)`, and the `ResourceRevision` node, which
     return the saved revisions of a resource, including those of resources
@@ -124,6 +131,12 @@ To be released.
     revision ID is stale, and object histories can end with a whiteout deletion
     marker.
     [[#150], [#164] by Hong Minhee\]
+ -  Added poll validation to `validateDocument()` in `@drfed/models/document`:
+    `Question` documents support single- or multiple-answer choices and
+    boolean/date-time closing conditions. Supplying both choice modes reports
+    `mutually_exclusive_properties` at the original fields. Supported choice
+    content and custom extensions are retained during validation.
+    [[#155], [#185]]
  -  Added the `@drfed/federation/document` subpath.  Its
     `interpretDocument()` returns every vocabulary document of a saved
     document with its relations, recipients, and custom extension

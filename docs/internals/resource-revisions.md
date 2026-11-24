@@ -281,6 +281,23 @@ outside the offline allowlist or one with an unsupported property,
 `interpreted` is false, `root` is null and `diagnostics` tell why; nothing
 falls back to typed rows.
 
+Read `DocumentNode.poll` on a standalone `Question` or on the embedded
+`node` under `relations(property: object)` in a `Create` or `Update`.
+Other document types return null for `poll`.
+
+ -  `mode` is `exclusive` for `oneOf` and `inclusive` for `anyOf`, even
+    when the saved document uses aliases. An open-ended Question has a null
+    mode and an empty choice list.
+ -  `choices` is sorted by source key, then by list position. Duplicates are
+    preserved. Each choice has its source `path` and an `iri` for a reference
+    or identified node. An embedded choice has a `node` with its saved
+    document and extensions.
+ -  `closed` holds a saved boolean, including `false`. `closedTime` holds a
+    saved date-time as a `DateTime` instant. Both are null when absent.
+
+The resource revision view shows the poll from the selected revision.
+Expand an embedded choice to see its saved JSON.
+
 Each revision is read by evidence of its own, in `readableRevision()` in
 *packages/graphql/src/readable.ts*, not by the rule of its resource.  An
 administrator reads every revision.  Anyone else reads one that was captured

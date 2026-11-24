@@ -257,6 +257,74 @@ with `410 Gone`; its `Delete` uses the ActivityStreams context and the object's
 standard addressing rows.
 
 
+Create and edit a poll
+----------------------
+
+Declare both the `Create` and its embedded `Question` to save them together.
+See the [poll validation contract] for supported choices and closing values.
+
+~~~~ ts
+const to = ["https://www.w3.org/ns/activitystreams#Public"];
+const createPoll = {
+  operation: "create",
+  actorId,
+  document: {
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      { score: "https://example.com/score" },
+    ],
+    type: "Create",
+    to,
+    object: {
+      type: "Question",
+      content: "Choose a day",
+      to,
+      oneOf: [
+        { type: "Note", name: "Monday", score: 1 },
+        { type: "Note", name: "Friday" },
+      ],
+      closed: false,
+    },
+  },
+  resources: [
+    { path: [], kind: "activity" },
+    { path: ["object"], kind: "object" },
+  ],
+} as const;
+~~~~
+
+Preview and commit `createPoll` as above. The saved `Create` stays out of the
+outbox unless the request sets `publish: true`. For an object-only save, use
+the `Question` as the root with an object descriptor at path `[]`.
+
+Use the first saved resource as `poll` below. If editing it later, load its
+current document and revision first. This edit reuses the saved choices as
+`anyOf` and sets a closing timestamp.
+
+~~~~ ts
+const { oneOf: choices, ...savedFields } = poll.document;
+if (!Array.isArray(choices)) throw new Error("Expected the saved choice list.");
+const editPoll = {
+  operation: "edit",
+  actorId,
+  objectId: poll.id,
+  expectedRevisionId: poll.revisionId,
+  document: {
+    ...savedFields,
+    anyOf: choices,
+    closed: "2026-11-14T12:00:00Z",
+  },
+} as const;
+~~~~
+
+Preview and commit `editPoll` with the token and a transactional
+`reserveDispatch` callback. The poll keeps its IRI. The generated `Update`
+embeds the multiple-choice version, and the earlier `Create` retains its
+single-choice version with `closed: false`.
+
+[poll validation contract]: https://github.com/fedify-dev/drfed/blob/main/packages/models/README.md#document-validation
+
+
 Compatibility
 -------------
 

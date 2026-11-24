@@ -23,6 +23,8 @@ import {
   describeDocument,
 } from "@drfed/models/document";
 
+const QUESTION_TYPE = "https://www.w3.org/ns/activitystreams#Question";
+
 /**
  * The relations a document's own properties hold, which saved revisions
  * index at their root: who acts, what it acts on, and who it is attributed
@@ -84,6 +86,8 @@ export interface InterpretedNode {
    * including duplicates and anonymous embedded recipients.
    */
   readonly addressing: readonly RecipientOccurrence[];
+  /** The poll fields of a Question, or null for other document types. */
+  readonly poll: InterpretedPoll | null;
   /**
    * Its own custom extension properties, by their source keys, sorted, with
    * their values as saved.
@@ -106,6 +110,19 @@ interface Occurrence {
   readonly iri: string | null;
   /** The embedded document or `Link`; `null` for a reference. */
   readonly node: InterpretedNode | null;
+}
+
+/** A choice as it appears in a saved Question. */
+export type PollChoice = Occurrence;
+
+/** The choices and closing value of a saved Question. */
+export interface InterpretedPoll {
+  /** The choice mode, or null when no choices are supplied. */
+  readonly mode: "exclusive" | "inclusive" | null;
+  /** Embedded choices and IRI references by source key, then list position. */
+  readonly choices: readonly PollChoice[];
+  /** The saved boolean or date-time, or null when absent. */
+  readonly closed: boolean | string | null;
 }
 
 /** One value of a relation property. */
@@ -158,6 +175,23 @@ const ownIri = (node: DocumentNode): string | null =>
 interface MutableNode extends InterpretedNode {
   relations: RelationOccurrence[];
   addressing: RecipientOccurrence[];
+  poll: InterpretedPoll | null;
+}
+
+function pollClosingValue(
+  document: JsonValue,
+  node: DocumentNode,
+): InterpretedPoll["closed"] {
+  for (const key of node.properties.get("closed") ?? []) {
+    const value = valueAt(document, [...node.path, key]);
+    const closing = Array.isArray(value)
+      ? value.find((entry) => entry !== null)
+      : value;
+    if (typeof closing === "boolean" || typeof closing === "string") {
+      return closing;
+    }
+  }
+  return null;
 }
 
 /**
@@ -195,6 +229,7 @@ export function interpretDocument(
         value: valueAt(json, node.path) ?? null,
         relations: [],
         addressing: [],
+        poll: null,
         extensions: node.extensionProperties.map((key) => ({
           key,
           value: valueAt(json, [...node.path, key]) ?? null,
@@ -258,6 +293,22 @@ export function interpretDocument(
       for (const occurrence of occurrences(property)) {
         interpreted.addressing.push({ property, ...occurrence });
       }
+    }
+    if (node.type === QUESTION_TYPE) {
+      const exclusive = occurrences("oneOf");
+      const inclusive = occurrences("anyOf");
+      interpreted.poll = {
+        mode:
+          exclusive.length > 0
+            ? "exclusive"
+            : inclusive.length > 0
+              ? "inclusive"
+              : null,
+        choices: (exclusive.length > 0 ? exclusive : inclusive).map(
+          ({ position: _, ...choice }) => choice,
+        ),
+        closed: pollClosingValue(json, node),
+      };
     }
   }
   return [...nodes.values()];

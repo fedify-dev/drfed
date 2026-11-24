@@ -85,6 +85,7 @@ export const DIAGNOSTIC_REASONS = {
   invalid_iri: { category: "vocabulary", severity: "error" },
   invalid_datetime: { category: "vocabulary", severity: "error" },
   invalid_multiplicity: { category: "vocabulary", severity: "error" },
+  mutually_exclusive_properties: { category: "vocabulary", severity: "error" },
   property_not_applicable: { category: "vocabulary", severity: "error" },
   invalid_context: { category: "vocabulary", severity: "error" },
   unauthorized_local_identity: { category: "authority", severity: "error" },
@@ -107,6 +108,8 @@ export const DIAGNOSTIC_REASONS = {
   },
   empty_property_list: { category: "compatibility", severity: "warning" },
   absent_identifier: { category: "compatibility", severity: "warning" },
+  poll_choices_not_list: { category: "compatibility", severity: "warning" },
+  poll_choice_reference: { category: "compatibility", severity: "warning" },
 } as const satisfies Record<
   string,
   {
@@ -190,6 +193,7 @@ export interface DocumentPreparationOptions {
 const ACTIVITY_STREAMS_CONTEXT = "https://www.w3.org/ns/activitystreams";
 const MAXIMUM_DIAGNOSTICS = 100;
 const MAXIMUM_PATH_DEPTH = 64;
+const IRI_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/iu;
 const ACTOR_TYPES = [Application, Group, Organization, Person, Service];
 /** The ActivityStreams properties that address a document's recipients. */
 export const ADDRESSING_PROPERTIES = [
@@ -305,6 +309,8 @@ const IDENTIFIER_PROPERTIES: ReadonlySet<string> = new Set([
   ...ADDRESSING_PROPERTIES,
   "items",
   "orderedItems",
+  "oneOf",
+  "anyOf",
   "current",
   "first",
   "last",
@@ -422,8 +428,26 @@ function isJsonValueShape(value: unknown): boolean {
   );
 }
 
+function hasInvalidIriCharacters(value: string): boolean {
+  const hasControlOrSpace = Array.from(value).some((character) => {
+    const point = character.codePointAt(0)!;
+    return point <= 0x20 || (point >= 0x7f && point <= 0x9f);
+  });
+  return (
+    !value.isWellFormed() ||
+    hasControlOrSpace ||
+    /[<>"{}|\\^`]/u.test(value) ||
+    /%(?![\da-f]{2})/iu.test(value)
+  );
+}
+
 // Reports reference-rule failures without owning the diagnostic collection.
-function checkReference(value: unknown, path: FieldPath, report: Report): void {
+function checkReference(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+  context?: DocumentContext,
+): void {
   if (value === null) return;
   if (typeof value !== "string") {
     if (typeof value === "object") {
@@ -441,32 +465,29 @@ function checkReference(value: unknown, path: FieldPath, report: Report): void {
     }
     return;
   }
-  const hasControlOrSpace = Array.from(value).some((character) => {
-    const point = character.codePointAt(0)!;
-    return point <= 0x20 || point === 0x7f;
-  });
+  const iri = context == null ? value : expandIdentifier(value, context);
   if (
-    !value.isWellFormed() ||
-    hasControlOrSpace ||
-    /[<>"{}|\\^`]/u.test(value) ||
-    /%(?![\da-f]{2})/iu.test(value)
+    hasInvalidIriCharacters(value) ||
+    (iri !== value && hasInvalidIriCharacters(iri))
   ) {
     report(
       "invalid_iri",
       path,
       "Expected a syntactically valid IRI reference.",
     );
-  } else if (!/^[a-z][a-z\d+.-]*:/iu.test(value)) {
+  } else if (!IRI_SCHEME_PATTERN.test(iri)) {
     report(
       "unsupported_value_form",
       path,
       "Relative references need a base-IRI policy.",
     );
-  } else if (!URL.canParse(value)) {
+  } else if (!URL.canParse(iri)) {
     report(
       "unsupported_value_form",
       path,
-      "This IRI cannot be represented by the current URL parser.",
+      iri === value
+        ? "This IRI cannot be represented by the current URL parser."
+        : "The expanded IRI cannot be represented by the current URL parser.",
     );
   }
 }
@@ -597,7 +618,7 @@ function sameContextTerm(
 function isSupportedContextUri(value: string): boolean {
   // URL parsing alone accepts characters that JSON-LD IRI mappings forbid.
   return (
-    /^[a-z][a-z\d+.-]*:/iu.test(value) &&
+    IRI_SCHEME_PATTERN.test(value) &&
     !Array.from(value).some((character) => {
       const point = character.codePointAt(0)!;
       return (
@@ -1118,7 +1139,48 @@ function getEmbeddedFedifyRange(
   collectionRange: readonly VocabularyType[] | undefined,
 ): readonly VocabularyType[] | undefined {
   if (property === "actor" || property === "attributedTo") return ACTOR_TYPES;
+  if (isQuestionChoice(property)) return [APObject];
   return collectionRange?.filter((Expected) => Expected !== Link);
+}
+
+function getReferenceRange(
+  property: string,
+  collectionRange: readonly VocabularyType[] | undefined,
+): readonly VocabularyType[] | undefined {
+  if (isQuestionChoice(property)) return [APObject, Link];
+  return collectionRange;
+}
+
+function isQuestionChoice(
+  property: string | undefined,
+): property is "oneOf" | "anyOf" {
+  return property === "oneOf" || property === "anyOf";
+}
+
+function conflictingChoiceSources(
+  Type: VocabularyType,
+  fields: readonly SourceProperty[],
+  values: Record<string, unknown>,
+): ReadonlySet<string> {
+  if (!isTypeOrSubtype(Type, Question)) return new Set();
+  const choices: Record<"oneOf" | "anyOf", string[]> = {
+    oneOf: [],
+    anyOf: [],
+  };
+  for (const { name, compatible, source } of fields) {
+    if (
+      compatible &&
+      isQuestionChoice(name) &&
+      countValues(values[source]) > 0
+    ) {
+      choices[name].push(source);
+    }
+  }
+  return new Set(
+    choices.oneOf.length > 0 && choices.anyOf.length > 0
+      ? [...choices.oneOf, ...choices.anyOf]
+      : [],
+  );
 }
 
 function checkDocumentType(
@@ -1171,6 +1233,7 @@ function getCollectionRange(
 
 function isFunctionalProperty(Type: VocabularyType, property: string): boolean {
   if (["id", "mediaType"].includes(property)) return true;
+  if (isTypeOrSubtype(Type, Question) && property === "closed") return true;
   if (getCollectionRange(Type, property) != null) return true;
   if (isTypeOrSubtype(Type, Link)) {
     return ["href", "height", "width", "hreflang"].includes(property);
@@ -1234,6 +1297,36 @@ function findMultipleAliases(
   return multiple;
 }
 
+function checkFieldMultiplicity(
+  field: SourceProperty,
+  path: FieldPath,
+  report: Report,
+  conflictingChoice: boolean,
+  multipleAliases: ReadonlySet<string>,
+): void {
+  if (conflictingChoice) {
+    report(
+      "mutually_exclusive_properties",
+      path,
+      "Use either oneOf or anyOf, but not both.",
+    );
+  }
+  if (!multipleAliases.has(field.source)) return;
+  if (field.name === "closed") {
+    report(
+      "unsupported_value_form",
+      path,
+      "DrFed supports one closing value across all aliases.",
+    );
+  } else {
+    report(
+      "invalid_multiplicity",
+      path,
+      "Multiple aliases supply values for one functional property.",
+    );
+  }
+}
+
 function checkNonNegativeInteger(
   value: unknown,
   path: FieldPath,
@@ -1251,6 +1344,9 @@ function checkSingleValue(
   path: FieldPath,
   report: Report,
   check: typeof checkReference,
+  multiplicityReason:
+    | "invalid_multiplicity"
+    | "unsupported_value_form" = "invalid_multiplicity",
 ): void {
   if (!Array.isArray(value)) {
     check(value, path, report);
@@ -1269,11 +1365,7 @@ function checkSingleValue(
     if (entry !== null) entries.push({ value: entry, path: entryPath });
   });
   if (entries.length > 1) {
-    report(
-      "invalid_multiplicity",
-      path,
-      "Expected at most one non-null value.",
-    );
+    report(multiplicityReason, path, "Expected at most one non-null value.");
   }
   for (const entry of entries) {
     checkReferenceEntry(entry.value, entry.path, report, check);
@@ -1456,11 +1548,39 @@ function checkDateTime(value: unknown, path: FieldPath, report: Report): void {
   }
 }
 
+function checkQuestionClosed(
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null || typeof value === "boolean") return;
+  if (
+    (typeof value === "object" && !Array.isArray(value)) ||
+    (typeof value === "string" && IRI_SCHEME_PATTERN.test(value))
+  ) {
+    report(
+      "unsupported_value_form",
+      path,
+      "Fedify supports boolean or date-time closing conditions, not resource values.",
+    );
+  } else {
+    checkDateTime(value, path, report);
+  }
+}
+
 // Share coverage classification with empty-array omission admission.
 function getCommonPropertyKind(
   Type: VocabularyType,
   property: string,
-): "text" | "languageMap" | "datetime" | "id" | "mediaType" | undefined {
+):
+  | "text"
+  | "languageMap"
+  | "datetime"
+  | "id"
+  | "mediaType"
+  | "closed"
+  | undefined {
+  if (isTypeOrSubtype(Type, Question) && property === "closed") return "closed";
   const object = isTypeOrSubtype(Type, APObject);
   const actor = ACTOR_TYPES.some((Actor) => isTypeOrSubtype(Type, Actor));
   const textProperties = object ? ["name", "summary", "content"] : ["name"];
@@ -1490,6 +1610,7 @@ function checkCommonProperty(
   value: unknown,
   path: FieldPath,
   report: Report,
+  identifierContext?: DocumentContext,
 ): boolean {
   if (kind === "text") {
     checkReferenceValues(value, path, report, (entry, entryPath) =>
@@ -1499,11 +1620,19 @@ function checkCommonProperty(
     checkLanguageMap(value, path, report, property === "nameMap");
   } else if (kind === "datetime") {
     checkSingleValue(value, path, report, checkDateTime);
+  } else if (kind === "closed") {
+    checkSingleValue(
+      value,
+      path,
+      report,
+      checkQuestionClosed,
+      "unsupported_value_form",
+    );
   } else if (kind === "id") {
     if (typeof value !== "string") {
       report("invalid_value_shape", path, "Expected an IRI identifier string.");
     } else {
-      checkReference(value, path, report);
+      checkReference(value, path, report, identifierContext);
     }
   } else if (kind === "mediaType") {
     checkSingleValue(value, path, report, (entry, entryPath) =>
@@ -1583,7 +1712,7 @@ function checkLinkRelation(
       path,
       "Expected a relation token or absolute IRI without whitespace or commas.",
     );
-  } else if (/^[a-z][a-z\d+.-]*:/iu.test(value)) {
+  } else if (IRI_SCHEME_PATTERN.test(value)) {
     checkReference(value, path, report);
   } else if (!/^[a-z][a-z\d.-]*$/iu.test(value)) {
     report(
@@ -1787,9 +1916,42 @@ function checkExtensionKeywords(
 }
 
 function getInapplicableProperties(Type: VocabularyType): ReadonlySet<string> {
-  return isTypeOrSubtype(Type, Link)
-    ? OBJECT_ONLY_PROPERTIES
-    : new Set<string>();
+  const properties = new Set(
+    isTypeOrSubtype(Type, Link) ? OBJECT_ONLY_PROPERTIES : [],
+  );
+  if (!isTypeOrSubtype(Type, Question)) {
+    properties.add("oneOf");
+    properties.add("anyOf");
+    properties.add("closed");
+  }
+  return properties;
+}
+
+function checkInapplicableProperty(
+  property: string,
+  value: unknown,
+  path: FieldPath,
+  report: Report,
+): void {
+  if (value === null) return;
+  if (
+    (isQuestionChoice(property) || property === "closed") &&
+    Array.isArray(value) &&
+    value.length > 0
+  ) {
+    // Null-only poll lists are absent. Use the shared list checks so that
+    // malformed entries still receive diagnostics at their source paths.
+    let hasValue = false;
+    checkReferenceValues(value, path, report, () => {
+      hasValue = true;
+    });
+    if (!hasValue) return;
+  }
+  report(
+    "property_not_applicable",
+    path,
+    "This property does not apply to this document's type.",
+  );
 }
 
 function checkPathDepth(path: FieldPath, report: Report): boolean {
@@ -1886,6 +2048,7 @@ function checkDocumentValue(
     inherited?: DocumentContext,
     expectedTypes?: readonly VocabularyType[],
     fedifyTypes?: readonly VocabularyType[],
+    embeddedAsChoice?: boolean,
   ): void {
     if (!checkPathDepth(path, report)) {
       onUnavailableDocument(path);
@@ -1947,7 +2110,7 @@ function checkDocumentValue(
         : isCollection
           ? ["totalItems"]
           : [];
-    const referenceProperties = ["preview"];
+    const referenceProperties = ["preview", "oneOf", "anyOf"];
     if (isObject) {
       referenceProperties.push(
         "attributedTo",
@@ -1973,6 +2136,10 @@ function checkDocumentValue(
     ]);
     const multipleAliases = findMultipleAliases(Type, fields, values);
     const inapplicableProperties = getInapplicableProperties(Type);
+    const conflictingChoices = conflictingChoiceSources(Type, fields, values);
+    // One warning of each kind is enough to guide the author, even when a
+    // poll has many choices or aliases.
+    const choiceWarnings = new Set<DiagnosticReason>();
 
     ancestors.add(sourceDocument);
     pending.push(() => {
@@ -1984,6 +2151,8 @@ function checkDocumentValue(
       .reverse()) {
       const { source, name: key } = field;
       const intransitiveObject = isIntransitive && key === "object";
+      const isChoice = isQuestionChoice(key);
+      const conflictingChoice = conflictingChoices.has(source);
       pending.push(() => {
         const value = values[source];
         const fieldPath = [...path, source];
@@ -2018,21 +2187,16 @@ function checkDocumentValue(
           return;
         }
         if (inapplicableProperties.has(key)) {
-          if (value === null) return;
-          report(
-            "property_not_applicable",
-            fieldPath,
-            "This property applies to Object documents, not Link documents.",
-          );
+          checkInapplicableProperty(key, value, fieldPath, report);
           return;
         }
-        if (multipleAliases.has(source)) {
-          report(
-            "invalid_multiplicity",
-            fieldPath,
-            "Multiple aliases supply values for one functional property.",
-          );
-        }
+        checkFieldMultiplicity(
+          field,
+          fieldPath,
+          report,
+          conflictingChoice,
+          multipleAliases,
+        );
         const collectionRange = getCollectionRange(Type, key);
         const commonKind = getCommonPropertyKind(Type, key);
         const supported =
@@ -2063,7 +2227,14 @@ function checkDocumentValue(
             );
           }
         } else if (
-          checkCommonProperty(commonKind, key, value, fieldPath, report)
+          checkCommonProperty(
+            commonKind,
+            key,
+            value,
+            fieldPath,
+            report,
+            embeddedAsChoice ? context : undefined,
+          )
         ) {
           // Common properties and null absence were checked above.
         } else if (intransitiveObject) {
@@ -2095,15 +2266,52 @@ function checkDocumentValue(
                 typeof entry === "object" &&
                 !Array.isArray(entry)
               ) {
+                if (
+                  isChoice &&
+                  !conflictingChoice &&
+                  !choiceWarnings.has("poll_choices_not_list") &&
+                  !Array.isArray(value)
+                ) {
+                  choiceWarnings.add("poll_choices_not_list");
+                  report(
+                    "poll_choices_not_list",
+                    entryPath,
+                    "Mastodon expects a list of choices, even for one choice.",
+                  );
+                }
                 // AS ranges can be wider than Fedify's typed decoders. Keep
                 // vocabulary errors distinct from unsupported embedded forms.
                 checkDocument(
                   entry,
                   entryPath,
                   context,
-                  collectionRange,
+                  getReferenceRange(key, collectionRange),
                   getEmbeddedFedifyRange(key, collectionRange),
+                  isChoice,
                 );
+              } else if (isChoice && typeof entry === "string") {
+                let validReference = true;
+                checkReference(
+                  entry,
+                  entryPath,
+                  (reason, diagnosticPath, message) => {
+                    validReference = false;
+                    report(reason, diagnosticPath, message);
+                  },
+                  context,
+                );
+                if (
+                  validReference &&
+                  !conflictingChoice &&
+                  !choiceWarnings.has("poll_choice_reference")
+                ) {
+                  choiceWarnings.add("poll_choice_reference");
+                  report(
+                    "poll_choice_reference",
+                    entryPath,
+                    "Mastodon expects embedded choices and may not read this IRI reference.",
+                  );
+                }
               } else {
                 checkReference(entry, entryPath, report);
               }
@@ -2184,8 +2392,8 @@ function createPreview(
  * Checks the implemented Activity Vocabulary types, including nested
  * activity objects, without network access or writes. Embedded objects inherit
  * the parent's context. Collections add member, count, and navigation checks.
- * Question uses shared intransitive rules; poll-specific
- * fields remain unsupported pending #155.
+ * Question adds exclusive/inclusive choices and boolean/date-time closing
+ * conditions to shared intransitive rules.
  *
  * Supports allowlisted bundled contexts and simple inline aliases/prefixes,
  * single types, id, string content,

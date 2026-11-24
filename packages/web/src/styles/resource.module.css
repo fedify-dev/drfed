@@ -347,8 +347,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   gap: 0.75rem;
   margin: 0;
 }
-.groups dt code {
+.groups dt code,
+.groups dt.pollLabel {
   font-weight: 700;
+}
+.pollLabel {
+  font-family: var(--font-mono);
 }
 .groups dd {
   margin: 0.25rem 0 0;
@@ -360,6 +364,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
   list-style: none;
   margin: 0;
   padding: 0 0 0 1rem;
+}
+.values.pollChoices {
+  margin-block-start: 0.5rem;
 }
 .value {
   min-width: 0;

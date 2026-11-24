@@ -33,6 +33,7 @@ import {
   Object as APObject,
   Link,
   Mention,
+  Question,
   getEntityTypeById,
 } from "@fedify/vocab";
 import { preloadedContexts } from "@fedify/vocab-runtime";
@@ -2849,6 +2850,419 @@ describe("validateDocument() supported document checks", () => {
     );
   });
 
+  for (const mode of ["oneOf", "anyOf"]) {
+    it(`validates Question ${mode} choices without changing their content or extensions`, async () => {
+      const input = {
+        "@context": [CONTEXT, { score: "https://example.com/score" }],
+        type: "Create",
+        object: {
+          type: "Question",
+          content: "",
+          [mode]: [
+            { type: "Note", name: "A", content: "Details", score: 3 },
+            { type: "Object", name: "B" },
+          ],
+        },
+      };
+      const original = structuredClone(input);
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [
+          {
+            reason: "extension_property_unchecked",
+            path: ["object", mode, 0, "score"],
+          },
+        ],
+      );
+      assert.deepEqual(result.changes, []);
+      assert.deepEqual(input, original);
+      assert.ok(
+        describeDocument(input)?.some(
+          (node) =>
+            node.path.join(".") === `object.${mode}.0` &&
+            node.property === mode,
+        ),
+      );
+      // Exercise the installed public decoder's supported option range.
+      const poll = await Question.fromJsonLd({
+        "@context": CONTEXT,
+        ...input.object,
+      });
+      const names: string[] = [];
+      const options =
+        mode === "oneOf"
+          ? poll.getExclusiveOptions()
+          : poll.getInclusiveOptions();
+      for await (const option of options) names.push(String(option.name));
+      assert.deepEqual(names, ["A", "B"]);
+    });
+  }
+
+  it("reports both Question choice modes at their original nested aliases", () => {
+    const result = validateDocument({
+      "@context": [
+        CONTEXT,
+        {
+          exclusive: { "@id": "as:oneOf", "@type": "@id" },
+          extraExclusive: { "@id": "as:oneOf", "@type": "@id" },
+          inclusive: { "@id": "as:anyOf", "@type": "@id" },
+          absentInclusive: { "@id": "as:anyOf", "@type": "@id" },
+        },
+      ],
+      type: "Update",
+      object: {
+        type: "Question",
+        exclusive: [{ type: "Note", name: "A" }],
+        extraExclusive: [{ type: "Note", name: "C" }],
+        inclusive: [{ type: "Note", name: "B" }],
+        absentInclusive: [null],
+      },
+    });
+    assert.equal(result.complete, true);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, category, severity, path }) => ({
+        reason,
+        category,
+        severity,
+        path,
+      })),
+      [
+        {
+          reason: "mutually_exclusive_properties",
+          category: "vocabulary",
+          severity: "error",
+          path: ["object", "exclusive"],
+        },
+        {
+          reason: "mutually_exclusive_properties",
+          category: "vocabulary",
+          severity: "error",
+          path: ["object", "extraExclusive"],
+        },
+        {
+          reason: "mutually_exclusive_properties",
+          category: "vocabulary",
+          severity: "error",
+          path: ["object", "inclusive"],
+        },
+      ],
+    );
+    assert.equal(
+      describeDocument({
+        "@context": CONTEXT,
+        type: "Question",
+        oneOf: { type: "Note" },
+        anyOf: { type: "Note" },
+      }),
+      null,
+    );
+  });
+
+  it("validates a Question with many choice aliases and an absent opposing mode", () => {
+    const aliases = Array.from({ length: 256 }, (_, index) => `choice${index}`);
+    const result = validateDocument({
+      "@context": [
+        CONTEXT,
+        Object.fromEntries(
+          aliases.map((alias) => [
+            alias,
+            { "@id": "as:oneOf", "@type": "@id" },
+          ]),
+        ),
+      ],
+      type: "Question",
+      ...Object.fromEntries(
+        aliases.map((alias) => [alias, [{ type: "Note", name: alias }]]),
+      ),
+      anyOf: Array.from({ length: 5_000 }, () => null),
+    });
+    assert.deepEqual(result, { complete: true, diagnostics: [], changes: [] });
+  });
+
+  it("checks expanded Question choice references and embedded choice identifiers", () => {
+    const input = {
+      "@context": [
+        CONTEXT,
+        {
+          host: "https://example.org:",
+          choice_id: { "@id": "https://example.org/choices/", "@prefix": true },
+          options: { "@id": "as:anyOf", "@type": "@id" },
+        },
+      ],
+      type: "Create",
+      object: {
+        type: "Question",
+        options: ["host:bad", { type: "Note", id: "host:bad" }],
+      },
+    };
+    const result = validateDocument(input);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, category, severity, path }) => [
+        reason,
+        category,
+        severity,
+        path,
+      ]),
+      [
+        [
+          "unsupported_value_form",
+          "support",
+          "error",
+          ["object", "options", 0],
+        ],
+        [
+          "unsupported_value_form",
+          "support",
+          "error",
+          ["object", "options", 1, "id"],
+        ],
+      ],
+    );
+    assert.equal(describeDocument(input), null);
+
+    const compact = {
+      ...input,
+      object: {
+        ...input.object,
+        options: ["choice_id:A", { type: "Note", id: "choice_id:B" }],
+      },
+    };
+    const described = describeDocument(compact);
+    assert.ok(described != null);
+    assert.deepEqual(
+      described.flatMap(({ identifiers }) => identifiers),
+      [
+        {
+          property: "anyOf",
+          path: ["object", "options", 0],
+          value: "choice_id:A",
+          iri: "https://example.org/choices/A",
+        },
+        {
+          property: "id",
+          path: ["object", "options", 1, "id"],
+          value: "choice_id:B",
+          iri: "https://example.org/choices/B",
+        },
+      ],
+    );
+  });
+
+  it("warns about Question choice forms Mastodon may not read without rejecting them", () => {
+    for (const [oneOf, expectedReason, expectedPath] of [
+      [{ type: "Note", name: "Monday" }, "poll_choices_not_list", ["oneOf"]],
+      [
+        ["https://example.com/choice", "https://example.com/other"],
+        "poll_choice_reference",
+        ["oneOf", 0],
+      ],
+    ] as const) {
+      const input = { "@context": CONTEXT, type: "Question", oneOf };
+      const result = validateDocument(input);
+      assert.equal(result.complete, true);
+      assert.deepEqual(result.changes, []);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, category, severity, path }) => ({
+          reason,
+          category,
+          severity,
+          path,
+        })),
+        [
+          {
+            reason: expectedReason,
+            category: "compatibility",
+            severity: "warning",
+            path: expectedPath,
+          },
+        ],
+      );
+      assert.ok(describeDocument(input) != null);
+    }
+  });
+
+  it("keeps Question choice shape failures distinct from unsupported embedded types", () => {
+    const result = validateDocument({
+      "@context": CONTEXT,
+      type: "Question",
+      oneOf: [
+        false,
+        { type: "Note", name: 12 },
+        { type: "Link", href: "https://example.com/choice" },
+        { name: "Untyped" },
+      ],
+    });
+    assert.equal(result.complete, false);
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_value_shape", path: ["oneOf", 0] },
+        { reason: "invalid_value_shape", path: ["oneOf", 1, "name"] },
+        { reason: "unsupported_value_form", path: ["oneOf", 2] },
+        { reason: "unsupported_type", path: ["oneOf", 3, "type"] },
+      ],
+    );
+  });
+
+  it("uses existing Question choice absence, list, and applicability rules", () => {
+    for (const value of [null, [null]]) {
+      const result = validateDocument({
+        "@context": CONTEXT,
+        type: "Question",
+        oneOf: [{ type: "Note" }],
+        anyOf: value,
+      });
+      assert.deepEqual(result.diagnostics, []);
+    }
+    const result = validateDocument({
+      "@context": CONTEXT,
+      type: "Question",
+      oneOf: [],
+      anyOf: [{ type: "Note" }],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "empty_property_list", path: ["oneOf"] }],
+    );
+    assert.equal(Object.hasOwn(result.normalizedDocument!, "oneOf"), false);
+    for (const type of ["Note", "Link"]) {
+      const invalid = validateDocument({
+        "@context": CONTEXT,
+        type,
+        oneOf: { type: "Note" },
+      });
+      assert.deepEqual(
+        invalid.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "property_not_applicable", path: ["oneOf"] }],
+      );
+    }
+  });
+
+  it("treats null-only Question fields on other types as absent", () => {
+    const note = {
+      "@context": [
+        CONTEXT,
+        {
+          closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+        },
+      ],
+      type: "Note",
+      oneOf: [null],
+      anyOf: [null, null],
+      closing: [null],
+    };
+    assert.deepEqual(validateDocument(note), {
+      complete: true,
+      diagnostics: [],
+      changes: [],
+    });
+    const malformed = validateDocument({
+      ...note,
+      oneOf: [null, { type: "Note" }],
+      closing: [null, undefined],
+    });
+    assert.deepEqual(
+      malformed.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "non_json_value", path: ["closing", 1] },
+        { reason: "property_not_applicable", path: ["oneOf"] },
+      ],
+    );
+  });
+
+  it("accepts Question closed booleans and dates at nested source aliases", () => {
+    for (const closed of [
+      true,
+      false,
+      "2026-11-05T12:34:56Z",
+      "2026-11-05T12:34:56.123456789+09:00",
+      null,
+      [null, false],
+    ]) {
+      const input = {
+        "@context": [
+          CONTEXT,
+          {
+            closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+          },
+        ],
+        type: "Update",
+        object: { type: "Question", closing: closed },
+      };
+      assert.deepEqual(validateDocument(input), {
+        complete: true,
+        diagnostics: [],
+        changes: [],
+      });
+    }
+  });
+
+  it("distinguishes invalid Question closed values from unsupported resource forms", () => {
+    for (const [closed, expectedReason, complete] of [
+      [42, "invalid_value_shape", true],
+      ["not-a-date", "invalid_datetime", true],
+      ["2026-02-30T12:00:00Z", "invalid_datetime", true],
+      ["2026-11-05T12:34Z", "unsupported_value_form", false],
+      [{ type: "Note" }, "unsupported_value_form", false],
+      ["https://example.com/condition", "unsupported_value_form", false],
+    ] as const) {
+      const result = validateDocument({
+        "@context": CONTEXT,
+        type: "Create",
+        object: { type: "Question", closed },
+      });
+      assert.equal(result.complete, complete);
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: expectedReason, path: ["object", "closed"] }],
+      );
+    }
+  });
+
+  it("classifies multiple Question closing values as unsupported", () => {
+    const poll = { "@context": CONTEXT, type: "Question" };
+    const list = validateDocument({ ...poll, closed: [true, false] });
+    assert.equal(list.complete, false);
+    assert.deepEqual(
+      list.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "unsupported_value_form", path: ["closed"] }],
+    );
+    const aliases = validateDocument({
+      ...poll,
+      "@context": [
+        CONTEXT,
+        {
+          closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+        },
+      ],
+      closed: false,
+      closing: "2026-11-05T12:34:56Z",
+    });
+    assert.equal(aliases.complete, false);
+    assert.deepEqual(
+      aliases.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "unsupported_value_form", path: ["closed"] },
+        { reason: "unsupported_value_form", path: ["closing"] },
+      ],
+    );
+    const empty = validateDocument({ ...poll, closed: [] });
+    assert.deepEqual(
+      empty.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [{ reason: "empty_property_list", path: ["closed"] }],
+    );
+    assert.equal(Object.hasOwn(empty.normalizedDocument!, "closed"), false);
+    for (const type of ["Note", "Link"]) {
+      const result = validateDocument({ ...poll, type, closed: false });
+      assert.deepEqual(
+        result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+        [{ reason: "property_not_applicable", path: ["closed"] }],
+      );
+    }
+  });
+
   it("checks standalone and nested Travel and Question through inherited rules", () => {
     const input = {
       ...LIKE,
@@ -3305,6 +3719,27 @@ describe("validateDocument() supported document checks", () => {
     });
     assert.equal(malformed.complete, true);
     assert.equal(malformed.diagnostics[0]?.reason, "invalid_iri");
+  });
+
+  it("rejects raw C1 control characters in IRI references", () => {
+    const result = validateDocument({
+      ...LIKE,
+      object: [
+        "https://example.com/a\u0080b",
+        "https://example.com/a\u0085b",
+        "https://example.com/a\u009fb",
+        "https://example.com/a\u00a0b",
+        "https://example.com/a%C2%85b",
+      ],
+    });
+    assert.deepEqual(
+      result.diagnostics.map(({ reason, path }) => ({ reason, path })),
+      [
+        { reason: "invalid_iri", path: ["object", 0] },
+        { reason: "invalid_iri", path: ["object", 1] },
+        { reason: "invalid_iri", path: ["object", 2] },
+      ],
+    );
   });
 
   it("retains exactly 100 warnings and marks truncation only for further findings", () => {

@@ -45,7 +45,10 @@ import type { ResourceDocumentLevel0_node$key } from "./__generated__/ResourceDo
 import type { ResourceDocumentLevel1_node$key } from "./__generated__/ResourceDocumentLevel1_node.graphql.ts";
 import type { ResourceDocumentLevel2_node$key } from "./__generated__/ResourceDocumentLevel2_node.graphql.ts";
 import type { ResourceDocumentLevel3_node$key } from "./__generated__/ResourceDocumentLevel3_node.graphql.ts";
-import type { ResourceDocumentParts_node$key } from "./__generated__/ResourceDocumentParts_node.graphql.ts";
+import type {
+  ResourceDocumentParts_node$data,
+  ResourceDocumentParts_node$key,
+} from "./__generated__/ResourceDocumentParts_node.graphql.ts";
 import type { ResourceDocumentRelation_relation$key } from "./__generated__/ResourceDocumentRelation_relation.graphql.ts";
 import { ActivityLogSource } from "./ActivityLogSource.tsx";
 import { CopyButton } from "./CopyButton.tsx";
@@ -319,6 +322,84 @@ function RelationLine(props: {
   );
 }
 
+function PollFields(props: {
+  poll: NonNullable<ResourceDocumentParts_node$data["poll"]>;
+}) {
+  return (
+    <>
+      <p class={styles.sectionLabel}>Poll</p>
+      <dl class={styles.groups}>
+        <div>
+          <dt class={styles.pollLabel}>Choices</dt>
+          <dd>
+            <Switch>
+              <Match when={props.poll.mode === "exclusive"}>
+                <span class={styles.pollLabel}>Single-choice poll</span>
+              </Match>
+              <Match when={props.poll.mode === "inclusive"}>
+                <span class={styles.pollLabel}>Multiple-choice poll</span>
+              </Match>
+            </Switch>
+            <Show
+              when={props.poll.choices.length > 0}
+              fallback={<span class={styles.faint}>No choices supplied</span>}
+            >
+              {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
+              <ol class={`${styles.values} ${styles.pollChoices}`} role="list">
+                <For each={props.poll.choices}>
+                  {(choice) => {
+                    const path = toPath(choice.path);
+                    const segment = path.at(-1);
+                    const position = typeof segment === "number" ? segment : 0;
+                    return (
+                      <li class={styles.value}>
+                        <span class={styles.valueLine}>
+                          <span class={styles.position}>[{position}]</span>
+                          <Show when={choice.iri}>
+                            {(iri) => <span class={styles.iri}>{iri()}</span>}
+                          </Show>
+                          <PathText path={path} />
+                        </span>
+                        <Show when={choice.node}>
+                          {(node) => {
+                            const document = (): unknown => node().document;
+                            return (
+                              <JsonDisclosure
+                                value={document()}
+                                label={`Saved choice (${typeLabel(node().type)})`}
+                                open={false}
+                              />
+                            );
+                          }}
+                        </Show>
+                      </li>
+                    );
+                  }}
+                </For>
+              </ol>
+            </Show>
+          </dd>
+        </div>
+        <div>
+          <dt>
+            <code>closed</code>
+          </dt>
+          <dd>
+            <Switch fallback={<span class={styles.faint}>Not set</span>}>
+              <Match when={props.poll.closedTime}>
+                {(instant) => <time dateTime={instant()}>{instant()}</time>}
+              </Match>
+              <Match when={typeof props.poll.closed === "boolean"}>
+                <code>{String(props.poll.closed)}</code>
+              </Match>
+            </Switch>
+          </dd>
+        </div>
+      </dl>
+    </>
+  );
+}
+
 /**
  * One document node: its header line and what it holds below it.  The root
  * stands alone; an embedded document is a disclosure joined to its parent by
@@ -342,6 +423,19 @@ function NodeView<T extends LevelRelation>(props: {
         kind
         iri
         path
+        poll {
+          mode
+          closed
+          closedTime
+          choices {
+            path
+            iri
+            node {
+              type
+              document
+            }
+          }
+        }
         addressing {
           property
           position
@@ -404,6 +498,9 @@ function NodeView<T extends LevelRelation>(props: {
                 (diagnostic) => pathKey(diagnostic.path) === pathKey(path()),
               )}
             />
+            <Show when={node().poll}>
+              {(poll) => <PollFields poll={poll()} />}
+            </Show>
             <PropertyGroups label="Relations" entries={props.relations}>
               {(relation) => (
                 <li class={styles.value}>

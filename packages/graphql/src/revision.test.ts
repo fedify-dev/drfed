@@ -191,6 +191,177 @@ const edit = (
 const currentRoot = (selection: string): string =>
   `query($id: ID!) { node(id: $id) { ... on Resource { currentRevision { root { ${selection} } } } } }`;
 
+describe("DocumentNode.poll", () => {
+  it("reads aliased Question choices and an explicit false closing value", async () => {
+    await withWriter(async ({ auth, save, query }) => {
+      const choice = {
+        type: "Note",
+        name: "Friday",
+        content: "The first choice",
+        score: 2,
+      };
+      const [poll] = await save({
+        "@context": [
+          AS,
+          {
+            options: { "@id": "as:anyOf", "@type": "@id" },
+            closing: { "@id": "as:closed", "@type": "xsd:dateTime" },
+            choice: "https://remote.example/choices/",
+            score: "https://example.com/score",
+          },
+        ],
+        type: "Question",
+        options: [choice, null, "choice:monday"],
+        closing: [null, false],
+      });
+      assert.ok(poll != null);
+      const result = await query(
+        currentRoot(`
+          poll {
+            mode closed closedTime
+            choices { path iri node { document extensions { key value } } }
+          }
+        `),
+        { id: globalId("Resource", poll.id) },
+        auth,
+      );
+      assert.deepEqual(result, {
+        data: {
+          node: {
+            currentRevision: {
+              root: {
+                poll: {
+                  mode: "inclusive",
+                  closed: false,
+                  closedTime: null,
+                  choices: [
+                    {
+                      path: ["options", 0],
+                      iri: null,
+                      node: {
+                        document: choice,
+                        extensions: [{ key: "score", value: 2 }],
+                      },
+                    },
+                    {
+                      path: ["options", 2],
+                      iri: "https://remote.example/choices/monday",
+                      node: null,
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("reads saved Questions in Create and Update after the current poll changes", async () => {
+    await withWriter(async ({ auth, harness, save, change, query }) => {
+      const closed = "2026-11-14T21:00:00.123456789+09:00";
+      const monday = { type: "Note", name: "Monday" };
+      const friday = { type: "Note", name: "Friday" };
+      const [poll, creation] = await save(
+        {
+          type: "Create",
+          to: [PUBLIC_IRI],
+          object: {
+            type: "Question",
+            oneOf: monday,
+            closed,
+            to: [PUBLIC_IRI],
+          },
+        },
+        [...ACTIVITY, { path: ["object"], kind: "object" }],
+      );
+      assert.ok(poll != null && creation != null);
+      const original = await head(harness.db, poll.id);
+      const { oneOf: _, ...originalFields } = original.document as JsonObject;
+      const [, update] = await change(
+        edit(poll.id, original.id, {
+          ...originalFields,
+          anyOf: [friday],
+          closed: false,
+        }),
+      );
+      assert.ok(update != null);
+      const current = await head(harness.db, poll.id);
+      const openEnded = { ...(current.document as JsonObject) };
+      delete openEnded.anyOf;
+      delete openEnded.closed;
+      await change(edit(poll.id, current.id, openEnded));
+
+      const result = await query(
+        `query($poll: ID!, $creation: ID!, $update: ID!) {
+          poll: node(id: $poll) { ... on Resource {
+            currentRevision { root { poll { mode closed closedTime choices { iri } } } }
+          } }
+          creation: node(id: $creation) { ...activityPoll }
+          update: node(id: $update) { ...activityPoll }
+        }
+        fragment activityPoll on Resource {
+          currentRevision { root {
+            type
+            poll { mode }
+            relations(property: object) { node { poll {
+              mode closed closedTime choices { path node { document } }
+            } } }
+          } }
+        }`,
+        {
+          poll: globalId("Resource", poll.id),
+          creation: globalId("Resource", creation.id),
+          update: globalId("Resource", update.id),
+        },
+        auth,
+      );
+      const activityPoll = (type: string, pollFields: JsonObject) => ({
+        currentRevision: {
+          root: {
+            type: `${AS}#${type}`,
+            poll: null,
+            relations: [{ node: { poll: pollFields } }],
+          },
+        },
+      });
+      assert.deepEqual(result, {
+        data: {
+          poll: {
+            currentRevision: {
+              root: {
+                poll: {
+                  mode: null,
+                  closed: null,
+                  closedTime: null,
+                  choices: [],
+                },
+              },
+            },
+          },
+          creation: activityPoll("Create", {
+            mode: "exclusive",
+            closed: null,
+            closedTime: "2026-11-14T12:00:00.123456789Z",
+            choices: [
+              { path: ["object", "oneOf"], node: { document: monday } },
+            ],
+          }),
+          update: activityPoll("Update", {
+            mode: "inclusive",
+            closed: false,
+            closedTime: null,
+            choices: [
+              { path: ["object", "anyOf", 0], node: { document: friday } },
+            ],
+          }),
+        },
+      });
+    });
+  });
+});
+
 describe("Resource.currentRevision", () => {
   it("reads relations of embedded documents, as the Like in an Undo", async () => {
     await withWriter(async ({ save, query }) => {
@@ -997,6 +1168,7 @@ async function receipt(
   db: Database,
   revision: Uuid,
   instanceId: Uuid = localInstanceId,
+  role: "activity" | "object" = "object",
 ): Promise<void> {
   const deliveryId = uuidV7();
   await db.insert(schema.activityDeliveries).values({
@@ -1011,7 +1183,7 @@ async function receipt(
   });
   await db
     .insert(schema.revisionReceipts)
-    .values({ deliveryId, revisionId: revision, role: "object" });
+    .values({ deliveryId, revisionId: revision, role });
 }
 
 /**
@@ -1072,6 +1244,101 @@ const withoutIri = (value: unknown, iri: string): unknown =>
   JSON.parse(JSON.stringify(value).replaceAll(iri, "<iri>"));
 
 describe("Access to revisions across workspaces", () => {
+  it("limits a private received poll to viewers who can read its activity revision", async () => {
+    await withWriter(async ({ harness, auth, query }) => {
+      const { db } = harness;
+      const workspace = await seedWorkspace(db);
+      const member = await seedViewer(db, { memberOf: workspace });
+      const admin = await seedViewer(db, { admin: true });
+      const resource = await ensureResource(
+        db,
+        `https://remote.example/creates/${uuidV7()}`,
+      );
+      const choice = { type: "Note", name: "Private choice" };
+      const received = await appendResourceRevision(db, {
+        resourceId: resource.id,
+        resourceKind: "activity",
+        expectedRevisionId: null,
+        kind: "snapshot",
+        capture: "received",
+        document: {
+          "@context": AS,
+          id: resource.iri,
+          type: "Create",
+          actor: CAROL,
+          to: [ACTOR_IRI],
+          object: {
+            type: "Question",
+            oneOf: [choice],
+            closed: false,
+            to: [ACTOR_IRI],
+          },
+        },
+        addressing: { to: [ACTOR_IRI] },
+      });
+      await receipt(db, received.id, workspace, "activity");
+
+      const read = `query($resource: ID!, $revision: ID!) {
+        direct: node(id: $revision) { ...pollRevision }
+        resource: node(id: $resource) { ... on Resource {
+          currentRevision { ...pollRevision }
+          revision(sequence: 1) { ...pollRevision }
+          revisions(first: 1) { edges { node { ...pollRevision } } }
+        } }
+      }
+      fragment pollRevision on ResourceRevision {
+        id
+        root { relations(property: object) { node { poll {
+          mode closed choices { node { document } }
+        } } } }
+      }`;
+      const variables = {
+        resource: globalId("Resource", resource.id),
+        revision: revisionId(received.id),
+      };
+      for (const init of [undefined, auth]) {
+        assert.deepEqual(await query(read, variables, init), {
+          data: {
+            direct: null,
+            resource: {
+              currentRevision: null,
+              revision: null,
+              revisions: { edges: [] },
+            },
+          },
+        });
+      }
+      const revision = {
+        id: variables.revision,
+        root: {
+          relations: [
+            {
+              node: {
+                poll: {
+                  mode: "exclusive",
+                  closed: false,
+                  choices: [{ node: { document: choice } }],
+                },
+              },
+            },
+          ],
+        },
+      };
+      for (const init of [member.auth, admin.auth]) {
+        assert.deepEqual(await query(read, variables, init), {
+          data: {
+            direct: revision,
+            resource: {
+              currentRevision: revision,
+              revision,
+              revisions: { edges: [{ node: revision }] },
+            },
+          },
+        });
+      }
+    });
+  });
+
   // Workspace A is the writer's local instance; only workspace B received a
   // private Note from elsewhere.
   const privateNote = async (db: Database) => {

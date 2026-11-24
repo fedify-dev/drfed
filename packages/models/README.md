@@ -280,10 +280,64 @@ unsupported. Validation preserves these values without adding seconds or
 truncating precision. Timestamp validation does not establish server ownership
 or ordering between fields.
 
-`Question` is supported standalone and inside `Create`/`Update` using shared
-rules. Its `oneOf`, `anyOf`, and `closed` fields remain unsupported pending
-#155's poll rules. Open-ended `Question` needs no choices. Other types without
-implemented rules, such as `Place`, receive support findings.
+`Question` is supported standalone and inside `Create`/`Update`. It remains an
+intransitive activity: a non-null `object` on the Question itself is invalid.
+Open-ended Questions need no choices, and content may be absent or empty.
+
+| Question field | Supported values                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `oneOf`        | A single-choice poll accepts IRI references or supported embedded objects, singly or in a flat list.                     |
+| `anyOf`        | Choices for a multiple-choice poll, with the same value shapes as `oneOf`.                                               |
+| `closed`       | A boolean or date-time string following the timestamp rules above. DrFed supports one non-null value across all aliases. |
+
+Supplying non-null values in both choice modes reports
+`mutually_exclusive_properties` (vocabulary/error) at each contributing source
+field, including aliases inside nested documents. Null and null-only lists
+mean absence. Empty choice lists on `Question` receive the usual omission
+preview. On other types, poll fields with non-null scalar or object values
+receive `property_not_applicable`, including when those values are list
+entries. Empty lists on other types also receive `property_not_applicable`.
+Malformed entries, such as nested lists, receive diagnostics at their own paths.
+
+Choices retain supported properties and custom extensions rather than being
+reduced to labels. Embedded choices require an explicit supported type, such
+as `Note` or `Object`, under the checker's shared type policy. Untyped choices
+receive `unsupported_type`. Embedded Link choices, resource-valued `closed`
+conditions, and multiple closing values in a list or across aliases receive
+`unsupported_value_form`. Compact IRIs in choice references and embedded
+choice IDs are checked offline after prefix expansion.
+
+An embedded choice outside a list can trigger `poll_choices_not_list`, and a
+valid IRI choice can trigger `poll_choice_reference`. These compatibility
+warnings flag forms that Mastodon may fail to read because it expects a list
+of embedded choices. The validator reports each warning at most once per poll,
+at the first match in source-key order and then list order. It omits both
+warnings when the choice modes conflict. Custom choice extensions receive
+`extension_property_unchecked` warnings; successful validation does not
+guarantee their preservation during serialization or sending.
+
+For example, this embedded poll passes validation without requiring HTML
+content or votes:
+
+~~~~ json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Create",
+  "object": {
+    "type": "Question",
+    "name": "Which day?",
+    "oneOf": [
+      { "type": "Note", "name": "Monday" },
+      { "type": "Note", "name": "Friday" }
+    ],
+    "closed": "2026-11-14T12:00:00Z"
+  }
+}
+~~~~
+
+These rules validate document values; they do not schedule poll closure or
+count votes. Other types without implemented rules, such as `Place`, receive
+support findings.
 
 For 0.2.0, `Object` property rules for `tag`, `inReplyTo`, `url`, `attachment`,
 `replies`, `icon`, `image`, `context`, `source`, `duration`, and `generator`

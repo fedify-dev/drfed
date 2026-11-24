@@ -728,6 +728,10 @@ When adding a new object or field, follow the existing `builder.drizzleNode()`
 and `t.drizzleField()` patterns.  Keep resolver database access through
 `ctx.db`.
 
+Name timestamp fields after the event, as in `created`, `updated`, and
+`deleted`.  Avoid the `At` suffix.  Use `Time` when the event name is already
+used by another field, as in `closedTime` alongside the Boolean `closed`.
+
 The GraphQL types for activity deliveries live in
 *src/activity-delivery/entry.ts*.  Delivery contents are private to local
 instance members and administrators, including Relay node lookups.
