@@ -1105,6 +1105,69 @@ export const revisionEmbeddings = pgTable(
   ],
 );
 
+export const revisionExpansionOutcomeEnum = pgEnum(
+  "revision_expansion_outcome",
+  ["expanded", "failed", "no_document"],
+);
+/**
+ * The JSON-LD expanded form of a revision's document, written with the
+ * revision.  Unlike the other revision projections, rows are derived data: an
+ * incorrect expansion is a bug, fixed by recomputing the rows of the affected
+ * revisions, so the table has no immutability guard.  A revision without a row
+ * has not been expanded yet.  An object embedded in a received activity is
+ * expanded from that activity's document, recorded as `sourceRevisionId`.
+ *
+ * Expanded documents and terms are stored as `json`, like revision documents,
+ * because `jsonb` and `text` reject the NUL characters a received document
+ * may contain.
+ */
+export const revisionExpansions = pgTable(
+  "revision_expansions",
+  {
+    revisionId: uuid("revision_id")
+      .$type<Uuid>()
+      .primaryKey()
+      .references(() => resourceRevisions.id, { onDelete: "restrict" }),
+    outcome: revisionExpansionOutcomeEnum().notNull(),
+    document: json().$type<readonly unknown[]>(),
+    droppedTerms: json("dropped_terms").$type<readonly string[]>(),
+    undefinedTerms: json("undefined_terms").$type<readonly string[]>(),
+    failure: text(),
+    sourceRevisionId: uuid("source_revision_id").$type<Uuid>(),
+  },
+  (t) => [
+    foreignKey({
+      name: "revision_expansions_source_revision_fkey",
+      columns: [t.sourceRevisionId],
+      foreignColumns: [resourceRevisions.id],
+    }).onDelete("restrict"),
+    check(
+      "revision_expansions_outcome_check",
+      sql`(${t.outcome} = 'expanded'
+          AND ${t.document} IS NOT NULL
+          AND ${t.droppedTerms} IS NOT NULL
+          AND ${t.undefinedTerms} IS NOT NULL
+          AND ${t.failure} IS NULL)
+        OR (${t.outcome} = 'failed'
+          AND ${t.document} IS NULL
+          AND ${t.droppedTerms} IS NULL
+          AND ${t.undefinedTerms} IS NULL
+          AND ${t.failure} IS NOT NULL)
+        OR (${t.outcome} = 'no_document'
+          AND ${t.document} IS NULL
+          AND ${t.droppedTerms} IS NULL
+          AND ${t.undefinedTerms} IS NULL
+          AND ${t.failure} IS NULL
+          AND ${t.sourceRevisionId} IS NULL)`,
+    ),
+    check(
+      "revision_expansions_source_check",
+      sql`${t.sourceRevisionId} <> ${t.revisionId}`,
+    ),
+    index("revision_expansions_source_index").on(t.sourceRevisionId),
+  ],
+);
+
 export const revisionReceiptRoleEnum = pgEnum("revision_receipt_role", [
   "activity",
   "object",
@@ -1136,3 +1199,4 @@ export type RevisionAddressing = typeof revisionAddressing.$inferSelect;
 export type RevisionRelation = typeof revisionRelations.$inferSelect;
 export type RevisionReceipt = typeof revisionReceipts.$inferSelect;
 export type RevisionEmbedding = typeof revisionEmbeddings.$inferSelect;
+export type RevisionExpansion = typeof revisionExpansions.$inferSelect;

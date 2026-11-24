@@ -124,6 +124,10 @@
     {
       "name": "20261113080537_guard_revision_embeddings",
       "sha256": "565918b747d0a6d092cdb1d68cf709a729b705c17489b2e333aca294c692b8f5"
+    },
+    {
+      "name": "20261124145448_revision_expansions",
+      "sha256": "db386776819b6a5d0aa08db63ff72584c1aa0c204e09e1fddfb1b4fbaf739b2c"
     }
   ]
 }

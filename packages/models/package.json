@@ -125,6 +125,10 @@
     "./resource-revision": {
       "types": "./dist/resource-revision.d.mts",
       "default": "./dist/resource-revision.mjs"
+    },
+    "./expansion": {
+      "types": "./dist/expansion.d.mts",
+      "default": "./dist/expansion.mjs"
     }
   },
   "files": [
@@ -154,7 +158,8 @@
       "src/migration-session.ts",
       "src/pglite-store.ts",
       "src/pglite-preparation.ts",
-      "src/resource-revision.ts"
+      "src/resource-revision.ts",
+      "src/expansion.ts"
     ],
     "dts": {
       "sourcemap": true,
