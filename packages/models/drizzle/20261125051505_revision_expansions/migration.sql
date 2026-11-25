@@ -2,9 +2,9 @@ CREATE TYPE "revision_expansion_outcome" AS ENUM('expanded', 'failed', 'no_docum
 CREATE TABLE "revision_expansions" (
 	"revision_id" uuid PRIMARY KEY,
 	"outcome" "revision_expansion_outcome" NOT NULL,
-	"document" json,
-	"dropped_terms" json,
-	"undefined_terms" json,
+	"document" jsonb,
+	"dropped_terms" text[],
+	"undefined_terms" text[],
 	"failure" text,
 	"source_revision_id" uuid,
 	CONSTRAINT "revision_expansions_outcome_check" CHECK (("outcome" = 'expanded'

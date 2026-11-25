@@ -1117,9 +1117,11 @@ export const revisionExpansionOutcomeEnum = pgEnum(
  * has not been expanded yet.  An object embedded in a received activity is
  * expanded from that activity's document, recorded as `sourceRevisionId`.
  *
- * Expanded documents and terms are stored as `json`, like revision documents,
- * because `jsonb` and `text` reject the NUL characters a received document
- * may contain.
+ * Unlike revision documents, expanded documents are `jsonb` so that they can
+ * be indexed and queried with containment.  Being derived, they are stored
+ * normalized: U+0000 and unpaired surrogates in strings and keys become
+ * U+FFFD, and negative zero becomes zero.  The stored document holds the exact
+ * values.
  */
 export const revisionExpansions = pgTable(
   "revision_expansions",
@@ -1129,9 +1131,9 @@ export const revisionExpansions = pgTable(
       .primaryKey()
       .references(() => resourceRevisions.id, { onDelete: "restrict" }),
     outcome: revisionExpansionOutcomeEnum().notNull(),
-    document: json().$type<readonly unknown[]>(),
-    droppedTerms: json("dropped_terms").$type<readonly string[]>(),
-    undefinedTerms: json("undefined_terms").$type<readonly string[]>(),
+    document: jsonb().$type<readonly unknown[]>(),
+    droppedTerms: text("dropped_terms").array(),
+    undefinedTerms: text("undefined_terms").array(),
     failure: text(),
     sourceRevisionId: uuid("source_revision_id").$type<Uuid>(),
   },

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e8e831fb-9518-4059-ba82-06f5238a6dcc",
+  "id": "df08a2ea-58e0-4d18-ab90-b44d0ff763a7",
   "prevIds": ["cca19e71-9298-4ce6-91cd-a43b4753442f"],
   "ddl": [
     {
@@ -2754,7 +2754,7 @@
       "table": "revision_expansions"
     },
     {
-      "type": "json",
+      "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -2767,10 +2767,10 @@
       "table": "revision_expansions"
     },
     {
-      "type": "json",
+      "type": "text",
       "typeSchema": null,
       "notNull": false,
-      "dimensions": 0,
+      "dimensions": 1,
       "default": null,
       "generated": null,
       "identity": null,
@@ -2780,10 +2780,10 @@
       "table": "revision_expansions"
     },
     {
-      "type": "json",
+      "type": "text",
       "typeSchema": null,
       "notNull": false,
-      "dimensions": 0,
+      "dimensions": 1,
       "default": null,
       "generated": null,
       "identity": null,

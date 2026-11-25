@@ -89,10 +89,30 @@ export function checkRevisionExpansion(
   throw new TypeError("Expected an expanded or failed outcome.");
 }
 
-// Error messages may quote a document, so keep them storable in `text`.
-function storableFailure(failure: string): string {
-  if (storableText(failure)) return failure;
-  return failure.replaceAll("\0", "\uFFFD").toWellFormed();
+// `text` and `jsonb` refuse U+0000 and unpaired surrogates; error messages
+// and expanded documents may contain both.
+function storableString(value: string): string {
+  if (storableText(value)) return value;
+  return value.replaceAll("\0", "\uFFFD").toWellFormed();
+}
+
+/**
+ * Normalizes an expanded document for `jsonb`, replacing in every string and
+ * key what it refuses with U+FFFD.  The stored document keeps the exact
+ * values, so the expansion need not.
+ * @param value Part of an expanded document.
+ * @returns The value with storable strings and keys.
+ */
+function storableJson(value: unknown): unknown {
+  if (typeof value === "string") return storableString(value);
+  if (Array.isArray(value)) return value.map(storableJson);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      storableString(key),
+      storableJson(entry),
+    ]),
+  );
 }
 
 /**
@@ -123,9 +143,10 @@ export function checkExpansionSource(
  */
 export interface SerializedExpansion {
   readonly outcome: ResourceRevisionExpansionOutcome;
+  /** The expanded document as JSON text, for a `jsonb` column. */
   readonly document: string | null;
-  readonly droppedTerms: string | null;
-  readonly undefinedTerms: string | null;
+  readonly droppedTerms: readonly string[] | null;
+  readonly undefinedTerms: readonly string[] | null;
   readonly failure: string | null;
   readonly sourceRevisionId: Uuid | null;
 }
@@ -135,7 +156,8 @@ type ResourceRevisionExpansionOutcome = ExpansionRow["outcome"];
 /**
  * Serializes an expansion for storage.  An expanded document that JSON cannot
  * represent, such as one keeping a number beyond the double range, is
- * recorded as a failure instead of failing the write.
+ * recorded as a failure instead of failing the write.  Strings are normalized
+ * for `jsonb` and `text`, and `jsonb` stores negative zero as zero.
  * @param expansion The expansion, or null for a revision without a document.
  * @returns The serialized expansion.
  */
@@ -156,9 +178,9 @@ export function serializeExpansion(
     try {
       return {
         outcome: "expanded",
-        document: json(expansion.document),
-        droppedTerms: json(expansion.droppedTerms),
-        undefinedTerms: json(expansion.undefinedTerms),
+        document: json(storableJson(expansion.document)),
+        droppedTerms: expansion.droppedTerms.map(storableString),
+        undefinedTerms: expansion.undefinedTerms.map(storableString),
         failure: null,
         sourceRevisionId,
       };
@@ -175,7 +197,7 @@ export function serializeExpansion(
   return {
     ...none,
     outcome: "failed",
-    failure: storableFailure(expansion.failure),
+    failure: storableString(expansion.failure),
     sourceRevisionId,
   };
 }
@@ -190,14 +212,17 @@ export function expansionRow(
   revisionId: Uuid,
   serialized: SerializedExpansion,
 ): ExpansionRow {
-  const value = (text: string | null) =>
-    text === null ? null : sql`${text}::json`;
   return {
     revisionId,
     outcome: serialized.outcome,
-    document: value(serialized.document),
-    droppedTerms: value(serialized.droppedTerms),
-    undefinedTerms: value(serialized.undefinedTerms),
+    document:
+      serialized.document === null ? null : sql`${serialized.document}::jsonb`,
+    droppedTerms:
+      serialized.droppedTerms === null ? null : [...serialized.droppedTerms],
+    undefinedTerms:
+      serialized.undefinedTerms === null
+        ? null
+        : [...serialized.undefinedTerms],
     failure: serialized.failure,
     sourceRevisionId: serialized.sourceRevisionId,
   };

@@ -215,6 +215,13 @@ how keys were spelled, whether a value was an array, JSON `null`, and the
 | `failed`      | The `failure` reason, including the causes it wraps          |
 | `no_document` | Nothing; the revision is `unavailable` or a `whiteout`       |
 
+The expanded document is `jsonb`, so that it can be indexed and queried with
+containment such as `document @> '[{"@type": [...]}]'`, and the terms are
+`text[]`.  Being derived, they are stored normalized: U+0000 and unpaired
+surrogates in strings and keys, which `jsonb` and `text` refuse, become
+U+FFFD, and negative zero becomes zero.  The stored document keeps the exact
+values.
+
 Documents are expanded with the JSON-LD processor Fedify uses, re-exported by
 `@fedify/vocab-runtime/jsonld`, so that an expansion reads a document as
 Fedify read it.  Undefined terms are kept as they are read: the ActivityStreams

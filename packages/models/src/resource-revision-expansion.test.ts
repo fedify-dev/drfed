@@ -134,7 +134,7 @@ for (const backend of revisionBackends) {
           "@context": AS,
           type: "Note",
           content: "foo",
-          bogus: -0,
+          bogus: 1,
         };
         const revision = await append(fixture, document);
         const expected = await expandDocument(document);
@@ -147,15 +147,44 @@ for (const backend of revisionBackends) {
           failure: null,
           sourceRevisionId: null,
         });
-        // The expanded JSON keeps negative zero, as revision documents do.
-        const { rows } = await fixture.query<{ document: string }>(
-          "SELECT document::text AS document FROM revision_expansions WHERE revision_id = $1",
-          [revision.id],
+        // The expanded document can be queried by containment.
+        const { rows } = await fixture.query<{ count: number }>(
+          "SELECT count(*)::int AS count FROM revision_expansions WHERE revision_id = $1 AND document @> $2::jsonb",
+          [revision.id, JSON.stringify([{ "@type": [`${AS_NS}Note`] }])],
         );
-        assert.match(rows[0]!.document, /"@value":-0\b/u);
+        assert.equal(rows[0]?.count, 1);
       });
     },
   );
+
+  it(`normalizes what jsonb refuses on ${backend}`, options, async () => {
+    await withRevisionDatabase(backend, async (fixture) => {
+      const document = {
+        "@context": AS,
+        type: "Note",
+        content: "a\u0000b \ud800",
+        "nul\u0000key": -0,
+      };
+      const revision = await append(fixture, document);
+      const expansion = await expansionOf(fixture, revision.id);
+      assert.equal(expansion.outcome, "expanded");
+      assert.deepEqual(expansion.document, [
+        {
+          "@type": [`${AS_NS}Note`],
+          [`${AS_NS}content`]: [{ "@value": "a\uFFFDb \uFFFD" }],
+          "_:nul\uFFFDkey": [{ "@value": 0 }],
+        },
+      ]);
+      assert.deepEqual(expansion.undefinedTerms, ["nul\uFFFDkey"]);
+      // The stored document keeps the exact values.
+      const { rows } = await fixture.query<{ document: string }>(
+        "SELECT document::text AS document FROM resource_revisions WHERE id = $1",
+        [revision.id],
+      );
+      assert.match(rows[0]!.document, /a\\u0000b \\ud800/u);
+      assert.match(rows[0]!.document, /:-0\}/u);
+    });
+  });
 
   it(`records a failed expansion on ${backend}`, options, async () => {
     await withRevisionDatabase(backend, async (fixture) => {
