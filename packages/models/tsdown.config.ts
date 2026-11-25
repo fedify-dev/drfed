@@ -19,9 +19,11 @@ import { defineConfig } from "tsdown";
 
 import metadata from "./package.json" with { type: "json" };
 import { verifyMigrationManifest } from "./src/migration-manifest.ts";
+import { knownPropertiesPlugin } from "./src/vocabulary/catalog.ts";
 
 export default defineConfig({
   ...metadata.tsdown,
+  plugins: [knownPropertiesPlugin()],
   copy: [fileURLToPath(new URL("./migrations-manifest.json", import.meta.url))],
   hooks: {
     "build:prepare": async () => {
