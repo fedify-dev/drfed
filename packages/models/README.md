@@ -438,6 +438,53 @@ write operations in `@drfed/federation`.
 [the document tests]: src/document.test.ts
 
 
+Known properties
+----------------
+
+`@drfed/models/known-properties` exports `knownProperties`, a catalog of
+property metadata for the structured editors (#140), with the `KnownProperty`,
+`KnownProperties`, and `LocalizedText` types.  Entries are keyed by absolute
+property IRI, so a lookup needs neither a document context nor a Fedify
+schema:
+
+~~~~ ts
+import { knownProperties } from "@drfed/models/known-properties";
+
+const actor = knownProperties["https://www.w3.org/ns/activitystreams#actor"];
+console.log(actor?.label.en); // "Actor"
+~~~~
+
+Each entry has a `label` and a `description` keyed by language tag, always
+with English text, and a `source` link to the property's definition.  `range`
+lists the types and datatypes the vocabulary declares, and `multiple` says
+whether it allows more than one value; both are absent when the vocabulary
+does not say, and an absent `multiple` does not mean single-valued.  Terms
+that share a label but expand to different IRIs are separate entries.
+
+The catalog is not a validation rule.  An unlisted IRI returns `undefined`,
+which only means there is no metadata for it, and a listed entry does not mean
+that the document checker accepts every value its range allows.  The catalog
+holds the properties the checker has rules for and the extension properties
+that Mastodon, Misskey, GoToSocial, Pleroma, Akkoma, Lemmy, PieFed, Mbin,
+Pixelfed, and Loops send.  The object and its entries are frozen, and the
+object has no prototype.
+
+To add or change an entry, edit *src/vocabulary/properties.yaml*:
+
+ -  Key the entry by the IRI the vocabulary's context produces, written out in
+    full.  For an implementation's extension, that is the IRI its own
+    `@context` produces, which can differ from what a specification suggests.
+ -  Take `range` and `multiple` only from a formal definition, not from a
+    context's `@type` coercion or a parser's behavior.
+ -  Link `source` to the definition, or, when there is none, to the
+    implementation's federation documentation or source.
+
+The build validates the file against *src/vocabulary/properties.schema.yaml*
+and fails on duplicate keys, keys that are not absolute IRIs, and missing
+English text.  The published package contains the validated data only, not the
+YAML files or a YAML parser.
+
+
 Schema
 ------
 
