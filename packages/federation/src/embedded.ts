@@ -151,6 +151,21 @@ export async function embeddedObject(
  * often than a document without the object does.
  * @returns The object's expansion.
  */
+/**
+ * The node Fedify reads as an activity's object: the first `as:object` of
+ * the first node of its expansion.
+ * @param expanded The activity's expanded document.
+ * @returns The object's node, if there is one.
+ */
+export function objectNodeOf(
+  expanded: readonly unknown[],
+): Record<string, unknown> | undefined {
+  const [node] = expanded;
+  const objects = isRecord(node) ? node[AS_OBJECT] : undefined;
+  const [first] = Array.isArray(objects) ? objects : [];
+  return isRecord(first) ? first : undefined;
+}
+
 export async function embeddedExpansion(
   payload: unknown,
   path: Path,
@@ -158,10 +173,8 @@ export async function embeddedExpansion(
   activity: Expansion,
 ): Promise<Expansion> {
   if (activity.outcome === "failed") return activity;
-  const [node] = activity.document;
-  const objects = isRecord(node) ? node[AS_OBJECT] : undefined;
-  const [first] = Array.isArray(objects) ? objects : [];
-  if (!isRecord(first)) {
+  const first = objectNodeOf(activity.document);
+  if (first === undefined) {
     return {
       outcome: "failed",
       failure: "The expanded activity has no object node.",

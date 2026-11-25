@@ -393,11 +393,11 @@ for (const backend of revisionBackends) {
       );
       assert.equal(
         await recordRevisionExpansion(fixture.db, snapshot.id, given),
-        true,
+        "expanded",
       );
       assert.equal(
         await recordRevisionExpansion(fixture.db, snapshot.id, given),
-        false,
+        null,
       );
 
       // An embedded object lacks the context it inherits, so without a given

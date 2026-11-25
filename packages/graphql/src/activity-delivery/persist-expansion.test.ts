@@ -19,12 +19,13 @@ import { it } from "node:test";
 import { backfillExpansions } from "@drfed/federation/expansion-backfill";
 import { type Database, schema } from "@drfed/models";
 import {
+  captureLegacyResourceRevision,
   loadCurrentResourceRevision,
   loadRevisionExpansion,
 } from "@drfed/models/resource-revision";
-import type { Uuid } from "@drfed/models/uuid";
+import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import { type DocumentLoader, signRequest } from "@fedify/fedify";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { withTestHarness } from "../harness.test.ts";
 import { seedLocalInstance } from "../seed.test.ts";
@@ -249,5 +250,87 @@ it("stores a received document with a number beyond the double range", async () 
       assert.equal(expansion.outcome, "expanded");
       assert.doesNotMatch(JSON.stringify(expansion.document), /width/u);
     }
+  });
+});
+
+const loaderFor =
+  (served: Documents): DocumentLoader =>
+  (url) =>
+    served.has(url)
+      ? Promise.resolve({
+          contextUrl: null,
+          documentUrl: url,
+          document: served.get(url),
+        })
+      : Promise.reject(new Error(`offline: ${url}`));
+
+it("backfills an embedded object from its activity's recorded expansion", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const ALIAS = "https://remote.example/alias";
+    const served: Documents = new Map([
+      [ALIAS, { "@context": { payload: "as:object" } }],
+    ]);
+    const { send } = await createRecorder(db, documents, { contexts: served });
+    // The activity names its object through an alias a remote context defines.
+    const { object, ...rest } = createOf(alice, "aliased");
+    const body = { ...rest, "@context": [AS, ALIAS], payload: object };
+    assert.equal((await send(await signed(signer, body))).status, 202);
+    const objectId = await idOf(db, "https://remote.example/notes/aliased");
+    const before = await expansionOf(db, objectId);
+    assert.equal(before.expansion.outcome, "expanded");
+
+    // The alias changes before the object's row is backfilled.
+    await db
+      .delete(schema.revisionExpansions)
+      .where(eq(schema.revisionExpansions.revisionId, before.revision.id));
+    const changed: Documents = new Map([
+      [ALIAS, { "@context": { payload: "urn:example:other" } }],
+    ]);
+    assert.deepEqual(
+      await backfillExpansions(db, { contextLoader: loaderFor(changed) }),
+      { expanded: 1, failed: 0, noDocument: 0 },
+    );
+    const after = await expansionOf(db, objectId);
+    assert.deepEqual(after.expansion, {
+      ...before.expansion,
+      // Found only through the recorded node, so no terms are counted.
+      droppedTerms: [],
+    });
+  });
+});
+
+it("counts a backfilled expansion JSON cannot hold as failed", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents);
+    const body = createOf(alice, "base");
+    assert.equal((await send(await signed(signer, body))).status, 202);
+    const actorId = await idOf(db, alice);
+    // A legacy fetched object whose stored JSON holds a number beyond the
+    // double range, which the driver reads as Infinity.
+    const iri = "https://remote.example/notes/huge";
+    const resource = { id: uuidV7() };
+    await db.execute(
+      sql`INSERT INTO resources (id, iri, kind) VALUES (${resource.id}, ${iri}, 'object')`,
+    );
+    await db.execute(sql`
+      INSERT INTO objects (id, actor_id, type, content_html, fetched, document)
+      VALUES (${resource.id}, ${actorId}, 'Note', 'huge', true,
+        ${`{"@context":"${AS}","id":"${iri}","type":"Note","width":1e400}`}::json)`);
+    await db.transaction(
+      async (tx) => await captureLegacyResourceRevision(tx, resource.id),
+    );
+    assert.deepEqual(
+      await backfillExpansions(db, { contextLoader: loaderFor(new Map()) }),
+      { expanded: 0, failed: 1, noDocument: 0 },
+    );
+    const { expansion } = await expansionOf(db, resource.id);
+    assert.equal(expansion.outcome, "failed");
+    assert.match(expansion.failure ?? "", /cannot be stored as JSON/u);
   });
 });

@@ -53,7 +53,7 @@ export async function captureLegacyResourceRevision(
     checkRevisionExpansion(options.expansion);
   }
   const id = await capture(tx, resourceId);
-  await recordMissingExpansions(tx, resourceId, options.expansion);
+  await recordMissingExpansions(tx, resourceId, id, options.expansion);
   return id;
 }
 

@@ -21,8 +21,10 @@ import { type DocumentExpansion, expandDocument } from "./expansion.ts";
 import { json } from "./json-text.ts";
 import {
   type ResourceRevision,
+  type RevisionExpansion,
   objects,
   resourceRevisions,
+  resources,
   revisionExpansions,
 } from "./schema.ts";
 import { storableText } from "./text.ts";
@@ -232,10 +234,12 @@ export function expansionRow(
  * Records the expansions of a resource's revisions that have none, after a
  * legacy capture.  Revisions the capture created have none; a revision it
  * reused has none only if it predates expansions, and the capture has then
- * verified that its document equals the typed one.  Either way the snapshot's
- * document is the one `expansion` was computed from.
+ * verified that its document equals the typed one.  `expansion` is of that
+ * document, so it is recorded only for the snapshot the capture returned;
+ * other snapshots without one are handled as if none were given.
  * @param tx The capturing transaction.
  * @param resourceId The captured resource.
+ * @param capturedId The revision the capture returned.
  * @param expansion The expansion of the typed document, if the caller computed
  *                  it; otherwise the document is expanded offline here, from
  *                  preloaded contexts only, when it was written locally.  A
@@ -247,6 +251,7 @@ export function expansionRow(
 export async function recordMissingExpansions(
   tx: Transaction,
   resourceId: Uuid,
+  capturedId: Uuid,
   expansion?: RevisionExpansionInput,
 ): Promise<void> {
   const missing = await tx
@@ -276,7 +281,7 @@ export async function recordMissingExpansions(
       rows.push(expansionRow(revision.id, serializeExpansion(null)));
       continue;
     }
-    if (given === undefined) {
+    if (given === undefined || revision.id !== capturedId) {
       if (revision.capture !== "local") continue;
       // oxlint-disable-next-line no-await-in-loop
       const own = await expandDocument(revision.document);
@@ -298,6 +303,8 @@ export async function recordMissingExpansions(
 export interface UnexpandedRevision {
   readonly id: Uuid;
   readonly resourceId: Uuid;
+  /** The IRI of the revision's resource. */
+  readonly resourceIri: string;
   readonly kind: ResourceRevision["kind"];
   readonly capture: ResourceRevision["capture"];
   readonly document: unknown;
@@ -317,11 +324,13 @@ export async function listUnexpandedRevisions(
     .select({
       id: resourceRevisions.id,
       resourceId: resourceRevisions.resourceId,
+      resourceIri: resources.iri,
       kind: resourceRevisions.kind,
       capture: resourceRevisions.capture,
       document: resourceRevisions.document,
     })
     .from(resourceRevisions)
+    .innerJoin(resources, eq(resources.id, resourceRevisions.resourceId))
     .leftJoin(
       revisionExpansions,
       eq(revisionExpansions.revisionId, resourceRevisions.id),
@@ -376,7 +385,9 @@ export async function findCarryingActivityRevision(
  * @param revisionId The revision.
  * @param expansion Its expansion, or null for a revision without a document,
  *                  which must be `unavailable` or a `whiteout`.
- * @returns Whether a row was inserted.
+ * @returns The outcome of the row inserted, which is `failed` for an
+ *          expansion JSON cannot hold, or null if the revision already had
+ *          one.
  * @throws {TypeError} If the revision does not exist, or the expansion does
  *                     not suit its kind.
  */
@@ -384,7 +395,7 @@ export async function recordRevisionExpansion(
   db: Database | Transaction,
   revisionId: Uuid,
   expansion: RevisionExpansionInput | null,
-): Promise<boolean> {
+): Promise<RevisionExpansion["outcome"] | null> {
   if (expansion !== null) checkRevisionExpansion(expansion);
   const serialized = serializeExpansion(expansion);
   const [revision] = await db
@@ -411,6 +422,6 @@ export async function recordRevisionExpansion(
     .insert(revisionExpansions)
     .values(expansionRow(revisionId, serialized))
     .onConflictDoNothing()
-    .returning({ revisionId: revisionExpansions.revisionId });
-  return inserted.length > 0;
+    .returning({ outcome: revisionExpansions.outcome });
+  return inserted[0]?.outcome ?? null;
 }

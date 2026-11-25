@@ -18,6 +18,7 @@
 // oxlint-disable no-await-in-loop
 
 import type { Database } from "@drfed/models";
+import { undefinedTermsOf } from "@drfed/models/expansion";
 import {
   type RevisionExpansionInput,
   type UnexpandedRevision,
@@ -34,7 +35,7 @@ import {
   preloadedContexts,
 } from "@fedify/vocab-runtime";
 
-import { embeddedExpansion, embeddedObject } from "./embedded.ts";
+import { embeddedExpansion, embeddedObject, objectNodeOf } from "./embedded.ts";
 import { expandGathered, gatherContexts } from "./expansion.ts";
 
 /** Options for {@link backfillExpansions}. */
@@ -79,10 +80,10 @@ export async function backfillExpansions(
   const limit = options.batchSize ?? 100;
   const counts = { expanded: 0, failed: 0, noDocument: 0 };
   const record: Record = async (revisionId, expansion) => {
-    if (await recordRevisionExpansion(db, revisionId, expansion)) {
-      if (expansion === null) counts.noDocument += 1;
-      else counts[expansion.outcome] += 1;
-    }
+    // Count what was stored: serializing may turn an expansion into a failure.
+    const recorded = await recordRevisionExpansion(db, revisionId, expansion);
+    if (recorded === "no_document") counts.noDocument += 1;
+    else if (recorded !== null) counts[recorded] += 1;
   };
   let after: Uuid | undefined;
   for (;;) {
@@ -151,21 +152,11 @@ async function expansionOf(
       failure: "No revision of the activity that carried the object was found.",
     };
   }
-  const found = await embeddedObject(parent.document, contextLoader);
-  if (
-    found === undefined ||
-    JSON.stringify(found.document) !== JSON.stringify(document)
-  ) {
-    return {
-      outcome: "failed",
-      failure: "The activity that carried the object does not hold it.",
-      sourceRevisionId: parent.id,
-    };
-  }
   const gathered = await gatherContexts(parent.document, contextLoader);
   // Take the object from the activity's recorded expansion, recording it
   // first if needed, so that both agree even if a context changed between
-  // runs.  The current contexts only count the object's dropped terms.
+  // runs.  The object is the node with its IRI there, so finding it does not
+  // depend on how the current contexts map the activity's `object`.
   if ((await loadRevisionExpansion(db, parent.id)) === null) {
     await record(parent.id, await expandGathered(parent.document, gathered));
   }
@@ -185,6 +176,29 @@ async function expansionOf(
     droppedTerms: recorded.droppedTerms ?? [],
     undefinedTerms: recorded.undefinedTerms ?? [],
   } as const;
+  const node = objectNodeOf(activity.document);
+  if (node?.["@id"] !== revision.resourceIri) {
+    return {
+      outcome: "failed",
+      failure: "The activity that carried the object does not hold it.",
+      sourceRevisionId: parent.id,
+    };
+  }
+  // Dropped terms are counted by replacing the object where the current
+  // contexts find it; where they do not, none are recorded.
+  const found = await embeddedObject(parent.document, contextLoader);
+  if (
+    found === undefined ||
+    JSON.stringify(found.document) !== JSON.stringify(document)
+  ) {
+    return {
+      outcome: "expanded",
+      document: [node],
+      droppedTerms: [],
+      undefinedTerms: undefinedTermsOf([node]),
+      sourceRevisionId: parent.id,
+    };
+  }
   return {
     ...(await embeddedExpansion(
       parent.document,
