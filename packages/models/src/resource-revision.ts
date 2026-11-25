@@ -17,6 +17,8 @@
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import type { Database, Transaction } from "./db.ts";
+import { expandDocument } from "./expansion.ts";
+import { json } from "./json-text.ts";
 import { LegacyResourceRevisionError } from "./legacy-resource-revision-error.ts";
 import { ResourceRevisionStateError } from "./resource-revision-state-error.ts";
 import {
@@ -28,10 +30,19 @@ import {
 } from "./resource.ts";
 import { RevisionConflictError } from "./revision-conflict-error.ts";
 import {
+  type RevisionExpansionInput,
+  type SerializedExpansion,
+  checkExpansionSource,
+  checkRevisionExpansion,
+  expansionRow,
+  serializeExpansion,
+} from "./revision-expansion.ts";
+import {
   type NewActivityPubObject,
   type ResourceRevision,
   type RevisionAddressing,
   type RevisionEmbedding,
+  type RevisionExpansion,
   type RevisionRelation,
   activities,
   addressingPropertyEnum,
@@ -45,6 +56,7 @@ import {
   revisionAddressing,
   revisionEmbeddingRelationEnum,
   revisionEmbeddings,
+  revisionExpansions,
   revisionRelations,
 } from "./schema.ts";
 import { storableText } from "./text.ts";
@@ -105,6 +117,14 @@ export type AppendResourceRevisionInput = AppendBase &
         /** Embedded documents whose source is known, each path once. */
         readonly embeddings?: readonly RevisionEmbeddingInput[];
         readonly projection?: ResourceRevision["projection"];
+        /**
+         * The document's expansion.  When omitted, the document is expanded
+         * offline, from preloaded contexts only, before this function opens
+         * its transaction, or within the caller's.  A document that needs
+         * remote contexts must be expanded before the caller's transaction
+         * and passed here, since none is fetched within it.
+         */
+        readonly expansion?: RevisionExpansionInput;
       }
     | {
         readonly kind: "whiteout";
@@ -112,6 +132,16 @@ export type AppendResourceRevisionInput = AppendBase &
         readonly formerTypes: readonly string[];
       }
   );
+
+export {
+  type RevisionExpansionInput,
+  type UnexpandedRevision,
+  findCarryingActivityRevision,
+  listFailedRevisions,
+  listUnexpandedRevisions,
+  recordRevisionExpansion,
+  retryRevisionExpansion,
+} from "./revision-expansion.ts";
 
 /** Protected local JSON and projections, not an authorized or wire representation. */
 export interface StoredResourceRevision extends ResourceRevision {
@@ -126,69 +156,6 @@ export { ResourceRevisionStateError } from "./resource-revision-state-error.ts";
 function text(value: unknown): asserts value is string {
   if (typeof value !== "string" || !storableText(value)) {
     throw new TypeError("A projection must contain losslessly storable text.");
-  }
-}
-
-function jsonKeys(value: object): string[] {
-  const prototype: unknown = Object.getPrototypeOf(value);
-  if (
-    Array.isArray(value)
-      ? prototype !== Array.prototype
-      : prototype !== Object.prototype && prototype !== null
-  ) {
-    throw new TypeError("JSON objects must be plain records.");
-  }
-  const result: string[] = [];
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (
-      typeof key !== "string" ||
-      descriptor === undefined ||
-      !("value" in descriptor)
-    ) {
-      throw new TypeError(
-        "JSON values cannot contain symbol keys or accessors.",
-      );
-    }
-    if (Array.isArray(value) && key === "length") continue;
-    if (!descriptor.enumerable) {
-      throw new TypeError("JSON members must be enumerable.");
-    }
-    if (
-      Array.isArray(value) &&
-      (!/^(?:0|[1-9][0-9]*)$/u.test(key) || Number(key) >= value.length)
-    ) {
-      throw new TypeError("JSON arrays cannot contain named properties.");
-    }
-    result.push(key);
-  }
-  return result;
-}
-
-// Produce JSON directly so negative zero and escaped Unicode are retained.
-function json(value: unknown, ancestors = new Set<object>()): string {
-  if (value === null) return "null";
-  if (typeof value === "string" || typeof value === "boolean") {
-    return JSON.stringify(value);
-  }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new TypeError("JSON numbers must be finite.");
-    }
-    return Object.is(value, -0) ? "-0" : JSON.stringify(value);
-  }
-  if (typeof value !== "object" || ancestors.has(value)) {
-    throw new TypeError("Expected an acyclic JSON value without coercion.");
-  }
-  const keys = jsonKeys(value);
-  ancestors.add(value);
-  try {
-    if (Array.isArray(value)) {
-      return `[${Array.from(value, (entry: unknown) => json(entry, ancestors)).join(",")}]`;
-    }
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${json(Object.getOwnPropertyDescriptor(value, key)!.value, ancestors)}`).join(",")}}`;
-  } finally {
-    ancestors.delete(value);
   }
 }
 
@@ -345,6 +312,14 @@ interface PreparedRevision extends AppendBase {
   readonly embeddings: Omit<RevisionEmbedding, "revisionId">[];
   readonly deleted: Temporal.Instant | null;
   readonly formerTypes: string[] | null;
+  /**
+   * Serialized when the revision is prepared, so that a caller changing its
+   * expansion afterwards cannot change what is stored; undefined until the
+   * snapshot is expanded.
+   */
+  readonly expansion: SerializedExpansion | undefined;
+  /** The snapshot document, kept to expand it before the transaction. */
+  readonly source: JsonObject | null;
 }
 
 type PreparedValue = Omit<PreparedRevision, keyof AppendBase>;
@@ -380,6 +355,10 @@ function prepareSnapshot(
       },
     );
   }
+  if (input.expansion !== undefined) {
+    checkRevisionExpansion(input.expansion);
+    checkExpansionSource(input.capture, input.expansion);
+  }
   return {
     kind: "snapshot",
     serialized: json(input.document),
@@ -390,6 +369,11 @@ function prepareSnapshot(
     embeddings: embeddingRows(input.embeddings),
     deleted: null,
     formerTypes: null,
+    expansion:
+      input.expansion === undefined
+        ? undefined
+        : serializeExpansion(input.expansion),
+    source: input.document,
   };
 }
 
@@ -414,6 +398,8 @@ function prepareWhiteout(
     embeddings: [],
     deleted: input.deleted,
     formerTypes,
+    expansion: serializeExpansion(null),
+    source: null,
   };
 }
 
@@ -576,6 +562,10 @@ async function appendPrepared(
       .insert(revisionEmbeddings)
       .values(embeddings.map((row) => ({ ...row, revisionId: id })));
   }
+  if (input.expansion === undefined) {
+    throw new TypeError("A snapshot must be expanded before its transaction.");
+  }
+  await tx.insert(revisionExpansions).values(expansionRow(id, input.expansion));
   if (previous === null) {
     await tx.insert(resourceHeads).values({ resourceId, revisionId: id });
   } else {
@@ -587,19 +577,53 @@ async function appendPrepared(
   return await hydrate(tx, revision);
 }
 
+// Expand outside the transaction the caller is about to open.
+async function expanded(prepared: PreparedRevision): Promise<PreparedRevision> {
+  if (prepared.expansion !== undefined || prepared.source === null) {
+    return prepared;
+  }
+  // Without the context it inherits, an embedded document would expand to
+  // something else; it is expanded from the activity that carried it.
+  if (prepared.capture === "embedded") {
+    throw new TypeError("An embedded snapshot needs its given expansion.");
+  }
+  const expansion = await expandDocument(prepared.source);
+  if (expansion.outcome === "no_document") {
+    throw new TypeError("A snapshot revision has a document.");
+  }
+  return { ...prepared, expansion: serializeExpansion(expansion) };
+}
+
 /**
  * Appends one current object version or saved activity, atomically with projections.
  * The caller must validate the document and authorize the write. Lock multiple
  * canonical IRIs in sorted order before composing several appends in one transaction.
  * This does not publish, change collection membership, or reserve delivery.
+ * The revision's expansion is stored with it; see the `expansion` input.
  * @returns The stored revision, including protected blind addressing.
  */
 export async function appendResourceRevision(
   db: Database | Transaction,
   input: AppendResourceRevisionInput,
 ): Promise<StoredResourceRevision> {
-  const prepared = prepareRevision(input);
+  const prepared = await expanded(prepareRevision(input));
   return await db.transaction((tx) => appendPrepared(tx, prepared));
+}
+
+/**
+ * Loads the recorded expansion of a revision's document.
+ * @returns The expansion, or null if the revision has not been expanded.
+ */
+export async function loadRevisionExpansion(
+  db: Database | Transaction,
+  revisionId: Uuid,
+): Promise<RevisionExpansion | null> {
+  const [row] = await db
+    .select()
+    .from(revisionExpansions)
+    .where(eq(revisionExpansions.revisionId, revisionId))
+    .limit(1);
+  return row ?? null;
 }
 
 /**
@@ -729,6 +753,8 @@ export type TypedResourceRevisionInput = TypedRevisionBase &
         /** Embedded documents whose source is known, each path once. */
         readonly embeddings?: readonly RevisionEmbeddingInput[];
         readonly projection?: ResourceRevision["projection"];
+        /** As for {@link appendResourceRevision}. */
+        readonly expansion?: RevisionExpansionInput;
       }
     | {
         readonly kind: "whiteout";
@@ -794,34 +820,39 @@ export async function writeTypedResourceRevision(
   db: Database | Transaction,
   input: TypedResourceRevisionInput,
 ): Promise<StoredResourceRevision> {
-  const prepared = prepareRevision(
-    input.kind === "snapshot"
-      ? {
-          resourceId: input.resourceId,
-          resourceKind: "object",
-          expectedRevisionId: input.expectedRevisionId,
-          kind: "snapshot",
-          document: input.document,
-          capture: "local",
-          addressingOccurrences: input.addressingOccurrences,
-          ...(input.relations === undefined
-            ? {}
-            : { relations: input.relations }),
-          ...(input.embeddings === undefined
-            ? {}
-            : { embeddings: input.embeddings }),
-          ...(input.projection === undefined
-            ? {}
-            : { projection: input.projection }),
-        }
-      : {
-          resourceId: input.resourceId,
-          resourceKind: "object",
-          expectedRevisionId: input.expectedRevisionId,
-          kind: "whiteout",
-          deleted: input.deleted,
-          formerTypes: input.formerTypes,
-        },
+  const prepared = await expanded(
+    prepareRevision(
+      input.kind === "snapshot"
+        ? {
+            resourceId: input.resourceId,
+            resourceKind: "object",
+            expectedRevisionId: input.expectedRevisionId,
+            kind: "snapshot",
+            document: input.document,
+            capture: "local",
+            addressingOccurrences: input.addressingOccurrences,
+            ...(input.relations === undefined
+              ? {}
+              : { relations: input.relations }),
+            ...(input.embeddings === undefined
+              ? {}
+              : { embeddings: input.embeddings }),
+            ...(input.projection === undefined
+              ? {}
+              : { projection: input.projection }),
+            ...(input.expansion === undefined
+              ? {}
+              : { expansion: input.expansion }),
+          }
+        : {
+            resourceId: input.resourceId,
+            resourceKind: "object",
+            expectedRevisionId: input.expectedRevisionId,
+            kind: "whiteout",
+            deleted: input.deleted,
+            formerTypes: input.formerTypes,
+          },
+    ),
   );
   if (prepared.expectedRevisionId === null) {
     throw new TypeError("A typed object always has a current revision.");
@@ -890,4 +921,7 @@ export async function writeTypedResourceRevision(
   });
 }
 
-export { captureLegacyResourceRevision } from "./legacy-resource-revision.ts";
+export {
+  type CaptureLegacyResourceRevisionOptions,
+  captureLegacyResourceRevision,
+} from "./legacy-resource-revision.ts";

@@ -90,6 +90,13 @@ docker compose run --rm drfed drfed-migrate
 and with 1 when it is uninitialized or has pending migrations.  With PGlite,
 stop the server first.
 
+After upgrading from an image whose revisions had no recorded JSON-LD
+expansions, record them once:
+
+~~~~ sh
+docker compose run --rm drfed drfed-migrate --expand-revisions
+~~~~
+
 
 A separate frontend
 -------------------

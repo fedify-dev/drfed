@@ -29,8 +29,9 @@ Snapshots retain parsed JSON values, including nested objects, arrays,
 extensions, custom contexts and the difference between a reference, an embedded
 object and a `Link`. They do not preserve source whitespace or numeric
 spellings. An inbound delivery's `body` retains the received bytes. Storage
-does not fetch references, expand contexts, validate vocabulary semantics, or
-infer a canonical kind from the document's `type`. A `Question`, for example,
+does not fetch references, validate vocabulary semantics, or infer a canonical
+kind from the document's `type`; the document's JSON-LD expansion is recorded
+beside it, as [Expansions](#expansions) describe. A `Question`, for example,
 can be stored as an object or a stored activity according to the caller's
 explicit `resourceKind`.
 
@@ -196,6 +197,94 @@ legacy capture and received documents record none.
 Comparing an embedded document with the current state therefore compares
 revisions of one resource by `sequence`, not timestamps of different
 transactions, which do not follow commit order.
+
+
+Expansions
+----------
+
+`revision_expansions` records the JSON-LD expanded form of each revision's
+document, one row per revision, so that later reads such as searches work on
+one uniform form instead of the many ways a document can be written.  It
+supplements the stored document, which stays the authority: expansion loses
+how keys were spelled, whether a value was an array, JSON `null`, and the
+`@context` itself.
+
+| `outcome`     | Recorded                                                     |
+| ------------- | ------------------------------------------------------------ |
+| `expanded`    | The expanded document, `dropped_terms` and `undefined_terms` |
+| `failed`      | The `failure` reason, including the causes it wraps          |
+| `no_document` | Nothing; the revision is `unavailable` or a `whiteout`       |
+
+The expanded document is `jsonb`, so that it can be indexed and queried with
+containment such as `document @> '[{"@type": [...]}]'`, and the terms are
+`text[]`.  Being derived, they are stored normalized: U+0000 and unpaired
+surrogates in strings and keys, which `jsonb` and `text` refuse, become
+U+FFFD, and negative zero becomes zero.  The stored document keeps the exact
+values.
+
+Documents are expanded with the JSON-LD processor Fedify uses, re-exported by
+`@fedify/vocab-runtime/jsonld`, so that an expansion reads a document as
+Fedify read it.  Undefined terms are kept as they are read: the ActivityStreams
+context maps them with `"@vocab": "_:"`, so a document using `Hashtag` or
+`sensitive` under that context alone expands them to `_:Hashtag` and
+`_:sensitive`, which Fedify does not read either.  `undefined_terms` lists
+those terms, and `dropped_terms` lists those a context without `@vocab`
+discarded.  Mastodon and Fedify define such terms in an inline context, so
+their documents have neither.
+
+No network access happens inside the transaction that stores a revision.
+`expandDocument()` in `@drfed/models/expansion` reads only the contexts
+preloaded by `@fedify/vocab-runtime` and those it is given.  The inbound
+`Create` listener first gathers the remote contexts of a received document
+through the federation's `contextLoader`, with `gatherContexts()` in
+`@drfed/federation/expansion`, which expands the document once with a
+loader recording every context loaded, scoped ones included, and expands the
+activity from them, all before the transaction that stores the expansions
+with the revisions.  An object embedded in it
+lacks the context it inherits, so its expansion is the activity's first
+`as:object` node, the one Fedify reads as the object, with
+`source_revision_id` naming the activity revision it was taken from.  When a
+context fails to load while locating it, the object is stored without its
+document, as an `unavailable` revision whose row is `failed` with the
+reason, rather than `no_document`, so that a transient network error is not
+mistaken for an activity without an embedded object.  A
+fetched object is expanded from its own document.  Local writes use
+preloaded contexts only, so they are expanded offline when no expansion is
+given.  An embedded snapshot appended without an expansion is refused, and a
+legacy capture of a received, embedded or fetched snapshot without one, such
+as an object reused from before expansions were stored, leaves it without a
+row rather than recording an offline failure.  Documents are expanded as
+Fedify reads them, keeping a node with only an `@id`; a stored value that is
+not an object or array, which the processor would load as a URL, fails.
+
+Unlike the other projections, rows are derived data: an incorrect expansion
+is a bug in DrFed, fixed by recomputing the rows of the revisions it affected.
+Addressing, relations and embedding sources are sealed with their revision
+because they record what was stored; an expansion is an interpretation of it
+that the stored document can reproduce.  The table therefore has no
+immutability guard, and rows can be added after a revision is published, like
+the `revision_receipts` index.  Which contexts or which version of the
+processor produced an expansion is not recorded; the context URLs remain in
+the stored document.
+
+A revision without a row has not been expanded yet: it was stored before
+expansions were, or is an embedded object captured without one.
+`drfed-migrate --expand-revisions`, or `mise run expand:revisions` for a
+development store, records them through `backfillExpansions()` in
+`@drfed/federation/expansion-backfill`.  It runs outside transactions,
+loads remote contexts with Fedify's document loader, reusing each context it
+loaded for the rest of the run and trying one that failed again for the next
+revision that needs it, up to three times a run, and keeps a row another
+writer recorded first, so it may run again.  It expands an embedded object
+from the first revision of the activity that first carried it, the
+`activity_id` of its typed row, and records a failure when that revision is
+missing or no longer holds the same object.  It takes the object's node from
+the activity's recorded expansion, recording that first, so the two agree
+even when a remote context changed between runs.  With `--retry-failed`
+(`retryFailed`), it then expands again every snapshot whose row is `failed`
+and replaces the row, retrying a failed activity's row before an object taken
+from it; an `unavailable` revision has no document to retry.  Startup never
+runs it.
 
 
 Legacy capture and upgrades

@@ -78,5 +78,24 @@ with no pending changes. Before upgrading, back up your database and stop
 DrFed. Keep old server processes stopped while applying the new migrations,
 then run `drfed-migrate --config drfed.toml --check` before restarting DrFed.
 
+Revisions stored by a version of DrFed that did not record JSON-LD expansions
+have none until you record them.  After applying the migrations, run:
+
+~~~~ sh
+drfed-migrate --config drfed.toml --expand-revisions
+~~~~
+
+It applies any pending migrations first, then expands every revision still
+without an expansion, loading the remote contexts documents name, and reports
+the counts under `expansions`.  Running it again records nothing new.  With
+PGlite, stop DrFed first; with PostgreSQL it can run while DrFed serves.
+
+A revision whose remote context could not be loaded, such as while its server
+was unreachable, is recorded as failed.  Expand those again later with:
+
+~~~~ sh
+drfed-migrate --config drfed.toml --expand-revisions --retry-failed
+~~~~
+
 From the repository, invoke *packages/drfed/bin/drfed-migrate.mjs* through
 `mise exec -- node` after building.

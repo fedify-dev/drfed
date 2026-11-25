@@ -32,6 +32,7 @@ import {
   storableText,
   storeAddressing,
 } from "@drfed/models";
+import type { DocumentExpansion } from "@drfed/models/expansion";
 import type { ActorType, ObjectType } from "@drfed/models/schema";
 import type { Uuid } from "@drfed/models/uuid";
 import type { InboxContext } from "@fedify/fedify";
@@ -50,13 +51,14 @@ import {
   Service,
 } from "@fedify/vocab";
 import { haveSameFe34Origin } from "@fedify/vocab-runtime";
-import jsonld from "@fedify/vocab-runtime/jsonld";
 import { getLogger } from "@logtape/logtape";
 
 import {
   type Receipt,
   noteFetchedObject,
 } from "./activity-delivery/tracking.ts";
+import { type Path, embeddedExpansion, embeddedObject } from "./embedded.ts";
+import { expandGathered, gatherContexts } from "./expansion.ts";
 import { canonicalizeAuthority } from "./origin.ts";
 
 const logger = getLogger(["drfed", "federation"]);
@@ -82,8 +84,20 @@ interface Accepted {
   readonly objectDocument: unknown;
   /** Whether the object was fetched rather than taken from the activity. */
   readonly objectFetched: boolean;
+  /** The expansion of the activity as received, made before storing it. */
+  readonly activityExpansion: Expansion;
+  /**
+   * The expansion of `objectDocument`, made before storing it; undefined when
+   * the object's place in the activity was not found.
+   */
+  readonly objectExpansion: Expansion | undefined;
   readonly receipt: Receipt;
 }
+
+type Expansion = Exclude<
+  DocumentExpansion,
+  { readonly outcome: "no_document" }
+>;
 
 /** Why a `Create` is not stored. */
 class Refusal extends Error {
@@ -153,112 +167,53 @@ function languageOf(object: APObject): string | null {
   }
 }
 
-const AS_OBJECT = "https://www.w3.org/ns/activitystreams#object";
-const PROBE = "urn:drfed:embedded-object";
 /**
- * How many places of a document are tried for its object, each by expanding
- * it again, so that a sender cannot make DrFed expand a large document over
- * and over.  An object not found within them is stored without its document,
- * which the activity's document still holds as received.
+ * Expand a received activity and its object with the contexts Fedify loads,
+ * before the transaction that stores them, so that no context is fetched
+ * within it.
+ * @returns The expansions of the activity and of the object.
  */
-const MAX_PROBES = 64;
-
-type Path = readonly (string | number)[];
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value != null && !Array.isArray(value);
-
-/**
- * Every JSON object in a document, shallowest first, but those of contexts.
- * @returns Their paths.
- */
-function objectPaths(document: unknown): Path[] {
-  const paths: Path[] = [];
-  let level: { readonly value: unknown; readonly path: Path }[] = [
-    { value: document, path: [] },
-  ];
-  while (level.length > 0) {
-    paths.push(
-      ...level.filter(({ value }) => isRecord(value)).map(({ path }) => path),
-    );
-    level = level.flatMap(({ value, path }) =>
-      Array.isArray(value)
-        ? value.map((item, index) => ({ value: item, path: [...path, index] }))
-        : isRecord(value)
-          ? Object.entries(value)
-              .filter(([key]) => key !== "@context")
-              .map(([key, item]) => ({ value: item, path: [...path, key] }))
-          : [],
-    );
-  }
-  return paths;
-}
-
-const valueAt = (document: unknown, path: Path): unknown =>
-  path.reduce<unknown>(
-    (value, key) =>
-      Array.isArray(value) || isRecord(value)
-        ? (value as Record<string | number, unknown>)[key]
-        : undefined,
-    document,
-  );
-
-const replaceAt = (document: unknown, path: Path, value: unknown): unknown => {
-  const [key, ...rest] = path;
-  if (key == null) return value;
-  if (Array.isArray(document)) {
-    return document.map((item, index) =>
-      index === key ? replaceAt(item, rest, value) : item,
-    );
-  }
-  return isRecord(document)
-    ? { ...document, [key]: replaceAt(document[key], rest, value) }
-    : document;
-};
-
-/**
- * Whether the JSON object at a path is what Fedify reads as the object of
- * the activity: the first `as:object` of the first expanded node, under
- * whatever terms, aliases, graphs or containers the document uses.
- * @returns Whether a node in its place becomes the activity's object.
- */
-async function isObjectAt(
+async function expandReceived(
+  ctx: InboxContext<unknown>,
   payload: unknown,
-  path: Path,
-  contextLoader: DocumentLoader,
-): Promise<boolean> {
-  try {
-    const [activity] = await jsonld.expand(
-      replaceAt(payload, path, { "@id": PROBE }) as Record<string, unknown>,
-      { documentLoader: contextLoader, keepFreeFloatingNodes: true },
-    );
-    const objects = isRecord(activity) ? activity[AS_OBJECT] : undefined;
-    const [first] = Array.isArray(objects) ? objects : [];
-    return isRecord(first) && first["@id"] === PROBE;
-  } catch {
-    return false;
+  object: {
+    readonly document: unknown;
+    readonly path?: Path;
+    readonly failure?: string;
+    readonly fetched: boolean;
+  },
+): Promise<{
+  readonly activity: Expansion;
+  readonly object: Expansion | undefined;
+}> {
+  // Expand the documents as they are stored, which JSON.stringify writes: a
+  // number JSON.parse read as Infinity, such as 1e400, is stored as null.
+  const received = asStored(payload);
+  const gathered = await gatherContexts(received, ctx.contextLoader);
+  const activity = await expandGathered(received, gathered);
+  if (object.fetched) {
+    const document = asStored(object.document);
+    const own = await gatherContexts(document, ctx.contextLoader);
+    return {
+      activity,
+      object: await expandGathered(document, own),
+    };
   }
+  // An object that could not be located is stored without its document; its
+  // revision records why rather than having no document to expand.
+  if (object.failure !== undefined) {
+    return { activity, object: { outcome: "failed", failure: object.failure } };
+  }
+  if (object.path === undefined) return { activity, object: undefined };
+  return {
+    activity,
+    object: await embeddedExpansion(received, object.path, gathered, activity),
+  };
 }
 
-/**
- * The object of a received activity, as it was received.
- * @returns The embedded object, or undefined when it is not found within
- *          the first {@link MAX_PROBES} places of the document.
- */
-async function embeddedObject(
-  payload: unknown,
-  contextLoader: DocumentLoader,
-): Promise<unknown> {
-  // The document itself is the activity, never its object.
-  const paths = objectPaths(payload).filter((path) => path.length > 0);
-  for (const path of paths.slice(0, MAX_PROBES)) {
-    if (await isObjectAt(payload, path, contextLoader)) {
-      return valueAt(payload, path);
-    }
-  }
-  logger.warn("Could not find the object of an activity as received.");
-  return undefined;
-}
+/** @returns The value as a `json` column written through JSON.stringify holds it. */
+const asStored = (value: unknown): unknown =>
+  value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
 const textOf = (value: string | LanguageString | null): string | null =>
   value?.toString() ?? null;
@@ -292,6 +247,13 @@ async function loadObject(
 ): Promise<{
   readonly object: APObject;
   readonly document: unknown;
+  /** Where the object sits in the activity, when it was embedded there. */
+  readonly path?: Path;
+  /**
+   * Why the embedded object could not be located, such as a context failing
+   * to load; its document is then not stored.
+   */
+  readonly failure?: string;
   readonly fetched: boolean;
 }> {
   const objectIri = activity.objectId?.href;
@@ -311,9 +273,20 @@ async function loadObject(
   }
   if (object == null) throw new Refusal("it has no object");
   if (!fetched) {
+    const embedded = await embeddedObject(receipt.payload, ctx.contextLoader);
+    if (embedded === undefined) return { object, document: undefined, fetched };
+    if ("failure" in embedded) {
+      return {
+        object,
+        document: undefined,
+        failure: embedded.failure,
+        fetched,
+      };
+    }
     return {
       object,
-      document: await embeddedObject(receipt.payload, ctx.contextLoader),
+      document: embedded.document,
+      path: embedded.path,
       fetched,
     };
   }
@@ -363,11 +336,8 @@ async function accept(
 ): Promise<Accepted> {
   const activityIri = activity.id?.href;
   if (activityIri == null) throw new Refusal("it has no ID");
-  const { object, document, fetched } = await loadObject(
-    ctx,
-    activity,
-    receipt,
-  );
+  const loaded = await loadObject(ctx, activity, receipt);
+  const { object, document, fetched } = loaded;
   const objectIri = object.id?.href;
   const objectType = typeOf(objectTypes, object);
   if (objectType == null) throw new Refusal("its object is not supported");
@@ -395,6 +365,7 @@ async function accept(
   if (actor.inboxId == null) throw new Refusal("its actor has no inbox");
   const username = textOf(actor.preferredUsername);
   checkStorable({ "actor's preferredUsername": username });
+  const expansions = await expandReceived(ctx, receipt.payload, loaded);
   return {
     activityIri,
     activity,
@@ -412,6 +383,8 @@ async function accept(
     username,
     objectDocument: document,
     objectFetched: fetched,
+    activityExpansion: expansions.activity,
+    objectExpansion: expansions.object,
     receipt,
   };
 }
@@ -432,6 +405,8 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
   const objectAddressing = addressingOf(object);
   const activityAddressing = addressingOf(activity);
   await db.transaction(async (tx) => {
+    // Set when this transaction inserts the object, rather than reusing one.
+    let objectInserted = false;
     const instance = await ensureRemoteInstance(
       tx,
       canonicalizeAuthority(new URL(accepted.actorIri).host),
@@ -507,6 +482,7 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
           });
         if (row == null) throw new Error("Object insertion returned no row.");
         await storeAddressing(inner, row.id, objectAddressing);
+        objectInserted = true;
         return row;
       },
       undefined,
@@ -529,8 +505,28 @@ async function store(db: Database, accepted: Accepted): Promise<void> {
         await storeAddressing(inner, resource.id, activityAddressing);
       },
     );
-    await captureLegacyResourceRevision(tx, stored.id);
-    await captureLegacyResourceRevision(tx, activityId);
+    // The activity first, since an embedded object's expansion refers to the
+    // activity revision it was taken from.  A reused object keeps the
+    // expansion of the document stored with it, not this activity's.
+    const activityRevisionId = await captureLegacyResourceRevision(
+      tx,
+      activityId,
+      { expansion: accepted.activityExpansion },
+    );
+    const objectExpansion = objectInserted
+      ? accepted.objectExpansion
+      : undefined;
+    await captureLegacyResourceRevision(
+      tx,
+      stored.id,
+      objectExpansion === undefined
+        ? {}
+        : {
+            expansion: accepted.objectFetched
+              ? objectExpansion
+              : { ...objectExpansion, sourceRevisionId: activityRevisionId },
+          },
+    );
   });
 }
 
