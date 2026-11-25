@@ -278,7 +278,19 @@ export async function recordMissingExpansions(
     expansion === undefined ? undefined : serializeExpansion(expansion);
   for (const revision of missing) {
     if (revision.kind !== "snapshot") {
-      rows.push(expansionRow(revision.id, serializeExpansion(null)));
+      // A revision without a document records why, when the capture says.
+      const failed =
+        revision.id === capturedId &&
+        revision.kind === "unavailable" &&
+        given?.outcome === "failed";
+      if (revision.id === capturedId && given !== undefined && !failed) {
+        throw new TypeError(
+          `A revision of kind ${revision.kind} has no document to expand.`,
+        );
+      }
+      rows.push(
+        expansionRow(revision.id, failed ? given : serializeExpansion(null)),
+      );
       continue;
     }
     if (given === undefined || revision.id !== capturedId) {
@@ -410,7 +422,14 @@ export async function recordRevisionExpansion(
     throw new TypeError("The revision does not exist.");
   }
   // A revision's kind never changes, so checking it first is enough.
-  if ((revision.kind === "snapshot") !== (expansion !== null)) {
+  // A snapshot is expanded or fails; an unavailable revision may record why
+  // its document is missing; a whiteout has nothing to expand.
+  const fits =
+    revision.kind === "snapshot"
+      ? expansion !== null
+      : expansion === null ||
+        (revision.kind === "unavailable" && expansion.outcome === "failed");
+  if (!fits) {
     throw new TypeError(
       revision.kind === "snapshot"
         ? "A snapshot has a document to expand."

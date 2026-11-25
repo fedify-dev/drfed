@@ -70,7 +70,13 @@ async function legacyObject(
   {
     deleted = null,
     fetched = true,
-  }: { readonly deleted?: string | null; readonly fetched?: boolean } = {},
+    stored = true,
+  }: {
+    readonly deleted?: string | null;
+    readonly fetched?: boolean;
+    /** Whether the typed row keeps its document. */
+    readonly stored?: boolean;
+  } = {},
 ) {
   const instanceId = uuidV7();
   const actorId = uuidV7();
@@ -93,7 +99,7 @@ async function legacyObject(
     [
       objectId,
       actorId,
-      JSON.stringify({ ...document, id: iri }),
+      stored ? JSON.stringify({ ...document, id: iri }) : null,
       deleted,
       fetched,
     ],
@@ -504,6 +510,76 @@ for (const backend of revisionBackends) {
         assert.match(
           failed.failure ?? "",
           /cannot be stored as JSON: .*finite/u,
+        );
+      });
+    },
+  );
+
+  it(
+    `records why an unavailable revision has no document on ${backend}`,
+    options,
+    async () => {
+      await withRevisionDatabase(backend, async (fixture) => {
+        // An object stored without its document, because a context failed to
+        // load while locating it, records that failure instead of no_document.
+        const { objectId } = await legacyObject(
+          fixture,
+          { type: "Note" },
+          { fetched: false, stored: false },
+        );
+        const failure =
+          "jsonld.InvalidUrl: loading failed Caused by Error: timed out";
+        const revisionId = await capture(fixture, objectId, {
+          expansion: { outcome: "failed", failure },
+        });
+        const [revision] = await revisionIds(fixture, objectId);
+        assert.equal(revision?.kind, "unavailable");
+        assert.deepEqual(await expansionOf(fixture, revisionId), {
+          outcome: "failed",
+          document: null,
+          droppedTerms: null,
+          undefinedTerms: null,
+          failure,
+          sourceRevisionId: null,
+        });
+        // Only a failure fits a revision without a document.
+        const third = await legacyObject(
+          fixture,
+          { type: "Note" },
+          { fetched: false, stored: false },
+        );
+        await assert.rejects(
+          capture(fixture, third.objectId, {
+            expansion: {
+              outcome: "expanded",
+              document: [],
+              droppedTerms: [],
+              undefinedTerms: [],
+            },
+          }),
+          /no document to expand/u,
+        );
+
+        const other = await legacyObject(
+          fixture,
+          { type: "Note" },
+          { fetched: false, stored: false },
+        );
+        const otherId = await capture(fixture, other.objectId);
+        assert.equal(
+          (await expansionOf(fixture, otherId)).outcome,
+          "no_document",
+        );
+        await fixture.query(
+          "DELETE FROM revision_expansions WHERE revision_id = $1",
+          [otherId],
+        );
+        assert.equal(
+          await recordRevisionExpansion(fixture.db, otherId, {
+            outcome: "failed",
+            failure,
+          }),
+          "failed",
         );
       });
     },

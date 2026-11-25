@@ -58,6 +58,10 @@
       "types": "./dist/document.d.mts",
       "default": "./dist/document.mjs"
     },
+    "./embedded": {
+      "types": "./dist/embedded.d.mts",
+      "default": "./dist/embedded.mjs"
+    },
     "./expansion": {
       "types": "./dist/expansion.d.mts",
       "default": "./dist/expansion.mjs"
@@ -97,6 +101,7 @@
       "src/activity-delivery.ts",
       "src/object.ts",
       "src/document.ts",
+      "src/embedded.ts",
       "src/expansion.ts",
       "src/expansion-backfill.ts",
       "src/local-write.ts",

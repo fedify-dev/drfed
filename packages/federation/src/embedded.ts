@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import {
   type DocumentExpansion,
+  expansionFailure,
   undefinedTermsOf,
 } from "@drfed/models/expansion";
 import type { DocumentLoader } from "@fedify/vocab-runtime";
@@ -101,13 +102,14 @@ export const replaceAt = (
  * Whether the JSON object at a path is what Fedify reads as the object of
  * the activity: the first `as:object` of the first expanded node, under
  * whatever terms, aliases, graphs or containers the document uses.
- * @returns Whether a node in its place becomes the activity's object.
+ * @returns Whether a node in its place becomes the activity's object, or why
+ *          the document could not be expanded to tell.
  */
 async function isObjectAt(
   payload: unknown,
   path: Path,
   contextLoader: DocumentLoader,
-): Promise<boolean> {
+): Promise<boolean | { readonly failure: string }> {
   try {
     const [activity] = await jsonld.expand(
       replaceAt(payload, path, { "@id": PROBE }) as Record<string, unknown>,
@@ -116,26 +118,40 @@ async function isObjectAt(
     const objects = isRecord(activity) ? activity[AS_OBJECT] : undefined;
     const [first] = Array.isArray(objects) ? objects : [];
     return isRecord(first) && first["@id"] === PROBE;
-  } catch {
-    return false;
+  } catch (error) {
+    return { failure: expansionFailure(error) };
   }
 }
 
 /**
  * The object of a received activity, as it was received.
- * @returns The embedded object and its place, or undefined when it is not
- *          found within the first {@link MAX_PROBES} places of the document.
+ * @returns The embedded object and its place; why the document could not be
+ *          expanded to find it, such as a context failing to load, which
+ *          stops the probes since every one would fail alike; or undefined
+ *          when it is not found within the first {@link MAX_PROBES} places.
  */
 export async function embeddedObject(
   payload: unknown,
   contextLoader: DocumentLoader,
-): Promise<{ readonly document: unknown; readonly path: Path } | undefined> {
+): Promise<
+  | { readonly document: unknown; readonly path: Path }
+  | { readonly failure: string }
+  | undefined
+> {
   // The document itself is the activity, never its object.
   const paths = objectPaths(payload).filter((path) => path.length > 0);
   for (const path of paths.slice(0, MAX_PROBES)) {
     // Each probe is tried in order; the first match is the object.
     // oxlint-disable-next-line no-await-in-loop
-    if (await isObjectAt(payload, path, contextLoader)) {
+    const probe = await isObjectAt(payload, path, contextLoader);
+    if (typeof probe === "object") {
+      logger.warn(
+        "Could not expand an activity as received to find its object: {failure}",
+        { failure: probe.failure },
+      );
+      return probe;
+    }
+    if (probe) {
       return { document: valueAt(payload, path), path };
     }
   }

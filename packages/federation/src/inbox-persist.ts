@@ -179,6 +179,7 @@ async function expandReceived(
   object: {
     readonly document: unknown;
     readonly path?: Path;
+    readonly failure?: string;
     readonly fetched: boolean;
   },
 ): Promise<{
@@ -197,6 +198,11 @@ async function expandReceived(
       activity,
       object: await expandGathered(document, own),
     };
+  }
+  // An object that could not be located is stored without its document; its
+  // revision records why rather than having no document to expand.
+  if (object.failure !== undefined) {
+    return { activity, object: { outcome: "failed", failure: object.failure } };
   }
   if (object.path === undefined) return { activity, object: undefined };
   return {
@@ -243,6 +249,11 @@ async function loadObject(
   readonly document: unknown;
   /** Where the object sits in the activity, when it was embedded there. */
   readonly path?: Path;
+  /**
+   * Why the embedded object could not be located, such as a context failing
+   * to load; its document is then not stored.
+   */
+  readonly failure?: string;
   readonly fetched: boolean;
 }> {
   const objectIri = activity.objectId?.href;
@@ -263,9 +274,21 @@ async function loadObject(
   if (object == null) throw new Refusal("it has no object");
   if (!fetched) {
     const embedded = await embeddedObject(receipt.payload, ctx.contextLoader);
-    return embedded === undefined
-      ? { object, document: undefined, fetched }
-      : { object, document: embedded.document, path: embedded.path, fetched };
+    if (embedded === undefined) return { object, document: undefined, fetched };
+    if ("failure" in embedded) {
+      return {
+        object,
+        document: undefined,
+        failure: embedded.failure,
+        fetched,
+      };
+    }
+    return {
+      object,
+      document: embedded.document,
+      path: embedded.path,
+      fetched,
+    };
   }
   const document = await object.toJsonLd({ contextLoader: ctx.contextLoader });
   noteFetchedObject(document);

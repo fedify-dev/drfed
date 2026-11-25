@@ -185,10 +185,11 @@ async function expansionOf(
     };
   }
   // Dropped terms are counted by replacing the object where the current
-  // contexts find it; where they do not, none are recorded.
+  // contexts find it; where they do not, or fail to load, none are recorded.
   const found = await embeddedObject(parent.document, contextLoader);
   if (
     found === undefined ||
+    "failure" in found ||
     JSON.stringify(found.document) !== JSON.stringify(document)
   ) {
     return {

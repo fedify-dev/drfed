@@ -243,7 +243,11 @@ activity from them, all before the transaction that stores the expansions
 with the revisions.  An object embedded in it
 lacks the context it inherits, so its expansion is the activity's first
 `as:object` node, the one Fedify reads as the object, with
-`source_revision_id` naming the activity revision it was taken from.  A
+`source_revision_id` naming the activity revision it was taken from.  When a
+context fails to load while locating it, the object is stored without its
+document, as an `unavailable` revision whose row is `failed` with the
+reason, rather than `no_document`, so that a transient network error is not
+mistaken for an activity without an embedded object.  A
 fetched object is expanded from its own document.  Local writes use
 preloaded contexts only, so they are expanded offline when no expansion is
 given.  An embedded snapshot appended without an expansion is refused, and a
