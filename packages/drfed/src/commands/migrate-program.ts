@@ -101,6 +101,12 @@ export function createMigrationProgram(
       }),
       false,
     ),
+    retryFailed: withDefault(
+      flag("--retry-failed", {
+        description: message`With --expand-revisions, also expand again the revisions whose expansion failed, such as when a remote context could not be loaded.`,
+      }),
+      false,
+    ),
     printConfig: withDefault(
       flag("--print-config", {
         description: message`Print effective settings and provenance with credentials redacted, then exit without opening runtime resources.`,
@@ -147,10 +153,14 @@ export function resolveMigrationOptions(
   if (raw.check && raw.expandRevisions) {
     throw new Error("--check and --expand-revisions cannot be used together.");
   }
+  if (raw.retryFailed && !raw.expandRevisions) {
+    throw new Error("--retry-failed requires --expand-revisions.");
+  }
   return {
     database: { ...selected.database, lockTimeoutMs },
     check: raw.check,
     expandRevisions: raw.expandRevisions,
+    retryFailed: raw.retryFailed,
     printConfig: raw.printConfig,
     ignored: selected.ignored,
     provenance: configurationProvenance({
@@ -188,7 +198,9 @@ export function describeMigrationConfiguration(
     mode: options.check
       ? "check"
       : options.expandRevisions
-        ? "apply-and-expand"
+        ? options.retryFailed
+          ? "apply-and-retry"
+          : "apply-and-expand"
         : "apply",
     settings: Object.fromEntries(
       Object.entries(values)

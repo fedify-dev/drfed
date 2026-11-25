@@ -216,3 +216,27 @@ it("expands revisions only when applying migrations", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it("retries failed expansions only alongside --expand-revisions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "drfed-migrate-retry-"));
+  try {
+    const retry = await parse(
+      ["-d", "data", "--expand-revisions", "--retry-failed"],
+      {},
+      directory,
+    );
+    assert.equal(retry.retryFailed, true);
+    assert.equal(describeMigrationConfiguration(retry).mode, "apply-and-retry");
+    assert.equal(
+      (await parse(["-d", "data", "--expand-revisions"], {}, directory))
+        .retryFailed,
+      false,
+    );
+    await assert.rejects(
+      parse(["-d", "data", "--retry-failed"], {}, directory),
+      /--retry-failed requires --expand-revisions\./u,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

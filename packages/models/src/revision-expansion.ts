@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { type SQL, and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import type { PgInsertValue } from "drizzle-orm/pg-core";
 
 import type { Database, Transaction } from "./db.ts";
@@ -332,6 +332,39 @@ export async function listUnexpandedRevisions(
   db: Database | Transaction,
   options: { readonly after?: Uuid; readonly limit: number },
 ): Promise<UnexpandedRevision[]> {
+  return await listRevisions(
+    db,
+    isNull(revisionExpansions.revisionId),
+    options,
+  );
+}
+
+/**
+ * Lists snapshot revisions whose expansion failed, in ID order, so that a
+ * failure such as a context that could not be loaded can be retried.
+ * @param db The database.
+ * @param options Where to continue from, and how many to list.
+ * @returns Up to `limit` revisions after `after`.
+ */
+export async function listFailedRevisions(
+  db: Database | Transaction,
+  options: { readonly after?: Uuid; readonly limit: number },
+): Promise<UnexpandedRevision[]> {
+  return await listRevisions(
+    db,
+    and(
+      eq(revisionExpansions.outcome, "failed"),
+      eq(resourceRevisions.kind, "snapshot"),
+    ),
+    options,
+  );
+}
+
+async function listRevisions(
+  db: Database | Transaction,
+  condition: SQL | undefined,
+  options: { readonly after?: Uuid; readonly limit: number },
+): Promise<UnexpandedRevision[]> {
   return await db
     .select({
       id: resourceRevisions.id,
@@ -349,7 +382,7 @@ export async function listUnexpandedRevisions(
     )
     .where(
       and(
-        isNull(revisionExpansions.revisionId),
+        condition,
         options.after === undefined
           ? undefined
           : gt(resourceRevisions.id, options.after),
@@ -408,6 +441,55 @@ export async function recordRevisionExpansion(
   revisionId: Uuid,
   expansion: RevisionExpansionInput | null,
 ): Promise<RevisionExpansion["outcome"] | null> {
+  const serialized = await checkedExpansion(db, revisionId, expansion);
+  const inserted = await db
+    .insert(revisionExpansions)
+    .values(expansionRow(revisionId, serialized))
+    .onConflictDoNothing()
+    .returning({ outcome: revisionExpansions.outcome });
+  return inserted[0]?.outcome ?? null;
+}
+
+/**
+ * Replaces a failed expansion of a revision, as when a context that could not
+ * be loaded before now loads.  A row that is no longer failed, because
+ * another writer replaced it first, is kept.
+ * @param db The database.
+ * @param revisionId The revision.
+ * @param expansion Its new expansion.
+ * @returns The outcome of the row replaced, or null if it was not failed.
+ * @throws {TypeError} If the revision does not exist, or the expansion does
+ *                     not suit its kind.
+ */
+export async function retryRevisionExpansion(
+  db: Database | Transaction,
+  revisionId: Uuid,
+  expansion: RevisionExpansionInput | null,
+): Promise<RevisionExpansion["outcome"] | null> {
+  const serialized = await checkedExpansion(db, revisionId, expansion);
+  const { revisionId: _revisionId, ...columns } = expansionRow(
+    revisionId,
+    serialized,
+  );
+  const updated = await db
+    .update(revisionExpansions)
+    .set(columns)
+    .where(
+      and(
+        eq(revisionExpansions.revisionId, revisionId),
+        eq(revisionExpansions.outcome, "failed"),
+      ),
+    )
+    .returning({ outcome: revisionExpansions.outcome });
+  return updated[0]?.outcome ?? null;
+}
+
+// Checks an expansion against the revision it is recorded for.
+async function checkedExpansion(
+  db: Database | Transaction,
+  revisionId: Uuid,
+  expansion: RevisionExpansionInput | null,
+): Promise<SerializedExpansion> {
   if (expansion !== null) checkRevisionExpansion(expansion);
   const serialized = serializeExpansion(expansion);
   const [revision] = await db
@@ -437,10 +519,5 @@ export async function recordRevisionExpansion(
     );
   }
   checkExpansionSource(revision.capture, expansion);
-  const inserted = await db
-    .insert(revisionExpansions)
-    .values(expansionRow(revisionId, serialized))
-    .onConflictDoNothing()
-    .returning({ outcome: revisionExpansions.outcome });
-  return inserted[0]?.outcome ?? null;
+  return serialized;
 }

@@ -137,8 +137,10 @@ export {
   type RevisionExpansionInput,
   type UnexpandedRevision,
   findCarryingActivityRevision,
+  listFailedRevisions,
   listUnexpandedRevisions,
   recordRevisionExpansion,
+  retryRevisionExpansion,
 } from "./revision-expansion.ts";
 
 /** Protected local JSON and projections, not an authorized or wire representation. */

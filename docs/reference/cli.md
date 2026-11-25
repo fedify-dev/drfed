@@ -181,6 +181,8 @@ The first command applies migrations. `--check` inspects history without
 applying DrFed SQL and exits successfully only when the database is ready.
 `--expand-revisions` applies migrations, then records the JSON-LD expansion
 of every revision stored without one, and cannot be combined with `--check`.
+Adding `--retry-failed` also expands again the revisions whose expansion
+failed, such as when a remote context could not be loaded.
 All accept the same configuration file and database selectors as the server.
 Stop a PGlite server before running them.
 

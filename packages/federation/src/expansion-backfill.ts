@@ -23,9 +23,11 @@ import {
   type RevisionExpansionInput,
   type UnexpandedRevision,
   findCarryingActivityRevision,
+  listFailedRevisions,
   listUnexpandedRevisions,
   loadRevisionExpansion,
   recordRevisionExpansion,
+  retryRevisionExpansion,
 } from "@drfed/models/resource-revision";
 import type { Uuid } from "@drfed/models/uuid";
 import {
@@ -51,11 +53,17 @@ export interface BackfillExpansionsOptions {
   readonly contextLoader?: DocumentLoader;
   /** How many revisions to list at a time.  Defaults to 100. */
   readonly batchSize?: number;
+  /**
+   * Also expands again the snapshot revisions whose expansion failed, such as
+   * when a context could not be loaded, replacing a row that now succeeds or
+   * fails for another reason.  Defaults to false.
+   */
+  readonly retryFailed?: boolean;
   /** Stops the run between revisions. */
   readonly signal?: AbortSignal;
 }
 
-/** How many revisions a backfill recorded, by outcome. */
+/** How many revisions a backfill recorded or replaced, by outcome. */
 export interface BackfillExpansionsResult {
   readonly expanded: number;
   readonly failed: number;
@@ -83,28 +91,44 @@ export async function backfillExpansions(
   );
   const limit = options.batchSize ?? 100;
   const counts = { expanded: 0, failed: 0, noDocument: 0 };
-  const record: Record = async (revisionId, expansion) => {
-    // Count what was stored: serializing may turn an expansion into a failure.
-    const recorded = await recordRevisionExpansion(db, revisionId, expansion);
-    if (recorded === "no_document") counts.noDocument += 1;
-    else if (recorded !== null) counts[recorded] += 1;
+  // Count what was stored: serializing may turn an expansion into a failure.
+  const counting =
+    (write: typeof recordRevisionExpansion): Record =>
+    async (revisionId, expansion) => {
+      const stored = await write(db, revisionId, expansion);
+      if (stored === "no_document") counts.noDocument += 1;
+      else if (stored !== null) counts[stored] += 1;
+    };
+  const writers: Writers = {
+    record: counting(recordRevisionExpansion),
+    ...(options.retryFailed === true
+      ? { retry: counting(retryRevisionExpansion) }
+      : {}),
   };
-  let after: Uuid | undefined;
-  for (;;) {
-    options.signal?.throwIfAborted();
-    const batch = await listUnexpandedRevisions(db, {
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    if (batch.length === 0) break;
-    for (const revision of batch) {
+  const passes = [
+    { list: listUnexpandedRevisions, write: writers.record },
+    ...(writers.retry === undefined
+      ? []
+      : [{ list: listFailedRevisions, write: writers.retry }]),
+  ];
+  for (const { list, write } of passes) {
+    let after: Uuid | undefined;
+    for (;;) {
       options.signal?.throwIfAborted();
-      await record(
-        revision.id,
-        await expansionOf(db, revision, contextLoader, record),
-      );
+      const batch = await list(db, {
+        ...(after === undefined ? {} : { after }),
+        limit,
+      });
+      if (batch.length === 0) break;
+      for (const revision of batch) {
+        options.signal?.throwIfAborted();
+        await write(
+          revision.id,
+          await expansionOf(db, revision, contextLoader, writers),
+        );
+      }
+      after = batch.at(-1)?.id;
     }
-    after = batch.at(-1)?.id;
   }
   return counts;
 }
@@ -113,6 +137,13 @@ type Record = (
   revisionId: Uuid,
   expansion: RevisionExpansionInput | null,
 ) => Promise<void>;
+
+interface Writers {
+  /** Records an expansion for a revision without one. */
+  readonly record: Record;
+  /** Replaces a failed expansion, when the run retries failures. */
+  readonly retry?: Record;
+}
 
 /** How many times a backfill run tries to load a context that keeps failing. */
 export const MAX_CONTEXT_ATTEMPTS = 3;
@@ -151,7 +182,7 @@ async function expansionOf(
   db: Database,
   revision: UnexpandedRevision,
   contextLoader: DocumentLoader,
-  record: Record,
+  writers: Writers,
 ): Promise<RevisionExpansionInput | null> {
   if (revision.kind !== "snapshot") return null;
   const { document } = revision;
@@ -173,10 +204,18 @@ async function expansionOf(
   // first if needed, so that both agree even if a context changed between
   // runs.  The object is the node with its IRI there, so finding it does not
   // depend on how the current contexts map the activity's `object`.
-  if ((await loadRevisionExpansion(db, parent.id)) === null) {
-    await record(parent.id, await expandGathered(parent.document, gathered));
+  // A failed activity row is retried first when the run retries failures.
+  let recorded = await loadRevisionExpansion(db, parent.id);
+  const write =
+    recorded === null
+      ? writers.record
+      : recorded.outcome === "failed"
+        ? writers.retry
+        : undefined;
+  if (write !== undefined) {
+    await write(parent.id, await expandGathered(parent.document, gathered));
+    recorded = await loadRevisionExpansion(db, parent.id);
   }
-  const recorded = await loadRevisionExpansion(db, parent.id);
   if (recorded === null) throw new Error("The activity has no expansion.");
   if (recorded.outcome !== "expanded" || recorded.document === null) {
     return {

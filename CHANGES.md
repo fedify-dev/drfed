@@ -63,7 +63,9 @@ To be released.
     migrations, then records the JSON-LD expansion of every revision stored
     without one, loading the remote contexts its document names.  Run it once
     after upgrading; running it again records nothing new.  It cannot be
-    combined with `--check`.  [[#187] by Hyeonseo Kim\]
+    combined with `--check`.  Add `--retry-failed` to expand again the
+    revisions whose expansion failed, such as when a remote context could not
+    be loaded.  [[#187] by Hyeonseo Kim\]
 
 [#187]: https://github.com/fedify-dev/drfed/issues/187
 
@@ -147,7 +149,8 @@ To be released.
  -  Added `gatherContexts()` and `expandGathered()` to
     `@drfed/federation/expansion`, which gather a document's remote contexts
     before a transaction and expand it from them inside one, and
-    `backfillExpansions()` to `@drfed/federation/expansion-backfill`.
+    `backfillExpansions()` to `@drfed/federation/expansion-backfill`, whose
+    `retryFailed` option expands failed revisions again.
     [[#187] by Hyeonseo Kim\]
  -  Added `@drfed/models/resource-revision` to append and read immutable
     ActivityStreams document histories. An append fails when its expected

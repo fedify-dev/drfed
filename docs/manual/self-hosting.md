@@ -90,5 +90,12 @@ without an expansion, loading the remote contexts documents name, and reports
 the counts under `expansions`.  Running it again records nothing new.  With
 PGlite, stop DrFed first; with PostgreSQL it can run while DrFed serves.
 
+A revision whose remote context could not be loaded, such as while its server
+was unreachable, is recorded as failed.  Expand those again later with:
+
+~~~~ sh
+drfed-migrate --config drfed.toml --expand-revisions --retry-failed
+~~~~
+
 From the repository, invoke *packages/drfed/bin/drfed-migrate.mjs* through
 `mise exec -- node` after building.

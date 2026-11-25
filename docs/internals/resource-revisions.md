@@ -280,7 +280,11 @@ from the first revision of the activity that first carried it, the
 `activity_id` of its typed row, and records a failure when that revision is
 missing or no longer holds the same object.  It takes the object's node from
 the activity's recorded expansion, recording that first, so the two agree
-even when a remote context changed between runs.  Startup never runs it.
+even when a remote context changed between runs.  With `--retry-failed`
+(`retryFailed`), it then expands again every snapshot whose row is `failed`
+and replaces the row, retrying a failed activity's row before an object taken
+from it; an `unavailable` revision has no document to retry.  Startup never
+runs it.
 
 
 Legacy capture and upgrades

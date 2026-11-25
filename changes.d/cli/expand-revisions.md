@@ -6,4 +6,6 @@ links:
     migrations, then records the JSON-LD expansion of every revision stored
     without one, loading the remote contexts its document names.  Run it once
     after upgrading; running it again records nothing new.  It cannot be
-    combined with `--check`.  [[#187] by Hyeonseo Kim]
+    combined with `--check`.  Add `--retry-failed` to expand again the
+    revisions whose expansion failed, such as when a remote context could not
+    be loaded.  [[#187] by Hyeonseo Kim]

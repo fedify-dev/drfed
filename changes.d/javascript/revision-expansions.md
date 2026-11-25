@@ -14,5 +14,6 @@ links:
  -  Added `gatherContexts()` and `expandGathered()` to
     `@drfed/federation/expansion`, which gather a document's remote contexts
     before a transaction and expand it from them inside one, and
-    `backfillExpansions()` to `@drfed/federation/expansion-backfill`.
+    `backfillExpansions()` to `@drfed/federation/expansion-backfill`, whose
+    `retryFailed` option expands failed revisions again.
     [[#187] by Hyeonseo Kim]

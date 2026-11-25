@@ -27,7 +27,7 @@ import {
 } from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import { type DocumentLoader, signRequest } from "@fedify/fedify";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import { withTestHarness } from "../harness.test.ts";
 import { seedLocalInstance } from "../seed.test.ts";
@@ -389,5 +389,85 @@ it("retries a context that failed to load, up to three times a run", async () =>
     assert.equal(calls.get(FLAKY), 2);
     // A context failing three times is not loaded again in the run.
     assert.equal(calls.get(DEAD), 3);
+  });
+});
+
+it("retries failed expansions only when asked", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const documents: Documents = new Map();
+    const signer = await addActor(documents, alice);
+    const { send } = await createRecorder(db, documents, { contexts });
+    const body = createOf(alice, "retry", {
+      activity: { "@context": [AS, NS], mood: "happy" },
+      object: { mood: "calm" },
+    });
+    assert.equal((await send(await signed(signer, body))).status, 202);
+    const activityId = await idOf(
+      db,
+      "https://remote.example/activities/retry",
+    );
+    const objectId = await idOf(db, "https://remote.example/notes/retry");
+    const before = [
+      await expansionOf(db, activityId),
+      await expansionOf(db, objectId),
+    ];
+    // As if the remote context had been unreachable during an earlier run.
+    await db
+      .update(schema.revisionExpansions)
+      .set({
+        outcome: "failed",
+        document: null,
+        droppedTerms: null,
+        undefinedTerms: null,
+        failure: "jsonld.InvalidUrl: timed out",
+      })
+      .where(
+        inArray(
+          schema.revisionExpansions.revisionId,
+          before.map(({ revision }) => revision.id),
+        ),
+      );
+    const contextLoader = loaderFor(contexts);
+    assert.deepEqual(await backfillExpansions(db, { contextLoader }), {
+      expanded: 0,
+      failed: 0,
+      noDocument: 0,
+    });
+    assert.equal((await expansionOf(db, objectId)).expansion.outcome, "failed");
+    // The object's row is retried from its activity's, retried first.
+    assert.deepEqual(
+      await backfillExpansions(db, { contextLoader, retryFailed: true }),
+      { expanded: 2, failed: 0, noDocument: 0 },
+    );
+    assert.deepEqual(
+      [await expansionOf(db, activityId), await expansionOf(db, objectId)],
+      before,
+    );
+
+    // A failure that persists stays failed, with the new reason.
+    await db
+      .update(schema.revisionExpansions)
+      .set({
+        outcome: "failed",
+        document: null,
+        droppedTerms: null,
+        undefinedTerms: null,
+        failure: "old",
+      })
+      .where(eq(schema.revisionExpansions.revisionId, before[0]!.revision.id));
+    assert.deepEqual(
+      await backfillExpansions(db, {
+        contextLoader: loaderFor(new Map()),
+        retryFailed: true,
+      }),
+      { expanded: 0, failed: 1, noDocument: 0 },
+    );
+    const { expansion } = await expansionOf(db, activityId);
+    assert.equal(expansion.outcome, "failed");
+    assert.match(
+      expansion.failure ?? "",
+      /offline: https:\/\/remote\.example\/ns/u,
+    );
   });
 });

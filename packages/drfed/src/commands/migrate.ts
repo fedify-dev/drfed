@@ -90,7 +90,10 @@ export async function main(): Promise<void> {
     let expansions: Awaited<ReturnType<typeof backfillExpansions>> | undefined;
     if (options.expandRevisions && database.state.status === "ready") {
       expansions = await operations.run((signal) =>
-        backfillExpansions(database.db, { signal }),
+        backfillExpansions(database.db, {
+          retryFailed: options.retryFailed,
+          signal,
+        }),
       );
     }
     console.log(
