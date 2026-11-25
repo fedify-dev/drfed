@@ -41,8 +41,12 @@ import { expandGathered, gatherContexts } from "./expansion.ts";
 /** Options for {@link backfillExpansions}. */
 export interface BackfillExpansionsOptions {
   /**
-   * Loads remote contexts; each URL is loaded once per run.  Defaults to
-   * Fedify's loader allowing private addresses, as the server loads them.
+   * Loads remote contexts.  A context loaded is reused for the rest of the
+   * run; one that fails to load is tried again for the next revision that
+   * needs it, up to {@link MAX_CONTEXT_ATTEMPTS} times in all, so that a
+   * transient error does not fail every revision while an unreachable server
+   * does not stall the run.  Defaults to Fedify's loader allowing private
+   * addresses, as the server loads them.
    */
   readonly contextLoader?: DocumentLoader;
   /** How many revisions to list at a time.  Defaults to 100. */
@@ -74,7 +78,7 @@ export async function backfillExpansions(
   db: Database,
   options: BackfillExpansionsOptions = {},
 ): Promise<BackfillExpansionsResult> {
-  const contextLoader = loadOnce(
+  const contextLoader = cachedLoader(
     options.contextLoader ?? getDocumentLoader({ allowPrivateAddress: true }),
   );
   const limit = options.batchSize ?? 100;
@@ -110,9 +114,13 @@ type Record = (
   expansion: RevisionExpansionInput | null,
 ) => Promise<void>;
 
-function loadOnce(loader: DocumentLoader): DocumentLoader {
+/** How many times a backfill run tries to load a context that keeps failing. */
+export const MAX_CONTEXT_ATTEMPTS = 3;
+
+function cachedLoader(loader: DocumentLoader): DocumentLoader {
   const loaded = new Map<string, Promise<RemoteDocument>>();
-  return (url, options) => {
+  const failures = new Map<string, number>();
+  return async (url, options) => {
     // Preloaded contexts are served as the federation's loader serves them.
     if (Object.hasOwn(preloadedContexts, url)) {
       const preloaded: RemoteDocument = {
@@ -120,14 +128,22 @@ function loadOnce(loader: DocumentLoader): DocumentLoader {
         documentUrl: url,
         document: preloadedContexts[url],
       };
-      return Promise.resolve(preloaded);
+      return preloaded;
     }
-    let remote = loaded.get(url);
-    if (remote === undefined) {
-      remote = loader(url, options);
-      loaded.set(url, remote);
+    const cached = loaded.get(url);
+    if (cached !== undefined) return await cached;
+    const remote = loader(url, options);
+    loaded.set(url, remote);
+    try {
+      return await remote;
+    } catch (error) {
+      // Forget a failure, unless the context has failed too often, so that
+      // the next revision that needs it tries again.
+      const count = (failures.get(url) ?? 0) + 1;
+      failures.set(url, count);
+      if (count < MAX_CONTEXT_ATTEMPTS) loaded.delete(url);
+      throw error;
     }
-    return remote;
   };
 }
 

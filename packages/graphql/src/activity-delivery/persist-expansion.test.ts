@@ -18,7 +18,9 @@ import { it } from "node:test";
 
 import { backfillExpansions } from "@drfed/federation/expansion-backfill";
 import { type Database, schema } from "@drfed/models";
+import { ensureResource } from "@drfed/models/resource";
 import {
+  appendResourceRevision,
   captureLegacyResourceRevision,
   loadCurrentResourceRevision,
   loadRevisionExpansion,
@@ -332,5 +334,60 @@ it("counts a backfilled expansion JSON cannot hold as failed", async () => {
     const { expansion } = await expansionOf(db, resource.id);
     assert.equal(expansion.outcome, "failed");
     assert.match(expansion.failure ?? "", /cannot be stored as JSON/u);
+  });
+});
+
+it("retries a context that failed to load, up to three times a run", async () => {
+  await withTestHarness(async ({ db }) => {
+    await seedLocalInstance(db);
+    const FLAKY = "https://flaky.example/context";
+    const DEAD = "https://dead.example/context";
+    for (const [host, context] of [
+      ["flaky", FLAKY],
+      ["dead", DEAD],
+    ] as const) {
+      // Revisions are appended in order, so that the backfill meets them so.
+      for (let index = 0; index < 5; index += 1) {
+        // oxlint-disable-next-line no-await-in-loop
+        const resource = await ensureResource(
+          db,
+          `https://${host}.example/notes/${index}`,
+        );
+        // oxlint-disable-next-line no-await-in-loop
+        await appendResourceRevision(db, {
+          resourceId: resource.id,
+          resourceKind: "object",
+          expectedRevisionId: null,
+          kind: "snapshot",
+          document: { "@context": [AS, context], type: "Note", mood: "x" },
+          capture: "fetched",
+          expansion: { outcome: "failed", failure: "not yet expanded" },
+        });
+      }
+    }
+    await db.delete(schema.revisionExpansions);
+    const calls = new Map<string, number>();
+    const contextLoader: DocumentLoader = (url) => {
+      const count = (calls.get(url) ?? 0) + 1;
+      calls.set(url, count);
+      // The flaky server fails once, the dead one always.
+      if (url === DEAD || (url === FLAKY && count === 1)) {
+        return Promise.reject(new Error(`unreachable: ${url}`));
+      }
+      return Promise.resolve({
+        contextUrl: null,
+        documentUrl: url,
+        document: { "@context": { mood: MOOD } },
+      });
+    };
+    assert.deepEqual(await backfillExpansions(db, { contextLoader }), {
+      expanded: 4,
+      failed: 6,
+      noDocument: 0,
+    });
+    // A failure is retried for the next revision; success is reused.
+    assert.equal(calls.get(FLAKY), 2);
+    // A context failing three times is not loaded again in the run.
+    assert.equal(calls.get(DEAD), 3);
   });
 });

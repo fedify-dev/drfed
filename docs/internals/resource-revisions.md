@@ -272,7 +272,9 @@ expansions were, or is an embedded object captured without one.
 `drfed-migrate --expand-revisions`, or `mise run expand:revisions` for a
 development store, records them through `backfillExpansions()` in
 `@drfed/federation/expansion-backfill`.  It runs outside transactions,
-loads remote contexts with Fedify's document loader, and keeps a row another
+loads remote contexts with Fedify's document loader, reusing each context it
+loaded for the rest of the run and trying one that failed again for the next
+revision that needs it, up to three times a run, and keeps a row another
 writer recorded first, so it may run again.  It expands an embedded object
 from the first revision of the activity that first carried it, the
 `activity_id` of its typed row, and records a failure when that revision is
