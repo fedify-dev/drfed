@@ -23,8 +23,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { packageOrder } from "../packages.mts";
-
 export const root = fileURLToPath(new URL("../../", import.meta.url));
 export const imageRepository = "ghcr.io/fedify-dev/drfed";
 
@@ -81,6 +79,8 @@ const layoutEntries = new Map([
   ["oci-layout", "file"],
 ] as const);
 
+const DRFED_PACKAGE = /^@drfed\/[a-z][a-z\d-]*$/u;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -88,7 +88,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * Check that a directory holds exactly a layout that image:build wrote: the
  * OCI layout files, its blobs, and DrFed's own metadata, and nothing else.
  * Another project's layout lacks the metadata, so it is never mistaken for
- * one.
+ * one.  The metadata only has to list DrFed packages, not the current set, so
+ * that a layout built before a package was added or removed can be replaced.
  * @returns Why the directory is not such a layout, or undefined if it is.
  */
 export function drfedLayoutProblem(
@@ -128,7 +129,11 @@ export function drfedLayoutProblem(
     !isRecord(metadata) ||
     typeof metadata.platform !== "string" ||
     !isRecord(metadata.build) ||
-    packages?.join() !== packageOrder.map((name) => `@drfed/${name}`).join()
+    packages === undefined ||
+    packages.length === 0 ||
+    !packages.every(
+      (name) => typeof name === "string" && DRFED_PACKAGE.test(name),
+    )
   ) {
     return `${metadataFile} does not describe a DrFed image`;
   }

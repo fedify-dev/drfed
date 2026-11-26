@@ -22,6 +22,7 @@
  */
 export const packageOrder = [
   "models",
+  "vocab",
   "federation",
   "graphql",
   "web",

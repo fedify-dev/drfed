@@ -725,7 +725,13 @@ try {
     operations
       .filter((item) => item[0] === "publish")
       .map((item) => item[1]!.split("/").at(-1)),
-    bundle.packages.slice(2).map((item: { filename: string }) => item.filename),
+    bundle.packages
+      .slice(
+        bundle.packages.findIndex(
+          (item: { name: string }) => item.name === "@drfed/graphql",
+        ),
+      )
+      .map((item: { filename: string }) => item.filename),
   );
   for (const name of names) {
     assert.equal(tags.get(`@drfed/${name}`)?.dev, build.version);
@@ -907,15 +913,17 @@ try {
   }
   await run(["github-release", "--github-api", registry]);
   visibilityMisses.clear();
-  assert.equal(githubRelease?.assets.length, 26);
+  // One tarball per package, the completion scripts, and the image manifest.
+  const assetCount = names.length + completionNames.length + 1;
+  assert.equal(githubRelease?.assets.length, assetCount);
   const createRelease = githubOperations.find((args) => args[1] === "create")!;
   assert.equal(
     createRelease[createRelease.indexOf("--title") + 1],
     `DrFed ${tagBuild.version}`,
   );
-  assert.equal(githubOperations.length, 27);
+  assert.equal(githubOperations.length, assetCount + 1);
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubOperations.length, 27);
+  assert.equal(githubOperations.length, assetCount + 1);
   assert.ok(githubOperations[0]!.includes("--latest=true"));
   // A late backport must preserve npm and GitHub's current Latest release.
   for (const name of names) tags.get(`@drfed/${name}`)!.latest = "0.2.0";
@@ -927,7 +935,7 @@ try {
   githubOperations.length = 0;
   await run(["github-release", "--github-api", registry]);
   assert.ok(githubOperations[0]!.includes("--latest=false"));
-  assert.equal(githubOperations.length, 27);
+  assert.equal(githubOperations.length, assetCount + 1);
   const frozenBody = githubRelease!.body;
   githubRelease!.body = "Different notes";
   await assert.rejects(run(["github-release", "--github-api", registry]));
@@ -935,7 +943,7 @@ try {
   githubRelease!.prerelease = true;
   await assert.rejects(run(["github-release", "--github-api", registry]));
   githubRelease!.prerelease = false;
-  assert.equal(githubOperations.length, 27);
+  assert.equal(githubOperations.length, assetCount + 1);
   assert.deepEqual(
     githubRelease!.assets
       .filter((asset) => completionNames.includes(asset.name))
@@ -959,23 +967,23 @@ try {
   const completeAssets = structuredClone(githubRelease!.assets);
   githubRelease!.assets = completeAssets.slice(0, 2);
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubRelease!.assets.length, 26);
-  assert.equal(githubOperations.length, 51);
+  assert.equal(githubRelease!.assets.length, assetCount);
+  assert.equal(githubOperations.length, assetCount + 1 + assetCount - 2);
   githubRelease!.assets[3] = {
     name: completeAssets[3]!.name,
     state: "starter",
     size: 0,
   };
   await run(["github-release", "--github-api", registry]);
-  assert.equal(githubRelease!.assets.length, 26);
-  assert.equal(githubOperations.length, 52);
+  assert.equal(githubRelease!.assets.length, assetCount);
+  assert.equal(githubOperations.length, assetCount + 1 + assetCount - 1);
   assert.ok(githubOperations.at(-1)!.includes("--clobber"));
   githubRelease!.assets[5]!.digest = "sha256:completion-conflict";
   await assert.rejects(run(["github-release", "--github-api", registry]));
   githubRelease!.assets = structuredClone(completeAssets);
   githubRelease!.assets[0]!.digest = "sha256:conflict";
   await assert.rejects(run(["github-release", "--github-api", registry]));
-  assert.equal(githubOperations.length, 52);
+  assert.equal(githubOperations.length, assetCount + 1 + assetCount - 1);
   // Docs deployments are ordered against the last build that reached the site.
   const githubOutput = join(temporary, "github-output");
   const devEnv = {

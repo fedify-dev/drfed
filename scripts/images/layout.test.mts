@@ -48,6 +48,35 @@ describe("drfedLayoutProblem()", () => {
     assert.equal(drfedLayoutProblem(layout), undefined);
   });
 
+  it("accepts a layout built with an earlier set of packages", () => {
+    const earlier = ["models", "federation", "graphql", "web", "drfed"];
+    assert.equal(
+      drfedLayoutProblem({
+        ...layout,
+        metadata: {
+          ...(layout.metadata as Record<string, unknown>),
+          packages: earlier.map((name) => ({ name: `@drfed/${name}` })),
+        },
+      }),
+      undefined,
+    );
+  });
+
+  it("rejects metadata that lists no DrFed packages", () => {
+    for (const packages of [[], [{ name: "left-pad" }], [{}], "@drfed/web"]) {
+      assert.match(
+        drfedLayoutProblem({
+          ...layout,
+          metadata: {
+            ...(layout.metadata as Record<string, unknown>),
+            packages,
+          },
+        })!,
+        /DrFed image/u,
+      );
+    }
+  });
+
   it("rejects another project's OCI layout", () => {
     const other = withEntries((entries) => entries.delete("drfed-image.json"));
     assert.match(

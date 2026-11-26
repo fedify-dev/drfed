@@ -1,0 +1,66 @@
+{
+  "name": "@drfed/vocab",
+  "version": "0.2.0",
+  "description": "Tools that check the known property catalog of DrFed against its vocabularies.",
+  "keywords": [
+    "ActivityPub",
+    "ActivityStreams",
+    "fediverse",
+    "federation",
+    "debugger"
+  ],
+  "author": {
+    "name": "DrFed team",
+    "url": "https://drfed.org/"
+  },
+  "maintainers": [
+    {
+      "name": "ChanHaeng Lee",
+      "email": "2chanhaeng@gmail.com",
+      "url": "https://chomu.dev/"
+    },
+    {
+      "name": "Hong Minhee",
+      "email": "hong@minhee.org",
+      "url": "https://hongminhee.org/"
+    },
+    {
+      "name": "Hyeonseo Kim",
+      "email": "dodok8@gmail.com",
+      "url": "https://hackers.pub/@gaebalgom"
+    },
+    {
+      "name": "Jiwon Kwon",
+      "email": "work@kwonjiwon.org",
+      "url": "https://kwonjiwon.org/"
+    }
+  ],
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "type": "module",
+  "files": [
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@fedify/vocab-runtime": "catalog:",
+    "@types/n3": "^1.26.6",
+    "@types/node": "catalog:",
+    "n3": "^2.13.12",
+    "parse5": "^8.1.1",
+    "typescript": "catalog:",
+    "yaml": "^2.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fedify-dev/drfed.git",
+    "directory": "packages/vocab"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
