@@ -145,6 +145,11 @@ mise run dev
     `node scripts/add-license/main.mts --check`.
  -  Package version sync with `node scripts/check-versions.mts`.
  -  Package order with `node scripts/check-packages.mts`.
+ -  Known property catalog entries against what their namespaces publish,
+    such as <https://www.w3.org/ns/activitystreams>, with
+    `node packages/vocab/tools/check.mts`, which needs network access.
+    The namespaces are listed in *packages/vocab/tools/namespaces.mts*,
+    and `mise run update:known-properties` writes the values they give.
  -  *docker/Containerfile* linting with hadolint and shell script linting of
     *docker/* with ShellCheck.
  -  GitHub workflow and local composite action validation with jactionlint.

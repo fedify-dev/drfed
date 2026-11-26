@@ -47,6 +47,9 @@ To add or change an entry, edit *src/properties.yaml*:
     `@context` produces, which can differ from what a specification suggests.
  -  Take `range` and `multiple` only from a formal definition, not from a
     context's `@type` coercion or a parser's behavior.
+ -  For a property the Activity Vocabulary or ActivityPub defines, keep the
+    definition's text in `description` as it is written, including its
+    citations and errors; `mise run update:known-properties` writes it.
  -  Link `source` to the definition, or, when there is none, to the
     implementation's federation documentation or source.
 
@@ -59,7 +62,7 @@ YAML files or a YAML parser.
 Namespace checks
 ----------------
 
-`node packages/vocab/tools/check.mts` fetches what the namespaces of the
+`mise run check:known-properties` fetches what the namespaces of the
 entries publish and compares the entries with it, and
 `mise run update:known-properties` writes the values they give into
 *src/properties.yaml*, rewriting only the lines of the fields it changes.  Both
@@ -83,4 +86,6 @@ namespaces give different values for it.  Each namespace is listed in
     `source` must point to an anchor of the page.  It gives no values.
 
 To check another namespace, add it to that list.  The check prints the
-namespaces of the entries that no listed namespace covers.
+namespaces of the entries that no listed namespace covers, and a comment in
+the same file records why each of them cannot be checked: some IRIs are
+identifiers that were never meant to resolve, and others answer 404.

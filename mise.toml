@@ -226,6 +226,10 @@ run = "node scripts/check-packages.mts"
 description = "Exercise docs preview pull request, build and comment fixtures"
 run = "node --test scripts/test-docs-preview.mts"
 
+[tasks."check:known-properties"]
+description = "Compare the known property catalog with what its namespaces publish"
+run = "node packages/vocab/tools/check.mts"
+
 [tasks."update:known-properties"]
 description = "Write into the known property catalog the values its namespaces publish"
 run = "node packages/vocab/tools/update.mts"

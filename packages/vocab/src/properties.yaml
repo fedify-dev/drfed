@@ -206,7 +206,7 @@
   description:
     en: >-
       Identifies one or more entities that represent the total population of
-      entities for which the object can be considered to be relevant.
+      entities for which the object can considered to be relevant.
   range:
     - "https://www.w3.org/ns/activitystreams#Object"
     - "https://www.w3.org/ns/activitystreams#Link"
@@ -220,8 +220,9 @@
     en: Actor
   description:
     en: >-
-      Identifies one or more entities that performed or are expected to perform
-      the activity.
+      Describes one or more entities that either performed or are expected to
+      perform the activity. Any single activity can have multiple actors. The
+      actor MAY be specified using an indirect Link.
   range:
     - "https://www.w3.org/ns/activitystreams#Object"
     - "https://www.w3.org/ns/activitystreams#Link"
@@ -318,8 +319,8 @@
     en: Inbox
   description:
     en: >-
-      A reference to an OrderedCollection comprised of all the messages received
-      by the actor.
+      A reference to an [ActivityStreams] OrderedCollection comprised of all the
+      messages received by the actor; see 5.2 Inbox.
   range:
     - "https://www.w3.org/ns/activitystreams#OrderedCollection"
   source: "https://www.w3.org/TR/activitypub/#inbox-property"
@@ -329,7 +330,8 @@
     en: Outbox
   description:
     en: >-
-      An OrderedCollection comprised of all the messages produced by the actor.
+      An [ActivityStreams] OrderedCollection comprised of all the messages
+      produced by the actor; see 5.1 Outbox.
   range:
     - "https://www.w3.org/ns/activitystreams#OrderedCollection"
   source: "https://www.w3.org/TR/activitypub/#outbox-property"
@@ -339,7 +341,8 @@
     en: Following
   description:
     en: >-
-      A link to a collection of the actors that this actor is following.
+      A link to an [ActivityStreams] collection of the actors that this actor is
+      following; see 5.4 Following Collection
   range:
     - "https://www.w3.org/ns/activitystreams#Collection"
     - "https://www.w3.org/ns/activitystreams#OrderedCollection"
@@ -350,7 +353,8 @@
     en: Followers
   description:
     en: >-
-      A link to a collection of the actors that follow this actor.
+      A link to an [ActivityStreams] collection of the actors that follow this
+      actor; see 5.3 Followers Collection.
   range:
     - "https://www.w3.org/ns/activitystreams#Collection"
     - "https://www.w3.org/ns/activitystreams#OrderedCollection"
@@ -361,7 +365,8 @@
     en: Liked
   description:
     en: >-
-      A link to a collection of objects this actor has liked.
+      A link to an [ActivityStreams] collection of objects this actor has liked;
+      see 5.5 Liked Collection.
   range:
     - "https://www.w3.org/ns/activitystreams#Collection"
     - "https://www.w3.org/ns/activitystreams#OrderedCollection"
@@ -413,7 +418,7 @@
     en: First
   description:
     en: >-
-      In a paged Collection, indicates the furthest preceding page of items in
+      In a paged Collection, indicates the furthest preceeding page of items in
       the collection.
   range:
     - "https://www.w3.org/ns/activitystreams#CollectionPage"

@@ -25,7 +25,8 @@
  *  -  `anchorNamespace` for an HTML page that documents each term under an
  *     anchor, which the entries' `source` links point to.
  *
- * A namespace with no entry is reported as unchecked.
+ * A namespace with no entry is reported as unchecked.  The comment after the
+ * list records why each such namespace cannot be checked.
  */
 import { activityStreams } from "./activitystreams.mts";
 import {
@@ -113,3 +114,61 @@ export const NAMESPACES: readonly Namespace[] = [
     url: "https://purl.archive.org/socialweb/webfinger",
   }),
 ];
+
+/*
+ * Namespaces that cannot be checked, as surveyed in November 2026.  None of
+ * them publishes a document the kinds above read, so the check reports their
+ * entries as unchecked.  When one starts publishing a definition, add it to
+ * the list above and remove it here.
+ *
+ * Deliberately not dereferenceable:
+ *
+ *  -  `http://joinmastodon.org/ns#` (Mastodon): the IRI has never served a
+ *     document, and Mastodon inlines its terms in every `@context`: “It's a
+ *     "fake" namespace, that's why we inline it in the JSON-LD.”
+ *     <https://github.com/mastodon/joinmastodon/issues/148>
+ *  -  `http://schema.org#` (Mastodon's profile field `value`): a misspelling
+ *     of `http://schema.org/` that Mastodon documents as incorrect and keeps
+ *     for compatibility.  schema.org defines `http://schema.org/value`, not
+ *     this IRI.  <https://github.com/mastodon/mastodon/issues/18361>
+ *  -  `http://ostatus.org#` (Mastodon): an identifier on a domain that has
+ *     lapsed and now redirects to unrelated sites.  Mastodon holds that such
+ *     an identifier need not resolve and cannot change without breaking
+ *     compatibility.  <https://github.com/mastodon/mastodon/issues/37869>
+ *  -  `https://joinpeertube.org/ns#` (PeerTube): redirects on purpose to
+ *     <https://docs.joinpeertube.org/api/activitypub>, a human-readable page
+ *     with anchors only per object type, which no longer mentions
+ *     `commentsEnabled`.  <https://github.com/Chocobozzz/PeerTube/issues/1424>
+ *
+ * Planned or once published, now missing:
+ *
+ *  -  `https://joinsharkey.org/ns#` (Sharkey): served an HTML page of its
+ *     terms in 2023, which was lost when the website was rebuilt; the IRI now
+ *     answers 404.  The documentation of the extensions is still an open
+ *     issue.  <https://activitypub.software/TransFem-org/Documentation/-/work_items/23>
+ *  -  `http://litepub.social/ns#` (Pleroma, Akkoma): meant to be published by
+ *     the LitePub project, which stalled in 2019 first; the IRI answers 404.
+ *     Pleroma and Akkoma define the terms in a context each instance serves,
+ *     not in a document of the namespace.
+ *     <https://git.pleroma.social/pleroma/pleroma/issues/369>
+ *  -  `http://pixelfed.org/ns#` (Pixelfed): introduced as not resolving yet,
+ *     and the website answers every path, this one too, with the same page
+ *     that needs JavaScript.  <https://github.com/pixelfed/pixelfed/pull/3464>
+ *  -  `https://w3id.org/fep/044f#`, `https://w3id.org/fep/5837#`, and
+ *     `https://w3id.org/fep/070c#`: unlike FEP-7aa9, FEP-c16b, and FEP-6757,
+ *     these FEPs ship no *fep-<id>.jsonld*, so the w3id.org redirect answers
+ *     404.  Only the draft FEP-888d requires the file; the FEP process does
+ *     not.  <https://github.com/perma-id/w3id.org/blob/master/ids/fep/.htaccess>
+ *
+ * Never published, with no statement either way:
+ *
+ *  -  `https://joinloops.org/ns#` (Loops) and `http://smithereen.software/ns#`
+ *     (Smithereen): both IRIs answer 404, no archived copy shows a document,
+ *     and both implementations inline their terms.
+ *
+ * The entries under `https://www.w3.org/ns/activitystreams#` that other
+ * vocabularies coined, such as `sensitive`, `manuallyApprovesFollowers`,
+ * `movedTo`, and `quoteUrl`, are not defined by the Activity Streams
+ * namespace either.  `alsoKnownAs` is, but its entry follows Controlled
+ * Identifiers rather than the namespace.
+ */
