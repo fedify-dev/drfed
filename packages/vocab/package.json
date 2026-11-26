@@ -1,7 +1,7 @@
 {
   "name": "@drfed/vocab",
   "version": "0.2.0",
-  "description": "Tools that check the known property catalog of DrFed against its vocabularies.",
+  "description": "Vocabulary metadata for DrFed.",
   "keywords": [
     "ActivityPub",
     "ActivityStreams",
@@ -40,18 +40,45 @@
     "node": ">=26.0.0"
   },
   "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./known-properties": {
+      "types": "./dist/known-properties.d.mts",
+      "default": "./dist/known-properties.mjs"
+    }
+  },
   "files": [
+    "dist/",
     "README.md"
   ],
+  "tsdown": {
+    "entry": [
+      "src/index.ts",
+      "src/known-properties.ts"
+    ],
+    "dts": {
+      "sourcemap": true,
+      "tsconfig": "../../tsconfig.vocab.json"
+    },
+    "sourcemap": true
+  },
   "scripts": {
+    "build": "tsdown",
     "test": "node --test"
   },
   "devDependencies": {
     "@fedify/vocab-runtime": "catalog:",
+    "@hyperjump/json-schema": "^1.18.1",
     "@types/n3": "^1.26.6",
     "@types/node": "catalog:",
     "n3": "^2.13.12",
     "parse5": "^8.1.1",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
     "yaml": "^2.9.0"
   },

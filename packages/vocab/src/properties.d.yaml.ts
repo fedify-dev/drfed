@@ -17,7 +17,7 @@
 // The build turns properties.yaml into a module through
 // knownPropertiesPlugin() in ./catalog.ts, after validating it against
 // properties.schema.yaml.
-import type { KnownProperties } from "../known-properties.ts";
+import type { KnownProperties } from "./known-properties.ts";
 
 declare const catalog: KnownProperties;
 export default catalog;

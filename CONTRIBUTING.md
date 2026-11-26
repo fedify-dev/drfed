@@ -82,8 +82,8 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
  -  *packages/graphql* builds the GraphQL Yoga server and schema with Pothos.
  -  *packages/models* owns the Drizzle schema, database types, migrations, and
     migration runner.
- -  *packages/vocab* holds the tools that check the known property catalog
-    against, and update it from, what the vocabularies publish.
+ -  *packages/vocab* owns the known property catalog and the tools that check
+    it against, and update it from, what the vocabularies publish.
  -  *scripts/dev.mts* coordinates watch builds and the local development
     server.
  -  *packages/models/drizzle* contains generated Drizzle migration files.
@@ -94,8 +94,9 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
 Keep package boundaries clear.  Database schema changes belong in
 `@drfed/models`; ActivityPub handlers and vocabulary serialization belong in
 `@drfed/federation`; GraphQL types and resolvers belong in `@drfed/graphql`;
-CLI parsing and server startup belong in `@drfed/drfed`.  `@drfed/federation`
-must not depend on `@drfed/graphql`.
+CLI parsing and server startup belong in `@drfed/drfed`; vocabulary metadata,
+such as the known property catalog, belongs in `@drfed/vocab`.
+`@drfed/federation` must not depend on `@drfed/graphql`.
 
 
 Packages
@@ -107,7 +108,7 @@ Packages
 | *packages/federation* | `@drfed/federation` | ActivityPub dispatchers, listeners, and origins |
 | *packages/graphql*    | `@drfed/graphql`    | GraphQL schema and Yoga server (Pothos + Relay) |
 | *packages/models*     | `@drfed/models`     | Drizzle schema, relations, and migration runner |
-| *packages/vocab*      | `@drfed/vocab`      | Namespace tools for the known property catalog  |
+| *packages/vocab*      | `@drfed/vocab`      | Known property catalog and its namespace tools  |
 | *packages/web*        | `@drfed/web`        | SolidStart frontend web app.                    |
 
 Each package has its own *README.md* with a more detailed breakdown.

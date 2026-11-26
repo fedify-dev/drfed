@@ -129,10 +129,6 @@
     "./expansion": {
       "types": "./dist/expansion.d.mts",
       "default": "./dist/expansion.mjs"
-    },
-    "./known-properties": {
-      "types": "./dist/known-properties.d.mts",
-      "default": "./dist/known-properties.mjs"
     }
   },
   "files": [
@@ -163,8 +159,7 @@
       "src/pglite-store.ts",
       "src/pglite-preparation.ts",
       "src/resource-revision.ts",
-      "src/expansion.ts",
-      "src/known-properties.ts"
+      "src/expansion.ts"
     ],
     "dts": {
       "sourcemap": true,
@@ -177,13 +172,11 @@
     "test": "node --test"
   },
   "devDependencies": {
-    "@hyperjump/json-schema": "^1.18.1",
     "@logtape/testing-node": "catalog:",
     "@types/node": "catalog:",
     "drizzle-kit": "1.0.0-beta.22",
     "tsdown": "catalog:",
-    "typescript": "catalog:",
-    "yaml": "^2.9.0"
+    "typescript": "catalog:"
   },
   "dependencies": {
     "@electric-sql/pglite": "catalog:",

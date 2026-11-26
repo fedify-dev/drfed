@@ -31,8 +31,8 @@ depends = ["build:web", "generate:completion"]
 silent = "stdout"
 
 [tasks."build:backend"]
-description = "Build models, federation, and GraphQL without the application CLI"
-run = "pnpm --parallel -F @drfed/federation -F @drfed/graphql -F @drfed/models build"
+description = "Build models, vocabulary, federation, and GraphQL without the application CLI"
+run = "pnpm --parallel -F @drfed/federation -F @drfed/graphql -F @drfed/models -F @drfed/vocab build"
 silent = "stdout"
 
 [tasks."build:server"]

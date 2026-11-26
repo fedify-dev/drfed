@@ -21,12 +21,12 @@ import { describe, it } from "node:test";
 import {
   type KnownProperties,
   knownProperties,
-} from "@drfed/models/known-properties";
+} from "@drfed/vocab/known-properties";
 
 const AS = "https://www.w3.org/ns/activitystreams#";
 const ACTOR = `${AS}actor`;
 const DIST_MODULE = createRequire(import.meta.url).resolve(
-  "@drfed/models/known-properties",
+  "@drfed/vocab/known-properties",
 );
 
 const isAbsoluteIri = (key: string): boolean =>

@@ -40,7 +40,7 @@ import "@hyperjump/json-schema/formats";
 import type { TsdownPlugin } from "tsdown";
 import { parse } from "yaml";
 
-import type { KnownProperties } from "../known-properties.ts";
+import type { KnownProperties } from "./known-properties.ts";
 
 const CATALOG_PATH = fileURLToPath(
   new URL("./properties.yaml", import.meta.url),
@@ -149,10 +149,9 @@ export const renderCatalogModule = (catalog: KnownProperties): string =>
   `export default ${JSON.stringify(catalog, null, 2)};\n`;
 
 /**
- * A `tsdown` plugin that turns *src/vocabulary/properties.yaml* into a
- * JavaScript module after validating it against
- * *src/vocabulary/properties.schema.yaml*.  It leaves every other module
- * alone, and watch builds rebuild when either file changes.
+ * A `tsdown` plugin that turns *src/properties.yaml* into a JavaScript module
+ * after validating it against *src/properties.schema.yaml*.  It leaves every
+ * other module alone, and watch builds rebuild when either file changes.
  * @returns The plugin.
  */
 export const knownPropertiesPlugin = (): TsdownPlugin => ({

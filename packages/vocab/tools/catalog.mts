@@ -31,11 +31,8 @@ import {
 
 import type { CatalogEntry, Expectation } from "./namespace.mts";
 
-export const CATALOG_URL = new URL(
-  "../../models/src/vocabulary/properties.yaml",
-  import.meta.url,
-);
-export const CATALOG_NAME = "packages/models/src/vocabulary/properties.yaml";
+export const CATALOG_URL = new URL("../src/properties.yaml", import.meta.url);
+export const CATALOG_NAME = "packages/vocab/src/properties.yaml";
 
 /** The order of an entry's fields, which new fields are inserted in. */
 const FIELD_ORDER = [

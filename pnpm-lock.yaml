@@ -461,9 +461,6 @@ importers:
         specifier: 'catalog:'
         version: 14.0.1
     devDependencies:
-      '@hyperjump/json-schema':
-        specifier: ^1.18.1
-        version: 1.18.1(@hyperjump/browser@1.6.0)
       '@logtape/testing-node':
         specifier: 'catalog:'
         version: 2.3.0-dev.840(@logtape/logtape@2.3.0-dev.840)
@@ -479,15 +476,15 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
 
   packages/vocab:
     devDependencies:
       '@fedify/vocab-runtime':
         specifier: 'catalog:'
         version: 2.4.3
+      '@hyperjump/json-schema':
+        specifier: ^1.18.1
+        version: 1.18.1(@hyperjump/browser@1.6.0)
       '@types/n3':
         specifier: ^1.26.6
         version: 1.26.6
@@ -500,6 +497,9 @@ importers:
       parse5:
         specifier: ^8.1.1
         version: 8.1.1
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(typescript@7.0.2)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
