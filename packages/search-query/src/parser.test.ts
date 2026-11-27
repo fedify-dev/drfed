@@ -17,12 +17,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-  comparison,
-  propertyPath,
-  queryParser,
-  validateSearchExpression,
-} from "@drfed/graphql/search/parser";
+import { comparison, propertyPath, queryParser } from "@drfed/search-query";
 import { endOfInput, takeLeft } from "arcsecond";
 
 describe("propertyPath", () => {
@@ -268,28 +263,6 @@ describe("queryParser", () => {
       Array<string>(32).fill('.<urn:x> = "x"').join(" AND "),
     ]) {
       assert.equal(queryParser.run(input).isError, false);
-    }
-  });
-
-  it("validates externally supplied expression trees", () => {
-    const valid = node("Ada");
-    assert.deepEqual(validateSearchExpression(valid), {
-      ok: true,
-      expression: valid,
-    });
-    const cycle: { kind: "not"; operand?: unknown } = { kind: "not" };
-    cycle.operand = cycle;
-    for (const value of [
-      null,
-      { kind: "or", left: valid },
-      { ...valid, path: [] },
-      { ...valid, path: ["relative"] },
-      { ...valid, operator: "lt" },
-      { ...valid, operator: "unknown" },
-      { ...valid, value: { kind: "time", value: "2026-11-24T09:00:00+09:00" } },
-      cycle,
-    ]) {
-      assert.equal(validateSearchExpression(value).ok, false);
     }
   });
 });

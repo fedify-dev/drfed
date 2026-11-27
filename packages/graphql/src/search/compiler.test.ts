@@ -22,7 +22,7 @@ import {
   compileStringOrIriEquality,
   compileSubstring,
 } from "@drfed/graphql/search/compiler";
-import { queryParser } from "@drfed/graphql/search/parser";
+import { queryParser } from "@drfed/search-query";
 import { sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 

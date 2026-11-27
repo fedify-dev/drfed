@@ -36,6 +36,7 @@ RUN test -n "$DRFED_VERSION" \
   && printf '{"private":true,"type":"module"}\n' > package.json \
   && npm install --omit=dev --ignore-scripts --no-audit --no-fund --no-update-notifier \
     --cache /tmp/drfed-npm-cache \
+    "/tmp/drfed-packages/drfed-search-query-$DRFED_VERSION.tgz" \
     "/tmp/drfed-packages/drfed-models-$DRFED_VERSION.tgz" \
     "/tmp/drfed-packages/drfed-federation-$DRFED_VERSION.tgz" \
     "/tmp/drfed-packages/drfed-graphql-$DRFED_VERSION.tgz" \

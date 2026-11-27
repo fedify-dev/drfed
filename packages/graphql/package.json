@@ -85,10 +85,6 @@
     "./search/compiler": {
       "types": "./dist/search/compiler.d.mts",
       "default": "./dist/search/compiler.mjs"
-    },
-    "./search/parser": {
-      "types": "./dist/search/parser.d.mts",
-      "default": "./dist/search/parser.mjs"
     }
   },
   "files": [
@@ -107,8 +103,7 @@
       "src/object.ts",
       "src/readable.ts",
       "src/activity-delivery/entry.ts",
-      "src/search/compiler.ts",
-      "src/search/parser.ts"
+      "src/search/compiler.ts"
     ],
     "dts": {
       "sourcemap": true,
@@ -130,6 +125,7 @@
   "dependencies": {
     "@drfed/federation": "workspace:*",
     "@drfed/models": "workspace:*",
+    "@drfed/search-query": "workspace:*",
     "@faker-js/faker": "catalog:",
     "@fedify/uri-template": "^2.3.1",
     "@fedify/fedify": "catalog:",
@@ -143,7 +139,6 @@
     "@pothos/plugin-scope-auth": "^4.1.7",
     "@upyo/core": "catalog:",
     "@upyo/mock": "catalog:",
-    "arcsecond": "^5.0.0",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
     "graphql-scalars": "^2.0.1",

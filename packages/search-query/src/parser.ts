@@ -43,25 +43,35 @@ import {
   punctuation,
   quotedString,
 } from "./lexemes.ts";
-import {
-  maxExpressionDepth,
-  maxQueryBytes,
-  validateSearchExpression,
-} from "./validation.ts";
 
-export { validateSearchExpression } from "./validation.ts";
+const maxExpressionDepth = 32;
+const maxQueryBytes = 4096;
+
+function isAbsoluteIri(value: string): boolean {
+  return (
+    /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value) &&
+    value.isWellFormed() &&
+    // oxlint-disable-next-line no-control-regex -- IRIs cannot contain controls.
+    !/[\s\x00-\x1f\x7f-\x9f<>"{}|\\^`]|%(?![\da-f]{2})/iu.test(value) &&
+    URL.canParse(value)
+  );
+}
 
 const segment = sequenceOf([str("."), iri]).map(([, { value }]) => value);
 
 /**
  * Parses a nonempty path of adjacent `.<IRI>` segments, followed by optional
- * whitespace. Preserves the IRI spelling; this rule does not resolve aliases
- * or validate IRI semantics.
+ * whitespace. Checks absolute IRIs without rewriting them or resolving aliases.
  */
 export const propertyPath: Parser<PropertyPath> = lexeme(
-  sequenceOf([segment, many(segment)]).map(
-    ([first, rest]): PropertyPath => [first, ...rest],
-  ),
+  sequenceOf([segment, many(segment)]).chain<PropertyPath>((parts) => {
+    if (parts === undefined) return fail("Expected a property path");
+    const [first, rest] = parts;
+    const path: PropertyPath = [first, ...rest];
+    return path.every(isAbsoluteIri)
+      ? succeedWith(path)
+      : fail("Expected an absolute IRI in the property path");
+  }),
 );
 
 // Reject leap-second spellings rather than letting Temporal clamp them to :59.
@@ -89,7 +99,12 @@ const comparisonOperator = choice([
   punctuation("~=").map(() => "contains" as const),
   orderingOperator,
 ]);
-const equalityLiteral = choice([quotedString, lexeme(iri), timeLiteral]);
+const equalityLiteral = choice([quotedString, lexeme(iri), timeLiteral]).chain(
+  (value) =>
+    value === undefined || (value.kind === "iri" && !isAbsoluteIri(value.value))
+      ? fail("Expected an absolute IRI literal")
+      : succeedWith(value),
+);
 
 /** Parses a single comparison, enforcing its operator's literal type. */
 export const comparison: Parser<Comparison> = sequenceOf([
@@ -178,7 +193,25 @@ const completeQuery = sequenceOf([
   endOfInput,
 ]).map(([, result]) => result);
 
-/** Parses and validates a complete query with bounded input and nesting. */
+function withinExpressionDepth(node: Expression, remaining: number): boolean {
+  if (remaining === 0) return false;
+  // A flat chain also grows AST depth because binary operators associate left.
+  // oxlint-disable-next-line default-case -- Keep the AST walk exhaustive.
+  switch (node.kind) {
+    case "comparison":
+      return true;
+    case "not":
+      return withinExpressionDepth(node.operand, remaining - 1);
+    case "and":
+    case "or":
+      return (
+        withinExpressionDepth(node.left, remaining - 1) &&
+        withinExpressionDepth(node.right, remaining - 1)
+      );
+  }
+}
+
+/** Parses a complete query with bounded input, syntax nesting, and AST depth. */
 export const queryParser: Parser<Expression> = new Parser((state) => {
   if (state.isError) return state;
   if (state.dataView.byteLength > maxQueryBytes) {
@@ -197,6 +230,10 @@ export const queryParser: Parser<Expression> = new Parser((state) => {
     );
   }
   if (result.isError) return result;
-  const validated = validateSearchExpression(result.result);
-  return validated.ok ? result : updateError(result, validated.error);
+  return withinExpressionDepth(result.result, maxExpressionDepth)
+    ? result
+    : updateError(
+        result,
+        `Search expression depth exceeds ${maxExpressionDepth}`,
+      );
 });

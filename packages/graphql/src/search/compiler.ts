@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import { type SQL, type SQLWrapper, and, not, or, sql } from "drizzle-orm";
-
 import type {
   Comparison,
   Expression,
@@ -23,7 +21,8 @@ import type {
   PropertyPath,
   StringLiteral,
   TimeLiteral,
-} from "./expression.ts";
+} from "@drfed/search-query";
+import { type SQL, type SQLWrapper, and, not, or, sql } from "drizzle-orm";
 
 function elements(value: SQLWrapper): SQL {
   return sql`jsonb_array_elements(

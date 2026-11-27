@@ -1,0 +1,52 @@
+{
+  "name": "@drfed/search-query",
+  "version": "0.2.0",
+  "description": "Browser-safe search query parser and AST for DrFed.",
+  "author": {
+    "name": "DrFed team",
+    "url": "https://drfed.org/"
+  },
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "tsdown": {
+    "entry": [
+      "src/index.ts"
+    ],
+    "dts": {
+      "sourcemap": true
+    },
+    "sourcemap": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "arcsecond": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fedify-dev/drfed.git",
+    "directory": "packages/search-query"
+  }
+}

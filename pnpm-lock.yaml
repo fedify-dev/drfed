@@ -357,6 +357,9 @@ importers:
       '@drfed/models':
         specifier: workspace:*
         version: link:../models
+      '@drfed/search-query':
+        specifier: workspace:*
+        version: link:../search-query
       '@faker-js/faker':
         specifier: 'catalog:'
         version: 10.5.0
@@ -396,9 +399,6 @@ importers:
       '@upyo/mock':
         specifier: 'catalog:'
         version: 0.6.0(@upyo/core@0.6.0)
-      arcsecond:
-        specifier: ^5.0.0
-        version: 5.0.0
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
@@ -473,6 +473,22 @@ importers:
       drizzle-kit:
         specifier: 1.0.0-beta.22
         version: 1.0.0-beta.22
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(typescript@7.0.2)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
+  packages/search-query:
+    dependencies:
+      arcsecond:
+        specifier: ^5.0.0
+        version: 5.0.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.0.0
       tsdown:
         specifier: 'catalog:'
         version: 0.22.14(typescript@7.0.2)

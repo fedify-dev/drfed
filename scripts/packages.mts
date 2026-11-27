@@ -21,6 +21,7 @@
  * the tarballs that docker/Containerfile installs.
  */
 export const packageOrder = [
+  "search-query",
   "models",
   "federation",
   "graphql",
