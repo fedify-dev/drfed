@@ -36,6 +36,14 @@ ex:several a rdf:Property ; rdfs:range ex:A, ex:B .
 ex:none a rdf:Property .
 ex:suggested schema:rangeIncludes ex:A, ex:B ; dcam:rangeIncludes ex:C .
 ex:both rdfs:range ex:A ; schema:rangeIncludes ex:B .
+ex:repeated rdfs:range ex:A, ex:A .
+ex:twoFirsts rdfs:range [ owl:unionOf _:twoFirsts ] .
+_:twoFirsts rdf:first ex:A, ex:B ; rdf:rest rdf:nil .
+ex:twoRests rdfs:range [ owl:unionOf _:twoRests ] .
+_:twoRests rdf:first ex:A ; rdf:rest rdf:nil, _:twoRestsTail .
+_:twoRestsTail rdf:first ex:B ; rdf:rest rdf:nil .
+ex:twoUnions rdfs:range _:twoUnions .
+_:twoUnions owl:unionOf ( ex:A ex:B ), ( ex:C ) .
 `;
 
 describe("parseRdf", () => {
@@ -65,6 +73,22 @@ describe("parseRdf", () => {
       rangeDeclared: false,
       functional: false,
     });
+  });
+
+  it("counts a repeated rdfs:range once", async () => {
+    const definitionOf = await parseRdf(TURTLE, "turtle", BASE);
+    assert.deepEqual(definitionOf(`${EX}repeated`)?.range, [`${EX}A`]);
+  });
+
+  it("gives no range for a union that is not one list", async () => {
+    const definitionOf = await parseRdf(TURTLE, "turtle", BASE);
+    for (const name of ["twoFirsts", "twoRests", "twoUnions"]) {
+      assert.deepEqual(
+        definitionOf(`${EX}${name}`),
+        { range: undefined, rangeDeclared: true, functional: false },
+        name,
+      );
+    }
   });
 
   it("reads every suggested type without an rdfs:range", async () => {

@@ -32,8 +32,10 @@ export interface RdfDefinition {
    * members.  Without an `rdfs:range`, they are every type that
    * `schema:rangeIncludes` or `dcam:rangeIncludes` suggests, which schema.org
    * and Dublin Core declare instead.  `undefined` when the vocabulary
-   * declares none of them, several `rdfs:range`s, or a range that is not a
-   * class IRI or a union of them.
+   * declares none of them, several distinct `rdfs:range`s, or a range that is
+   * not a class IRI or a union of them, including a union whose list has a
+   * node with several distinct first elements or rests, and a class with
+   * several distinct `owl:unionOf`s.
    */
   readonly range: readonly string[] | undefined;
   /**
@@ -96,6 +98,13 @@ const quadsOf = async (
 
 const keyOf = (term: Term): string => `${term.termType} ${term.value}`;
 
+/**
+ * Takes the one term of a list.
+ * @returns The term, or `undefined` when the list has none or several.
+ */
+const onlyOf = (terms: readonly Term[]): Term | undefined =>
+  terms.length === 1 ? terms[0] : undefined;
+
 const indexBySubject = (
   quads: readonly Quad[],
 ): ReadonlyMap<string, readonly Quad[]> =>
@@ -112,15 +121,25 @@ export const parseRdf = async (
   base: string,
 ): Promise<(iri: string) => RdfDefinition | undefined> => {
   const index = indexBySubject(await quadsOf(text, format, base));
-  const objectsOf = (subject: Term, predicate: string): readonly Term[] =>
-    (index.get(keyOf(subject)) ?? [])
-      .filter((quad) => quad.predicate.value === predicate)
-      .map((quad) => quad.object);
+  // An RDF graph is a set of triples, so a repeated statement counts once.
+  // keyOf() leaves out a literal's datatype and language, which none of the
+  // predicates read here has as its object.
+  const objectsOf = (subject: Term, predicate: string): readonly Term[] => [
+    ...new Map(
+      (index.get(keyOf(subject)) ?? [])
+        .filter((quad) => quad.predicate.value === predicate)
+        .map((quad) => [keyOf(quad.object), quad.object] as const),
+    ).values(),
+  ];
+  // RDFS allows a list node with several first elements or rests, and a class
+  // with several unions, but no one list or union can be read from them.
+  const onlyObjectOf = (subject: Term, predicate: string): Term | undefined =>
+    onlyOf(objectsOf(subject, predicate));
   const listOf = (node: Term | undefined): readonly Term[] | undefined => {
     if (node === undefined) return undefined;
     if (node.termType === "NamedNode" && node.value === RDF_NIL) return [];
-    const [first] = objectsOf(node, RDF_FIRST);
-    const rest = listOf(objectsOf(node, RDF_REST)[0]);
+    const first = onlyObjectOf(node, RDF_FIRST);
+    const rest = listOf(onlyObjectOf(node, RDF_REST));
     return first === undefined || rest === undefined
       ? undefined
       : [first, ...rest];
@@ -129,7 +148,7 @@ export const parseRdf = async (
     range.termType === "NamedNode"
       ? [range]
       : range.termType === "BlankNode"
-        ? listOf(objectsOf(range, OWL_UNION_OF)[0])
+        ? listOf(onlyObjectOf(range, OWL_UNION_OF))
         : undefined;
   const iris = (terms: readonly Term[] | undefined) =>
     terms !== undefined &&
