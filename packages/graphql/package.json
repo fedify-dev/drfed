@@ -82,6 +82,10 @@
       "types": "./dist/activity-delivery/entry.d.mts",
       "default": "./dist/activity-delivery/entry.mjs"
     },
+    "./search/compiler": {
+      "types": "./dist/search/compiler.d.mts",
+      "default": "./dist/search/compiler.mjs"
+    },
     "./search/parser": {
       "types": "./dist/search/parser.d.mts",
       "default": "./dist/search/parser.mjs"
@@ -103,6 +107,7 @@
       "src/object.ts",
       "src/readable.ts",
       "src/activity-delivery/entry.ts",
+      "src/search/compiler.ts",
       "src/search/parser.ts"
     ],
     "dts": {
