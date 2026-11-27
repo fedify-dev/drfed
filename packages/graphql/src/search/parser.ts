@@ -64,8 +64,9 @@ export const propertyPath: Parser<PropertyPath> = lexeme(
   ),
 );
 
+// Reject leap-second spellings rather than letting Temporal clamp them to :59.
 const timestamp =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:[0-5]\d(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u;
 
 const timeLiteral = sequenceOf([keyword("TIME"), quotedString])
   .map(([, { value }]) => value)
