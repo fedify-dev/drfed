@@ -357,9 +357,6 @@ importers:
       '@drfed/models':
         specifier: workspace:*
         version: link:../models
-      '@drfed/search-query':
-        specifier: workspace:*
-        version: link:../search-query
       '@faker-js/faker':
         specifier: 'catalog:'
         version: 10.5.0
@@ -433,6 +430,9 @@ importers:
 
   packages/models:
     dependencies:
+      '@drfed/search-query':
+        specifier: workspace:*
+        version: link:../search-query
       '@electric-sql/pglite':
         specifier: 'catalog:'
         version: 0.5.3

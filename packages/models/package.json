@@ -129,6 +129,10 @@
     "./expansion": {
       "types": "./dist/expansion.d.mts",
       "default": "./dist/expansion.mjs"
+    },
+    "./search-query-compiler": {
+      "types": "./dist/search-query-compiler.d.mts",
+      "default": "./dist/search-query-compiler.mjs"
     }
   },
   "files": [
@@ -159,7 +163,8 @@
       "src/pglite-store.ts",
       "src/pglite-preparation.ts",
       "src/resource-revision.ts",
-      "src/expansion.ts"
+      "src/expansion.ts",
+      "src/search-query-compiler.ts"
     ],
     "dts": {
       "sourcemap": true,
@@ -179,6 +184,7 @@
     "typescript": "catalog:"
   },
   "dependencies": {
+    "@drfed/search-query": "workspace:*",
     "@electric-sql/pglite": "catalog:",
     "@fedify/vocab": "catalog:",
     "@fedify/vocab-runtime": "catalog:",

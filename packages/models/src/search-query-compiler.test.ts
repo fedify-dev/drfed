@@ -17,16 +17,21 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
 
+import type { Database } from "@drfed/models";
 import {
   compileExpression,
   compileStringOrIriEquality,
   compileSubstring,
-} from "@drfed/graphql/search/compiler";
+} from "@drfed/models/search-query-compiler";
 import { queryParser } from "@drfed/search-query";
 import { sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
-import { withTemporaryDatabase } from "../harness.test.ts";
+import { withRevisionDatabase } from "./resource-revision-fixture.ts";
+
+function withTemporaryDatabase(run: (db: Database) => Promise<void>) {
+  return withRevisionDatabase("pglite", ({ db }) => run(db));
+}
 
 const content = "https://www.w3.org/ns/activitystreams#content";
 const object = "https://www.w3.org/ns/activitystreams#object";
@@ -34,18 +39,26 @@ const actor = "https://example.test/actors/ada";
 const hostileText = "Ada's $1 -- 慧";
 const unusualProperty = "https://example.test/properties/quoted'\"$";
 
-async function matchDocuments(query: string, documents: readonly unknown[]) {
+async function assertMatches(
+  query: string,
+  documents: readonly unknown[],
+  expected: readonly boolean[],
+) {
   const parsed = queryParser.run(query);
   if (parsed.isError) assert.fail(parsed.error);
   assert.ok(parsed.result != null);
   const predicate = compileExpression(parsed.result, sql`candidate.document`);
-  return await withTemporaryDatabase(async (db) => {
+  await withTemporaryDatabase(async (db) => {
     const rows = await db
       .select({ matched: predicate })
-      .from(sql`jsonb_array_elements(${JSON.stringify(documents)}::jsonb)
+      .from(sql`jsonb_array_elements(${JSON.stringify(documents)}::text::jsonb)
         with ordinality as candidate(document, position)`)
       .orderBy(sql`candidate.position`);
-    return rows.map(({ matched }) => matched);
+    assert.deepEqual(
+      rows.map(({ matched }) => matched),
+      expected,
+      query,
+    );
   });
 }
 
@@ -102,7 +115,7 @@ it("matches any embedded value at the exact path without following references", 
         id: sql<string>`candidate.id`,
         matched: equality([object, content], "string", hostileText),
       })
-      .from(sql`jsonb_to_recordset(${JSON.stringify(documents)}::jsonb)
+      .from(sql`jsonb_to_recordset(${JSON.stringify(documents)}::text::jsonb)
         as candidate(id text, document jsonb)`)
       .orderBy(sql`candidate.id`);
     assert.deepEqual(result, [
@@ -159,7 +172,7 @@ it("distinguishes IRI references, strings, and other value objects", async () =>
         text: equality([object], "string", actor),
         number_text: equality([object], "string", "42"),
       })
-      .from(sql`jsonb_to_recordset(${JSON.stringify(documents)}::jsonb)
+      .from(sql`jsonb_to_recordset(${JSON.stringify(documents)}::text::jsonb)
         as candidate(id text, document jsonb)`)
       .orderBy(sql`candidate.id`);
     assert.deepEqual(result, [
@@ -230,7 +243,7 @@ it("matches case-insensitive substrings literally on the requested string path",
     );
     const result = await db
       .select({ matched: predicate })
-      .from(sql`jsonb_array_elements(${JSON.stringify(documents)}::jsonb)
+      .from(sql`jsonb_array_elements(${JSON.stringify(documents)}::text::jsonb)
         with ordinality as candidate(document, position)`)
       .orderBy(sql`candidate.position`);
     assert.deepEqual(
@@ -268,16 +281,13 @@ it("compares typed instants exactly, including offsets and adjacent nanoseconds"
     [">=", [false, true, true, true]],
   ] as const;
   await Promise.all(
-    cases.map(async ([operator, expected]) => {
-      assert.deepEqual(
-        await matchDocuments(
-          `.<${content}> ${operator} TIME "2026-11-24T00:00:00.123456789Z"`,
-          documents,
-        ),
+    cases.map(([operator, expected]) =>
+      assertMatches(
+        `.<${content}> ${operator} TIME "2026-11-24T00:00:00.123456789Z"`,
+        documents,
         [...expected, false, false, false, false, false, false],
-        operator,
-      );
-    }),
+      ),
+    ),
   );
 });
 
@@ -299,12 +309,14 @@ it("composes Boolean predicates without requiring comparisons to match the same 
     [{ [content]: [{ "@id": actor }] }],
     [],
   ];
-  assert.deepEqual(
-    await matchDocuments(`(${first} AND ${second}) OR ${missing}`, documents),
-    [true, true, false],
-  );
-  assert.deepEqual(
-    await matchDocuments(`NOT (${first} OR ${missing})`, documents),
-    [false, false, true],
-  );
+  await assertMatches(`(${first} AND ${second}) OR ${missing}`, documents, [
+    true,
+    true,
+    false,
+  ]);
+  await assertMatches(`NOT (${first} OR ${missing})`, documents, [
+    false,
+    false,
+    true,
+  ]);
 });
