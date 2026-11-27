@@ -81,6 +81,10 @@
     "./activity-delivery": {
       "types": "./dist/activity-delivery/entry.d.mts",
       "default": "./dist/activity-delivery/entry.mjs"
+    },
+    "./search/parser": {
+      "types": "./dist/search/parser.d.mts",
+      "default": "./dist/search/parser.mjs"
     }
   },
   "files": [
@@ -98,7 +102,8 @@
       "src/schema.ts",
       "src/object.ts",
       "src/readable.ts",
-      "src/activity-delivery/entry.ts"
+      "src/activity-delivery/entry.ts",
+      "src/search/parser.ts"
     ],
     "dts": {
       "sourcemap": true,
