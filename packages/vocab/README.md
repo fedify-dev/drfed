@@ -77,8 +77,10 @@ cannot be fetched is skipped; the check warns with their URLs and passes, and
 the update lists them as left for a person to resolve.  Any other failure, such
 as a URL that is not HTTP or HTTPS, fails the namespace.  The update lists what
 no value can fix, such as an IRI that its namespace does not define, and leaves
-a field alone when two namespaces give different values for it.  Each namespace
-is listed in *tools/namespaces.mts* with the kind that reads what it publishes:
+a field alone when two namespaces give different values for it, even when the
+entry has one of them.  It writes nothing when the result would not pass the
+schema.  Each namespace is listed in *tools/namespaces.mts* with the kind that
+reads what it publishes:
 
  -  Activity Streams: every entry whose `source` is the Activity Vocabulary or
     ActivityPub, including `ldp:inbox`, is read from

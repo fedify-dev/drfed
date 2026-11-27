@@ -20,15 +20,22 @@
  * namespaces in *namespaces.mts* give, and lists what no field value can
  * fix, such as an IRI that its namespace does not define.
  */
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
+import { compileCatalog } from "../src/catalog.ts";
 import { parseCatalog } from "./catalog.mts";
 import { quote } from "./namespace.mts";
 import { NAMESPACES } from "./namespaces.mts";
 import { planUpdate } from "./plan.mts";
 import { collectReports } from "./reports.mts";
-import { CATALOG_NAME, CATALOG_URL, entries, readCatalog } from "./shared.mts";
+import {
+  CATALOG_NAME,
+  CATALOG_URL,
+  SCHEMA_URL,
+  entries,
+  readCatalog,
+} from "./shared.mts";
 
 const main = async (): Promise<number> => {
   const text = await readCatalog();
@@ -36,7 +43,19 @@ const main = async (): Promise<number> => {
     text,
     await collectReports(parseCatalog(text), NAMESPACES),
   );
-  if (plan.text !== text) await writeFile(CATALOG_URL, plan.text);
+  if (plan.text !== text) {
+    // The build validates the catalog the same way, so an update that would
+    // break it is not written.
+    await compileCatalog(plan.text, await readFile(SCHEMA_URL, "utf8")).catch(
+      (error: unknown) => {
+        throw new Error(
+          `${CATALOG_NAME} is left as it was, since the update would break its schema: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
+      },
+    );
+    await writeFile(CATALOG_URL, plan.text);
+  }
   const updated = new Set(plan.accepted.map(({ iri }) => iri)).size;
   console.log(
     `Updated ${entries(updated)} of ${CATALOG_NAME}${updated === 0 ? "." : ":"}`,

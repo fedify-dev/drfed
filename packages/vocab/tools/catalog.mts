@@ -32,7 +32,7 @@ import {
 import type { CatalogEntry, Expectation } from "./namespace.mts";
 
 /** The order of an entry's fields, which new fields are inserted in. */
-const FIELD_ORDER = [
+export const FIELD_ORDER = [
   "label",
   "description",
   "range",
@@ -96,6 +96,22 @@ const spanOf = (
   end: rangeOf(pair.value)[2]!,
 });
 
+const indentWidthOf = (line: string): number => /^ */u.exec(line)![0].length;
+
+// The start of the comment lines that directly precede a field's line at its
+// indentation, which belong to the field, or the field's line when there are
+// none.  A line indented more could be the content of the field above.
+const commentStartOf = (text: string, lineStart: number): number => {
+  const width = indentWidthOf(text.slice(lineStart));
+  const previous = lineStartOf(text, lineStart - 1);
+  const line = text.slice(previous, lineStart - 1);
+  return lineStart > 0 &&
+    line.trimStart().startsWith("#") &&
+    indentWidthOf(line) === width
+    ? commentStartOf(text, previous)
+    : lineStart;
+};
+
 const foldLines = (value: string, width: number): readonly string[] =>
   value.split(" ").reduce<readonly string[]>((lines, word) => {
     const last = lines.at(-1);
@@ -104,13 +120,20 @@ const foldLines = (value: string, width: number): readonly string[] =>
       : [...lines, word];
   }, []);
 
+// Folding reads back a value only when its words are separated by single
+// spaces; any other value is written as a double-quoted scalar.
+const isFoldable = (value: string): boolean =>
+  /^[^\s]+(?: [^\s]+)*$/u.test(value);
+
 const renderFolded = (key: string, value: string, indent: string): string =>
-  `${indent}${key}: >-\n${foldLines(
-    value,
-    LINE_WIDTH - indent.length - INDENT.length,
-  )
-    .map((line) => `${indent}${INDENT}${line}\n`)
-    .join("")}`;
+  !isFoldable(value)
+    ? `${indent}${key}: ${JSON.stringify(value)}\n`
+    : `${indent}${key}: >-\n${foldLines(
+        value,
+        LINE_WIDTH - indent.length - INDENT.length,
+      )
+        .map((line) => `${indent}${INDENT}${line}\n`)
+        .join("")}`;
 
 const renderField = (
   field: Exclude<Field, "description">,
@@ -131,10 +154,17 @@ const descriptionEdit = (text: string, entry: YAMLMap, value: string): Edit => {
   if (english === undefined) {
     throw new Error("A catalog entry has no English description.");
   }
+  const order = FIELD_ORDER.indexOf("description");
+  // Inside a flow mapping such as `{ en: ..., ko: ... }`, only the value is
+  // replaced, as a double-quoted scalar, which a flow mapping can hold.
+  if (isMap(description) && description.flow) {
+    const [start, end] = rangeOf(english.value);
+    return { start: start!, end: end!, text: JSON.stringify(value), order };
+  }
   return {
     ...spanOf(text, english),
     text: renderFolded("en", value, indentOf(text, english.key)),
-    order: FIELD_ORDER.indexOf("description"),
+    order,
   };
 };
 
@@ -159,11 +189,15 @@ const fieldEdit = (
       FIELD_ORDER.indexOf(pair.key.value as (typeof FIELD_ORDER)[number]) >
         order,
   );
-  const at =
-    next === undefined
-      ? spanOf(text, pairs.at(-1)!).end
-      : spanOf(text, next).start;
-  return [{ start: at, end: at, text: rendered, order }];
+  if (next !== undefined) {
+    const at = commentStartOf(text, spanOf(text, next).start);
+    return [{ start: at, end: at, text: rendered, order }];
+  }
+  const at = spanOf(text, pairs.at(-1)!).end;
+  // The last field of a file that does not end with a line break ends its
+  // line, which the inserted field must not continue.
+  const separator = at > 0 && text[at - 1] !== "\n" ? "\n" : "";
+  return [{ start: at, end: at, text: `${separator}${rendered}`, order }];
 };
 
 const entryEdits = (
@@ -185,18 +219,33 @@ const entryEdits = (
 /**
  * Writes field values into the catalog's entries.  A field that an entry
  * does not have is inserted in the usual field order, and an empty `range`
- * removes the field.
+ * removes the field.  An English description is folded to the line width,
+ * unless it is inside a flow mapping or has whitespace other than single
+ * spaces between words, which folding would not keep; then it is written as
+ * a double-quoted scalar.
  * @returns The rewritten catalog.
+ * @throws {Error} When the catalog does not parse, has no entry for an IRI,
+ *   or has an entry to update written as a flow mapping.
  */
 export const updateCatalog = (
   text: string,
   updates: ReadonlyMap<string, Expectation>,
 ): string => {
-  const root = parseDocument(text, { uniqueKeys: true }).contents;
+  const document = parseDocument(text, { uniqueKeys: true });
+  const [error] = document.errors;
+  if (error !== undefined) {
+    throw new Error(`The catalog does not parse: ${error.message}`);
+  }
+  const root = document.contents;
   if (!isMap(root)) throw new TypeError("The catalog is not a mapping.");
   const edits = [...updates].flatMap(([iri, fields]) => {
     const entry = pairOf(root, iri)?.value;
     if (!isMap(entry)) throw new Error(`The catalog has no entry ${iri}.`);
+    if (entry.flow) {
+      throw new Error(
+        `The catalog entry ${iri} is a flow mapping, which an update does not rewrite.`,
+      );
+    }
     return entryEdits(text, entry, fields);
   });
   return edits

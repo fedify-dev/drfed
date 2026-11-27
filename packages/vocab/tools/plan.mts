@@ -18,12 +18,13 @@
  * Plans an update of the known property catalog from the namespaces'
  * findings: which field values to write, and what is left for a person.
  */
-import { parseCatalog, updateCatalog } from "./catalog.mts";
+import { FIELD_ORDER, parseCatalog, updateCatalog } from "./catalog.mts";
 import {
   type CatalogEntry,
   type Expectation,
   differencesOf,
   quote,
+  sameValue,
 } from "./namespace.mts";
 import type { Report } from "./reports.mts";
 
@@ -45,26 +46,29 @@ export interface Plan {
   readonly unresolved: readonly string[];
 }
 
-const proposalsOf = (
-  catalog: ReadonlyMap<string, CatalogEntry>,
-  reports: readonly Report[],
-): readonly Proposal[] =>
+// Every value that the namespaces give, whether or not the entry has it.
+const proposalsOf = (reports: readonly Report[]): readonly Proposal[] =>
   reports.flatMap(({ findings }) =>
     findings instanceof Error
       ? []
       : [...findings].flatMap(([iri, finding]) =>
-          Object.entries(
-            differencesOf(catalog.get(iri)!, finding.expected),
-          ).map(([field, value]) => ({
-            iri,
-            field: field as keyof Expectation,
-            value,
-            origin: finding.origin,
-          })),
+          Object.entries(finding.expected).flatMap(([field, value]) =>
+            value === undefined
+              ? []
+              : [
+                  {
+                    iri,
+                    field: field as keyof Expectation,
+                    value,
+                    origin: finding.origin,
+                  },
+                ],
+          ),
         ),
   );
 
-// Namespaces that give different values for the same field leave it alone.
+// Namespaces that give different values for the same field leave it alone,
+// even when the entry has one of them.
 const isConflicting =
   (proposals: readonly Proposal[]) =>
   (proposal: Proposal): boolean =>
@@ -72,8 +76,41 @@ const isConflicting =
       (other) =>
         other.iri === proposal.iri &&
         other.field === proposal.field &&
-        quote(other.value) !== quote(proposal.value),
+        !sameValue(proposal.field, other.value, proposal.value),
     );
+
+// The proposal as the catalog writes it, or none when the entry has it.
+const changesOf =
+  (catalog: ReadonlyMap<string, CatalogEntry>) =>
+  (proposal: Proposal): readonly Proposal[] => {
+    const differences = differencesOf(catalog.get(proposal.iri)!, {
+      [proposal.field]: proposal.value,
+    });
+    return proposal.field in differences
+      ? [{ ...proposal, value: differences[proposal.field] }]
+      : [];
+  };
+
+// Namespaces that agree on a field give one value, which is the first of
+// theirs, since the catalog writes only one.
+const firstPerField = (proposals: readonly Proposal[]): readonly Proposal[] =>
+  [
+    ...Map.groupBy(proposals, ({ iri, field }) => `${field} ${iri}`).values(),
+  ].map(([first]) => first!);
+
+const inCatalogOrder = (
+  catalog: ReadonlyMap<string, CatalogEntry>,
+): ((proposals: readonly Proposal[]) => readonly Proposal[]) => {
+  const positions = new Map(
+    [...catalog.keys()].map((iri, index) => [iri, index]),
+  );
+  return (proposals) =>
+    proposals.toSorted(
+      (left, right) =>
+        positions.get(left.iri)! - positions.get(right.iri)! ||
+        FIELD_ORDER.indexOf(left.field) - FIELD_ORDER.indexOf(right.field),
+    );
+};
 
 const updatesOf = (
   proposals: readonly Proposal[],
@@ -101,9 +138,16 @@ const problemsOf = (reports: readonly Report[]): readonly string[] =>
  * @throws {Error} When the rewritten catalog lacks a planned value.
  */
 export const planUpdate = (text: string, reports: readonly Report[]): Plan => {
-  const proposals = proposalsOf(parseCatalog(text), reports);
+  const proposals = proposalsOf(reports);
   const conflicting = isConflicting(proposals);
-  const accepted = proposals.filter((proposal) => !conflicting(proposal));
+  const catalog = parseCatalog(text);
+  const accepted = inCatalogOrder(catalog)(
+    firstPerField(
+      proposals
+        .filter((proposal) => !conflicting(proposal))
+        .flatMap(changesOf(catalog)),
+    ),
+  );
   const updates = updatesOf(accepted);
   const rewritten = updateCatalog(text, updates);
   const result = parseCatalog(rewritten);
