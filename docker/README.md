@@ -2,7 +2,8 @@ Container image
 ===============
 
 *Containerfile* builds the official image `ghcr.io/fedify-dev/drfed` from the
-five package tarballs; *Dockerfile* is a symbolic link to it.  The Compose files
+tarballs of the packages in `packageOrder` of *scripts/packages.mts*;
+*Dockerfile* is a symbolic link to it.  The Compose files
 and the backup and restore scripts are the examples that the
 [container installation guide] includes, and `mise run test:image` runs them
 with Docker and Podman against the image under test together with
