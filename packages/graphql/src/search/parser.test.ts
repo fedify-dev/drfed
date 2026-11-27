@@ -21,6 +21,7 @@ import {
   comparison,
   propertyPath,
   queryParser,
+  validateSearchExpression,
 } from "@drfed/graphql/search/parser";
 import { endOfInput, takeLeft } from "arcsecond";
 
@@ -112,6 +113,37 @@ describe("comparison", () => {
       );
     }
   });
+
+  it("normalizes equivalent offsets without losing fractional precision", () => {
+    for (const input of [
+      "2026-11-24T00:00:00.123456789Z",
+      "2026-11-24T09:00:00.123456789+09:00",
+      "2026-11-23T18:30:00.123456789-05:30",
+    ]) {
+      const result = completeComparison.run(
+        `.<${property}> <= TIME "${input}"`,
+      );
+      if (result.isError) assert.fail(result.error);
+      assert.deepEqual(result.result?.value, instant);
+    }
+  });
+
+  it("rejects missing offsets, invalid dates, and unsupported precision", () => {
+    for (const input of [
+      "2026-11-24T00:00:00",
+      "2026-11-24T00:00:00+0900",
+      "2026-11-24T00:00:00+24:00",
+      "2026-02-29T00:00:00Z",
+      "2026-11-24T24:00:00Z",
+      "2026-11-24T00:00:00.1234567890Z",
+    ]) {
+      assert.equal(
+        completeComparison.run(`.<${property}> = TIME "${input}"`).isError,
+        true,
+        input,
+      );
+    }
+  });
 });
 
 describe("queryParser", () => {
@@ -178,6 +210,85 @@ describe("queryParser", () => {
       `${ada} trailing`,
     ]) {
       assert.equal(queryParser.run(input).isError, true, input);
+    }
+  });
+
+  it("decodes JSON escapes and keeps quoted keywords inside the literal", () => {
+    const input = String.raw`.<${property}> = "say \"NOT AND OR\"\\path\n\uD55C"`;
+    const result = queryParser.run(input);
+    if (result.isError) assert.fail(result.error);
+    assert.deepEqual(result.result, node('say "NOT AND OR"\\path\n한'));
+  });
+
+  it("rejects non-JSON string forms and escapes", () => {
+    for (const literal of [
+      "'Ada'",
+      '"Ada',
+      String.raw`"Ada\q"`,
+      String.raw`"Ada\u12zz"`,
+      '"Ada\nGrace"',
+    ]) {
+      const input = `.<${property}> = ${literal}`;
+      assert.equal(queryParser.run(input).isError, true, input);
+    }
+  });
+
+  it("rejects invalid absolute IRIs in paths and equality values", () => {
+    for (const iri of [
+      "https://[invalid]/",
+      "https://example.org/%zz",
+      "tag:bad|value",
+    ]) {
+      for (const input of [`.<${iri}> = "Ada"`, `.<${property}> = <${iri}>`]) {
+        const result = queryParser.run(input);
+        assert.equal(result.isError, true, input);
+        if (result.isError) assert.match(result.error, /absolute IRI/iu);
+      }
+    }
+  });
+
+  it("bounds input size, recursive syntax, and the resulting tree", () => {
+    for (const [input, message] of [
+      [query("한".repeat(1500)), /4096 UTF-8 bytes/u],
+      [`${"(".repeat(33)}${ada}${")".repeat(33)}`, /nesting exceeds 32/u],
+      [`${"NOT ".repeat(33)}${ada}`, /nesting exceeds 32/u],
+      [
+        Array<string>(33).fill('.<urn:x> = "x"').join(" AND "),
+        /depth exceeds 32/u,
+      ],
+    ] as const) {
+      const result = queryParser.run(input);
+      assert.equal(result.isError, true);
+      if (result.isError) assert.match(result.error, message);
+    }
+    for (const input of [
+      `${"(".repeat(32)}${ada}${")".repeat(32)}`,
+      `${"NOT ".repeat(31)}${ada}`,
+      Array<string>(32).fill('.<urn:x> = "x"').join(" AND "),
+    ]) {
+      assert.equal(queryParser.run(input).isError, false);
+    }
+  });
+
+  it("validates externally supplied expression trees", () => {
+    const valid = node("Ada");
+    assert.deepEqual(validateSearchExpression(valid), {
+      ok: true,
+      expression: valid,
+    });
+    const cycle: { kind: "not"; operand?: unknown } = { kind: "not" };
+    cycle.operand = cycle;
+    for (const value of [
+      null,
+      { kind: "or", left: valid },
+      { ...valid, path: [] },
+      { ...valid, path: ["relative"] },
+      { ...valid, operator: "lt" },
+      { ...valid, operator: "unknown" },
+      { ...valid, value: { kind: "time", value: "2026-11-24T09:00:00+09:00" } },
+      cycle,
+    ]) {
+      assert.equal(validateSearchExpression(value).ok, false);
     }
   });
 });

@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import {
-  type Parser,
+  Parser,
   choice,
   endOfInput,
   fail,
@@ -25,6 +25,8 @@ import {
   sequenceOf,
   str,
   succeedWith,
+  updateData,
+  updateError,
 } from "arcsecond";
 
 import type {
@@ -41,6 +43,13 @@ import {
   punctuation,
   quotedString,
 } from "./lexemes.ts";
+import {
+  maxExpressionDepth,
+  maxQueryBytes,
+  validateSearchExpression,
+} from "./validation.ts";
+
+export { validateSearchExpression } from "./validation.ts";
 
 const segment = sequenceOf([str("."), iri]).map(([, { value }]) => value);
 
@@ -113,14 +122,35 @@ export const comparison: Parser<Comparison> = sequenceOf([
   }
 });
 
+interface Nesting {
+  depth: number;
+  exceeded: boolean;
+}
+
+function nested(parser: Parser<Expression>): Parser<Expression> {
+  return new Parser((state) => {
+    if (state.isError) return state;
+    const nesting = state.data as Nesting;
+    if (nesting.depth >= maxExpressionDepth) {
+      nesting.exceeded = true;
+      return fail("Search expression nesting limit exceeded").p(state);
+    }
+    nesting.depth += 1;
+    try {
+      return parser.p(state);
+    } finally {
+      nesting.depth -= 1;
+    }
+  });
+}
+
 const expression: Parser<Expression> = recursiveParser(() => disjunction);
 const unary: Parser<Expression> = recursiveParser(() =>
   choice([
-    sequenceOf([keyword("NOT"), unary]).map<Expression>(([, operand]) => ({
-      kind: "not",
-      operand,
-    })),
-    sequenceOf([punctuation("("), expression, punctuation(")")]).map(
+    sequenceOf([keyword("NOT"), nested(unary)]).map<Expression>(
+      ([, operand]) => ({ kind: "not", operand }),
+    ),
+    sequenceOf([punctuation("("), nested(expression), punctuation(")")]).map(
       ([, inner]) => inner,
     ),
     comparison,
@@ -141,9 +171,31 @@ function binary(
 const conjunction = binary("and", unary);
 const disjunction = binary("or", conjunction);
 
-/** Parses an entire query with precedence `NOT`, then `AND`, then `OR`. */
-export const queryParser: Parser<Expression> = sequenceOf([
+const completeQuery = sequenceOf([
   optionalWhitespace,
   expression,
   endOfInput,
 ]).map(([, result]) => result);
+
+/** Parses and validates a complete query with bounded input and nesting. */
+export const queryParser: Parser<Expression> = new Parser((state) => {
+  if (state.isError) return state;
+  if (state.dataView.byteLength > maxQueryBytes) {
+    return updateError(
+      state,
+      `Search query exceeds ${maxQueryBytes} UTF-8 bytes`,
+    );
+  }
+  const nesting: Nesting = { depth: 0, exceeded: false };
+  const result = completeQuery.p(updateData(state, nesting));
+  // Arcsecond alternatives can backtrack over a nesting error.
+  if (nesting.exceeded) {
+    return updateError(
+      result,
+      `Search query nesting exceeds ${maxExpressionDepth}`,
+    );
+  }
+  if (result.isError) return result;
+  const validated = validateSearchExpression(result.result);
+  return validated.ok ? result : updateError(result, validated.error);
+});
