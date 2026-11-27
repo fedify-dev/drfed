@@ -129,5 +129,8 @@ fetches with the retries above and takes a `fetch` and a `sleep` to use instead
 of the global ones, `summarizeReports()`, which decides what the check prints
 and whether it passes, `planUpdate()`, and `updateCatalog()`, which rewrites
 the catalog's text.  None of these modules reads or writes a file or loads a
-remote JSON-LD context.  *tools/* is not published, so the parsers it uses
-stay development dependencies.
+remote JSON-LD context.  *tools/compile.mts* is the build's part: the `tsdown`
+plugin that validates *src/properties.yaml* against its schema and turns it into
+a module, and `compileCatalog()`, which the commands also use to validate the
+catalog.  *tools/* is not published, so the parsers it uses stay development
+dependencies.

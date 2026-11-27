@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-// catalog.ts runs only inside the tsdown build and is not a package entry, so
-// this test imports it by relative path instead of through a subpath export.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { sep } from "node:path";
@@ -27,7 +25,7 @@ import {
   compileCatalog,
   knownPropertiesPlugin,
   renderCatalogModule,
-} from "./catalog.ts";
+} from "./compile.mts";
 
 const AS = "https://www.w3.org/ns/activitystreams#";
 const GTS = "https://gotosocial.org/ns#";
@@ -35,7 +33,7 @@ const LOOPS = "https://joinloops.org/ns#";
 const SOURCE = "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-actor";
 
 const siblingPath = (name: string): string =>
-  fileURLToPath(new URL(`./${name}`, import.meta.url));
+  fileURLToPath(new URL(`../src/${name}`, import.meta.url));
 
 const readSibling = (name: string): Promise<string> =>
   readFile(siblingPath(name), "utf-8");
@@ -290,7 +288,7 @@ const load = async (id: string): Promise<LoadCall> => {
 
 describe("knownPropertiesPlugin()", () => {
   it("leaves other modules alone", async () => {
-    const { result, watchFiles } = await load(siblingPath("catalog.ts"));
+    const { result, watchFiles } = await load(fileURLToPath(import.meta.url));
     assert.equal(result, null);
     assert.deepEqual(watchFiles, []);
   });

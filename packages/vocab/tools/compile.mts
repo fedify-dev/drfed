@@ -40,13 +40,13 @@ import "@hyperjump/json-schema/formats";
 import type { TsdownPlugin } from "tsdown";
 import { type Alias, isAlias, isCollection, isPair, parseDocument } from "yaml";
 
-import type { KnownProperties } from "./known-properties.ts";
+import type { KnownProperties } from "../src/known-properties.ts";
 
 const CATALOG_PATH = fileURLToPath(
-  new URL("./properties.yaml", import.meta.url),
+  new URL("../src/properties.yaml", import.meta.url),
 );
 const SCHEMA_PATH = fileURLToPath(
-  new URL("./properties.schema.yaml", import.meta.url),
+  new URL("../src/properties.schema.yaml", import.meta.url),
 );
 const PLUGIN_NAME = "drfed:known-properties";
 

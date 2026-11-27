@@ -16,7 +16,7 @@
 import { defineConfig } from "tsdown";
 
 import metadata from "./package.json" with { type: "json" };
-import { knownPropertiesPlugin } from "./src/catalog.ts";
+import { knownPropertiesPlugin } from "./tools/compile.mts";
 
 export default defineConfig({
   ...metadata.tsdown,

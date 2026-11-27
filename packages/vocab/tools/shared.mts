@@ -20,7 +20,7 @@
  */
 import { readFile } from "node:fs/promises";
 
-import { compileCatalog } from "../src/catalog.ts";
+import { compileCatalog } from "./compile.mts";
 
 export const CATALOG_URL = new URL("../src/properties.yaml", import.meta.url);
 export const CATALOG_NAME = "packages/vocab/src/properties.yaml";

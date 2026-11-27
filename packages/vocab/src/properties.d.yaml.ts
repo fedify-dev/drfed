@@ -15,8 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 // The build turns properties.yaml into a module through
-// knownPropertiesPlugin() in ./catalog.ts, after validating it against
-// properties.schema.yaml.
+// knownPropertiesPlugin() in ../tools/compile.mts, after validating it
+// against properties.schema.yaml.
 import type { KnownProperties } from "./known-properties.ts";
 
 declare const catalog: KnownProperties;

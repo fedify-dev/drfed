@@ -23,8 +23,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
-import { compileCatalog } from "../src/catalog.ts";
 import { parseCatalog } from "./catalog.mts";
+import { compileCatalog } from "./compile.mts";
 import { quote } from "./namespace.mts";
 import { NAMESPACES } from "./namespaces.mts";
 import { planUpdate } from "./plan.mts";
