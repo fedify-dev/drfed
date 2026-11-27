@@ -396,6 +396,9 @@ importers:
       '@upyo/mock':
         specifier: 'catalog:'
         version: 0.6.0(@upyo/core@0.6.0)
+      arcsecond:
+        specifier: ^5.0.0
+        version: 5.0.0
       drizzle-orm:
         specifier: 'catalog:'
         version: 1.0.0-beta.22(@electric-sql/pglite@0.5.3)(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.21.0)(postgres@3.4.9)(valibot@1.4.2(typescript@7.0.2))
@@ -2868,6 +2871,9 @@ packages:
   ansis@4.3.1:
     resolution: {integrity: sha512-BJ8/l4R5LRE7hW9WdSuGYrLSHi2ynxeFpDFbH0K/CgNeY/tyhk+vO6TYxXC5r5CpUhNVX310xzPsN/H9lCdfOA==}
     engines: {node: '>=14'}
+
+  arcsecond@5.0.0:
+    resolution: {integrity: sha512-J/fHdyadnsIencRsM6oUSsraCKG+Ni9Udcgr/eusxjTzX3SEQtCUQSpP0YtImFPfIK6DdT1nqwN0ng4FqNmwgA==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -6758,6 +6764,8 @@ snapshots:
       color-convert: 2.0.1
 
   ansis@4.3.1: {}
+
+  arcsecond@5.0.0: {}
 
   argparse@2.0.1: {}
 

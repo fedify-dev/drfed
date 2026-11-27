@@ -133,6 +133,7 @@
     "@pothos/plugin-scope-auth": "^4.1.7",
     "@upyo/core": "catalog:",
     "@upyo/mock": "catalog:",
+    "arcsecond": "^5.0.0",
     "drizzle-orm": "catalog:",
     "graphql": "catalog:",
     "graphql-scalars": "^2.0.1",
