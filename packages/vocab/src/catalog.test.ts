@@ -113,6 +113,25 @@ source: "https://example.com/docs"
       /unique/iu,
     ));
 
+  it("rejects a key written as an alias of an earlier key", () =>
+    rejects(
+      `? &actor "${AS}actor"\n: ${JSON.stringify({ label: { en: "A" } })}\n` +
+        `? *actor\n: ${JSON.stringify({ label: { en: "B" } })}\n`,
+      /alias \*actor is used as a mapping key/u,
+    ));
+
+  it("rejects a key written as an alias inside an entry", () =>
+    rejects(
+      entry(
+        `${AS}actor`,
+        ACTOR_BODY.replace(
+          "  en: Actor",
+          "  &english en: Actor\n  *english : B",
+        ),
+      ),
+      /alias \*english is used as a mapping key/u,
+    ));
+
   it("rejects a key that is not an absolute IRI", () =>
     rejects(entry("actor", ACTOR_BODY), /format/u));
 
@@ -136,6 +155,59 @@ source: "https://example.com/docs"
       entry(`${AS}actor`, ACTOR_BODY.replace("  en: Actor", '  en: ""')),
       /label > en: minLength/u,
     ));
+
+  it("rejects English text of whitespace alone", async () => {
+    await rejects(
+      entry(`${AS}actor`, ACTOR_BODY.replace("  en: Actor", '  en: "   "')),
+      /label > en: pattern/u,
+    );
+    await rejects(
+      entry(
+        `${AS}actor`,
+        ACTOR_BODY.replace(
+          "  en: Identifies one or more entities that performed the activity.",
+          '  en: "\\t"',
+        ),
+      ),
+      /description > en: pattern/u,
+    );
+  });
+
+  it("keeps text with whitespace between its words", async () => {
+    const catalog = await compileCatalog(
+      entry(
+        `${AS}actor`,
+        ACTOR_BODY.replace("  en: Actor", '  en: "Actor  name"'),
+      ),
+      schemaText,
+    );
+    assert.equal(catalog[`${AS}actor`]?.label.en, "Actor  name");
+  });
+
+  it("rejects a language that is not a language tag", () =>
+    rejects(
+      entry(
+        `${AS}actor`,
+        ACTOR_BODY.replace("  en: Actor", "  en: Actor\n  fr_CA: Acteur"),
+      ),
+      /label > fr_CA: pattern/u,
+    ));
+
+  it("accepts languages written as RFC 5646 language tags", async () => {
+    const tags = ["fr-CA", "zh-Hant-TW", "de-CH-1996", "EN-GB-OED", "x-drfed"];
+    const labels = tags.map((tag) => `  ${tag}: Actor`).join("\n");
+    const catalog = await compileCatalog(
+      entry(
+        `${AS}actor`,
+        ACTOR_BODY.replace("  en: Actor", `  en: Actor\n${labels}`),
+      ),
+      schemaText,
+    );
+    assert.deepEqual(Object.keys(catalog[`${AS}actor`]?.label ?? {}), [
+      "en",
+      ...tags,
+    ]);
+  });
 
   it("rejects an entry without a source", () =>
     rejects(

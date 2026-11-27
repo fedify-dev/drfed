@@ -38,7 +38,7 @@ import { BASIC } from "@hyperjump/json-schema/experimental";
 // oxlint-disable-next-line import/no-unassigned-import
 import "@hyperjump/json-schema/formats";
 import type { TsdownPlugin } from "tsdown";
-import { parse } from "yaml";
+import { type Alias, isAlias, isCollection, isPair, parseDocument } from "yaml";
 
 import type { KnownProperties } from "./known-properties.ts";
 
@@ -55,15 +55,40 @@ export class CatalogError extends Error {
   override name = "CatalogError";
 }
 
+/**
+ * Collects the mapping keys written as aliases, at any depth.  `uniqueKeys`
+ * compares an alias with the node it names as different keys, so an alias key
+ * could replace an entry once the document is converted to an object.
+ * @param node A node of a parsed YAML document.
+ * @returns The alias keys under the node.
+ */
+const aliasKeysOf = (node: unknown): readonly Alias[] =>
+  isCollection(node)
+    ? node.items.flatMap((item: unknown) =>
+        isPair(item)
+          ? [
+              ...(isAlias(item.key) ? [item.key] : []),
+              ...aliasKeysOf(item.key),
+              ...aliasKeysOf(item.value),
+            ]
+          : aliasKeysOf(item),
+      )
+    : [];
+
 const parseYaml = (text: string, source: string): unknown => {
-  try {
-    // `yaml` rejects duplicate mapping keys unless `uniqueKeys` is disabled.
-    return parse(text, { uniqueKeys: true });
-  } catch (error) {
-    throw new CatalogError(`${source}: ${(error as Error).message}`, {
-      cause: error,
-    });
+  // `yaml` rejects duplicate mapping keys unless `uniqueKeys` is disabled.
+  const document = parseDocument(text, { uniqueKeys: true });
+  const [error] = document.errors;
+  if (error !== undefined) {
+    throw new CatalogError(`${source}: ${error.message}`, { cause: error });
   }
+  const [alias] = aliasKeysOf(document.contents);
+  if (alias !== undefined) {
+    throw new CatalogError(
+      `${source}: the alias *${alias.source} is used as a mapping key`,
+    );
+  }
+  return document.toJS();
 };
 
 const isSchemaObject = (value: unknown): value is SchemaObject =>
@@ -104,8 +129,9 @@ const describeFailure = (unit: OutputUnit): string => {
  * @param catalogText The YAML text of the catalog.
  * @param schemaText The YAML text of the catalog's JSON Schema.
  * @returns The validated catalog data.
- * @throws {CatalogError} When either text fails to parse, the catalog has
- *   duplicate keys, or the catalog does not satisfy the schema.
+ * @throws {CatalogError} When either text fails to parse, has a key written
+ *   as an alias, the catalog has duplicate keys, or the catalog does not
+ *   satisfy the schema.
  */
 export const compileCatalog = async (
   catalogText: string,

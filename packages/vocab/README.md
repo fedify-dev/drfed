@@ -58,9 +58,11 @@ To add or change an entry, edit *src/properties.yaml*:
     implementation's federation documentation or source.
 
 The build validates the file against *src/properties.schema.yaml*
-and fails on duplicate keys, keys that are not absolute IRIs, and missing
-English text.  `@drfed/vocab/known-properties` contains the validated data
-only, not the YAML files or a YAML parser.
+and fails on duplicate keys, keys written as YAML aliases, keys that are not
+absolute IRIs, missing English text, text of whitespace alone, and languages
+that are not RFC 5646 language tags, such as `fr_CA` for `fr-CA`.
+`@drfed/vocab/known-properties` contains the validated data only, not the YAML
+files or a YAML parser.
 
 
 Namespace checks
