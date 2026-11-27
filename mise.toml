@@ -354,7 +354,7 @@ if "usage_debug" in $env {
   $env.LOGTAPE_TEST_LOWEST_LEVEL = "debug"
 }
 let shard = (if "usage_shard" in $env { [$"--test-shard=($env.usage_shard)"] } else { [] })
-node --test ...$shard "packages/*/src/**/*.test.ts"
+node --test ...$shard "packages/*/src/**/*.test.ts" "packages/*/tools/**/*.test.mts"
 '''
 
 [tasks."test:postgres"]

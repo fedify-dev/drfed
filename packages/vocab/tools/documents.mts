@@ -18,7 +18,10 @@
  * Reads the property definitions out of the Activity Streams namespace
  * document, its JSON-LD context, the Activity Vocabulary, and ActivityPub.
  */
+import jsonld from "@fedify/vocab-runtime/jsonld";
 import { type DefaultTreeAdapterTypes, parse } from "parse5";
+
+import { refuseRemoteContext } from "./rdf.mts";
 
 type Node = DefaultTreeAdapterTypes.Node;
 type Element = DefaultTreeAdapterTypes.Element;
@@ -32,7 +35,7 @@ const RDF_PREFIX = "rdf";
 const RDF_NAMESPACE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const FUNCTIONAL = "True";
 const RANGE_SEPARATOR = "|";
-const ABSOLUTE_IRI = /^[a-z][a-z\d+.-]*:\/\//iu;
+const ORDERED_LIST = /^Ordered List of \[(?<members>.*)\]$/u;
 const COMPACT_IRI = /^(?<prefix>[a-z][\w-]*):(?<local>\w+)$/iu;
 const FIELD_LABEL = /^(?<label>[A-Za-z ]+):$/u;
 
@@ -47,8 +50,12 @@ export interface NamespaceTerm {
 export interface VocabularyDefinition {
   readonly anchor: string;
   readonly iri: string;
-  readonly notes: string;
-  /** The range as written, such as `Object` or `xsd:dateTime`. */
+  /** The text of the `Notes` cell, or `undefined` when it is missing or empty. */
+  readonly notes: string | undefined;
+  /**
+   * The range as written, such as `Object` or `xsd:dateTime`, with an
+   * `Ordered List of [...]` read as its members.
+   */
   readonly range: readonly string[];
   readonly functional: boolean;
 }
@@ -83,55 +90,65 @@ const textOf = (node: Node): string =>
     : childrenOf(node).map(textOf).join("");
 
 /**
- * Collapses whitespace and the spaces just inside brackets, so that text
- * rendered from markup such as `[<cite>BCP47</cite>]` compares equal to text
- * copied from the rendered page.
+ * Collapses whitespace into single spaces and trims it.
+ * @returns The collapsed text.
+ */
+export const collapseWhitespace = (text: string): string =>
+  text.replaceAll(/\s+/gu, " ").trim();
+
+/**
+ * Collapses whitespace and drops the spaces just inside brackets, so that
+ * text rendered from markup such as `[<cite>BCP47</cite>]` reads as the
+ * rendered page shows it.
  * @returns The normalized text.
  */
 export const normalizeText = (text: string): string =>
-  text
-    .replaceAll(/\s+/gu, " ")
-    .replaceAll(/\[ /gu, "[")
-    .replaceAll(/ \]/gu, "]")
-    .trim();
+  collapseWhitespace(text).replaceAll(/\[ /gu, "[").replaceAll(/ \]/gu, "]");
 
-const termIdOf = (definition: unknown): string | undefined =>
-  typeof definition === "string"
-    ? definition
-    : isRecord(definition) && typeof definition["@id"] === "string"
-      ? definition["@id"]
-      : undefined;
+/** What the JSON-LD processor's active context holds about one term. */
+interface TermDefinition {
+  readonly "@id"?: unknown;
+  readonly reverse?: boolean;
+}
 
 /**
- * Maps every term of a JSON-LD context document to the IRI it expands to.
- * Keywords and terms aliasing keywords are left out.  An `@context` may be an
- * array, whose objects are merged in order; the remote contexts it names are
- * not loaded, so their terms are not included.
+ * Maps every term of a JSON-LD context document to the IRI it expands to,
+ * by the JSON-LD 1.1 context processing algorithm.  Keywords, terms aliasing
+ * keywords, and reverse properties are left out.  An `@context` may be an
+ * array, whose objects and `null`s are processed in order, a `null` removing
+ * the terms before it; the remote contexts it names are not loaded, so their
+ * terms are not included, and a compact IRI whose prefix only they define
+ * stays unexpanded.
  * @returns The IRIs keyed by term.
  */
-export const parseContext = (json: unknown): ReadonlyMap<string, string> => {
+export const parseContext = async (
+  json: unknown,
+): Promise<ReadonlyMap<string, string>> => {
   const value = isRecord(json) ? json["@context"] : undefined;
-  const objects = (Array.isArray(value) ? value : [value]).filter(isRecord);
-  if (objects.length === 0) {
+  // A null resets the terms defined before it, so it stays with the objects.
+  const contexts = (Array.isArray(value) ? value : [value]).filter(
+    (item) => item === null || isRecord(item),
+  );
+  if (!contexts.some(isRecord)) {
     throw new TypeError("The namespace context has no @context object.");
   }
-  const context: Readonly<Record<string, unknown>> = Object.assign(
-    {},
-    ...objects,
+  const options = { documentLoader: refuseRemoteContext };
+  const context = await jsonld.processContext(
+    await jsonld.processContext(null, null, options),
+    contexts,
+    options,
   );
-  const ids = Object.entries(context).flatMap(([term, definition]) => {
-    const id = termIdOf(definition);
-    return term.startsWith("@") || id === undefined || id.startsWith("@")
-      ? []
-      : [[term, id] as const];
-  });
-  const prefixes = new Map(ids.filter(([, id]) => ABSOLUTE_IRI.test(id)));
-  const expand = (id: string): string => {
-    const groups = COMPACT_IRI.exec(id)?.groups;
-    const prefix = groups && prefixes.get(groups["prefix"]!);
-    return prefix === undefined ? id : `${prefix}${groups!["local"]!}`;
+  const { mappings } = context as {
+    readonly mappings: ReadonlyMap<string, TermDefinition>;
   };
-  return new Map(ids.map(([term, id]) => [term, expand(id)]));
+  return new Map(
+    [...mappings].flatMap(([term, definition]) => {
+      const id = definition["@id"];
+      return typeof id !== "string" || id.startsWith("@") || definition.reverse
+        ? []
+        : [[term, id] as const];
+    }),
+  );
 };
 
 /**
@@ -188,14 +205,14 @@ export const parseNamespaceTerms = (html: string): readonly NamespaceTerm[] =>
 
 /**
  * Lists the `id` attributes of an HTML document, which its links can point to
- * as fragments.
+ * as fragments.  An empty `id` is left out, since no fragment selects it.
  * @returns The anchors of the document.
  */
 export const parseAnchors = (html: string): ReadonlySet<string> =>
   new Set(
     descendantsOf(parse(html)).flatMap((node) => {
       const id = "tagName" in node ? attributeOf(node, "id") : undefined;
-      return id === undefined ? [] : [id];
+      return id === undefined || id === "" ? [] : [id];
     }),
   );
 
@@ -238,6 +255,32 @@ const groupRows = (
       ];
 };
 
+// Splits a written range at the separators outside brackets, so that
+// `Object | Ordered List of [Object | Link]` has two parts.
+const splitRange = (text: string): readonly string[] =>
+  [...text]
+    .reduce<{ readonly parts: readonly string[]; readonly depth: number }>(
+      ({ parts, depth }, character) =>
+        character === RANGE_SEPARATOR && depth === 0
+          ? { parts: [...parts, ""], depth }
+          : {
+              parts: [...parts.slice(0, -1), `${parts.at(-1)!}${character}`],
+              depth:
+                depth + (character === "[" ? 1 : character === "]" ? -1 : 0),
+            },
+      { parts: [""], depth: 0 },
+    )
+    .parts.map((part) => part.trim())
+    .filter((part) => part !== "");
+
+// An ordered list of values of some types is a value of those types in
+// JSON-LD, so it is read as its member types.
+const rangesOf = (text: string): readonly string[] =>
+  splitRange(text).flatMap((range) => {
+    const members = ORDERED_LIST.exec(range)?.groups?.["members"];
+    return members === undefined ? [range] : rangesOf(members);
+  });
+
 const definitionOf = (group: Group): readonly VocabularyDefinition[] => {
   const iri = group.fields.get("URI");
   return iri === undefined
@@ -246,11 +289,8 @@ const definitionOf = (group: Group): readonly VocabularyDefinition[] => {
         {
           anchor: group.anchor,
           iri,
-          notes: group.fields.get("Notes") ?? "",
-          range: (group.fields.get("Range") ?? "")
-            .split(RANGE_SEPARATOR)
-            .map((range) => range.trim())
-            .filter((range) => range !== ""),
+          notes: group.fields.get("Notes") || undefined,
+          range: rangesOf(group.fields.get("Range") ?? ""),
           functional: group.fields.get("Functional") === FUNCTIONAL,
         },
       ];
@@ -300,6 +340,7 @@ export const parseActivityPub = (
           const anchor = attributeOf(term, "id");
           const description = nextElementOf(list.childNodes, term);
           return anchor === undefined ||
+            anchor === "" ||
             description === undefined ||
             !isElement("dd")(description)
             ? []

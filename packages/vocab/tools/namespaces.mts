@@ -43,6 +43,9 @@ export const NAMESPACES: readonly Namespace[] = [
     iri: "http://www.w3.org/ns/ldp#",
     url: "http://www.w3.org/ns/ldp",
     format: "turtle",
+    // ActivityPub requires an actor's inbox to be an OrderedCollection, which
+    // the LDP vocabulary does not declare.
+    definedElsewhere: { "http://www.w3.org/ns/ldp#inbox": ["range"] },
   }),
   contextNamespace({
     name: "GoToSocial",

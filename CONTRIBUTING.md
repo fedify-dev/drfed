@@ -604,6 +604,11 @@ discrepancies between source and what consumers actually receive.  Build the
 package before running tests (`pnpm --filter <package> run build` or
 `mise run build`).
 
+Unpublished tools, such as those in *packages/vocab/tools/*, are the
+exception: they have no subpath export or *dist/* output, so their tests live
+next to them as `*.test.mts` files and import the module under test through a
+relative path, as in `./reports.mts`.
+
 If the module under test is not yet listed as a subpath export, add it to the
 `exports` field in the package's *package.json* and to the `entry` array in
 the `tsdown` configuration before writing tests:
@@ -629,8 +634,8 @@ Node.js's built-in test runner:
 }
 ~~~~
 
-Run all tests across the monorepo from the repository root (builds first
-automatically):
+Run all tests across the monorepo, including those of the tools, from the
+repository root (builds first automatically):
 
 ~~~~ sh
 mise run test

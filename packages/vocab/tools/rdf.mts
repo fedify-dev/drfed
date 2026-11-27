@@ -27,11 +27,20 @@ export type RdfFormat = "json-ld" | "turtle";
 /** What an RDF vocabulary declares about one term. */
 export interface RdfDefinition {
   /**
-   * The IRIs of the single `rdfs:range` the vocabulary declares, with an
-   * `owl:unionOf` read as its members, or `undefined` when it declares none,
-   * several, or one that is not a class IRI or a union of them.
+   * The IRIs of the types a value is one of.  They are those of the single
+   * `rdfs:range` the vocabulary declares, with an `owl:unionOf` read as its
+   * members.  Without an `rdfs:range`, they are every type that
+   * `schema:rangeIncludes` or `dcam:rangeIncludes` suggests, which schema.org
+   * and Dublin Core declare instead.  `undefined` when the vocabulary
+   * declares none of them, several `rdfs:range`s, or a range that is not a
+   * class IRI or a union of them.
    */
   readonly range: readonly string[] | undefined;
+  /**
+   * Whether the vocabulary declares or suggests any range at all, so that an
+   * undefined `range` with it means one that cannot be read.
+   */
+  readonly rangeDeclared: boolean;
   /** Whether the term is an `owl:FunctionalProperty`. */
   readonly functional: boolean;
 }
@@ -44,13 +53,26 @@ const RDF_FIRST = `${RDF}first`;
 const RDF_REST = `${RDF}rest`;
 const RDF_NIL = `${RDF}nil`;
 const RDFS_RANGE = `${RDFS}range`;
+/**
+ * The predicates that suggest a type a value is one of, one triple per type:
+ * schema.org's in both of its namespaces, and Dublin Core's.
+ */
+const RANGE_INCLUDES: readonly string[] = [
+  "http://schema.org/rangeIncludes",
+  "https://schema.org/rangeIncludes",
+  "http://purl.org/dc/dcam/rangeIncludes",
+];
 const OWL_UNION_OF = `${OWL}unionOf`;
 const OWL_FUNCTIONAL_PROPERTY = `${OWL}FunctionalProperty`;
 const N_QUADS = "application/n-quads";
 
-// A vocabulary document must be self-contained, so that the check reads only
-// the documents its namespace names.
-const refuseRemoteContext = (url: string): Promise<never> =>
+/**
+ * A JSON-LD document loader that loads nothing.  A namespace's documents
+ * must be self-contained, so that the check reads only the documents its
+ * namespace names.
+ * @returns A rejected promise.
+ */
+export const refuseRemoteContext = (url: string): Promise<never> =>
   Promise.reject(new Error(`The remote context ${url} is not loaded.`));
 
 const quadsOf = async (
@@ -109,12 +131,21 @@ export const parseRdf = async (
       : range.termType === "BlankNode"
         ? listOf(objectsOf(range, OWL_UNION_OF)[0])
         : undefined;
+  const iris = (terms: readonly Term[] | undefined) =>
+    terms !== undefined &&
+    terms.length > 0 &&
+    terms.every((term) => term.termType === "NamedNode")
+      ? [...new Set(terms.map((term) => term.value))]
+      : undefined;
+  // An `rdfs:range` states what every value is, and wins over a suggestion.
   const rangeOf = (subject: Term): readonly string[] | undefined => {
     const ranges = objectsOf(subject, RDFS_RANGE);
-    const classes = ranges.length === 1 ? classesOf(ranges[0]!) : undefined;
-    return classes?.every((term) => term.termType === "NamedNode")
-      ? classes.map((term) => term.value)
-      : undefined;
+    if (ranges.length > 0) {
+      return ranges.length === 1 ? iris(classesOf(ranges[0]!)) : undefined;
+    }
+    return iris(
+      RANGE_INCLUDES.flatMap((predicate) => objectsOf(subject, predicate)),
+    );
   };
   return (iri) => {
     const quads = index.get(`NamedNode ${iri}`);
@@ -122,6 +153,9 @@ export const parseRdf = async (
     const { subject } = quads[0]!;
     return {
       range: rangeOf(subject),
+      rangeDeclared: [RDFS_RANGE, ...RANGE_INCLUDES].some(
+        (predicate) => objectsOf(subject, predicate).length > 0,
+      ),
       functional: objectsOf(subject, RDF_TYPE).some(
         (type) => type.value === OWL_FUNCTIONAL_PROPERTY,
       ),

@@ -23,7 +23,12 @@ import { fileURLToPath } from "node:url";
 import GPL from "./gpl.mts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const INCLUDED = ["scripts/", "packages/*/src/", "packages/*/bin/"];
+const INCLUDED = [
+  "scripts/",
+  "packages/*/src/",
+  "packages/*/bin/",
+  "packages/*/tools/",
+];
 const EXCLUDED = ["**/dist/", "**/__generated__/**"];
 
 type Extension = keyof typeof GPL;

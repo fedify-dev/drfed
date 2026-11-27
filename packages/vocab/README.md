@@ -27,7 +27,8 @@ console.log(actor?.label.en); // "Actor"
 
 Each entry has a `label` and a `description` keyed by language tag, always
 with English text, and a `source` link to the property's definition.  `range`
-lists the types and datatypes the vocabulary declares, and `multiple` says
+lists the types and datatypes the vocabulary declares, a value being one of
+them, and `multiple` says
 whether it allows more than one value; both are absent when the vocabulary
 does not say, and an absent `multiple` does not mean single-valued.  Terms
 that share a label but expand to different IRIs are separate entries.
@@ -46,7 +47,10 @@ To add or change an entry, edit *src/properties.yaml*:
     full.  For an implementation's extension, that is the IRI its own
     `@context` produces, which can differ from what a specification suggests.
  -  Take `range` and `multiple` only from a formal definition, not from a
-    context's `@type` coercion or a parser's behavior.
+    context's `@type` coercion or a parser's behavior.  A vocabulary that
+    only suggests types, as schema.org and Dublin Core do with
+    `rangeIncludes`, gives all of them, even those that implementations do
+    not send; `range` does not tell a stated range from a suggested one.
  -  For a property the Activity Vocabulary or ActivityPub defines, keep the
     definition's text in `description` as it is written, including its
     citations and errors; `mise run update:known-properties` writes it.
@@ -55,8 +59,8 @@ To add or change an entry, edit *src/properties.yaml*:
 
 The build validates the file against *src/properties.schema.yaml*
 and fails on duplicate keys, keys that are not absolute IRIs, and missing
-English text.  The published package contains the validated data only, not the
-YAML files or a YAML parser.
+English text.  `@drfed/vocab/known-properties` contains the validated data
+only, not the YAML files or a YAML parser.
 
 
 Namespace checks
@@ -75,13 +79,22 @@ namespaces give different values for it.  Each namespace is listed in
     ActivityPub, including `ldp:inbox`, is read from
     <https://www.w3.org/ns/activitystreams> and the definitions it links its
     terms to.  The IRI must be a property term of the namespace, and the
-    definition gives `description`.  An Activity Vocabulary definition also
-    gives `range`, `multiple`, and the anchor of `source`.
+    definition gives `description`, unless `source` points to the definition
+    of another term.  An Activity Vocabulary definition also gives
+    `multiple`, the anchor of `source`, and `range`: the IRIs of its types,
+    an ordered list of them read as its members, or none when the range is
+    only prose such as `MIME Media Type`.  A range with a type the context
+    gives no IRI for, or with prose beside types, is reported and not
+    checked.
  -  A JSON-LD context, such as GoToSocial's: a term of the context must expand
     to the entry's IRI.  It gives no values.
  -  An RDF vocabulary in JSON-LD or Turtle, such as vCard: the vocabulary must
-    define the IRI.  An `rdfs:range` gives `range`, and an
-    `owl:FunctionalProperty` gives `multiple: false`.
+    define the IRI.  An `rdfs:range` gives `range`, and without one, every type
+    that `schema:rangeIncludes` or `dcam:rangeIncludes` suggests does.  An
+    `owl:FunctionalProperty` gives `multiple: false`.  A `range` or a
+    `multiple: false` of an entry that the vocabulary does not declare is
+    reported, never removed, unless the namespace's `definedElsewhere` lists
+    it, as for the range ActivityPub gives `ldp:inbox`.
  -  An HTML page that documents each term under an anchor, such as Misskey's:
     `source` must point to an anchor of the page.  It gives no values.
 

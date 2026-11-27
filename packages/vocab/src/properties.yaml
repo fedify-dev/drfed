@@ -509,8 +509,8 @@
     en: Hreflang
   description:
     en: >-
-      Hints as to the language used by the target resource. Value MUST be a [
-      BCP47 ] Language-Tag.
+      Hints as to the language used by the target resource. Value MUST be a
+      [BCP47] Language-Tag.
   multiple: false
   source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-hreflang"
 
@@ -520,10 +520,10 @@
   description:
     en: >-
       A link relation associated with a Link. The value MUST conform to both the
-      [ HTML5 ] and [ RFC5988 ] "link relation" definitions. In the [ HTML5 ],
-      any string not containing the "space" U+0020, "tab" (U+0009), "LF"
-      (U+000A), "FF" (U+000C), "CR" (U+000D) or "," (U+002C) characters can be
-      used as a valid link relation.
+      [HTML5] and [RFC5988] "link relation" definitions. In the [HTML5], any
+      string not containing the "space" U+0020, "tab" (U+0009), "LF" (U+000A),
+      "FF" (U+000C), "CR" (U+000D) or "," (U+002C) characters can be used as a
+      valid link relation.
   multiple: true
   source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-rel"
 
@@ -1413,6 +1413,9 @@
       schema.org: the language of the content or performance or used in an
       action. Lemmy and PieFed send it under the compact name language, as an
       object whose identifier is the language code.
+  range:
+    - "http://schema.org/Language"
+    - "http://schema.org/Text"
   source: "https://schema.org/inLanguage"
 
 "http://schema.org/identifier":
@@ -1423,6 +1426,10 @@
       schema.org: any kind of identifier for any kind of Thing, such as ISBNs,
       GTIN codes, or UUIDs. Lemmy and PieFed use it for the language code of a
       language object.
+  range:
+    - "http://schema.org/PropertyValue"
+    - "http://schema.org/Text"
+    - "http://schema.org/URL"
   source: "https://schema.org/identifier"
 
 # Extensions: https://joinpeertube.org/ns#

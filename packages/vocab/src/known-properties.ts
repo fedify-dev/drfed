@@ -32,8 +32,9 @@ export interface KnownProperty {
   /** What the property means. */
   readonly description: LocalizedText;
   /**
-   * The absolute IRIs of the types and datatypes the vocabulary declares as
-   * the property's range.  Absent when the vocabulary declares none.
+   * The absolute IRIs of the types and datatypes the vocabulary declares or
+   * suggests for the property's values, a value being one of them.  Absent
+   * when the vocabulary declares none.
    */
   readonly range?: readonly string[];
   /**

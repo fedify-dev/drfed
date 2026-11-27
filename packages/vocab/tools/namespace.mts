@@ -21,7 +21,12 @@
  * which field values its documents give and what is wrong beyond them; the
  * check reports the fields that differ, and the update writes them.
  */
-import { normalizeText, parseAnchors, parseContext } from "./documents.mts";
+import {
+  collapseWhitespace,
+  normalizeText,
+  parseAnchors,
+  parseContext,
+} from "./documents.mts";
 import { type RdfFormat, parseRdf } from "./rdf.mts";
 
 export const JSON_LD = "application/ld+json";
@@ -162,38 +167,72 @@ export const findingsOf = (
 ): ReadonlyMap<string, Finding> =>
   new Map([...entries].map(([iri, entry]) => [iri, findingOf(iri, entry)]));
 
-/**
- * Selects the fields whose expected values the entry does not have.
- * Descriptions are compared with their whitespace normalized.
- * @returns The expected values of the differing fields.
- */
-export const differencesOf = (
-  entry: CatalogEntry,
-  expected: Expectation,
-): Expectation => ({
-  ...(expected.description === undefined ||
-  normalizeText(entry.description.en) === normalizeText(expected.description)
-    ? {}
-    : { description: normalizeText(expected.description) }),
-  ...(expected.range === undefined || sameSet(entry.range ?? [], expected.range)
-    ? {}
-    : { range: expected.range }),
-  ...(expected.multiple === undefined || entry.multiple === expected.multiple
-    ? {}
-    : { multiple: expected.multiple }),
-  ...(expected.source === undefined || entry.source === expected.source
-    ? {}
-    : { source: expected.source }),
-});
-
+// The value of each field that comparisons read off an entry.  A
+// description keeps its brackets as written, so that a stray space inside
+// one, which `normalizeText` drops from a namespace's text, differs.
 const VALUE_OF: Readonly<
   Record<keyof Expectation, (entry: CatalogEntry) => unknown>
 > = {
-  description: (entry) => normalizeText(entry.description.en),
+  description: (entry) => collapseWhitespace(entry.description.en),
   range: (entry) => entry.range ?? [],
   multiple: (entry) => entry.multiple,
   source: (entry) => entry.source,
 };
+
+// The form in which each field's value given by a namespace is written.
+const EXPECTED_OF: Readonly<
+  Record<keyof Expectation, (value: unknown) => unknown>
+> = {
+  description: (value) => normalizeText(value as string),
+  range: (value) => value,
+  multiple: (value) => value,
+  source: (value) => value,
+};
+
+const SAME_VALUE: Readonly<
+  Record<keyof Expectation, (left: unknown, right: unknown) => boolean>
+> = {
+  description: (left, right) => left === right,
+  range: (left, right) =>
+    sameSet(left as readonly string[], right as readonly string[]),
+  multiple: (left, right) => left === right,
+  source: (left, right) => left === right,
+};
+
+/**
+ * Compares two values that namespaces give for the same field, by the rule
+ * that {@link differencesOf} compares an entry's value by: descriptions with
+ * their whitespace normalized, and ranges regardless of their order.
+ * @returns Whether the values are the same.
+ */
+export const sameValue = (
+  field: keyof Expectation,
+  left: unknown,
+  right: unknown,
+): boolean =>
+  SAME_VALUE[field](EXPECTED_OF[field](left), EXPECTED_OF[field](right));
+
+/**
+ * Selects the fields whose expected values the entry does not have.
+ * Descriptions are compared with their whitespace collapsed, and an expected
+ * description also without the spaces just inside its brackets, which is how
+ * it is written; ranges are compared regardless of their order.
+ * @returns The expected values of the differing fields, as they are written.
+ */
+export const differencesOf = (
+  entry: CatalogEntry,
+  expected: Expectation,
+): Expectation =>
+  Object.fromEntries(
+    Object.entries(expected).flatMap(([name, value]) => {
+      const field = name as keyof Expectation;
+      if (value === undefined) return [];
+      const written = EXPECTED_OF[field](value);
+      return SAME_VALUE[field](VALUE_OF[field](entry), written)
+        ? []
+        : [[field, written] as const];
+    }),
+  );
 
 /**
  * Describes how an entry differs from a finding, for a report.
@@ -224,9 +263,11 @@ export const contextNamespace = ({
   name,
   documents: { context: { url, accept: JSON_LD } },
   covers: under(iri),
-  find: (entries, documents) => {
+  find: async (entries, documents) => {
     const defined = new Set(
-      parseContext(JSON.parse(documentNamed(documents, "context"))).values(),
+      (
+        await parseContext(JSON.parse(documentNamed(documents, "context")))
+      ).values(),
     );
     return findingsOf(entries, (key) => ({
       origin: url,
@@ -244,10 +285,22 @@ const ACCEPT_OF: Readonly<Record<RdfFormat, string>> = {
 };
 
 /**
+ * The fields of an entry that a definition other than the vocabulary gives,
+ * so that the vocabulary need not declare them.
+ */
+export type DefinedElsewhere = Readonly<
+  Record<string, readonly ("range" | "multiple")[]>
+>;
+
+/**
  * Finds whether the namespace's RDF vocabulary defines the IRI of every
  * entry under the namespace.  Where the vocabulary declares an `rdfs:range`,
- * it gives `range`, and where it declares an `owl:FunctionalProperty`, it
- * gives `multiple: false`.
+ * or suggests types with `schema:rangeIncludes` or `dcam:rangeIncludes`, it
+ * gives `range`, and where it declares an `owl:FunctionalProperty`, it
+ * gives `multiple: false`.  It reports a range it cannot read, and a `range`
+ * or `multiple: false` of an entry that the vocabulary does not declare,
+ * unless `definedElsewhere` lists that field for the entry's IRI; it never
+ * proposes removing them, so that a person decides.
  * @returns The namespace.
  */
 export const rdfNamespace = ({
@@ -255,7 +308,11 @@ export const rdfNamespace = ({
   iri,
   url,
   format,
-}: NamespaceOptions & { readonly format: RdfFormat }): Namespace => ({
+  definedElsewhere = {},
+}: NamespaceOptions & {
+  readonly format: RdfFormat;
+  readonly definedElsewhere?: DefinedElsewhere;
+}): Namespace => ({
   name,
   documents: { vocabulary: { url, accept: ACCEPT_OF[format] } },
   covers: under(iri),
@@ -265,20 +322,42 @@ export const rdfNamespace = ({
       format,
       url,
     );
-    return findingsOf(entries, (key) => {
+    return findingsOf(entries, (key, entry) => {
       const definition = definitionOf(key);
-      return definition === undefined
-        ? { origin: url, expected: {}, problems: [`${url} does not define it`] }
-        : {
-            origin: url,
-            expected: {
-              ...(definition.range === undefined
-                ? {}
-                : { range: definition.range }),
-              ...(definition.functional ? { multiple: false } : {}),
-            },
-            problems: [],
-          };
+      if (definition === undefined) {
+        return {
+          origin: url,
+          expected: {},
+          problems: [`${url} does not define it`],
+        };
+      }
+      const elsewhere = new Set(definedElsewhere[key] ?? []);
+      return {
+        origin: url,
+        expected: {
+          ...(definition.range === undefined
+            ? {}
+            : { range: definition.range }),
+          ...(definition.functional ? { multiple: false } : {}),
+        },
+        problems: [
+          ...(definition.rangeDeclared && definition.range === undefined
+            ? [
+                `${url} declares a range that is not one class IRI or a union of them, so range is not checked`,
+              ]
+            : []),
+          ...(!definition.rangeDeclared &&
+          entry.range !== undefined &&
+          !elsewhere.has("range")
+            ? [`range is ${quote(entry.range)}, but ${url} declares none`]
+            : []),
+          ...(!definition.functional &&
+          entry.multiple === false &&
+          !elsewhere.has("multiple")
+            ? [`multiple is false, but ${url} does not declare it functional`]
+            : []),
+        ],
+      };
     });
   },
 });
@@ -308,9 +387,11 @@ export const anchorNamespace = ({
         problems:
           documentOf(entry.source) !== documentOf(url)
             ? [`source is not in ${url}`]
-            : anchors.has(fragment)
-              ? []
-              : [`${url} has no anchor #${fragment}`],
+            : fragment === ""
+              ? ["source has no fragment"]
+              : anchors.has(fragment)
+                ? []
+                : [`${url} has no anchor #${fragment}`],
       };
     });
   },
