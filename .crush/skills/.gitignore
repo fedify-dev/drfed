@@ -1,1 +1,15 @@
-pnpm-*
+# pnpm
+/chrome-extensions
+/fedify
+/formisch
+/graphql-schema-design
+/logtape
+/modern-web-guidance
+/optique
+/relay-best-practices
+/relay-performance
+/sacho
+/solid-relay
+/taste-skill
+/valibot
+# pnpm end
