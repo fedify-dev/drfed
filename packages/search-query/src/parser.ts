@@ -27,9 +27,11 @@ import {
   succeedWith,
   updateData,
   updateError,
+  updateResult,
 } from "arcsecond";
 
 import type {
+  CheckedExpression,
   Comparison,
   Expression,
   PropertyPath,
@@ -193,26 +195,30 @@ const completeQuery = sequenceOf([
   endOfInput,
 ]).map(([, result]) => result);
 
-function withinExpressionDepth(node: Expression, remaining: number): boolean {
+// Walk only to the depth limit, freezing the parser-owned nodes as we go.
+function freezeWithinDepth(node: Expression, remaining: number): boolean {
   if (remaining === 0) return false;
+  Object.freeze(node);
   // A flat chain also grows AST depth because binary operators associate left.
   // oxlint-disable-next-line default-case -- Keep the AST walk exhaustive.
   switch (node.kind) {
     case "comparison":
+      Object.freeze(node.path);
+      Object.freeze(node.value);
       return true;
     case "not":
-      return withinExpressionDepth(node.operand, remaining - 1);
+      return freezeWithinDepth(node.operand, remaining - 1);
     case "and":
     case "or":
       return (
-        withinExpressionDepth(node.left, remaining - 1) &&
-        withinExpressionDepth(node.right, remaining - 1)
+        freezeWithinDepth(node.left, remaining - 1) &&
+        freezeWithinDepth(node.right, remaining - 1)
       );
   }
 }
 
 /** Parses a complete query with bounded input, syntax nesting, and AST depth. */
-export const queryParser: Parser<Expression> = new Parser((state) => {
+export const queryParser: Parser<CheckedExpression> = new Parser((state) => {
   if (state.isError) return state;
   if (state.dataView.byteLength > maxQueryBytes) {
     return updateError(
@@ -225,15 +231,19 @@ export const queryParser: Parser<Expression> = new Parser((state) => {
   // Arcsecond alternatives can backtrack over a nesting error.
   if (nesting.exceeded) {
     return updateError(
-      result,
+      { ...state, index: result.index },
       `Search query nesting exceeds ${maxExpressionDepth}`,
     );
   }
-  if (result.isError) return result;
-  return withinExpressionDepth(result.result, maxExpressionDepth)
-    ? result
-    : updateError(
-        result,
-        `Search expression depth exceeds ${maxExpressionDepth}`,
-      );
+  if (result.isError) {
+    return updateError({ ...state, index: result.index }, result.error);
+  }
+  if (!freezeWithinDepth(result.result, maxExpressionDepth)) {
+    return updateError(
+      { ...state, index: result.index },
+      `Search expression depth exceeds ${maxExpressionDepth}`,
+    );
+  }
+  // Only the full parser brands the tree, after all bounds and rules pass.
+  return updateResult(result, result.result as CheckedExpression);
 });

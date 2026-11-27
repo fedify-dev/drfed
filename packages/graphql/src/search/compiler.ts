@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import type {
+  CheckedExpression,
   Comparison,
   Expression,
   IriLiteral,
@@ -175,10 +176,14 @@ function compileComparison(expression: Comparison, document: SQLWrapper): SQL {
  * @returns A SQL predicate independent of revision selection and authorization.
  */
 export function compileExpression(
-  expression: Expression,
+  expression: CheckedExpression,
   document: SQLWrapper,
 ): SQL {
-  const compile = (child: Expression) => compileExpression(child, document);
+  return compileNode(expression, document);
+}
+
+function compileNode(expression: Expression, document: SQLWrapper): SQL {
+  const compile = (child: Expression) => compileNode(child, document);
   // oxlint-disable-next-line default-case -- Keep expression handling exhaustive.
   switch (expression.kind) {
     case "comparison":

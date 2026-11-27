@@ -17,23 +17,41 @@
 /** Ordered full property IRIs; traversal does not follow IRI references. */
 export type PropertyPath = readonly [string, ...string[]];
 
-export type StringLiteral = { kind: "string"; value: string };
-export type IriLiteral = { kind: "iri"; value: string };
+export type StringLiteral = { readonly kind: "string"; readonly value: string };
+export type IriLiteral = { readonly kind: "iri"; readonly value: string };
 /** A validated document timestamp serialized in UTC, not the search cutoff. */
-export type TimeLiteral = { kind: "time"; value: string };
+export type TimeLiteral = { readonly kind: "time"; readonly value: string };
 export type Literal = StringLiteral | IriLiteral | TimeLiteral;
 
 export type Comparison = {
-  kind: "comparison";
-  path: PropertyPath;
+  readonly kind: "comparison";
+  readonly path: PropertyPath;
 } & (
-  | { operator: "eq"; value: Literal }
-  | { operator: "contains"; value: StringLiteral }
-  | { operator: "lt" | "le" | "gt" | "ge"; value: TimeLiteral }
+  | { readonly operator: "eq"; readonly value: Literal }
+  | { readonly operator: "contains"; readonly value: StringLiteral }
+  | {
+      readonly operator: "lt" | "le" | "gt" | "ge";
+      readonly value: TimeLiteral;
+    }
 );
 
 export type Expression =
   | Comparison
-  | { kind: "and"; left: Expression; right: Expression }
-  | { kind: "or"; left: Expression; right: Expression }
-  | { kind: "not"; operand: Expression };
+  | {
+      readonly kind: "and";
+      readonly left: Expression;
+      readonly right: Expression;
+    }
+  | {
+      readonly kind: "or";
+      readonly left: Expression;
+      readonly right: Expression;
+    }
+  | { readonly kind: "not"; readonly operand: Expression };
+
+declare const checkedExpression: unique symbol;
+
+/** An immutable AST from a successful full query parse, not a JSON wire type. */
+export type CheckedExpression = Expression & {
+  readonly [checkedExpression]: true;
+};

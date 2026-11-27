@@ -17,7 +17,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { comparison, propertyPath, queryParser } from "@drfed/search-query";
+import {
+  type CheckedExpression,
+  type Expression,
+  comparison,
+  propertyPath,
+  queryParser,
+} from "@drfed/search-query";
 import { endOfInput, takeLeft } from "arcsecond";
 
 describe("propertyPath", () => {
@@ -152,6 +158,33 @@ describe("queryParser", () => {
     value: { kind: "string", value },
   });
   const [ada, grace, lin] = ["Ada", "Grace", "Lin"].map(query);
+
+  it("returns an immutable checked tree", () => {
+    const result = queryParser.run(`${ada} AND NOT ${grace}`);
+    if (result.isError) assert.fail(result.error);
+    const checked: CheckedExpression = result.result;
+    const unchecked: Expression = {
+      kind: "comparison",
+      path: ["relative"],
+      operator: "eq",
+      value: { kind: "string", value: "Ada" },
+    };
+    // @ts-expect-error A hand-built expression has not passed the parser.
+    const unparsed: CheckedExpression = unchecked;
+    assert.notDeepEqual(checked, unparsed);
+    assert.ok(checked.kind === "and" && checked.left.kind === "comparison");
+    assert.ok(checked.right.kind === "not");
+    for (const part of [
+      checked,
+      checked.left,
+      checked.left.path,
+      checked.left.value,
+      checked.right,
+      checked.right.operand,
+    ]) {
+      assert.ok(Object.isFrozen(part));
+    }
+  });
 
   it("binds NOT tighter than AND and AND tighter than OR", () => {
     const result = queryParser.run(` ${ada} oR nOt ${grace} aNd ${lin} `);
