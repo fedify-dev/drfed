@@ -16,11 +16,13 @@
 import catalog from "./properties.yaml";
 
 /**
- * Text keyed by BCP 47 language tag.  English is always present.
+ * Text keyed by BCP 47 language tag.  English is always present; any other
+ * language may be missing, so its type includes `undefined` whatever the
+ * consumer's compiler options are.
  */
 export interface LocalizedText {
   readonly en: string;
-  readonly [language: string]: string;
+  readonly [language: string]: string | undefined;
 }
 
 /**
