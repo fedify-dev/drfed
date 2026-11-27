@@ -146,6 +146,19 @@ const associatedReceipts = alias(revisionReceipts, "associated_receipts");
 const associatedDeliveries = alias(activityDeliveries, "associated_deliveries");
 const requestedInstance = alias(instances, "requested_instance");
 
+const canReadInstance = (viewer: Viewer, instanceId: Uuid): SQL => sql`exists (
+  select 1 from ${instances} ${requestedInstance}
+  where ${requestedInstance.id} = ${instanceId}
+    and ${viewableInstance(viewer, requestedInstance.id)}
+)`;
+
+// PostgreSQL rounds timestamp inputs to microseconds. Round down so an
+// observation just after a sub-microsecond cutoff cannot qualify.
+const storedObservationCutoff = (cutoff: Temporal.Instant): string =>
+  cutoff
+    .round({ smallestUnit: "microsecond", roundingMode: "floor" })
+    .toString();
+
 // These conditions share the resource and revision aliases bound by callers.
 const typedOwner = sql`case ${associated.kind}
   when 'activity' then (
@@ -228,8 +241,8 @@ export function associatedResource(instanceId: Uuid, id: SQLWrapper): SQL {
  * readability, document predicates, or pagination; never fall back.
  * Includes readable deletion and unavailable markers so callers can
  * distinguish them from a snapshot.
- * @returns A condition on the outer revision row, also usable for an exact ID
- *          lookup scoped to the same instance and cutoff.
+ * @returns A condition for a scoped point lookup on the outer revision row.
+ *          For bulk selection, use {@link selectReadableAsOfObjects}.
  */
 export function readableAsOfObjectRevision(
   viewer: Viewer,
@@ -237,20 +250,9 @@ export function readableAsOfObjectRevision(
   cutoff: Temporal.Instant,
   revision: Pick<typeof resourceRevisions, "id" | "resourceId">,
 ): SQL {
-  // PostgreSQL rounds timestamp inputs to microseconds. Round down so an
-  // observation just after a sub-microsecond cutoff cannot qualify.
-  const storedCutoff = cutoff
-    .round({
-      smallestUnit: "microsecond",
-      roundingMode: "floor",
-    })
-    .toString();
+  const storedCutoff = storedObservationCutoff(cutoff);
   return sql`(
-    exists (
-      select 1 from ${instances} ${requestedInstance}
-      where ${requestedInstance.id} = ${instanceId}
-        and ${viewableInstance(viewer, requestedInstance.id)}
-    )
+    ${canReadInstance(viewer, instanceId)}
     and ${revision.id} = (
       select ${associatedRevisions.id}
       from ${resourceRevisions} ${associatedRevisions}
@@ -270,6 +272,95 @@ export function readableAsOfObjectRevision(
     )
     and ${readableRevision(viewer, revision.id)}
   )`;
+}
+
+/**
+ * Selects one evidenced state per object for bulk search in a local instance.
+ * The cutoff is inclusive: local revisions use storage time; inbound receipts
+ * use request arrival. The highest eligible sequence wins before readability
+ * is applied. A readable whiteout or unavailable marker remains the selected
+ * state, so document filters on the returned relation never cause fallback.
+ * @returns A relation of authorized revision IDs, resource IDs, and state kinds.
+ *          Callers can join expansions and apply document filters to it.
+ */
+export function selectReadableAsOfObjects(
+  viewer: Viewer,
+  instanceId: Uuid,
+  cutoff: Temporal.Instant,
+) {
+  const storedCutoff = storedObservationCutoff(cutoff);
+  const actorInInstance = sql`${associatedOwner.instanceId} = ${instanceId}
+    and ${associatedOwner.localId} is not null`;
+  const objectResource = sql`${associated.id} = ${associatedRevisions.resourceId}
+    and ${associated.kind} = 'object'`;
+  const candidate = sql`${associatedRevisions.id}, ${associatedRevisions.resourceId},
+    ${associatedRevisions.sequence}`;
+
+  // Start from instance evidence rather than probing the history of every
+  // revision in the store. The selection below also collapses repeat receipts.
+  const selected = sql`(
+    select distinct on (evidence.resource_id) evidence.id
+    from (
+      select ${candidate}
+      from ${actors} ${associatedOwner}
+      join ${objects} on ${objects.actorId} = ${associatedOwner.id}
+      join ${resourceRevisions} ${associatedRevisions}
+        on ${associatedRevisions.resourceId} = ${objects.id}
+      join ${resources} ${associated} on ${objectResource}
+      where ${actorInInstance}
+        and ${associatedRevisions.created} <= ${storedCutoff}::timestamptz
+
+      union all
+
+      select ${candidate}
+      from ${actors} ${associatedOwner}
+      join ${resources} ${associatedOwnerResource}
+        on ${associatedOwnerResource.id} = ${associatedOwner.id}
+      join ${revisionRelations} ${associatedRelations}
+        on ${associatedRelations.targetIri} = ${associatedOwnerResource.iri}
+      join ${resourceRevisions} ${associatedRevisions}
+        on ${associatedRevisions.id} = ${associatedRelations.revisionId}
+      join ${resources} ${associated} on ${objectResource}
+      where ${actorInInstance}
+        and ${associatedRelations.property} = 'attributedTo'
+        and ${associatedRelations.representation} = 'reference'
+        and ${associatedRevisions.capture} = 'local'
+        and ${associatedRevisions.created} <= ${storedCutoff}::timestamptz
+        and not exists (
+          select 1 from ${objects} where ${objects.id} = ${associated.id}
+        )
+
+      union all
+
+      select ${candidate}
+      from ${activityDeliveries} ${associatedDeliveries}
+      join ${revisionReceipts} ${associatedReceipts}
+        on ${associatedReceipts.deliveryId} = ${associatedDeliveries.id}
+      join ${resourceRevisions} ${associatedRevisions}
+        on ${associatedRevisions.id} = ${associatedReceipts.revisionId}
+      join ${resources} ${associated} on ${objectResource}
+      where ${associatedDeliveries.instanceId} = ${instanceId}
+        and ${associatedDeliveries.direction} = 'inbound'
+        and ${associatedDeliveries.created} <= ${storedCutoff}::timestamptz
+    ) evidence
+    order by evidence.resource_id, evidence.sequence desc
+  ) selected`;
+
+  return viewer.db
+    .select({
+      id: resourceRevisions.id,
+      resourceId: resourceRevisions.resourceId,
+      kind: resourceRevisions.kind,
+    })
+    .from(resourceRevisions)
+    .innerJoin(selected, sql`selected.id = ${resourceRevisions.id}`)
+    .where(
+      and(
+        canReadInstance(viewer, instanceId),
+        readableRevision(viewer, resourceRevisions.id),
+      ),
+    )
+    .as("readable_as_of_objects");
 }
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (

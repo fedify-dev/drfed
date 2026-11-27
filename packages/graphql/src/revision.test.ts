@@ -33,6 +33,7 @@ import {
 import {
   associatedResource,
   readableAsOfObjectRevision,
+  selectReadableAsOfObjects,
   unreadableRevisions,
 } from "@drfed/graphql/readable";
 import { type Database, schema } from "@drfed/models";
@@ -1192,14 +1193,14 @@ async function receipt(
     .values({ deliveryId, revisionId: revision, role });
 }
 
-function asOfObjects(
+async function asOfObjects(
   db: Database,
   account: Account,
   instanceId: Uuid,
   cutoff: Temporal.Instant,
   onlyRevision?: Uuid,
 ) {
-  return db
+  const point = await db
     .select({
       id: schema.resourceRevisions.id,
       kind: schema.resourceRevisions.kind,
@@ -1217,7 +1218,16 @@ function asOfObjects(
           ? undefined
           : eq(schema.resourceRevisions.id, onlyRevision),
       ),
-    );
+    )
+    .orderBy(schema.resourceRevisions.id);
+  const bulk = selectReadableAsOfObjects({ db, account }, instanceId, cutoff);
+  const rows = await db
+    .select({ id: bulk.id, kind: bulk.kind })
+    .from(bulk)
+    .where(onlyRevision == null ? undefined : eq(bulk.id, onlyRevision))
+    .orderBy(bulk.id);
+  assert.deepEqual(rows, point);
+  return rows;
 }
 
 describe("Readable object states at an instance cutoff", () => {
@@ -1295,12 +1305,20 @@ describe("Readable object states at an instance cutoff", () => {
 
       const later = arrival.add({ seconds: 2 });
       await receipt(db, second.revisionId, other, "object", later);
+      await receipt(db, second.revisionId, other, "object", later);
+      await receipt(
+        db,
+        first.revisionId,
+        other,
+        "object",
+        later.add({ seconds: 1 }),
+      );
       assert.deepEqual(await asOfObjects(db, member.account, other, later), [
         { id: second.revisionId, kind: "snapshot" },
       ]);
       assert.deepEqual(
-        await asOfObjects(db, member.account, other, later, first.revisionId),
-        [],
+        await asOfObjects(db, member.account, other, later.add({ seconds: 1 })),
+        [{ id: second.revisionId, kind: "snapshot" }],
       );
     });
   });
