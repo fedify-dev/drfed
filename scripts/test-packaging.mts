@@ -739,6 +739,12 @@ try {
 import assert from "node:assert/strict";
 import { verifyMigrationManifest } from ${JSON.stringify(pathToFileURL(join(modules, "@drfed/models/dist/migration-manifest.mjs")).href)};
 const revisions = await import(${JSON.stringify(pathToFileURL(require.resolve("@drfed/models/resource-revision")).href)});
+const { queryParser } = await import(${JSON.stringify(pathToFileURL(require.resolve("@drfed/search-query")).href)});
+const { compileExpression } = await import(${JSON.stringify(pathToFileURL(require.resolve("@drfed/models/search-query-compiler")).href)});
+const parsed = queryParser.run('.<https://www.w3.org/ns/activitystreams#name> = "Ada"');
+assert.equal(parsed.isError, false);
+assert.equal(parsed.result.kind, "comparison");
+assert.equal(typeof compileExpression, "function");
 for (const name of ["appendResourceRevision", "loadCurrentResourceRevision", "loadResourceRevision", "listResourceRevisions"]) {
   assert.equal(typeof revisions[name], "function", name);
 }

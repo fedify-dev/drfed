@@ -48,5 +48,8 @@
     "type": "git",
     "url": "https://github.com/fedify-dev/drfed.git",
     "directory": "packages/search-query"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

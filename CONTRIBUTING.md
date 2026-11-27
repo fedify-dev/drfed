@@ -236,7 +236,7 @@ Include any accompanying lockfile updates in the version-bump commit.
 Changelog and release notes
 ---------------------------
 
-All five packages share one changelog.  Run `mise run changelog:setup` once
+All workspace packages share one changelog.  Run `mise run changelog:setup` once
 after cloning to register the Git merge drivers declared in *.gitattributes*.
 Add a short user-facing entry with
 `mise run changelog:add --section DrFed <topic>` and edit the resulting
@@ -300,7 +300,7 @@ lockfile, and approval together.
 Automated npm and GitHub releases
 ---------------------------------
 
-Successful upstream pushes to `main` publish all five packages under the `dev`
+Successful upstream pushes to `main` publish the package set under the `dev`
 dist-tag; `latest` stays unchanged.  CI calculates one identifier such as
 `0.1.0-dev.123+abcdef01` from the shared base version, run number, and commit.
 npm removes build metadata, so manifests, internal dependencies, and installed
@@ -323,16 +323,16 @@ exact packed artifacts through
 loopback registry, including version, recovery, and GitHub Release fixtures.
 This command does not publish to npm or GitHub.
 
-Before enabling automation, an npm maintainer must manually bootstrap all five
-public package names with a verified complete package set, publishing models,
-federation, GraphQL, web, then the `drfed` facade.  Use public access, a
+Before enabling automation for a public package name, an npm maintainer must
+manually bootstrap it from a verified complete package set.  Follow the
+publication order in *scripts/packages.mts*.  Use public access, a
 `bootstrap` dist-tag, and a version lower than every planned release, such as
 `0.0.0-bootstrap.0`.  npm also assigns `latest` on the first publication, even
 when a custom tag is supplied.
 Do not reuse that bootstrap version as an automated release tag.  Build, check,
 test, and verify packed local/global installs first; keep the exact tarballs.
-For each of `@drfed/models`, `@drfed/federation`, `@drfed/graphql`,
-`@drfed/web`, and `@drfed/drfed`, configure an npm trusted publisher for GitHub
+For each public package in *scripts/packages.mts*, configure an npm trusted
+publisher for GitHub
 organization `fedify-dev`, repository `drfed`, and workflow filename
 *main.yaml*.  The npm publication job is defined in
 *.github/workflows/publish.yaml*, which is called as a reusable
@@ -340,7 +340,7 @@ workflow by *.github/workflows/main.yaml*.  npm validates the calling workflow
 for trusted publishing, so *main.yaml*, not *publish.yaml*, is intentionally
 configured as the workflow filename.  If *main.yaml* is renamed or another
 workflow becomes the caller, update the trusted publisher configuration for all
-five packages before the next publication.  Renaming *publish.yaml* alone
+packages before the next publication.  Renaming *publish.yaml* alone
 requires updating the reusable-workflow call, but does not change the npm
 trusted publisher identity.  Enable both *Allow npm publish* and *Allow npm
 dist-tag*. These are separate permissions; dist-tag access is off by default.

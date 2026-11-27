@@ -350,7 +350,7 @@ Testing npm installation
 ------------------------
 
 From the repository root, run `mise run test:packaging` to build and pack the
-five packages, then install their tarballs with npm in temporary local
+release package set, then install its tarballs with npm in temporary local
 and global prefixes outside the checkout.  The check uses a separate npm cache
 and empty npm configuration files, omits development dependencies, and disables
 installation scripts.  It needs network access to the public npm registry for
