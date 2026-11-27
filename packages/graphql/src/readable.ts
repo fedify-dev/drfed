@@ -31,6 +31,7 @@ import {
   resources,
   revisionAddressing,
   revisionReceipts,
+  revisionRelations,
 } from "@drfed/models/schema";
 import { type Uuid, validateUuid } from "@drfed/models/uuid";
 import {
@@ -135,6 +136,141 @@ const evidencedReceipts = alias(revisionReceipts, "evidenced_receipts");
 const receiptDeliveries = alias(activityDeliveries, "receipt_deliveries");
 const evidencedHeads = alias(resourceHeads, "evidenced_heads");
 const listedRevisions = alias(resourceRevisions, "listed_revisions");
+
+const associated = alias(resources, "associated_resource");
+const associatedOwner = alias(actors, "associated_owner");
+const associatedOwnerResource = alias(resources, "associated_owner_resource");
+const associatedRevisions = alias(resourceRevisions, "associated_revisions");
+const associatedRelations = alias(revisionRelations, "associated_relations");
+const associatedReceipts = alias(revisionReceipts, "associated_receipts");
+const associatedDeliveries = alias(activityDeliveries, "associated_deliveries");
+const requestedInstance = alias(instances, "requested_instance");
+
+// These conditions share the resource and revision aliases bound by callers.
+const typedOwner = sql`case ${associated.kind}
+  when 'activity' then (
+    select ${activities.actorId} from ${activities}
+    where ${activities.id} = ${associated.id}
+  )
+  when 'object' then (
+    select ${objects.actorId} from ${objects}
+    where ${objects.id} = ${associated.id}
+  )
+  when 'collection' then (
+    select ${collections.ownerActorId} from ${collections}
+    where ${collections.id} = ${associated.id}
+  )
+end`;
+
+const localTypedOwner = (instanceId: Uuid): SQL => sql`exists (
+  select 1 from ${actors} ${associatedOwner}
+  where ${associatedOwner.instanceId} = ${instanceId}
+    and ${associatedOwner.localId} is not null
+    and ${associatedOwner.id} = ${typedOwner}
+)`;
+
+const localRevisionOwner = (instanceId: Uuid): SQL => sql`(
+  ${associatedRevisions.capture} = 'local'
+  and ${typedOwner} is null
+  and exists (
+    select 1 from ${revisionRelations} ${associatedRelations}
+    join ${resources} ${associatedOwnerResource}
+      on ${associatedOwnerResource.iri} = ${associatedRelations.targetIri}
+    join ${actors} ${associatedOwner}
+      on ${associatedOwner.id} = ${associatedOwnerResource.id}
+    where ${associatedRelations.revisionId} = ${associatedRevisions.id}
+      and ${associatedRelations.representation} = 'reference'
+      and ${associatedRelations.property} = case ${associated.kind}
+        when 'activity' then 'actor'
+        when 'object' then 'attributedTo'
+      end
+      and ${associatedOwner.localId} is not null
+      and ${associatedOwner.instanceId} = ${instanceId}
+  )
+)`;
+
+const inboundReceipt = (instanceId: Uuid, cutoff?: string): SQL =>
+  sql`exists (
+    select 1 from ${revisionReceipts} ${associatedReceipts}
+    join ${activityDeliveries} ${associatedDeliveries}
+      on ${associatedDeliveries.id} = ${associatedReceipts.deliveryId}
+    where ${associatedReceipts.revisionId} = ${associatedRevisions.id}
+      and ${associatedDeliveries.direction} = 'inbound'
+      and ${associatedDeliveries.instanceId} = ${instanceId}
+      ${cutoff == null ? sql.empty() : sql`and ${associatedDeliveries.created} <= ${cutoff}::timestamptz`}
+  )`;
+
+/**
+ * Restricts canonical resources to those owned or preserved by the requested
+ * instance. Independent of viewer access and revision selection: callers
+ * must still authorize the resulting resource or revision.
+ * @returns The condition on a resource ID in the outer query.
+ */
+export function associatedResource(instanceId: Uuid, id: SQLWrapper): SQL {
+  return sql`exists (
+    select 1 from ${resources} ${associated}
+    where ${associated.id} = ${id}
+      and ${associated.kind} in ('activity', 'object', 'collection')
+      and (
+        ${localTypedOwner(instanceId)}
+        or exists (
+          select 1 from ${resourceRevisions} ${associatedRevisions}
+          where ${associatedRevisions.resourceId} = ${associated.id}
+            and (${localRevisionOwner(instanceId)} or ${inboundReceipt(instanceId)})
+        )
+      )
+  )`;
+}
+
+/**
+ * Matches only the readable state of an object evidenced in the requested
+ * local instance at the inclusive cutoff. Select by sequence before applying
+ * readability, document predicates, or pagination; never fall back.
+ * Includes readable deletion and unavailable markers so callers can
+ * distinguish them from a snapshot.
+ * @returns A condition on the outer revision row, also usable for an exact ID
+ *          lookup scoped to the same instance and cutoff.
+ */
+export function readableAsOfObjectRevision(
+  viewer: Viewer,
+  instanceId: Uuid,
+  cutoff: Temporal.Instant,
+  revision: Pick<typeof resourceRevisions, "id" | "resourceId">,
+): SQL {
+  // PostgreSQL rounds timestamp inputs to microseconds. Round down so an
+  // observation just after a sub-microsecond cutoff cannot qualify.
+  const storedCutoff = cutoff
+    .round({
+      smallestUnit: "microsecond",
+      roundingMode: "floor",
+    })
+    .toString();
+  return sql`(
+    exists (
+      select 1 from ${instances} ${requestedInstance}
+      where ${requestedInstance.id} = ${instanceId}
+        and ${viewableInstance(viewer, requestedInstance.id)}
+    )
+    and ${revision.id} = (
+      select ${associatedRevisions.id}
+      from ${resourceRevisions} ${associatedRevisions}
+      join ${resources} ${associated}
+        on ${associated.id} = ${associatedRevisions.resourceId}
+      where ${associatedRevisions.resourceId} = ${revision.resourceId}
+        and ${associated.kind} = 'object'
+        and (
+          (
+            ${associatedRevisions.created} <= ${storedCutoff}::timestamptz
+            and (${localTypedOwner(instanceId)} or ${localRevisionOwner(instanceId)})
+          )
+          or ${inboundReceipt(instanceId, storedCutoff)}
+        )
+      order by ${associatedRevisions.sequence} desc
+      limit 1
+    )
+    and ${readableRevision(viewer, revision.id)}
+  )`;
+}
 
 const remoteActivity = (id: SQLWrapper): SQL => sql`exists (
   select 1 from ${activities} ${remoteActivities}

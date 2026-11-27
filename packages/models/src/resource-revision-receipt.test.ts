@@ -134,6 +134,63 @@ async function receiptRoles(fixture: RevisionFixture, deliveryId: Uuid) {
 
 for (const backend of revisionBackends) {
   it(
+    `records a later instance's receipt of the same preserved revisions on ${backend}`,
+    { skip: backend === "postgres" && !revisionPostgresUrl },
+    async () => {
+      await withRevisionDatabase(backend, async (fixture) => {
+        const pair = await receivedPair(fixture, false);
+        assert.equal(
+          await linkInboundActivity(fixture.db, pair.delivery.id),
+          true,
+        );
+        const otherInstance = uuidV7();
+        await fixture.query("INSERT INTO instances (id,host) VALUES ($1,$2)", [
+          otherInstance,
+          `other-${otherInstance}.test`,
+        ]);
+        const arrival = pair.delivery.created.add({ minutes: 1 });
+        const duplicate = await recordInbound(fixture.db, {
+          instanceId: otherInstance,
+          status: "acknowledged",
+          verificationResult: "verified",
+          inboxUrl: "https://other.test/inbox",
+          activityIri: pair.activityIri,
+          payload: pair.activityDocument,
+          body: Buffer.from(JSON.stringify(pair.activityDocument)),
+          created: arrival,
+          completed: arrival.add({ seconds: 1 }),
+        });
+        assert.equal(await linkInboundActivity(fixture.db, duplicate.id), true);
+        const observedBy = async (instanceId: Uuid, cutoff: Temporal.Instant) =>
+          (
+            await fixture.query<{ revision_id: Uuid }>(
+              `SELECT DISTINCT r.revision_id FROM revision_receipts r
+             JOIN activity_deliveries d ON d.id = r.delivery_id
+             WHERE d.instance_id = $1 AND d.direction = 'inbound'
+               AND d.created <= $2::timestamptz`,
+              [instanceId, cutoff.toString()],
+            )
+          ).rows
+            .map((row) => row.revision_id)
+            .sort();
+        const revisions = [
+          pair.revisions.activity,
+          pair.revisions.object,
+        ].sort();
+        assert.deepEqual(
+          await observedBy(pair.receiverId, pair.delivery.created),
+          revisions,
+        );
+        assert.deepEqual(
+          await observedBy(otherInstance, pair.delivery.created),
+          [],
+        );
+        assert.deepEqual(await observedBy(otherInstance, arrival), revisions);
+      });
+    },
+  );
+
+  it(
     `recomputes receipt evidence without rewriting retained documents on ${backend}`,
     { skip: backend === "postgres" && !revisionPostgresUrl },
     async () => {

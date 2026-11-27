@@ -40,7 +40,7 @@ import {
 } from "@drfed/models/resource-revision";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
 import { describe, it } from "@logtape/testing-node/autoload";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { withFederation } from "./harness.test.ts";
 import {
@@ -1883,6 +1883,39 @@ describe("edits and deletions of current objects", () => {
       assert.equal(whiteout.kind, "whiteout");
       assert.equal(whiteout.id, result.whiteoutRevisionId);
       assert.deepEqual(whiteout.formerTypes, ["Note"]);
+      // A revision-only object retains its author relation on the whiteout.
+      assert.equal(
+        await harness.db.$count(
+          schema.objects,
+          eq(schema.objects.id, saved.id),
+        ),
+        0,
+      );
+      const owners = await harness.db
+        .select({
+          actorId: schema.actors.id,
+          property: schema.revisionRelations.property,
+          revisionId: schema.revisionRelations.revisionId,
+        })
+        .from(schema.revisionRelations)
+        .innerJoin(
+          schema.resources,
+          eq(schema.resources.iri, schema.revisionRelations.targetIri),
+        )
+        .innerJoin(schema.actors, eq(schema.actors.id, schema.resources.id))
+        .where(
+          inArray(schema.revisionRelations.revisionId, [head.id, whiteout.id]),
+        )
+        .orderBy(schema.revisionRelations.revisionId);
+      assert.deepEqual(
+        owners,
+        [head.id, whiteout.id].sort().map((revisionId) => ({
+          actorId: localActorId,
+          property: "attributedTo",
+          revisionId,
+        })),
+      );
+      assert.equal(whiteout.document, null);
       // The last content's recipients still describe the deleted object.
       assert.equal(
         await harness.db.$count(

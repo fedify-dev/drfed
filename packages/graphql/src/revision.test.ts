@@ -30,7 +30,11 @@ import {
   commitLocalWrite,
   previewLocalWrite,
 } from "@drfed/federation/local-write";
-import { unreadableRevisions } from "@drfed/graphql/readable";
+import {
+  associatedResource,
+  readableAsOfObjectRevision,
+  unreadableRevisions,
+} from "@drfed/graphql/readable";
 import { type Database, schema } from "@drfed/models";
 import { PUBLIC_IRI, ensureResource } from "@drfed/models/resource";
 import {
@@ -41,7 +45,7 @@ import {
 } from "@drfed/models/resource-revision";
 import type { Account } from "@drfed/models/schema";
 import { type Uuid, uuidV7 } from "@drfed/models/uuid";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { hashSecret } from "./auth/hash.ts";
 import { type TestHarness, withTestHarness } from "./harness.test.ts";
@@ -1169,6 +1173,7 @@ async function receipt(
   revision: Uuid,
   instanceId: Uuid = localInstanceId,
   role: "activity" | "object" = "object",
+  arrival = Temporal.Now.instant(),
 ): Promise<void> {
   const deliveryId = uuidV7();
   await db.insert(schema.activityDeliveries).values({
@@ -1179,12 +1184,318 @@ async function receipt(
     verificationResult: "verified",
     inboxUrl: `${ACTOR_IRI}/inbox`,
     body: Buffer.from(""),
-    completed: Temporal.Now.instant(),
+    created: arrival,
+    completed: arrival.add({ seconds: 1 }),
   });
   await db
     .insert(schema.revisionReceipts)
     .values({ deliveryId, revisionId: revision, role });
 }
+
+function asOfObjects(
+  db: Database,
+  account: Account,
+  instanceId: Uuid,
+  cutoff: Temporal.Instant,
+  onlyRevision?: Uuid,
+) {
+  return db
+    .select({
+      id: schema.resourceRevisions.id,
+      kind: schema.resourceRevisions.kind,
+    })
+    .from(schema.resourceRevisions)
+    .where(
+      and(
+        readableAsOfObjectRevision(
+          { db, account },
+          instanceId,
+          cutoff,
+          schema.resourceRevisions,
+        ),
+        onlyRevision == null
+          ? undefined
+          : eq(schema.resourceRevisions.id, onlyRevision),
+      ),
+    );
+}
+
+describe("Readable object states at an instance cutoff", () => {
+  it("does not substitute an older readable state for an unreadable selection", async () => {
+    await withWriter(async ({ harness: { db }, account }) => {
+      const admin = await seedViewer(db, { admin: true });
+      const iri = `${ACTOR_IRI}/objects/${uuidV7()}`;
+      const first = await receive(db, iri, [PUBLIC_IRI], "public");
+      const second = await receive(db, iri, [ACTOR_IRI], "private");
+      const cutoff = (await head(db, second.resourceId)).created;
+      await receive(db, iri, [PUBLIC_IRI], "later head");
+      // The typed owner associates the resource, but the legacy readability
+      // rule applies only to the current revision, not historical snapshots.
+      await db.insert(schema.objects).values({
+        id: second.resourceId,
+        actorId: localActorId,
+        type: "Note",
+        contentHtml: "later head",
+      });
+      assert.deepEqual(
+        await unreadableRevisions({ db, account }, [
+          first.revisionId,
+          second.revisionId,
+        ]),
+        new Set([second.revisionId]),
+      );
+      assert.deepEqual(
+        await asOfObjects(db, account, localInstanceId, cutoff),
+        [],
+      );
+      assert.deepEqual(
+        await asOfObjects(db, admin.account, localInstanceId, cutoff),
+        [{ id: second.revisionId, kind: "snapshot" }],
+      );
+    });
+  });
+
+  it("selects the exact received revision and checks instance access separately", async () => {
+    await withWriter(async ({ harness: { db }, account }) => {
+      const other = await seedWorkspace(db);
+      const member = await seedViewer(db, { memberOf: other });
+      const admin = await seedViewer(db, { admin: true });
+      const iri = `${CAROL}/notes/${uuidV7()}`;
+      const first = await receive(db, iri, [ACTOR_IRI], "first");
+      const second = await receive(db, iri, [ACTOR_IRI], "second");
+      const arrival = Temporal.Now.instant().round({
+        smallestUnit: "millisecond",
+      });
+      await receipt(db, first.revisionId, other, "object", arrival);
+      await receipt(db, second.revisionId, localInstanceId, "object", arrival);
+
+      assert.deepEqual(
+        await asOfObjects(
+          db,
+          member.account,
+          other,
+          arrival.subtract({ nanoseconds: 1 }),
+        ),
+        [],
+      );
+      assert.deepEqual(await asOfObjects(db, account, other, arrival), []);
+      for (const viewer of [member.account, admin.account]) {
+        assert.deepEqual(await asOfObjects(db, viewer, other, arrival), [
+          { id: first.revisionId, kind: "snapshot" },
+        ]);
+        assert.deepEqual(
+          await asOfObjects(db, viewer, other, arrival, second.revisionId),
+          [],
+        );
+      }
+      assert.deepEqual(
+        await asOfObjects(db, account, localInstanceId, arrival),
+        [{ id: second.revisionId, kind: "snapshot" }],
+      );
+
+      const later = arrival.add({ seconds: 2 });
+      await receipt(db, second.revisionId, other, "object", later);
+      assert.deepEqual(await asOfObjects(db, member.account, other, later), [
+        { id: second.revisionId, kind: "snapshot" },
+      ]);
+      assert.deepEqual(
+        await asOfObjects(db, member.account, other, later, first.revisionId),
+        [],
+      );
+    });
+  });
+
+  it("selects a local whiteout instead of falling back to its saved document", async () => {
+    await withWriter(async ({ harness: { db }, account, save, change }) => {
+      const [saved] = await save({ type: "Note", content: "before deletion" });
+      const snapshot = await head(db, saved!.id);
+      await change({
+        operation: "delete",
+        actorId: localActorId,
+        objectId: saved!.id,
+        expectedRevisionId: snapshot.id,
+      });
+      const whiteout = await head(db, saved!.id);
+      assert.deepEqual(
+        await asOfObjects(db, account, localInstanceId, snapshot.created),
+        [{ id: snapshot.id, kind: "snapshot" }],
+      );
+      assert.deepEqual(
+        await asOfObjects(db, account, localInstanceId, whiteout.created),
+        [{ id: whiteout.id, kind: "whiteout" }],
+      );
+      assert.deepEqual(
+        await asOfObjects(
+          db,
+          account,
+          localInstanceId,
+          whiteout.created,
+          snapshot.id,
+        ),
+        [],
+      );
+    });
+  });
+});
+
+async function associatedResources(
+  db: Database,
+  instanceId: Uuid,
+  kind: "activity" | "object" | "collection" = "object",
+) {
+  const rows = await db
+    .select({ id: schema.resources.id })
+    .from(schema.resources)
+    .where(
+      and(
+        eq(schema.resources.kind, kind),
+        associatedResource(instanceId, schema.resources.id),
+      ),
+    );
+  return rows.map(({ id }) => id).sort();
+}
+
+describe("Instance association for stored resources", () => {
+  it("includes a saved revision-only object in its owner's instance", async () => {
+    await withWriter(async ({ harness: { db }, save }) => {
+      const [saved] = await save({ type: "Note", content: "unsent" });
+      const other = await seedWorkspace(db);
+      assert.ok(saved != null);
+      assert.equal(
+        await db.$count(schema.objects, eq(schema.objects.id, saved.id)),
+        0,
+      );
+      assert.equal(await db.$count(schema.activityDeliveries), 0);
+      assert.deepEqual(await associatedResources(db, localInstanceId), [
+        saved.id,
+      ]);
+      assert.deepEqual(await associatedResources(db, other), []);
+    });
+  });
+
+  it("includes revision-only activities and owned collections in the owner's instance", async () => {
+    await withWriter(async ({ harness: { db }, save }) => {
+      const other = await seedWorkspace(db);
+      const [saved] = await save(
+        { type: "Like", object: "https://remote.example/notes/example" },
+        ACTIVITY,
+      );
+      assert.ok(saved != null);
+      assert.deepEqual(
+        await associatedResources(db, localInstanceId, "activity"),
+        [saved.id],
+      );
+      assert.deepEqual(await associatedResources(db, other, "activity"), []);
+      const featured = await db.query.resources.findFirst({
+        where: { iri: FEATURED_IRI },
+      });
+      assert.ok(featured != null);
+      const collections = await associatedResources(
+        db,
+        localInstanceId,
+        "collection",
+      );
+      assert.ok(collections.includes(featured.id));
+      assert.deepEqual(await associatedResources(db, other, "collection"), []);
+    });
+  });
+
+  it("includes an object once even when several receipts carried it", async () => {
+    await withWriter(async ({ harness: { db } }) => {
+      const remote = await receive(
+        db,
+        `${CAROL}/notes/${uuidV7()}`,
+        [ACTOR_IRI],
+        "received twice",
+      );
+      await receipt(db, remote.revisionId);
+      await receipt(db, remote.revisionId);
+      assert.deepEqual(await associatedResources(db, localInstanceId), [
+        remote.resourceId,
+      ]);
+    });
+  });
+
+  it("uses typed ownership for legacy objects and their activities", async () => {
+    await withWriter(async ({ harness: { db } }) => {
+      await seedRemoteActor(db);
+      const localId = uuidV7();
+      const localActivityId = uuidV7();
+      const remoteId = uuidV7();
+      await seedObjects(db, [
+        {
+          id: localId,
+          actorId: localActorId,
+          activityId: localActivityId,
+          type: "Note",
+          iri: `https://test-instance.drfed.org/notes/${localId}`,
+          contentHtml: "local",
+        },
+        {
+          id: remoteId,
+          actorId: remoteActorId,
+          type: "Note",
+          iri: `https://remote.example.com/notes/${remoteId}`,
+          contentHtml: "remote",
+        },
+      ]);
+      assert.deepEqual(await associatedResources(db, localInstanceId), [
+        localId,
+      ]);
+      assert.deepEqual(
+        await associatedResources(db, localInstanceId, "activity"),
+        [localActivityId],
+      );
+    });
+  });
+
+  it("excludes a cached public object without receipt or ownership evidence", async () => {
+    await withWriter(async ({ harness: { db }, save }) => {
+      const [saved] = await save({ type: "Note", content: "locally owned" });
+      const cached = await receive(
+        db,
+        `${CAROL}/notes/${uuidV7()}`,
+        [PUBLIC_IRI],
+        "public but not received here",
+      );
+      assert.ok(saved != null);
+      assert.deepEqual(
+        await unreadableRevisions({ db }, [cached.revisionId]),
+        new Set(),
+      );
+      assert.deepEqual(await associatedResources(db, localInstanceId), [
+        saved.id,
+      ]);
+    });
+  });
+
+  it("excludes a private object from B even for a viewer who can read it through A", async () => {
+    await withWriter(async ({ harness: { db }, account }) => {
+      const other = await seedWorkspace(db);
+      await db.insert(schema.instanceMembers).values({
+        accountId: account.id,
+        instanceId: other,
+        accepted: created,
+        created,
+      });
+      const remote = await receive(
+        db,
+        `${CAROL}/notes/${uuidV7()}`,
+        [ACTOR_IRI],
+        "received only in A",
+      );
+      await receipt(db, remote.revisionId);
+      assert.deepEqual(
+        await unreadableRevisions({ db, account }, [remote.revisionId]),
+        new Set(),
+      );
+      assert.deepEqual(await associatedResources(db, localInstanceId), [
+        remote.resourceId,
+      ]);
+      assert.deepEqual(await associatedResources(db, other), []);
+    });
+  });
+});
 
 /**
  * Saves a local activity that embeds a document as its `object`, with the
