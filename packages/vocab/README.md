@@ -70,10 +70,15 @@ Namespace checks
 entries publish and compares the entries with it, and
 `mise run update:known-properties` writes the values they give into
 *src/properties.yaml*, rewriting only the lines of the fields it changes.  Both
-need network access.  The update lists what no value can fix, such as an IRI
-that its namespace does not define, and leaves a field alone when two
-namespaces give different values for it.  Each namespace is listed in
-*tools/namespaces.mts* with the kind that reads what it publishes:
+need network access, and retry a request three times when it fails for a
+network problem: its connection fails or breaks, it times out, or it is
+answered 408, 429, 500, 502, 503, or 504.  A namespace whose documents still
+cannot be fetched is skipped; the check warns with their URLs and passes, and
+the update lists them as left for a person to resolve.  Any other failure, such
+as a URL that is not HTTP or HTTPS, fails the namespace.  The update lists what
+no value can fix, such as an IRI that its namespace does not define, and leaves
+a field alone when two namespaces give different values for it.  Each namespace
+is listed in *tools/namespaces.mts* with the kind that reads what it publishes:
 
  -  Activity Streams: every entry whose `source` is the Activity Vocabulary or
     ActivityPub, including `ldp:inbox`, is read from
@@ -102,3 +107,20 @@ To check another namespace, add it to that list.  The check prints the
 namespaces of the entries that no listed namespace covers, and a comment in
 the same file records why each of them cannot be checked: some IRIs are
 identifiers that were never meant to resolve, and others answer 404.
+
+The check fails when a namespace changes what it publishes, such as the text
+of a definition or the anchor of a term, even on a pull request that does not
+touch the catalog.  This is deliberate: the catalog follows its namespaces, and
+a difference means the catalog no longer does.  Resolve such a failure before
+other work, with `mise run update:known-properties` or by changing the entry or
+the namespace list, and commit the result as a change of its own.
+
+Besides the two commands, that list, and the catalog paths they share,
+*tools/* holds what the commands run, tested next to it: the parsers of what
+namespaces publish, the kinds of namespace above, `collectReports()`, which
+fetches with the retries above and takes a `fetch` and a `sleep` to use instead
+of the global ones, `summarizeReports()`, which decides what the check prints
+and whether it passes, `planUpdate()`, and `updateCatalog()`, which rewrites
+the catalog's text.  None of these modules reads or writes a file or loads a
+remote JSON-LD context.  *tools/* is not published, so the parsers it uses
+stay development dependencies.

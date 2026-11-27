@@ -20,49 +20,49 @@
  * *namespaces.mts* publish, and lists the namespaces of the entries none of
  * them covers.  It changes nothing; *update.mts* writes the differences.
  */
-import { readFile } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
 import process from "node:process";
 
-import { CATALOG_URL, parseCatalog } from "./catalog.mts";
-import { type CatalogEntry, messagesOf } from "./namespace.mts";
-import {
-  type Report,
-  collectReports,
-  entries,
-  uncoveredNamespaces,
-} from "./run.mts";
+import { parseCatalog } from "./catalog.mts";
+import { NAMESPACES } from "./namespaces.mts";
+import { collectReports, uncoveredNamespaces } from "./reports.mts";
+import { readCatalog } from "./shared.mts";
+import { type SummaryLine, summarizeReports } from "./summary.mts";
 
-const printReport =
-  (catalog: ReadonlyMap<string, CatalogEntry>) =>
-  (report: Report): boolean => {
-    if (report.findings instanceof Error) {
-      console.error(`${report.name}: ${report.findings.message}`);
-      return false;
-    }
-    const differing = [...report.findings].flatMap(([iri, finding]) => {
-      const messages = messagesOf(catalog.get(iri)!, finding);
-      return messages.length === 0 ? [] : [[iri, messages] as const];
-    });
-    const checked = report.findings.size;
-    if (differing.length === 0) {
-      console.log(
-        `${report.name}: ${entries(checked)} ${checked === 1 ? "matches" : "match"}.`,
-      );
-      return true;
-    }
-    console.error(
-      `${report.name}: ${differing.length} of ${entries(checked)} ${differing.length === 1 ? "differs" : "differ"}.`,
-    );
-    for (const [iri, messages] of differing) {
-      for (const message of messages) console.error(`  ${iri}: ${message}`);
-    }
-    return false;
-  };
+const print = ({ severity, text }: SummaryLine): void => {
+  if (severity === "info") console.log(text);
+  else if (severity === "error") console.error(text);
+  else console.warn(text);
+};
+
+// GitHub Actions shows the job summary on the run's page, where a skipped
+// namespace is not lost in the log of a passing job.  A warning command
+// would not do: `mise run check` prefixes the lines of each task it runs,
+// and the runner reads a command only at the start of a line.
+const summarizeWarnings = async (
+  lines: readonly SummaryLine[],
+): Promise<void> => {
+  const path = process.env["GITHUB_STEP_SUMMARY"];
+  const warnings = lines.filter(({ severity }) => severity === "warning");
+  if (path === undefined || path === "" || warnings.length === 0) return;
+  const items = warnings.map(({ text, detail }) =>
+    detail ? `   -  ${text.trim()}` : ` -  ${text}`,
+  );
+  await appendFile(
+    path,
+    `### Known property catalog\n\n${items.join("\n")}\n\n`,
+  );
+};
 
 const main = async (): Promise<number> => {
-  const catalog = parseCatalog(await readFile(CATALOG_URL, "utf8"));
-  const passed = (await collectReports(catalog)).map(printReport(catalog));
-  const uncovered = uncoveredNamespaces(catalog);
+  const catalog = parseCatalog(await readCatalog());
+  const summary = summarizeReports(
+    catalog,
+    await collectReports(catalog, NAMESPACES),
+  );
+  for (const line of summary.lines) print(line);
+  await summarizeWarnings(summary.lines);
+  const uncovered = uncoveredNamespaces(catalog, NAMESPACES);
   if (uncovered.size > 0) {
     console.log(
       "\nNot checked, since no namespace in namespaces.mts covers them:",
@@ -71,7 +71,7 @@ const main = async (): Promise<number> => {
       console.log(`  ${namespace} (${count})`);
     }
   }
-  if (passed.every(Boolean)) return 0;
+  if (summary.passed) return 0;
   console.error(
     "\nRun `mise run update:known-properties` to write the values the namespaces give.",
   );

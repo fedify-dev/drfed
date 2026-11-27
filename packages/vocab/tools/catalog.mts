@@ -31,9 +31,6 @@ import {
 
 import type { CatalogEntry, Expectation } from "./namespace.mts";
 
-export const CATALOG_URL = new URL("../src/properties.yaml", import.meta.url);
-export const CATALOG_NAME = "packages/vocab/src/properties.yaml";
-
 /** The order of an entry's fields, which new fields are inserted in. */
 const FIELD_ORDER = [
   "label",
@@ -65,7 +62,7 @@ export const parseCatalog = (
 ): ReadonlyMap<string, CatalogEntry> => {
   const data: unknown = parse(text, { uniqueKeys: true });
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new TypeError(`${CATALOG_NAME} is not a mapping.`);
+    throw new TypeError("The catalog is not a mapping.");
   }
   return new Map(Object.entries(data as Record<string, CatalogEntry>));
 };
@@ -196,10 +193,10 @@ export const updateCatalog = (
   updates: ReadonlyMap<string, Expectation>,
 ): string => {
   const root = parseDocument(text, { uniqueKeys: true }).contents;
-  if (!isMap(root)) throw new TypeError(`${CATALOG_NAME} is not a mapping.`);
+  if (!isMap(root)) throw new TypeError("The catalog is not a mapping.");
   const edits = [...updates].flatMap(([iri, fields]) => {
     const entry = pairOf(root, iri)?.value;
-    if (!isMap(entry)) throw new Error(`${CATALOG_NAME} has no entry ${iri}.`);
+    if (!isMap(entry)) throw new Error(`The catalog has no entry ${iri}.`);
     return entryEdits(text, entry, fields);
   });
   return edits

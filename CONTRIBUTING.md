@@ -148,8 +148,15 @@ mise run dev
  -  Known property catalog entries against what their namespaces publish,
     such as <https://www.w3.org/ns/activitystreams>, with
     `node packages/vocab/tools/check.mts`, which needs network access.
-    The namespaces are listed in *packages/vocab/tools/namespaces.mts*,
-    and `mise run update:known-properties` writes the values they give.
+    A namespace whose documents a network problem keeps from being fetched
+    through three retries is skipped with a warning that lists their URLs,
+    and does not fail the check.  The namespaces are listed in
+    *packages/vocab/tools/namespaces.mts*, and
+    `mise run update:known-properties` writes the values they give.
+    A namespace that changes what it publishes fails the check on every
+    pull request, by design: resolve that failure first, as
+    *packages/vocab/README.md* describes, rather than moving the check out
+    of `mise run check`.
  -  *docker/Containerfile* linting with hadolint and shell script linting of
     *docker/* with ShellCheck.
  -  GitHub workflow and local composite action validation with jactionlint.

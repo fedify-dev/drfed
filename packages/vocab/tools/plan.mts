@@ -18,14 +18,14 @@
  * Plans an update of the known property catalog from the namespaces'
  * findings: which field values to write, and what is left for a person.
  */
-import { CATALOG_NAME, parseCatalog, updateCatalog } from "./catalog.mts";
+import { parseCatalog, updateCatalog } from "./catalog.mts";
 import {
   type CatalogEntry,
   type Expectation,
   differencesOf,
   quote,
 } from "./namespace.mts";
-import type { Report } from "./run.mts";
+import type { Report } from "./reports.mts";
 
 /** The value one namespace gives for one field of one entry. */
 export interface Proposal {
@@ -113,7 +113,7 @@ export const planUpdate = (text: string, reports: readonly Report[]): Plan => {
   );
   if (unapplied.length > 0) {
     throw new Error(
-      `The update did not produce the values for ${unapplied.map(([iri]) => iri).join(", ")} in ${CATALOG_NAME}.`,
+      `The update did not produce the values for ${unapplied.map(([iri]) => iri).join(", ")} in the catalog.`,
     );
   }
   return {

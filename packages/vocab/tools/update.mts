@@ -20,17 +20,22 @@
  * namespaces in *namespaces.mts* give, and lists what no field value can
  * fix, such as an IRI that its namespace does not define.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import process from "node:process";
 
-import { CATALOG_NAME, CATALOG_URL, parseCatalog } from "./catalog.mts";
+import { parseCatalog } from "./catalog.mts";
 import { quote } from "./namespace.mts";
+import { NAMESPACES } from "./namespaces.mts";
 import { planUpdate } from "./plan.mts";
-import { collectReports, entries } from "./run.mts";
+import { collectReports } from "./reports.mts";
+import { CATALOG_NAME, CATALOG_URL, entries, readCatalog } from "./shared.mts";
 
 const main = async (): Promise<number> => {
-  const text = await readFile(CATALOG_URL, "utf8");
-  const plan = planUpdate(text, await collectReports(parseCatalog(text)));
+  const text = await readCatalog();
+  const plan = planUpdate(
+    text,
+    await collectReports(parseCatalog(text), NAMESPACES),
+  );
   if (plan.text !== text) await writeFile(CATALOG_URL, plan.text);
   const updated = new Set(plan.accepted.map(({ iri }) => iri)).size;
   console.log(
