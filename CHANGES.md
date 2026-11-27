@@ -182,6 +182,13 @@ To be released.
     extension values, with the standard properties their keys stand for,
     their types and their IRI references.
     [[#153], [#177] by ChanHaeng Lee\]
+ -  Added the `@drfed/vocab` package, whose `knownProperties` catalog
+    gives a label, a description, and a link to the definition of each
+    ActivityStreams and ActivityPub property the document checker supports and
+    of the extension properties major fediverse implementations send, keyed by
+    absolute property IRI.  Entries also give the declared range and whether
+    multiple values are allowed when the vocabulary defines them, and looking
+    up an unlisted IRI returns `undefined`.  [[#186] by ChanHaeng Lee\]
  -  Added `validateDocument()` in `@drfed/models/document` for parsed
     ActivityStreams documents. It returns structured errors and compatibility
     warnings with original nested field and list-entry paths, preserves custom
@@ -220,6 +227,7 @@ To be released.
 [#152]: https://github.com/fedify-dev/drfed/issues/152
 [#166]: https://github.com/fedify-dev/drfed/pull/166
 [#173]: https://github.com/fedify-dev/drfed/pull/173
+[#186]: https://github.com/fedify-dev/drfed/issues/186
 
 
 Version 0.1.0

@@ -1,0 +1,1704 @@
+# Property metadata for the structured editors, keyed by absolute property IRI.
+# The build validates this file against properties.schema.yaml; see the
+# "Known properties" section of README.md for the rules entries follow.
+
+# Standard: Object and Link
+
+"https://www.w3.org/ns/activitystreams#mediaType":
+  label:
+    en: Media type
+  description:
+    en: >-
+      When used on a Link, identifies the MIME media type of the referenced
+      resource. When used on an Object, identifies the MIME media type of the
+      value of the content property. If not specified, the content property is
+      assumed to contain text/html content.
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-mediatype"
+
+"https://www.w3.org/ns/activitystreams#preview":
+  label:
+    en: Preview
+  description:
+    en: >-
+      Identifies an entity that provides a preview of this object.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Link"
+    - "https://www.w3.org/ns/activitystreams#Object"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-preview"
+
+"https://www.w3.org/ns/activitystreams#name":
+  label:
+    en: Name
+  description:
+    en: >-
+      A simple, human-readable, plain-text name for the object. HTML markup MUST
+      NOT be included. The name MAY be expressed using multiple language-tagged
+      values.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#string"
+    - "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-name"
+
+# Standard: Object
+
+"https://www.w3.org/ns/activitystreams#summary":
+  label:
+    en: Summary
+  description:
+    en: >-
+      A natural language summarization of the object encoded as HTML. Multiple
+      language tagged summaries MAY be provided.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#string"
+    - "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-summary"
+
+"https://www.w3.org/ns/activitystreams#content":
+  label:
+    en: Content
+  description:
+    en: >-
+      The content or textual representation of the Object encoded as a JSON
+      string. By default, the value of content is HTML. The mediaType property
+      can be used in the object to indicate a different content type. The
+      content MAY be expressed using multiple language-tagged values.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#string"
+    - "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-content"
+
+"https://www.w3.org/ns/activitystreams#location":
+  label:
+    en: Location
+  description:
+    en: >-
+      Indicates one or more physical or logical locations associated with the
+      object.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-location"
+
+"https://www.w3.org/ns/activitystreams#attributedTo":
+  label:
+    en: Attributed to
+  description:
+    en: >-
+      Identifies one or more entities to which this object is attributed. The
+      attributed entities might not be Actors. For instance, an object might be
+      attributed to the completion of another activity.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Link"
+    - "https://www.w3.org/ns/activitystreams#Object"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-attributedto"
+
+"https://www.w3.org/ns/activitystreams#published":
+  label:
+    en: Published
+  description:
+    en: >-
+      The date and time at which the object was published
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-published"
+
+"https://www.w3.org/ns/activitystreams#updated":
+  label:
+    en: Updated
+  description:
+    en: >-
+      The date and time at which the object was updated
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-updated"
+
+"https://www.w3.org/ns/activitystreams#startTime":
+  label:
+    en: Start time
+  description:
+    en: >-
+      The date and time describing the actual or expected starting time of the
+      object. When used with an Activity object, for instance, the startTime
+      property specifies the moment the activity began or is scheduled to begin.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-starttime"
+
+"https://www.w3.org/ns/activitystreams#endTime":
+  label:
+    en: End time
+  description:
+    en: >-
+      The date and time describing the actual or expected ending time of the
+      object. When used with an Activity object, for instance, the endTime
+      property specifies the moment the activity concluded or is expected to
+      conclude.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-endtime"
+
+"https://www.w3.org/ns/activitystreams#to":
+  label:
+    en: To
+  description:
+    en: >-
+      Identifies an entity considered to be part of the public primary audience
+      of an Object
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-to"
+
+"https://www.w3.org/ns/activitystreams#cc":
+  label:
+    en: Cc
+  description:
+    en: >-
+      Identifies an Object that is part of the public secondary audience of this
+      Object.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-cc"
+
+"https://www.w3.org/ns/activitystreams#bto":
+  label:
+    en: Bto
+  description:
+    en: >-
+      Identifies an Object that is part of the private primary audience of this
+      Object.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-bto"
+
+"https://www.w3.org/ns/activitystreams#bcc":
+  label:
+    en: Bcc
+  description:
+    en: >-
+      Identifies one or more Objects that are part of the private secondary
+      audience of this Object.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-bcc"
+
+"https://www.w3.org/ns/activitystreams#audience":
+  label:
+    en: Audience
+  description:
+    en: >-
+      Identifies one or more entities that represent the total population of
+      entities for which the object can considered to be relevant.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-audience"
+
+# Standard: Activity
+
+"https://www.w3.org/ns/activitystreams#actor":
+  label:
+    en: Actor
+  description:
+    en: >-
+      Describes one or more entities that either performed or are expected to
+      perform the activity. Any single activity can have multiple actors. The
+      actor MAY be specified using an indirect Link.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-actor"
+
+"https://www.w3.org/ns/activitystreams#object":
+  label:
+    en: Object
+  description:
+    en: >-
+      When used within an Activity, describes the direct object of the activity.
+      For instance, in the activity "John added a movie to his wishlist", the
+      object of the activity is the movie added. When used within a Relationship
+      describes the entity to which the subject is related.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-object-term"
+
+"https://www.w3.org/ns/activitystreams#target":
+  label:
+    en: Target
+  description:
+    en: >-
+      Describes the indirect object, or target, of the activity. The precise
+      meaning of the target is largely dependent on the type of action being
+      described but will often be the object of the English preposition "to".
+      For instance, in the activity "John added a movie to his wishlist", the
+      target of the activity is John's wishlist. An activity can have more than
+      one target.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-target"
+
+"https://www.w3.org/ns/activitystreams#origin":
+  label:
+    en: Origin
+  description:
+    en: >-
+      Describes an indirect object of the activity from which the activity is
+      directed. The precise meaning of the origin is the object of the English
+      preposition "from". For instance, in the activity "John moved an item to
+      List B from List A", the origin of the activity is "List A".
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-origin"
+
+"https://www.w3.org/ns/activitystreams#result":
+  label:
+    en: Result
+  description:
+    en: >-
+      Describes the result of the activity. For instance, if a particular action
+      results in the creation of a new resource, the result property can be used
+      to describe that new resource.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-result"
+
+"https://www.w3.org/ns/activitystreams#instrument":
+  label:
+    en: Instrument
+  description:
+    en: >-
+      Identifies one or more objects used (or to be used) in the completion of
+      an Activity.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-instrument"
+
+# Standard: Actors (ActivityPub)
+
+"https://www.w3.org/ns/activitystreams#preferredUsername":
+  label:
+    en: Preferred username
+  description:
+    en: >-
+      A short username which may be used to refer to the actor, with no
+      uniqueness guarantees.
+  source: "https://www.w3.org/TR/activitypub/#preferredUsername"
+
+"http://www.w3.org/ns/ldp#inbox":
+  label:
+    en: Inbox
+  description:
+    en: >-
+      A reference to an [ActivityStreams] OrderedCollection comprised of all the
+      messages received by the actor; see 5.2 Inbox.
+  range:
+    - "https://www.w3.org/ns/activitystreams#OrderedCollection"
+  source: "https://www.w3.org/TR/activitypub/#inbox-property"
+
+"https://www.w3.org/ns/activitystreams#outbox":
+  label:
+    en: Outbox
+  description:
+    en: >-
+      An [ActivityStreams] OrderedCollection comprised of all the messages
+      produced by the actor; see 5.1 Outbox.
+  range:
+    - "https://www.w3.org/ns/activitystreams#OrderedCollection"
+  source: "https://www.w3.org/TR/activitypub/#outbox-property"
+
+"https://www.w3.org/ns/activitystreams#following":
+  label:
+    en: Following
+  description:
+    en: >-
+      A link to an [ActivityStreams] collection of the actors that this actor is
+      following; see 5.4 Following Collection
+  range:
+    - "https://www.w3.org/ns/activitystreams#Collection"
+    - "https://www.w3.org/ns/activitystreams#OrderedCollection"
+  source: "https://www.w3.org/TR/activitypub/#following-property"
+
+"https://www.w3.org/ns/activitystreams#followers":
+  label:
+    en: Followers
+  description:
+    en: >-
+      A link to an [ActivityStreams] collection of the actors that follow this
+      actor; see 5.3 Followers Collection.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Collection"
+    - "https://www.w3.org/ns/activitystreams#OrderedCollection"
+  source: "https://www.w3.org/TR/activitypub/#followers-property"
+
+"https://www.w3.org/ns/activitystreams#liked":
+  label:
+    en: Liked
+  description:
+    en: >-
+      A link to an [ActivityStreams] collection of objects this actor has liked;
+      see 5.5 Liked Collection.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Collection"
+    - "https://www.w3.org/ns/activitystreams#OrderedCollection"
+  source: "https://www.w3.org/TR/activitypub/#liked-property"
+
+# Standard: Collection
+
+"https://www.w3.org/ns/activitystreams#items":
+  label:
+    en: Items
+  description:
+    en: >-
+      Identifies the items contained in a collection. The items might be ordered
+      or unordered.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-items"
+
+"https://www.w3.org/ns/activitystreams#totalItems":
+  label:
+    en: Total items
+  description:
+    en: >-
+      A non-negative integer specifying the total number of objects contained by
+      the logical view of the collection. This number might not reflect the
+      actual number of items serialized within the Collection object instance.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-totalitems"
+
+"https://www.w3.org/ns/activitystreams#current":
+  label:
+    en: Current
+  description:
+    en: >-
+      In a paged Collection, indicates the page that contains the most recently
+      updated member items.
+  range:
+    - "https://www.w3.org/ns/activitystreams#CollectionPage"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-current"
+
+"https://www.w3.org/ns/activitystreams#first":
+  label:
+    en: First
+  description:
+    en: >-
+      In a paged Collection, indicates the furthest preceeding page of items in
+      the collection.
+  range:
+    - "https://www.w3.org/ns/activitystreams#CollectionPage"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-first"
+
+"https://www.w3.org/ns/activitystreams#last":
+  label:
+    en: Last
+  description:
+    en: >-
+      In a paged Collection, indicates the furthest proceeding page of the
+      collection.
+  range:
+    - "https://www.w3.org/ns/activitystreams#CollectionPage"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-last"
+
+# Standard: CollectionPage
+
+"https://www.w3.org/ns/activitystreams#partOf":
+  label:
+    en: Part of
+  description:
+    en: >-
+      Identifies the Collection to which a CollectionPage objects items belong.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Link"
+    - "https://www.w3.org/ns/activitystreams#Collection"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-partof"
+
+"https://www.w3.org/ns/activitystreams#next":
+  label:
+    en: Next
+  description:
+    en: >-
+      In a paged Collection, indicates the next page of items.
+  range:
+    - "https://www.w3.org/ns/activitystreams#CollectionPage"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-next"
+
+"https://www.w3.org/ns/activitystreams#prev":
+  label:
+    en: Prev
+  description:
+    en: >-
+      In a paged Collection, identifies the previous page of items.
+  range:
+    - "https://www.w3.org/ns/activitystreams#CollectionPage"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-prev"
+
+# Standard: OrderedCollectionPage
+
+"https://www.w3.org/ns/activitystreams#startIndex":
+  label:
+    en: Start index
+  description:
+    en: >-
+      A non-negative integer value identifying the relative position within the
+      logical view of a strictly ordered collection.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-startindex"
+
+# Standard: Link and Mention
+
+"https://www.w3.org/ns/activitystreams#href":
+  label:
+    en: Href
+  description:
+    en: >-
+      The target resource pointed to by a Link.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#anyURI"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-href"
+
+"https://www.w3.org/ns/activitystreams#hreflang":
+  label:
+    en: Hreflang
+  description:
+    en: >-
+      Hints as to the language used by the target resource. Value MUST be a
+      [BCP47] Language-Tag.
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-hreflang"
+
+"https://www.w3.org/ns/activitystreams#rel":
+  label:
+    en: Rel
+  description:
+    en: >-
+      A link relation associated with a Link. The value MUST conform to both the
+      [HTML5] and [RFC5988] "link relation" definitions. In the [HTML5], any
+      string not containing the "space" U+0020, "tab" (U+0009), "LF" (U+000A),
+      "FF" (U+000C), "CR" (U+000D) or "," (U+002C) characters can be used as a
+      valid link relation.
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-rel"
+
+"https://www.w3.org/ns/activitystreams#height":
+  label:
+    en: Height
+  description:
+    en: >-
+      On a Link, specifies a hint as to the rendering height in
+      device-independent pixels of the linked resource.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-height"
+
+"https://www.w3.org/ns/activitystreams#width":
+  label:
+    en: Width
+  description:
+    en: >-
+      On a Link, specifies a hint as to the rendering width in
+      device-independent pixels of the linked resource.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+  multiple: false
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-width"
+
+# Standard: Question
+
+"https://www.w3.org/ns/activitystreams#oneOf":
+  label:
+    en: One of
+  description:
+    en: >-
+      Identifies an exclusive option for a Question. Use of oneOf implies that
+      the Question can have only a single answer. To indicate that a Question
+      can have multiple answers, use anyOf.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-oneof"
+
+"https://www.w3.org/ns/activitystreams#anyOf":
+  label:
+    en: Any of
+  description:
+    en: >-
+      Identifies an inclusive option for a Question. Use of anyOf implies that
+      the Question can have multiple answers. To indicate that a Question can
+      have only one answer, use oneOf.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-anyof"
+
+"https://www.w3.org/ns/activitystreams#closed":
+  label:
+    en: Closed
+  description:
+    en: >-
+      Indicates that a question has been closed, and answers are no longer
+      accepted.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+    - "https://www.w3.org/ns/activitystreams#Link"
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+    - "http://www.w3.org/2001/XMLSchema#boolean"
+  multiple: true
+  source: "https://www.w3.org/TR/activitystreams-vocabulary/#dfn-closed"
+
+# Extensions: http://joinmastodon.org/ns#
+
+"http://joinmastodon.org/ns#featured":
+  label:
+    en: Featured
+  description:
+    en: >-
+      Mastodon: a collection of objects that the actor features at the top of
+      their profile, known in Mastodon as pinned posts.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#featured"
+
+"http://joinmastodon.org/ns#featuredTags":
+  label:
+    en: Featured tags
+  description:
+    en: >-
+      Mastodon: a collection of Hashtag objects that the actor features on their
+      profile for easy browsing, as a discoverability mechanism.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#featuredTags"
+
+"http://joinmastodon.org/ns#discoverable":
+  label:
+    en: Discoverable
+  description:
+    en: >-
+      Mastodon: whether the actor opts in to discoverability features such as
+      the profile directory. It may also indicate the actor's preference toward
+      being included in external discovery services, which are recommended to
+      respect it.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#discoverable"
+
+"http://joinmastodon.org/ns#indexable":
+  label:
+    en: Indexable
+  description:
+    en: >-
+      Mastodon: whether the actor consents to their public objects being indexed
+      for search, as FEP-5feb defines it. A missing value should be handled as
+      false.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/5feb/fep-5feb.md#specifying-search-indexing-consent-at-the-actor-level"
+
+"http://joinmastodon.org/ns#suspended":
+  label:
+    en: Suspended
+  description:
+    en: >-
+      Mastodon: whether the actor is suspended on its server. Mastodon returns
+      empty data for suspended accounts, and a remote account marked as
+      suspended cannot be unsuspended locally.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#suspended"
+
+"http://joinmastodon.org/ns#memorial":
+  label:
+    en: Memorial
+  description:
+    en: >-
+      Mastodon: whether the actor's profile has been memorialized. Mastodon
+      returns normal data for memorial accounts but renders them with a header
+      that marks them as memorial accounts.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#memorial"
+
+"http://joinmastodon.org/ns#attributionDomains":
+  label:
+    en: Attribution domains
+  description:
+    en: >-
+      Mastodon: the hostnames allowed to reference the actor using the
+      fediverse:creator meta property, as FEP-2345 defines it. A listed domain
+      also permits references from its subdomains.
+  multiple: true
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/2345/fep-2345.md#fediverse-creator"
+
+"http://joinmastodon.org/ns#showFeatured":
+  label:
+    en: Show featured
+  description:
+    en: >-
+      Mastodon: whether to show the featured tab on the actor's profile.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#properties-used-1"
+
+"http://joinmastodon.org/ns#showMedia":
+  label:
+    en: Show media
+  description:
+    en: >-
+      Mastodon: whether to show the media tab on the actor's profile.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#properties-used-1"
+
+"http://joinmastodon.org/ns#showRepliesInMedia":
+  label:
+    en: Show replies in media
+  description:
+    en: >-
+      Mastodon: whether to include replies in the media tab of the actor's
+      profile.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#properties-used-1"
+
+"http://joinmastodon.org/ns#votersCount":
+  label:
+    en: Voters count
+  description:
+    en: >-
+      Mastodon: how many people have voted in a poll, as distinct from how many
+      votes have been cast in a multiple-choice poll.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#poll-specific-properties"
+
+"http://joinmastodon.org/ns#blurhash":
+  label:
+    en: Blurhash
+  description:
+    en: >-
+      Mastodon: a string generated by the BlurHash algorithm, from which a
+      colorful preview thumbnail of an attachment is drawn.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#blurhash"
+
+"http://joinmastodon.org/ns#focalPoint":
+  label:
+    en: Focal point
+  description:
+    en: >-
+      Mastodon: the point of an image that stays in view wherever the image is
+      displayed, given as two numbers between -1.0 and 1.0 with 0, 0 at the
+      center. The first is x, from the left to the right edge, and the second is
+      y, from the bottom to the top edge.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#focalPoint"
+
+# Extensions: https://www.w3.org/ns/activitystreams#
+
+"https://www.w3.org/ns/activitystreams#manuallyApprovesFollowers":
+  label:
+    en: Manually approves followers
+  description:
+    en: >-
+      SWICG Miscellany: when true, conveys that for this actor, follow requests
+      are not usually automatically approved, but instead are examined by a
+      person who might accept or reject the request, at some time in the future.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#boolean"
+  multiple: false
+  source: "https://swicg.github.io/miscellany/#manuallyApprovesFollowers"
+
+"https://www.w3.org/ns/activitystreams#sensitive":
+  label:
+    en: Sensitive
+  description:
+    en: >-
+      SWICG Miscellany: indicates that some users might wish to apply discretion
+      about viewing the content of an object or link, whether due to nudity,
+      violence, or any other likely aspects that viewers might be sensitive to.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#boolean"
+  multiple: false
+  source: "https://swicg.github.io/miscellany/#sensitive"
+
+"https://www.w3.org/ns/activitystreams#movedTo":
+  label:
+    en: Moved to
+  description:
+    en: >-
+      SWICG Miscellany: signifies that an actor has been moved to a different
+      ID. Used in Mastodon-style data portability with the Move activity.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Object"
+  multiple: false
+  source: "https://swicg.github.io/miscellany/#movedTo"
+
+"https://www.w3.org/ns/activitystreams#alsoKnownAs":
+  label:
+    en: Also known as
+  description:
+    en: >-
+      Controlled Identifiers: states that the subject is also identified by one
+      or more other identifiers. Mastodon accepts a Move only when the target
+      actor lists the moving actor here.
+  multiple: true
+  source: "https://www.w3.org/TR/cid-1.0/#also-known-as"
+
+"https://www.w3.org/ns/activitystreams#quoteUrl":
+  label:
+    en: Quote URL
+  description:
+    en: >-
+      Misskey: the URL of the object that this object quotes, sent alongside
+      _misskey_quote. FEP-044f lists it as an earlier representation of quote
+      posts and introduces quote in its place.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md#compatibility-with-other-quote-implementations"
+
+# Extensions: https://gotosocial.org/ns#
+
+"https://gotosocial.org/ns#interactionPolicy":
+  label:
+    en: Interaction policy
+  description:
+    en: >-
+      GoToSocial: indicates on a post what sort of interactions are
+      (conditionally) permitted to be processed and stored. Its sub-policies
+      canLike, canReply, canAnnounce, and canQuote each state who may interact
+      with the post.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-policy"
+
+"https://gotosocial.org/ns#canLike":
+  label:
+    en: Can like
+  description:
+    en: >-
+      GoToSocial: a sub-policy of interactionPolicy which indicates who is
+      permitted to create a Like with the post as the object of the Like.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#canlike"
+
+"https://gotosocial.org/ns#canReply":
+  label:
+    en: Can reply
+  description:
+    en: >-
+      GoToSocial: a sub-policy of interactionPolicy which indicates who is
+      permitted to create a post with inReplyTo set to the ID of the post.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#canreply"
+
+"https://gotosocial.org/ns#canAnnounce":
+  label:
+    en: Can announce
+  description:
+    en: >-
+      GoToSocial: a sub-policy of interactionPolicy which indicates who is
+      permitted to create an Announce with the post as the object of the
+      Announce.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#canannounce"
+
+"https://gotosocial.org/ns#canQuote":
+  label:
+    en: Can quote
+  description:
+    en: >-
+      GoToSocial: a sub-policy of interactionPolicy which indicates who is
+      permitted to quote the post. GoToSocial does not support quote posts yet,
+      and sends a policy that permits only the post's author.
+  source: "https://codeberg.org/superseriousbusiness/gotosocial/src/branch/main/internal/typeutils/internaltoas.go"
+
+"https://gotosocial.org/ns#automaticApproval":
+  label:
+    en: Automatic approval
+  description:
+    en: >-
+      GoToSocial: lists in an interaction sub-policy the actors, or collections
+      of actors, who will receive automated approval from the post author when
+      creating an interaction targeting the post.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-policy"
+
+"https://gotosocial.org/ns#manualApproval":
+  label:
+    en: Manual approval
+  description:
+    en: >-
+      GoToSocial: lists in an interaction sub-policy the actors, or collections
+      of actors, who will receive approval from the post author at the author's
+      own discretion, so their interaction may not be approved at all, or may be
+      rejected.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-policy"
+
+"https://gotosocial.org/ns#likeAuthorization":
+  label:
+    en: Like authorization
+  description:
+    en: >-
+      GoToSocial: the URI of a LikeAuthorization attached to a Like to prove
+      that the author of the liked post has approved it.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#proving-interaction-authorization-to-other-servers"
+
+"https://gotosocial.org/ns#replyAuthorization":
+  label:
+    en: Reply authorization
+  description:
+    en: >-
+      GoToSocial: the URI of a ReplyAuthorization attached to a reply to prove
+      that the author of the replied-to post has approved it.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#proving-interaction-authorization-to-other-servers"
+
+"https://gotosocial.org/ns#announceAuthorization":
+  label:
+    en: Announce authorization
+  description:
+    en: >-
+      GoToSocial: the URI of an AnnounceAuthorization attached to an Announce to
+      prove that the author of the announced post has approved it. GoToSocial
+      documents this property, but still sends the deprecated approvedBy on an
+      Announce instead.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#proving-interaction-authorization-to-other-servers"
+
+"https://gotosocial.org/ns#quoteAuthorization":
+  label:
+    en: Quote authorization
+  description:
+    en: >-
+      GoToSocial: the URI of a QuoteAuthorization that proves the author of a
+      quoted post has approved the quote. The GoToSocial context defines it, but
+      GoToSocial does not send or read it, as it does not support quote posts
+      yet.
+  source: "https://gotosocial.org/ns"
+
+"https://gotosocial.org/ns#interactingObject":
+  label:
+    en: Interacting object
+  description:
+    en: >-
+      GoToSocial: the URI of the interaction, such as a Like or a reply, that an
+      interaction authorization approves. Loops also uses it in a
+      CoauthorAuthorization for the credited Note.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-authorization-objects"
+
+"https://gotosocial.org/ns#interactionTarget":
+  label:
+    en: Interaction target
+  description:
+    en: >-
+      GoToSocial: the URI of the post that the interaction approved by an
+      interaction authorization targets. Loops also uses it in a
+      CoauthorAuthorization for the author of the credited Note.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-authorization-objects"
+
+"https://gotosocial.org/ns#hidesToPublicFromUnauthedWeb":
+  label:
+    en: Hides to public from unauthed web
+  description:
+    en: >-
+      GoToSocial: indicates whether an actor prefers to hide posts addressed to
+      public in to from unauthenticated visitors to web pages, web apps, and web
+      APIs.
+  source: "https://docs.gotosocial.org/en/latest/federation/actors/#hidestopublicfromunauthedweb-and-hidesccpublicfromunauthedweb"
+
+"https://gotosocial.org/ns#hidesCcPublicFromUnauthedWeb":
+  label:
+    en: Hides cc public from unauthed web
+  description:
+    en: >-
+      GoToSocial: indicates whether an actor prefers to hide posts addressed to
+      public in cc from unauthenticated visitors to web pages, web apps, and web
+      APIs.
+  source: "https://docs.gotosocial.org/en/latest/federation/actors/#hidestopublicfromunauthedweb-and-hidesccpublicfromunauthedweb"
+
+"https://gotosocial.org/ns#always":
+  label:
+    en: Always
+  description:
+    en: >-
+      GoToSocial: a deprecated interaction sub-policy property replaced by
+      automaticApproval. GoToSocial no longer sends it, but still reads it when
+      a sub-policy has neither automaticApproval nor manualApproval.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-controls"
+
+"https://gotosocial.org/ns#approvalRequired":
+  label:
+    en: Approval required
+  description:
+    en: >-
+      GoToSocial: a deprecated interaction sub-policy property replaced by
+      manualApproval. GoToSocial no longer sends it, but still reads it when a
+      sub-policy has neither automaticApproval nor manualApproval.
+  source: "https://docs.gotosocial.org/en/latest/federation/interaction_controls/#interaction-controls"
+
+"https://gotosocial.org/ns#approvedBy":
+  label:
+    en: Approved by
+  description:
+    en: >-
+      GoToSocial: a deprecated property holding the URI of the approval of an
+      interaction, replaced by likeAuthorization, replyAuthorization, and
+      announceAuthorization. GoToSocial still sends it on an Announce, and reads
+      it from a reply that has no replyAuthorization.
+  source: "https://codeberg.org/superseriousbusiness/gotosocial/src/branch/main/internal/typeutils/internaltoas.go"
+
+# Extensions: https://misskey-hub.net/ns#
+
+"https://misskey-hub.net/ns#_misskey_content":
+  label:
+    en: Misskey content
+  description:
+    en: >-
+      Misskey: the MFM source text of a note, identical to a source property
+      whose mediaType is text/x.misskeymarkdown. Misskey documents it as
+      deprecated.
+  source: "https://misskey-hub.net/ns/#_misskey_content"
+
+"https://misskey-hub.net/ns#_misskey_quote":
+  label:
+    en: Misskey quote
+  description:
+    en: >-
+      Misskey: indicates that this note is quoting another note, and contains
+      the id of the note being quoted.
+  source: "https://misskey-hub.net/ns/#_misskey_quote"
+
+"https://misskey-hub.net/ns#_misskey_reaction":
+  label:
+    en: Misskey reaction
+  description:
+    en: >-
+      Misskey: the reaction that a Like activity conveys, either a single
+      Unicode emoji or a custom emoji name enclosed in colons, whose data is
+      then in the tag property.
+  source: "https://misskey-hub.net/ns/#_misskey_reaction"
+
+"https://misskey-hub.net/ns#_misskey_votes":
+  label:
+    en: Misskey votes
+  description:
+    en: >-
+      Misskey: the number of votes an option of a Question currently has,
+      identical to a replies Collection with that totalItems.
+  source: "https://misskey-hub.net/ns/#_misskey_votes"
+
+"https://misskey-hub.net/ns#_misskey_summary":
+  label:
+    en: Misskey summary
+  description:
+    en: >-
+      Misskey: the summary of an actor in MFM form, with the same content as
+      summary.
+  source: "https://misskey-hub.net/ns/#_misskey_summary"
+
+"https://misskey-hub.net/ns#_misskey_followedMessage":
+  label:
+    en: Misskey followed message
+  description:
+    en: >-
+      Misskey: a message, set by an actor, that Misskey shows in the
+      notification of a new follower of that actor. Its value is a string or
+      null.
+  source: "https://misskey-hub.net/ns/#_misskey_followedmessage"
+
+"https://misskey-hub.net/ns#_misskey_requireSigninToViewContents":
+  label:
+    en: Misskey require signin to view contents
+  description:
+    en: >-
+      Misskey: when true, the content of the actor should not be shown to a
+      viewer who is not signed in.
+  source: "https://misskey-hub.net/ns/#_misskey_requiresignintoviewcontents"
+
+"https://misskey-hub.net/ns#_misskey_makeNotesFollowersOnlyBefore":
+  label:
+    en: Misskey make notes followers only before
+  description:
+    en: >-
+      Misskey: an integer threshold before which the notes of the actor are
+      shown only to its followers. A positive value is a Unix time in seconds,
+      and a negative value is the age of a note in seconds.
+  source: "https://misskey-hub.net/ns/#_misskey_makenotesfollowersonlybefore"
+
+"https://misskey-hub.net/ns#_misskey_makeNotesHiddenBefore":
+  label:
+    en: Misskey make notes hidden before
+  description:
+    en: >-
+      Misskey: an integer threshold before which the notes of the actor are
+      hidden from everyone but the actor. A positive value is a Unix time in
+      seconds, and a negative value is the age of a note in seconds.
+  source: "https://misskey-hub.net/ns/#_misskey_makenoteshiddenbefore"
+
+"https://misskey-hub.net/ns#_misskey_license":
+  label:
+    en: Misskey license
+  description:
+    en: >-
+      Misskey: the license of an Emoji, as an object whose freeText property
+      describes how its author permits its use.
+  source: "https://misskey-hub.net/ns/#_misskey_license"
+
+"https://misskey-hub.net/ns#freeText":
+  label:
+    en: Free text
+  description:
+    en: >-
+      Misskey: in the _misskey_license of an Emoji, free-form text that
+      describes how its author permits its use, or null if no explicit license
+      is set.
+  source: "https://misskey-hub.net/ns/#_misskey_license"
+
+"https://misskey-hub.net/ns#isCat":
+  label:
+    en: Is cat
+  description:
+    en: >-
+      Misskey: whether the actor identifies as a cat. When true, some clients
+      add special effects when displaying the actor or its notes.
+  source: "https://misskey-hub.net/ns/#iscat"
+
+# Extensions: https://joinloops.org/ns#
+
+"https://joinloops.org/ns#interactionPolicy":
+  label:
+    en: Interaction policy
+  description:
+    en: >-
+      Loops: a policy on an actor whose canFeature sub-policy states who may add
+      the actor to a starter kit. Loops uses the GoToSocial interactionPolicy on
+      videos and comments instead.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Models/Profile.php"
+
+"https://joinloops.org/ns#canFeature":
+  label:
+    en: Can feature
+  description:
+    en: >-
+      Loops: a sub-policy of an actor's interactionPolicy that lists, under
+      automaticApproval and manualApproval, who may add the actor to a starter
+      kit. It is not the FEP-7aa9 property of the same name.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Models/Profile.php"
+
+"https://joinloops.org/ns#coauthors":
+  label:
+    en: Coauthors
+  description:
+    en: >-
+      Loops: the coauthors a video's Note credits besides its author, each given
+      as a CoauthorAuthorization that the coauthor's server serves to attest
+      that the coauthor agreed to the credit.
+  source: "https://github.com/joinloops/loops-server/blob/main/FEDERATION.md#coauthors-creator-collaborations"
+
+"https://joinloops.org/ns#intent":
+  label:
+    en: Intent
+  description:
+    en: >-
+      Loops: the migration intent signed by the source server as a JWS, on the
+      AccountMigration object of an account migration Offer. It names the source
+      and destination accounts, the migrated scope, the manifest, and the
+      Transit service.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+"https://joinloops.org/ns#receipt":
+  label:
+    en: Receipt
+  description:
+    en: >-
+      Loops: the migration receipt signed by the destination server as a JWS, in
+      the MigrationReceipt result of the Accept of an account migration. It
+      refers to the accepted intent and manifest.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+"https://joinloops.org/ns#seal":
+  label:
+    en: Seal
+  description:
+    en: >-
+      Loops: the JWS with which a Transit service seals the intent and receipt
+      of an account migration, in the MigrationReceipt result of the Accept of
+      the migration.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+"https://joinloops.org/ns#manifest":
+  label:
+    en: Manifest
+  description:
+    en: >-
+      Loops: the URL of the OrderedCollection that lists the items to transfer
+      in an account migration, on the AccountMigration object.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+"https://joinloops.org/ns#transit":
+  label:
+    en: Transit
+  description:
+    en: >-
+      Loops: the URL of the Transit service that records and seals an account
+      migration, on the AccountMigration object and in the MigrationReceipt.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+"https://joinloops.org/ns#attestation":
+  label:
+    en: Attestation
+  description:
+    en: >-
+      Loops: the URL of the AccountMigration object, attached to the Move that
+      completes an account migration.
+  source: "https://github.com/joinloops/loops-server/blob/main/app/Federation/ActivityBuilders/MigrationActivityBuilder.php"
+
+# Extensions: http://litepub.social/ns#
+
+"http://litepub.social/ns#directMessage":
+  label:
+    en: Direct message
+  description:
+    en: >-
+      LitePub (Pleroma, Akkoma): true on the activity of a post with direct
+      visibility, so that the receiver treats it as a direct message and keeps
+      its addressing unchanged.
+  source: "https://akkoma.dev/AkkomaGang/akkoma/src/branch/develop/lib/pleroma/web/activity_pub/visibility.ex"
+
+"http://litepub.social/ns#listMessage":
+  label:
+    en: List message
+  description:
+    en: >-
+      LitePub (Pleroma): the id of the list that a post was addressed to. Akkoma
+      has removed list-scoped posts and documents the term as deprecated.
+  source: "https://docs.akkoma.dev/develop/development/ap_extensions/#list-post-scope"
+
+"http://litepub.social/ns#capabilities":
+  label:
+    en: Capabilities
+  description:
+    en: >-
+      LitePub (Pleroma, Akkoma): an object on an actor that lists what it
+      supports. Pleroma puts acceptsChatMessages in it to say whether the actor
+      accepts ChatMessage objects; Akkoma sends it empty.
+  source: "https://git.pleroma.social/pleroma/pleroma/src/branch/develop/lib/pleroma/web/activity_pub/views/user_view.ex"
+
+"http://litepub.social/ns#invisible":
+  label:
+    en: Invisible
+  description:
+    en: >-
+      LitePub (Pleroma, Akkoma): true on an internal actor of the server, such
+      as its relay or fetch actor, which is hidden from user listings.
+  source: "https://akkoma.dev/AkkomaGang/akkoma/src/branch/develop/lib/pleroma/user.ex"
+
+"http://litepub.social/ns#formerRepresentations":
+  label:
+    en: Former representations
+  description:
+    en: >-
+      LitePub (Pleroma, Akkoma): the edit history of an object, as an
+      OrderedCollection of its earlier versions with the most recent first.
+  source: "https://akkoma.dev/AkkomaGang/akkoma/src/branch/develop/lib/pleroma/object/updater.ex"
+
+"http://litepub.social/ns#oauthRegistrationEndpoint":
+  label:
+    en: OAuth registration endpoint
+  description:
+    en: >-
+      LitePub (Pleroma, Akkoma): an endpoint of an actor that points to the
+      Mastodon API app registration endpoint, /api/v1/apps.
+  source: "https://docs-develop.pleroma.social/backend/development/ap_extensions/#oauthregistrationendpoint"
+
+# Extensions: https://join-lemmy.org/ns#
+
+"https://join-lemmy.org/ns#stickied":
+  label:
+    en: Stickied
+  description:
+    en: >-
+      Lemmy: whether the post is pinned to the top of its community. Deprecated:
+      Lemmy 0.18 stopped sending it and pins a post by adding it to the
+      community's featured collection instead.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#post"
+
+"https://join-lemmy.org/ns#moderators":
+  label:
+    en: Moderators
+  description:
+    en: >-
+      Lemmy: the collection of the moderators of a community. Deprecated: Lemmy
+      0.18 stopped sending it and links the collection through the community's
+      attributedTo instead.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#community-moderators"
+
+"https://join-lemmy.org/ns#postingRestrictedToMods":
+  label:
+    en: Posting restricted to mods
+  description:
+    en: >-
+      Lemmy: whether only the moderators of a community may create posts in it.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#community"
+
+"https://join-lemmy.org/ns#removeData":
+  label:
+    en: Remove data
+  description:
+    en: >-
+      Lemmy: set on a Block of a user or on the Delete of a user account to
+      indicate that the user's previous posts and comments should be removed as
+      well.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#block-user"
+
+"https://join-lemmy.org/ns#matrixUserId":
+  label:
+    en: Matrix user ID
+  description:
+    en: >-
+      Lemmy: the Matrix user ID of a person, usually of the form
+      @person:matrix.org.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#user"
+
+"https://join-lemmy.org/ns#distinguished":
+  label:
+    en: Distinguished
+  description:
+    en: >-
+      Lemmy: whether a moderator has distinguished the comment as speaking
+      officially, which shows it at the top of the post. Only moderators and
+      administrators may change it.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#comment"
+
+# Extensions: http://pixelfed.org/ns#
+
+"http://pixelfed.org/ns#commentsEnabled":
+  label:
+    en: Comments enabled
+  description:
+    en: >-
+      Pixelfed: whether the post accepts comments. Pixelfed sets it to false
+      when the author has disabled comments.
+  source: "https://docs.pixelfed.org/spec/ActivityPub.html#capabilities-comment-controls"
+
+"http://pixelfed.org/ns#capabilities":
+  label:
+    en: Capabilities
+  description:
+    en: >-
+      Pixelfed: the basic interaction controls of a post, which say who may
+      announce, like, and reply to it.
+  source: "https://docs.pixelfed.org/spec/ActivityPub.html#capabilities-comment-controls"
+
+"http://pixelfed.org/ns#canAnnounce":
+  label:
+    en: Can announce
+  description:
+    en: >-
+      Pixelfed: who may announce the post: the public collection or no one.
+      Pixelfed uses the compact name announce inside capabilities.
+  source: "https://docs.pixelfed.org/spec/ActivityPub.html#capabilities-comment-controls"
+
+"http://pixelfed.org/ns#canLike":
+  label:
+    en: Can like
+  description:
+    en: >-
+      Pixelfed: who may like the post: the public collection or no one. Pixelfed
+      uses the compact name like inside capabilities.
+  source: "https://docs.pixelfed.org/spec/ActivityPub.html#capabilities-comment-controls"
+
+"http://pixelfed.org/ns#canReply":
+  label:
+    en: Can reply
+  description:
+    en: >-
+      Pixelfed: who may reply to the post: the public collection, or no one when
+      the author has disabled comments. Pixelfed uses the compact name reply
+      inside capabilities.
+  source: "https://docs.pixelfed.org/spec/ActivityPub.html#capabilities-comment-controls"
+
+"http://pixelfed.org/ns#canCollect":
+  label:
+    en: Can collect
+  description:
+    en: >-
+      Pixelfed: the part of an actor's interactionPolicy that says who may add
+      the actor's posts to collections. Pixelfed lists the public collection,
+      the actor's followers, or the actor alone under automaticApproval.
+  source: "https://github.com/pixelfed/pixelfed/blob/dev/app/Services/CollectionService.php"
+
+# Extensions: http://ostatus.org#
+
+"http://ostatus.org#atomUri":
+  label:
+    en: Atom URI
+  description:
+    en: >-
+      OStatus: the OStatus URI of a post, which is a tag: URI for posts created
+      before Mastodon adopted ActivityPub. Mastodon sends it on its own posts
+      and, on receipt, uses it to find a post it already stores under that URI.
+  source: "https://github.com/mastodon/mastodon/blob/main/app/serializers/activitypub/note_serializer.rb"
+
+"http://ostatus.org#inReplyToAtomUri":
+  label:
+    en: In reply to Atom URI
+  description:
+    en: >-
+      OStatus: the OStatus URI of the post that this post replies to. Mastodon
+      uses it to find the parent post when inReplyTo does not match one.
+  source: "https://github.com/mastodon/mastodon/blob/main/app/serializers/activitypub/note_serializer.rb"
+
+"http://ostatus.org#conversation":
+  label:
+    en: Conversation
+  description:
+    en: >-
+      OStatus: the URI of the conversation that a post belongs to, which may be
+      a tag: URI that cannot be dereferenced. Mastodon groups posts that share
+      it into one thread.
+  source: "https://github.com/mastodon/mastodon/blob/main/app/serializers/activitypub/note_serializer.rb"
+
+# Extensions: http://www.w3.org/2006/vcard/ns#
+
+"http://www.w3.org/2006/vcard/ns#bday":
+  label:
+    en: Birth date
+  description:
+    en: >-
+      vCard: to specify the birth date of the object. Misskey and Pleroma send
+      it on an actor as a date in YYYY-MM-DD form.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+    - "http://www.w3.org/2001/XMLSchema#dateTimeStamp"
+    - "http://www.w3.org/2001/XMLSchema#gYear"
+  source: "https://www.w3.org/TR/vcard-rdf/#d4e784"
+
+"http://www.w3.org/2006/vcard/ns#Address":
+  label:
+    en: Address
+  description:
+    en: >-
+      vCard: a class to specify the components of the delivery address for the
+      object. Misskey uses it as a property of an actor whose value is the
+      location set in the profile, as free text.
+  source: "https://www.w3.org/TR/vcard-rdf/#d4e1292"
+
+# Extensions: http://schema.org/
+
+"http://schema.org/inLanguage":
+  label:
+    en: In language
+  description:
+    en: >-
+      schema.org: the language of the content or performance or used in an
+      action. Lemmy and PieFed send it under the compact name language, as an
+      object whose identifier is the language code.
+  range:
+    - "http://schema.org/Language"
+    - "http://schema.org/Text"
+  source: "https://schema.org/inLanguage"
+
+"http://schema.org/identifier":
+  label:
+    en: Identifier
+  description:
+    en: >-
+      schema.org: any kind of identifier for any kind of Thing, such as ISBNs,
+      GTIN codes, or UUIDs. Lemmy and PieFed use it for the language code of a
+      language object.
+  range:
+    - "http://schema.org/PropertyValue"
+    - "http://schema.org/Text"
+    - "http://schema.org/URL"
+  source: "https://schema.org/identifier"
+
+# Extensions: https://joinpeertube.org/ns#
+
+"https://joinpeertube.org/ns#commentsEnabled":
+  label:
+    en: Comments enabled
+  description:
+    en: >-
+      PeerTube: whether comments can be added; false means the post is locked.
+      Deprecated: PeerTube replaced it with commentsPolicy in 6.2 and removed it
+      in 8.0, but PieFed and Mbin still send it.
+  source: "https://join-lemmy.org/docs/contributors/05-federation.html#post"
+
+# Extensions: http://schema.org#
+
+"http://schema.org#value":
+  label:
+    en: Value
+  description:
+    en: >-
+      Mastodon: the value of a profile field, given on a PropertyValue in the
+      actor's attachment whose name is the field's label. The term is in the
+      http://schema.org# namespace that Mastodon defines, not the
+      http://schema.org/value term of schema.org.
+  source: "https://docs.joinmastodon.org/spec/activitypub/#PropertyValue"
+
+# Extensions: http://fedibird.com/ns#
+
+"http://fedibird.com/ns#quoteUri":
+  label:
+    en: Quote URI
+  description:
+    en: >-
+      Fedibird: the URI of the object that this object quotes. FEP-044f lists it
+      as an earlier representation of quote posts and introduces quote in its
+      place.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md#compatibility-with-other-quote-implementations"
+
+# Extensions: http://purl.org/dc/terms/
+
+"http://purl.org/dc/terms/license":
+  label:
+    en: License
+  description:
+    en: >-
+      FEP-6757: the license for the object, which is the Dublin Core Metadata
+      Terms license property. Multiple values indicate separate licenses that
+      the consumer may choose from at their option.
+  range:
+    - "http://purl.org/dc/terms/LicenseDocument"
+  multiple: true
+  source: "https://w3id.org/fep/6757#license-property"
+
+# Extensions: https://w3id.org/security#
+
+"https://w3id.org/security#expiration":
+  label:
+    en: Expiration
+  description:
+    en: >-
+      Security Vocabulary: the expiration time for a proof or verification
+      method, usually written with the compact name expires. PieFed and Mbin
+      send it as the time a Block ends.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#dateTime"
+  source: "https://www.w3.org/2025/credentials/vcdi/vocab/v2/vocabulary.html#expiration"
+
+# Extensions: http://smithereen.software/ns#
+
+"http://smithereen.software/ns#nonAnonymous":
+  label:
+    en: Non anonymous
+  description:
+    en: >-
+      Smithereen: true when a Question poll is not anonymous, so that its voters
+      are public. Pleroma and Akkoma read it, and Akkoma sends false on the
+      polls it creates.
+  source: "https://github.com/grishka/Smithereen/blob/master/src/main/java/smithereen/activitypub/objects/Question.java"
+
+# Extensions: https://joinsharkey.org/ns#
+
+"https://joinsharkey.org/ns#backgroundUrl":
+  label:
+    en: Background URL
+  description:
+    en: >-
+      Sharkey: the background image of an actor's profile, as an Image object.
+      Akkoma federates profile backgrounds the same way.
+  source: "https://docs.akkoma.dev/develop/development/ap_extensions/#user-profile-backgrounds"
+
+# Extensions: https://w3id.org/fep/044f#
+
+"https://w3id.org/fep/044f#quote":
+  label:
+    en: Quote
+  description:
+    en: >-
+      FEP-044f: the object that this object quotes, which makes this object a
+      quote post.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md#quote"
+
+"https://w3id.org/fep/044f#quoteAuthorization":
+  label:
+    en: Quote authorization
+  description:
+    en: >-
+      FEP-044f: a reference to the QuoteAuthorization stamp that the quoted
+      author returned as the result of an Accept. Third parties dereference it
+      to verify that the quote was approved.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/044f/fep-044f.md#quoteAuthorization"
+
+# Extensions: https://w3id.org/fep/7aa9#
+
+"https://w3id.org/fep/7aa9#canFeature":
+  label:
+    en: Can feature
+  description:
+    en: >-
+      FEP-7aa9: the sub-policy of an actor's interactionPolicy that signals who
+      may include the actor in a featured collection, through its
+      automaticApproval and manualApproval properties.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/7aa9/fep-7aa9.md#interaction-policies-for-curated-collections"
+
+"https://w3id.org/fep/7aa9#featuredCollections":
+  label:
+    en: Featured collections
+  description:
+    en: >-
+      FEP-7aa9: a collection on an actor of the FeaturedCollection objects that
+      the actor has created, through which other servers discover them.
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/7aa9/fep-7aa9.md#featured-collections-on-actors"
+
+"https://w3id.org/fep/7aa9#topic":
+  label:
+    en: Topic
+  description:
+    en: >-
+      FEP-7aa9: a single Hashtag object that represents the main topic or
+      category of a FeaturedCollection.
+  range:
+    - "https://www.w3.org/ns/activitystreams#Hashtag"
+  multiple: false
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/7aa9/fep-7aa9.md#representation-of-featured-collections"
+
+"https://w3id.org/fep/7aa9#featuredObject":
+  label:
+    en: Featured object
+  description:
+    en: >-
+      FEP-7aa9: the id of the object that a FeaturedItem features.
+  multiple: false
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/7aa9/fep-7aa9.md#representation-of-featured-collections"
+
+"https://w3id.org/fep/7aa9#featureAuthorization":
+  label:
+    en: Feature authorization
+  description:
+    en: >-
+      FEP-7aa9: the URI of the FeatureAuthorization stamp that approves
+      featuring an actor in a FeaturedItem. It is required when the featured
+      object is an actor.
+  multiple: false
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/7aa9/fep-7aa9.md#representation-of-featured-collections"
+
+# Extensions: https://w3id.org/fep/5837#
+
+"https://w3id.org/fep/5837#digitalSourceType":
+  label:
+    en: Digital source type
+  description:
+    en: >-
+      FEP-5837: how an attachment was made, as a term URI from the IPTC Digital
+      Source Type vocabulary, which is the vocabulary C2PA uses. The value can
+      come from a C2PA manifest or from the author.
+  source: "https://w3id.org/fep/5837#digitalsourcetype"
+
+"https://w3id.org/fep/5837#contentCredentials":
+  label:
+    en: Content credentials
+  description:
+    en: >-
+      FEP-5837: a summary of the C2PA manifest that the publishing server
+      validated on the original upload of an attachment. It is a claim made by
+      the publishing server.
+  source: "https://w3id.org/fep/5837#contentcredentials"
+
+"https://w3id.org/fep/5837#validationState":
+  label:
+    en: Validation state
+  description:
+    en: >-
+      FEP-5837: Invalid, Valid, or Trusted, following the validation states of
+      the C2PA specification. Trusted means the signing certificate chained to
+      the publisher's trust list.
+  source: "https://w3id.org/fep/5837#contentcredentials"
+
+"https://w3id.org/fep/5837#signer":
+  label:
+    en: Signer
+  description:
+    en: >-
+      FEP-5837: the issuer of the signing certificate of a C2PA manifest,
+      usually an organization name.
+  source: "https://w3id.org/fep/5837#contentcredentials"
+
+"https://w3id.org/fep/5837#claimGenerator":
+  label:
+    en: Claim generator
+  description:
+    en: >-
+      FEP-5837: the name of the software that created the active C2PA manifest.
+  source: "https://w3id.org/fep/5837#contentcredentials"
+
+# Extensions: https://w3id.org/fep/070c#
+
+"https://w3id.org/fep/070c#blockSynchronization":
+  label:
+    en: Block synchronization
+  description:
+    en: >-
+      FEP-070c: the URL of the block synchronization endpoint, advertised on an
+      instance's application actor so that peers can reconcile blocks.
+  source: "https://w3id.org/fep/070c#discovery"
+
+"https://w3id.org/fep/070c#blockSynchronizationDigest":
+  label:
+    en: Block synchronization digest
+  description:
+    en: >-
+      FEP-070c: the block set digest of the items of a block synchronization
+      collection, computed from the same state the items are read from.
+  source: "https://w3id.org/fep/070c#response"
+
+# Extensions: https://purl.archive.org/socialweb/webfinger#
+
+"https://purl.archive.org/socialweb/webfinger#webfinger":
+  label:
+    en: WebFinger
+  description:
+    en: >-
+      FEP-2c59: a canonical WebFinger address for the actor, such as
+      user@domain.example or an acct: URL. Its WebFinger link data must link
+      directly to the actor URL, without redirects or aliases.
+  multiple: false
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/2c59/fep-2c59.md#specification"
+
+# Extensions: https://w3id.org/fep/c16b#
+
+"https://w3id.org/fep/c16b#htmlMfm":
+  label:
+    en: HTML MFM
+  description:
+    en: >-
+      FEP-c16b: a flag to indicate that the content is FEP-c16b compliant, so
+      that its MFM functions need not be parsed again from the source.
+  range:
+    - "http://www.w3.org/2001/XMLSchema#boolean"
+  source: "https://codeberg.org/fediverse/fep/src/branch/main/fep/c16b/fep-c16b.md#htmlmfm"
+
+# Extensions: https://w3id.org/fep/6757#
+
+"https://w3id.org/fep/6757#preferredLicense":
+  label:
+    en: Preferred license
+  description:
+    en: >-
+      FEP-6757: the preferred license for new objects created by the actor.
+  range:
+    - "http://purl.org/dc/terms/LicenseDocument"
+  multiple: false
+  source: "https://w3id.org/fep/6757#preferredlicense-property"

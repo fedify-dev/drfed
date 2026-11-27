@@ -31,8 +31,8 @@ depends = ["build:web", "generate:completion"]
 silent = "stdout"
 
 [tasks."build:backend"]
-description = "Build models, federation, and GraphQL without the application CLI"
-run = "pnpm --parallel -F @drfed/federation -F @drfed/graphql -F @drfed/models build"
+description = "Build models, vocabulary, federation, and GraphQL without the application CLI"
+run = "pnpm --parallel -F @drfed/federation -F @drfed/graphql -F @drfed/models -F @drfed/vocab build"
 silent = "stdout"
 
 [tasks."build:server"]
@@ -226,6 +226,14 @@ run = "node scripts/check-packages.mts"
 description = "Exercise docs preview pull request, build and comment fixtures"
 run = "node --test scripts/test-docs-preview.mts"
 
+[tasks."check:known-properties"]
+description = "Compare the known property catalog with what its namespaces publish"
+run = "node packages/vocab/tools/check.mts"
+
+[tasks."update:known-properties"]
+description = "Write into the known property catalog the values its namespaces publish"
+run = "node packages/vocab/tools/update.mts"
+
 [tasks."check:types"]
 description = "Check TypeScript types"
 run = "pnpm --recursive exec tsc --noEmit"
@@ -346,7 +354,7 @@ if "usage_debug" in $env {
   $env.LOGTAPE_TEST_LOWEST_LEVEL = "debug"
 }
 let shard = (if "usage_shard" in $env { [$"--test-shard=($env.usage_shard)"] } else { [] })
-node --test ...$shard "packages/*/src/**/*.test.ts"
+node --test ...$shard "packages/*/src/**/*.test.ts" "packages/*/tools/**/*.test.mts"
 '''
 
 [tasks."test:postgres"]

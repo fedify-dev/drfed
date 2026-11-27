@@ -350,7 +350,7 @@ Testing npm installation
 ------------------------
 
 From the repository root, run `mise run test:packaging` to build and pack the
-five packages, then install their tarballs with npm in temporary local
+six packages, then install their tarballs with npm in temporary local
 and global prefixes outside the checkout.  The check uses a separate npm cache
 and empty npm configuration files, omits development dependencies, and disables
 installation scripts.  It needs network access to the public npm registry for
@@ -365,7 +365,7 @@ database-backed GraphQL request after initial migration, and a restart with
 `--no-migrate` using the same PGlite directory.  It removes
 the temporary installations and databases after stopping their servers.
 
-All five tarballs are supplied to each install together so unpublished
+All six tarballs are supplied to each install together so unpublished
 workspace versions can be tested.  The check covers combined and standalone
 frontend SSR, assets, login confirmation and session cookies. It does not cover
 installing only the facade from the registry or upgrading an older release.

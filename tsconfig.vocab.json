@@ -1,0 +1,7 @@
+{
+  "extends": "./packages/vocab/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./packages/vocab/node_modules/@types"]
+  },
+  "include": ["packages/vocab/src/**/*.ts"]
+}

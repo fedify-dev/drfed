@@ -82,6 +82,8 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
  -  *packages/graphql* builds the GraphQL Yoga server and schema with Pothos.
  -  *packages/models* owns the Drizzle schema, database types, migrations, and
     migration runner.
+ -  *packages/vocab* owns the known property catalog and the tools that check
+    it against, and update it from, what the vocabularies publish.
  -  *scripts/dev.mts* coordinates watch builds and the local development
     server.
  -  *packages/models/drizzle* contains generated Drizzle migration files.
@@ -92,8 +94,9 @@ The workspace is defined by *pnpm-workspace.yaml*; packages live under the
 Keep package boundaries clear.  Database schema changes belong in
 `@drfed/models`; ActivityPub handlers and vocabulary serialization belong in
 `@drfed/federation`; GraphQL types and resolvers belong in `@drfed/graphql`;
-CLI parsing and server startup belong in `@drfed/drfed`.  `@drfed/federation`
-must not depend on `@drfed/graphql`.
+CLI parsing and server startup belong in `@drfed/drfed`; vocabulary metadata,
+such as the known property catalog, belongs in `@drfed/vocab`.
+`@drfed/federation` must not depend on `@drfed/graphql`.
 
 
 Packages
@@ -105,6 +108,7 @@ Packages
 | *packages/federation* | `@drfed/federation` | ActivityPub dispatchers, listeners, and origins |
 | *packages/graphql*    | `@drfed/graphql`    | GraphQL schema and Yoga server (Pothos + Relay) |
 | *packages/models*     | `@drfed/models`     | Drizzle schema, relations, and migration runner |
+| *packages/vocab*      | `@drfed/vocab`      | Known property catalog and its namespace tools  |
 | *packages/web*        | `@drfed/web`        | SolidStart frontend web app.                    |
 
 Each package has its own *README.md* with a more detailed breakdown.
@@ -141,6 +145,18 @@ mise run dev
     `node scripts/add-license/main.mts --check`.
  -  Package version sync with `node scripts/check-versions.mts`.
  -  Package order with `node scripts/check-packages.mts`.
+ -  Known property catalog entries against what their namespaces publish,
+    such as <https://www.w3.org/ns/activitystreams>, with
+    `node packages/vocab/tools/check.mts`, which needs network access.
+    A namespace whose documents a network problem keeps from being fetched
+    through three retries is skipped with a warning that lists their URLs,
+    and does not fail the check.  On GitHub Actions an answer of 403 counts
+    as a network problem too, since some namespace hosts refuse its runners.
+    The namespaces are listed in *packages/vocab/tools/namespaces.mts*, and
+    `mise run update:known-properties` writes the values they give. A namespace
+    that changes what it publishes fails the check on every pull request, by
+    design: resolve that failure first, as *packages/vocab/README.md*
+    describes, rather than moving the check out of `mise run check`.
  -  *docker/Containerfile* linting with hadolint and shell script linting of
     *docker/* with ShellCheck.
  -  GitHub workflow and local composite action validation with jactionlint.
@@ -236,7 +252,7 @@ Include any accompanying lockfile updates in the version-bump commit.
 Changelog and release notes
 ---------------------------
 
-All five packages share one changelog.  Run `mise run changelog:setup` once
+All six packages share one changelog.  Run `mise run changelog:setup` once
 after cloning to register the Git merge drivers declared in *.gitattributes*.
 Add a short user-facing entry with
 `mise run changelog:add --section DrFed <topic>` and edit the resulting
@@ -300,7 +316,7 @@ lockfile, and approval together.
 Automated npm and GitHub releases
 ---------------------------------
 
-Successful upstream pushes to `main` publish all five packages under the `dev`
+Successful upstream pushes to `main` publish all six packages under the `dev`
 dist-tag; `latest` stays unchanged.  CI calculates one identifier such as
 `0.1.0-dev.123+abcdef01` from the shared base version, run number, and commit.
 npm removes build metadata, so manifests, internal dependencies, and installed
@@ -323,32 +339,31 @@ exact packed artifacts through
 loopback registry, including version, recovery, and GitHub Release fixtures.
 This command does not publish to npm or GitHub.
 
-Before enabling automation, an npm maintainer must manually bootstrap all five
+Before enabling automation, an npm maintainer must manually bootstrap all six
 public package names with a verified complete package set, publishing models,
-federation, GraphQL, web, then the `drfed` facade.  Use public access, a
+vocab, federation, GraphQL, web, then the `drfed` facade.  Use public access, a
 `bootstrap` dist-tag, and a version lower than every planned release, such as
 `0.0.0-bootstrap.0`.  npm also assigns `latest` on the first publication, even
 when a custom tag is supplied.
 Do not reuse that bootstrap version as an automated release tag.  Build, check,
 test, and verify packed local/global installs first; keep the exact tarballs.
-For each of `@drfed/models`, `@drfed/federation`, `@drfed/graphql`,
-`@drfed/web`, and `@drfed/drfed`, configure an npm trusted publisher for GitHub
-organization `fedify-dev`, repository `drfed`, and workflow filename
-*main.yaml*.  The npm publication job is defined in
-*.github/workflows/publish.yaml*, which is called as a reusable
-workflow by *.github/workflows/main.yaml*.  npm validates the calling workflow
-for trusted publishing, so *main.yaml*, not *publish.yaml*, is intentionally
-configured as the workflow filename.  If *main.yaml* is renamed or another
-workflow becomes the caller, update the trusted publisher configuration for all
-five packages before the next publication.  Renaming *publish.yaml* alone
-requires updating the reusable-workflow call, but does not change the npm
-trusted publisher identity.  Enable both *Allow npm publish* and *Allow npm
-dist-tag*. These are separate permissions; dist-tag access is off by default.
-Use GitHub-hosted runners. The mise pin of npm 12.2.0 supports OIDC dist-tag
-changes and shadows Node's bundled npm for CI publication.  The packed-install
-harness uses Node's bundled npm separately.  No npm token is supplied to the
-workflow; publishing requests provenance and uses the public repository
-metadata in each package.
+For each of `@drfed/models`, `@drfed/vocab`, `@drfed/federation`,
+`@drfed/graphql`, `@drfed/web`, and `@drfed/drfed`, configure an npm trusted
+publisher for GitHub organization `fedify-dev`, repository `drfed`, and
+workflow filename *main.yaml*.  The npm publication job is defined in
+*.github/workflows/publish.yaml*, which is called as a reusable workflow by
+*.github/workflows/main.yaml*.  npm validates the calling workflow for trusted
+publishing, so *main.yaml*, not *publish.yaml*, is intentionally configured as
+the workflow filename.  If *main.yaml* is renamed or another workflow becomes
+the caller, update the trusted publisher configuration for all six packages
+before the next publication.  Renaming *publish.yaml* alone requires updating
+the reusable-workflow call, but does not change the npm trusted publisher
+identity.  Enable both *Allow npm publish* and *Allow npm dist-tag*. These are
+separate permissions; dist-tag access is off by default. Use GitHub-hosted
+runners. The mise pin of npm 12.2.0 supports OIDC dist-tag changes and shadows
+Node's bundled npm for CI publication.  The packed-install harness uses Node's
+bundled npm separately.  No npm token is supplied to the workflow; publishing
+requests provenance and uses the public repository metadata in each package.
 
 The `main` caller separately serializes complete release-capable runs per ref
 with cancellation disabled and `queue: max`, so that no run is cancelled or
@@ -596,6 +611,11 @@ discrepancies between source and what consumers actually receive.  Build the
 package before running tests (`pnpm --filter <package> run build` or
 `mise run build`).
 
+Unpublished tools, such as those in *packages/vocab/tools/*, are the
+exception: they have no subpath export or *dist/* output, so their tests live
+next to them as `*.test.mts` files and import the module under test through a
+relative path, as in `./reports.mts`.
+
 If the module under test is not yet listed as a subpath export, add it to the
 `exports` field in the package's *package.json* and to the `entry` array in
 the `tsdown` configuration before writing tests:
@@ -621,8 +641,8 @@ Node.js's built-in test runner:
 }
 ~~~~
 
-Run all tests across the monorepo from the repository root (builds first
-automatically):
+Run all tests across the monorepo, including those of the tools, from the
+repository root (builds first automatically):
 
 ~~~~ sh
 mise run test

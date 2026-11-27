@@ -1,0 +1,40 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+type: object
+minProperties: 1
+propertyNames:
+  format: iri
+additionalProperties:
+  type: object
+  required: [label, description, source]
+  additionalProperties: false
+  properties:
+    label:
+      $ref: "#/$defs/localizedText"
+    description:
+      $ref: "#/$defs/localizedText"
+    range:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+        format: iri
+    multiple:
+      type: boolean
+    source:
+      type: string
+      format: uri
+$defs:
+  localizedText:
+    type: object
+    required: [en]
+    # A well-formed language tag as RFC 5646 section 2.1 defines it, compared
+    # case-insensitively as its section 2.1.1 requires.  The grandfathered tags
+    # its "regular" production lists already match "langtag".
+    propertyNames:
+      pattern: "^(?i:(?:[a-z]{2,3}(?:-[a-z]{3}){0,3}|[a-z]{4,8})(?:-[a-z]{4})?(?:-(?:[a-z]{2}|[0-9]{3}))?(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*(?:-[0-9a-wyz](?:-[a-z0-9]{2,8})+)*(?:-x(?:-[a-z0-9]{1,8})+)?|x(?:-[a-z0-9]{1,8})+|en-gb-oed|i-(?:ami|bnn|default|enochian|hak|klingon|lux|mingo|navajo|pwn|tao|tay|tsu)|sgn-(?:be-fr|be-nl|ch-de))$"
+    additionalProperties:
+      type: string
+      minLength: 1
+      # Whitespace alone is no label or description.
+      pattern: "\\S"
