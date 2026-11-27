@@ -20,6 +20,7 @@ import { describe, it } from "node:test";
 import { type CatalogEntry, type Namespace, under } from "./namespace.mts";
 import {
   RETRIES,
+  RUNNER_TRANSIENT_STATUSES,
   UnreachableError,
   collectReports,
   uncoveredNamespaces,
@@ -81,11 +82,13 @@ const fakeFetch = (answers: Readonly<Record<string, readonly Answer[]>>) => {
 const collect = async (
   namespaces: readonly Namespace[],
   answers: Readonly<Record<string, readonly Answer[]>> = {},
+  transientStatuses?: ReadonlySet<number>,
 ) => {
   const { fetch, requests } = fakeFetch(answers);
   const waits: number[] = [];
   const reports = await collectReports(CATALOG, namespaces, {
     fetch,
+    ...(transientStatuses === undefined ? {} : { transientStatuses }),
     sleep: (milliseconds) => {
       waits.push(milliseconds);
       return Promise.resolve();
@@ -225,6 +228,29 @@ describe("collectReports", () => {
     assert.ok(!(findings instanceof UnreachableError));
     assert.match(findings.message, /answered 404/u);
     assert.equal(requests.filter((url) => url === DOC).length, 1);
+  });
+
+  it("does not retry or skip a refusal by default", async () => {
+    const { reports, requests } = await collect([namespaceOf("One", [DOC])], {
+      [DOC]: [new Response("", { status: 403 })],
+    });
+    const findings = reports[0]?.findings;
+    assert.ok(findings instanceof Error);
+    assert.ok(!(findings instanceof UnreachableError));
+    assert.match(findings.message, /answered 403/u);
+    assert.equal(requests.length, 1);
+  });
+
+  it("retries and skips a refusal among the statuses it is given", async () => {
+    const { reports, requests } = await collect(
+      [namespaceOf("One", [DOC])],
+      { [DOC]: [new Response("", { status: 403 })] },
+      RUNNER_TRANSIENT_STATUSES,
+    );
+    const findings = reports[0]?.findings;
+    assert.ok(findings instanceof UnreachableError);
+    assert.match(findings.failures.get(DOC) ?? "", /answered 403/u);
+    assert.equal(requests.length, RETRIES + 1);
   });
 
   it("reports a namespace that fails to read its documents", async () => {

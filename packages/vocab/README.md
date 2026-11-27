@@ -72,8 +72,11 @@ entries publish and compares the entries with it, and
 *src/properties.yaml*, rewriting only the lines of the fields it changes.  Both
 need network access, and retry a request three times when it fails for a
 network problem: its connection fails or breaks, it times out, or it is
-answered 408, 429, 500, 502, 503, or 504.  A namespace whose documents still
-cannot be fetched is skipped; the check warns with their URLs and passes, and
+answered 408, 429, 500, 502, 503, or 504.  On GitHub Actions, where
+`GITHUB_ACTIONS` is `true`, the check also reads an answer of 403 as a network
+problem, since some namespace hosts refuse its runners although they answer
+the same request elsewhere.  A namespace whose documents still cannot be
+fetched is skipped; the check warns with their URLs and passes, and
 the update lists them as left for a person to resolve.  Any other failure, such
 as a URL that is not HTTP or HTTPS, fails the namespace.  The update lists what
 no value can fix, such as an IRI that its namespace does not define, and leaves

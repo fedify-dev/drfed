@@ -32,8 +32,17 @@ const FETCH_TIMEOUT_MS = 30_000;
 export const RETRIES = 3;
 const RETRY_DELAY_MS = 1_000;
 /** The statuses that a server that is down or overloaded answers with. */
-const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
+export const TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
   408, 429, 500, 502, 503, 504,
+]);
+/**
+ * {@link TRANSIENT_STATUSES} and 403, which some namespace hosts answer
+ * GitHub Actions runners with although they answer the same request
+ * elsewhere.
+ */
+export const RUNNER_TRANSIENT_STATUSES: ReadonlySet<number> = new Set([
+  ...TRANSIENT_STATUSES,
+  403,
 ]);
 
 /**
@@ -59,6 +68,11 @@ export interface CollectOptions {
   readonly fetch?: typeof globalThis.fetch;
   /** Waits before a retry; `setTimeout` from *node:timers/promises* by default. */
   readonly sleep?: (milliseconds: number) => Promise<unknown>;
+  /**
+   * The statuses read as network problems; {@link TRANSIENT_STATUSES} by
+   * default.
+   */
+  readonly transientStatuses?: ReadonlySet<number>;
 }
 
 /** The findings of one namespace. */
@@ -152,6 +166,7 @@ const HTTP_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
 
 const fetchOnce = async (
   fetch: typeof globalThis.fetch,
+  transientStatuses: ReadonlySet<number>,
   { url, accept }: DocumentRequest,
 ): Promise<string> => {
   const parsed = URL.parse(url);
@@ -162,7 +177,7 @@ const fetchOnce = async (
     headers: { accept },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   }).catch(classify(url));
-  if (TRANSIENT_STATUSES.has(response.status)) {
+  if (transientStatuses.has(response.status)) {
     throw networkProblem(`answered ${response.status}`);
   }
   if (!response.ok) {
@@ -177,11 +192,12 @@ const fetchText =
   ({
     fetch = globalThis.fetch,
     sleep = setTimeout,
+    transientStatuses = TRANSIENT_STATUSES,
   }: CollectOptions): ((request: DocumentRequest) => Promise<string>) =>
   async (request) => {
     const attempt = async (count: number): Promise<string> => {
       try {
-        return await fetchOnce(fetch, request);
+        return await fetchOnce(fetch, transientStatuses, request);
       } catch (error) {
         if (!isNetworkProblem(error) || count === RETRIES) throw error;
         await sleep(RETRY_DELAY_MS * 2 ** count);
@@ -270,8 +286,8 @@ const reportOf =
 /**
  * Fetches the documents of every namespace and collects its findings.  A
  * request that fails for a network problem, which is a connection that fails
- * or breaks, a timeout, or an answer of 408, 429, 500, 502, 503, or 504, is
- * retried {@link RETRIES} times, and a namespace whose documents still
+ * or breaks, a timeout, or an answer with one of the
+ * {@link CollectOptions.transientStatuses}, is retried {@link RETRIES} times, and a namespace whose documents still
  * cannot be fetched is reported with an {@link UnreachableError}.  A
  * document that several namespaces read is fetched once.
  * @returns One report per namespace, in the order given.

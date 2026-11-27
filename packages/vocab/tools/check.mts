@@ -25,7 +25,12 @@ import process from "node:process";
 
 import { parseCatalog } from "./catalog.mts";
 import { NAMESPACES } from "./namespaces.mts";
-import { collectReports, uncoveredNamespaces } from "./reports.mts";
+import {
+  RUNNER_TRANSIENT_STATUSES,
+  TRANSIENT_STATUSES,
+  collectReports,
+  uncoveredNamespaces,
+} from "./reports.mts";
 import { readCatalog } from "./shared.mts";
 import { type SummaryLine, summarizeReports } from "./summary.mts";
 
@@ -58,7 +63,14 @@ const main = async (): Promise<number> => {
   const catalog = parseCatalog(await readCatalog());
   const summary = summarizeReports(
     catalog,
-    await collectReports(catalog, NAMESPACES),
+    await collectReports(catalog, NAMESPACES, {
+      // A host that refuses the runner with 403 is skipped there with a
+      // warning, but still fails the check everywhere else.
+      transientStatuses:
+        process.env["GITHUB_ACTIONS"] === "true"
+          ? RUNNER_TRANSIENT_STATUSES
+          : TRANSIENT_STATUSES,
+    }),
   );
   for (const line of summary.lines) print(line);
   await summarizeWarnings(summary.lines);
